@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "testmcp": {
+      "command": "node",
+      "args": [
+        "./plugins/mcp-servers/test-server.mjs"
+      ],
+      "env": {},
+      "description": "Test MCP server for live integration tests",
+      "autoStart": false
+    }
+  }
+}

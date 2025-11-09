@@ -1,0 +1,18 @@
+{
+  "id": "google",
+  "compat": "google",
+  "endpoint": {
+    "urlTemplate": "SDK_BASED_NOT_USED",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "${GEMINI_API_KEY}"
+    }
+  },
+  "retryWords": [
+    "rate limit",
+    "quota",
+    "resource exhausted",
+    "RESOURCE_EXHAUSTED"
+  ]
+}

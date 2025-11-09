@@ -1,0 +1,13 @@
+{
+  "id": "test-echo",
+  "match": {
+    "type": "exact",
+    "pattern": "test.echo"
+  },
+  "invoke": {
+    "kind": "module",
+    "module": "./dist/plugins/modules/test-echo.js",
+    "function": "handle"
+  },
+  "timeoutMs": 5000
+}

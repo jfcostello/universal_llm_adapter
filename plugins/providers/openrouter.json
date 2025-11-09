@@ -1,0 +1,79 @@
+{
+  "id": "openrouter",
+  "compat": "openai",
+  "endpoint": {
+    "urlTemplate": "https://openrouter.ai/api/v1/chat/completions",
+    "method": "POST",
+    "headers": {
+      "Authorization": "Bearer ${OPENROUTER_API_KEY}",
+      "HTTP-Referer": "${OPENROUTER_SITE?}",
+      "X-Title": "${OPENROUTER_TITLE?}",
+      "Content-Type": "application/json"
+    }
+  },
+  "retryWords": [
+    "rate",
+    "overload",
+    "limit",
+    "exhausted",
+    "Service Unavailable",
+    "Too many requests"
+  ],
+  "payloadExtensions": [
+    {
+      "name": "providerPreferences",
+      "description": "OpenRouter provider routing controls",
+      "settingsKey": "provider",
+      "targetPath": ["provider"],
+      "valueType": "object",
+      "mergeStrategy": "update",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "order": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "List of provider slugs to try in order"
+          },
+          "allow_fallbacks": {
+            "type": "boolean",
+            "description": "Whether to permit fallback providers"
+          },
+          "require_parameters": {
+            "type": "boolean",
+            "description": "Restrict routing to providers that support all parameters"
+          },
+          "data_collection": {
+            "type": "string",
+            "enum": ["allow", "deny"],
+            "description": "Filter providers by data retention policy"
+          },
+          "only": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Allow only specific provider slugs"
+          },
+          "ignore": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Exclude providers by slug"
+          },
+          "sort": {
+            "type": "string",
+            "enum": ["price", "throughput", "latency"],
+            "description": "Sort providers by attribute"
+          },
+          "max_price": {
+            "type": "object",
+            "description": "Maximum acceptable pricing",
+            "properties": {
+              "prompt": { "type": ["number", "string"] },
+              "completion": { "type": ["number", "string"] },
+              "request": { "type": ["number", "string"] }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

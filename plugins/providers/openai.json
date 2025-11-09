@@ -1,0 +1,20 @@
+{
+  "id": "openai",
+  "compat": "openai",
+  "endpoint": {
+    "urlTemplate": "https://api.openai.com/v1/chat/completions",
+    "method": "POST",
+    "headers": {
+      "Authorization": "Bearer ${OPENAI_API_KEY}",
+      "Content-Type": "application/json"
+    }
+  },
+  "retryWords": [
+    "rate",
+    "overload",
+    "limit",
+    "exhausted",
+    "Service Unavailable",
+    "Too many requests"
+  ]
+}

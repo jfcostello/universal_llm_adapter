@@ -1,0 +1,11 @@
+{
+  "name": "validate.tool",
+  "description": "Validates numeric parameters",
+  "parametersJsonSchema": {
+    "type": "object",
+    "properties": {
+      "value": { "type": "number" }
+    },
+    "required": ["value"]
+  }
+}

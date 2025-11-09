@@ -1,0 +1,31 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Say hello"
+        }
+      ]
+    }
+  ],
+  "llmPriority": [
+    {
+      "provider": "test-openai",
+      "model": "test-model"
+    }
+  ],
+  "settings": {
+    "temperature": 0,
+    "topP": 1,
+    "toolCountdownEnabled": true,
+    "toolFinalPromptEnabled": true,
+    "maxToolIterations": 2
+  },
+  "functionToolNames": ["echo.text"],
+  "tools": [],
+  "vectorStores": [],
+  "messagesMetadata": {},
+  "rateLimitRetryDelays": [1, 1]
+}

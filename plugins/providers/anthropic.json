@@ -1,0 +1,22 @@
+{
+  "id": "anthropic",
+  "compat": "anthropic",
+  "endpoint": {
+    "urlTemplate": "https://api.anthropic.com/v1/messages",
+    "method": "POST",
+    "headers": {
+      "x-api-key": "${ANTHROPIC_API_KEY}",
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json"
+    }
+  },
+  "retryWords": [
+    "rate",
+    "limit",
+    "overloaded",
+    "overload",
+    "Too Many Requests",
+    "Service Unavailable"
+  ],
+  "payloadExtensions": []
+}

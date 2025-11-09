@@ -1,0 +1,10 @@
+{
+  "id": "validate-tool",
+  "match": { "type": "exact", "pattern": "validate.tool" },
+  "invoke": {
+    "kind": "module",
+    "module": "./tests/fixtures/modules/validate-tool.mjs",
+    "function": "handle"
+  },
+  "timeoutMs": 2000
+}

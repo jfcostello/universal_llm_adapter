@@ -1,0 +1,13 @@
+{
+  "name": "echo.text",
+  "description": "Echoes the provided text",
+  "parametersJsonSchema": {
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string"
+      }
+    },
+    "required": ["text"]
+  }
+}

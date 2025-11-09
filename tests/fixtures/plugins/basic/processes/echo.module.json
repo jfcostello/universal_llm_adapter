@@ -1,0 +1,13 @@
+{
+  "id": "echo-module",
+  "match": {
+    "type": "exact",
+    "pattern": "echo.text"
+  },
+  "invoke": {
+    "kind": "module",
+    "module": "./tests/fixtures/modules/echo-tool.mjs",
+    "function": "handle"
+  },
+  "timeoutMs": 2000
+}

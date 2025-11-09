@@ -1,0 +1,15 @@
+{
+  "name": "test.echo",
+  "description": "Echo back a message exactly as provided. Used for integration testing.",
+  "parametersJsonSchema": {
+    "type": "object",
+    "properties": {
+      "message": {
+        "type": "string",
+        "description": "The message to echo back"
+      }
+    },
+    "required": ["message"],
+    "additionalProperties": false
+  }
+}

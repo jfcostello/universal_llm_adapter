@@ -1,0 +1,7 @@
+{
+  "id": "memory",
+  "type": "memory",
+  "connection": {
+    "kind": "memory"
+  }
+}

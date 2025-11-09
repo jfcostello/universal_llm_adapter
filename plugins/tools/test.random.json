@@ -1,0 +1,18 @@
+{
+  "name": "test.random",
+  "description": "Generate a random number or unique identifier for testing purposes",
+  "parametersJsonSchema": {
+    "type": "object",
+    "properties": {
+      "min": {
+        "type": "number",
+        "description": "Minimum value (default 0)"
+      },
+      "max": {
+        "type": "number",
+        "description": "Maximum value (default 1000000)"
+      }
+    },
+    "additionalProperties": false
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "local": {
+      "command": "node",
+      "args": ["./tests/fixtures/mcp/server.mjs"],
+      "env": {
+        "MCP_SERVER_NAME": "local"
+      },
+      "autoStart": true
+    }
+  }
+}

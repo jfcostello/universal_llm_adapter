@@ -1,0 +1,12 @@
+{
+  "id": "test-openai",
+  "compat": "openai",
+  "endpoint": {
+    "urlTemplate": "${TEST_LLM_ENDPOINT}/v1/chat/completions",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  },
+  "retryWords": ["rate", "limit"]
+}

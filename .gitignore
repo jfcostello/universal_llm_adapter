@@ -1,0 +1,92 @@
+# --- Node & package managers ---
+node_modules/
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.tgz
+
+# --- TypeScript build output ---
+dist/
+build/
+lib/
+out/
+*.tsbuildinfo
+.tsbuildinfo
+
+# --- Source maps (kept only in published builds) ---
+*.map
+
+# --- Test artifacts & coverage ---
+coverage/
+.nyc_output/
+.jest/
+.vitest/
+test-results/
+reports/
+junit*.xml
+
+# --- Caches ---
+.cache/
+.eslintcache
+.turbo/
+.parcel-cache/
+.rollup.cache/
+.ts-node/
+
+# --- Env & secrets (keep templates committed) ---
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# --- Editors & OS cruft ---
+.DS_Store
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+
+# --- Chrome/extension build detritus if any local builds run here ---
+*.crx
+*.pem
+*.zip
+
+# --- Keep provider/plugin configs tracked ---
+# Important: do NOT ignore provider JSON files in `plugins/`.
+# (We intentionally do not have a blanket `*.json` ignore.)
+
+# --- Plugins: allowlist current files only ---
+# Ignore any new files added to these plugin folders; only keep what's listed.
+
+# mcp
+plugins/mcp/**
+!plugins/mcp/
+!plugins/mcp/test-server.json
+
+# mcp-servers
+plugins/mcp-servers/**
+!plugins/mcp-servers/
+!plugins/mcp-servers/test-server.mjs
+
+# processes
+plugins/processes/**
+!plugins/processes/
+!plugins/processes/test.echo.json
+!plugins/processes/test.random.json
+
+# tools
+plugins/tools/**
+!plugins/tools/
+!plugins/tools/test.echo.json
+!plugins/tools/test.random.json
+
+.claude
+agents*.md
+jest-summary.json
