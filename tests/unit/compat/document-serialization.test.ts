@@ -496,11 +496,9 @@ describe('Document Serialization - Compat Modules', () => {
       const callArgs = mockCreate.mock.calls[0][0];
 
       expect(callArgs.input[0].content).toContainEqual({
-        type: 'file',
-        file: {
-          filename: 'test.pdf',
-          file_data: 'data:application/pdf;base64,dGVzdA=='
-        }
+        type: 'input_file',
+        filename: 'test.pdf',
+        file_data: 'data:application/pdf;base64,dGVzdA=='
       });
 
       getSDKClientSpy.mockRestore();
@@ -548,11 +546,9 @@ describe('Document Serialization - Compat Modules', () => {
       const callArgs = mockCreate.mock.calls[0][0];
 
       expect(callArgs.input[0].content).toContainEqual({
-        type: 'file',
-        file: {
-          filename: 'document',
-          file_data: 'data:application/pdf;base64,dGVzdA=='
-        }
+        type: 'input_file',
+        filename: 'document',
+        file_data: 'data:application/pdf;base64,dGVzdA=='
       });
 
       getSDKClientSpy.mockRestore();
@@ -600,11 +596,9 @@ describe('Document Serialization - Compat Modules', () => {
       const callArgs = mockCreate.mock.calls[0][0];
 
       expect(callArgs.input[0].content).toContainEqual({
-        type: 'file',
-        file: {
-          filename: 'doc.pdf',
-          file_data: 'https://example.com/doc.pdf'
-        }
+        type: 'input_file',
+        filename: 'doc.pdf',
+        file_data: 'https://example.com/doc.pdf'
       });
 
       getSDKClientSpy.mockRestore();
@@ -652,11 +646,9 @@ describe('Document Serialization - Compat Modules', () => {
       const callArgs = mockCreate.mock.calls[0][0];
 
       expect(callArgs.input[0].content).toContainEqual({
-        type: 'file',
-        file: {
-          filename: 'document',
-          file_data: 'https://example.com/doc.pdf'
-        }
+        type: 'input_file',
+        filename: 'document',
+        file_data: 'https://example.com/doc.pdf'
       });
 
       getSDKClientSpy.mockRestore();
@@ -703,10 +695,8 @@ describe('Document Serialization - Compat Modules', () => {
       const callArgs = mockCreate.mock.calls[0][0];
 
       expect(callArgs.input[0].content).toContainEqual({
-        type: 'file',
-        file: {
-          file_id: 'file-abc123'
-        }
+        type: 'input_file',
+        file_id: 'file-abc123'
       });
 
       getSDKClientSpy.mockRestore();

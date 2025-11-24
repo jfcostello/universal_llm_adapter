@@ -39,7 +39,31 @@ export default class OpenAICompat implements ICompatModule {
       ...this.serializeToolChoice(toolChoice)
     };
 
+    // Auto-detect PDF documents and add plugins configuration
+    // This enables PDF processing for providers that support it (e.g., OpenRouter)
+    if (this.hasPDFDocuments(messages)) {
+      payload.plugins = [
+        {
+          id: 'file-parser',
+          pdf: {
+            engine: 'pdf-text'
+          }
+        }
+      ];
+    }
+
     return payload;
+  }
+
+  private hasPDFDocuments(messages: Message[]): boolean {
+    for (const message of messages) {
+      for (const part of message.content) {
+        if (part.type === 'document' && part.mimeType === 'application/pdf') {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   private serializeMessages(messages: Message[]): any[] {
@@ -445,7 +469,13 @@ export default class OpenAICompat implements ICompatModule {
       payload.provider = extensions.provider;
       delete extensions.provider;
     }
-    
+
+    // Add OpenRouter plugins configuration (for PDF processing, etc.)
+    if (extensions.plugins !== undefined) {
+      payload.plugins = extensions.plugins;
+      delete extensions.plugins;
+    }
+
     // Add other OpenRouter-specific fields
     const openRouterFields = ['transforms', 'route', 'models'];
     for (const field of openRouterFields) {

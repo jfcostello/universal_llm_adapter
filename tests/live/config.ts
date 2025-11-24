@@ -24,11 +24,50 @@ export interface TestRun {
  */
 export const testRuns: TestRun[] = [
   {
+    name: 'anthropic',
+    llmPriority: [
+      {
+        provider: 'anthropic',
+        model: 'claude-haiku-4-5'
+      }
+    ],
+    settings: {
+      temperature: 1,
+      maxTokens: 60000
+    }
+  },
+  {
     name: 'openai-responses',
     llmPriority: [
       {
         provider: 'openai-responses',
-        model: 'gpt-4.1'
+        model: 'gpt-5-mini'
+      }
+    ],
+    settings: {
+      temperature: 1,
+      maxTokens: 60000
+    }
+  },
+  {
+    name: 'openrouter',
+    llmPriority: [
+      {
+        provider: 'openrouter',
+        model: 'openai/gpt-5-mini'
+      }
+    ],
+    settings: {
+      temperature: 1,
+      maxTokens: 60000
+    }
+  },
+  {
+    name: 'google',
+    llmPriority: [
+      {
+        provider: 'google',
+        model: 'gemini-2.5-flash-preview-09-2025'
       }
     ],
     settings: {
@@ -36,32 +75,6 @@ export const testRuns: TestRun[] = [
       maxTokens: 60000
     }
   }
-  // {
-  //   name: 'openrouter',
-  //   llmPriority: [
-  //     {
-  //       provider: 'openrouter',
-  //       model: 'openai/gpt-5-mini'
-  //     }
-  //   ],
-  //   settings: {
-  //     temperature: 0,
-  //     maxTokens: 60000
-  //   }
-  // },
-  // {
-  //   name: 'google',
-  //   llmPriority: [
-  //     {
-  //       provider: 'google',
-  //       model: 'gemini-2.5-flash-preview-09-2025'
-  //     }
-  //   ],
-  //   settings: {
-  //     temperature: 0,
-  //     maxTokens: 60000
-  //   }
-  // }
 ];
 
 // Backwards compatibility exports (use first run as default)
