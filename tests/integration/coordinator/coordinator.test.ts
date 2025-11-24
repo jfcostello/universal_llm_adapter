@@ -233,4 +233,46 @@ describe('coordinator/coordinator integration', () => {
     expect(sanitize(longName)).toHaveLength(64);
     await coordinator.close();
   });
+
+  test('should preprocess document content', async () => {
+    const coordinator = await createCoordinator();
+
+    // Create a spec with a document
+    const docPath = path.join(process.cwd(), 'tests', 'fixtures', 'sample-documents', 'sample.txt');
+    const specWithDoc = {
+      ...specBase,
+      messages: [
+        {
+          role: Role.USER,
+          content: [
+            { type: 'text' as const, text: 'Analyze this document' },
+            {
+              type: 'document' as const,
+              source: { type: 'filepath' as const, path: docPath }
+            }
+          ]
+        }
+      ]
+    };
+
+    // Mock the LLM call to verify document was preprocessed
+    const mockResponse: LLMResponse = {
+      provider: 'test-openai',
+      model: 'stub-model',
+      role: Role.ASSISTANT,
+      finishReason: 'stop',
+      content: [{ type: 'text', text: 'Analysis complete' }],
+      usage: { inputTokens: 10, outputTokens: 5 },
+      raw: undefined
+    };
+
+    jest.spyOn(LLMManager.prototype, 'callProvider').mockResolvedValue(mockResponse);
+
+    const response = await coordinator.run(specWithDoc as any);
+
+    expect(response.finishReason).toBe('stop');
+    expect(response.content[0].text).toBe('Analysis complete');
+
+    await coordinator.close();
+  });
 });

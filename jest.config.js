@@ -1,7 +1,10 @@
-const path = require('path');
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-/** @type {import('jest').Config} */
-module.exports = {
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+export default {
   rootDir: path.resolve(__dirname),
   preset: 'ts-jest/presets/default-esm',
   testEnvironment: 'node',
@@ -32,7 +35,7 @@ module.exports = {
     '!<rootDir>/dist/**',
     '!<rootDir>/node_modules/**',
     '!<rootDir>/tests/**',
-    '!<rootDir>/jest.config.cjs',
+    '!<rootDir>/jest.config.js',
     '!<rootDir>/examples/**'
   ],
   coverageThreshold: {

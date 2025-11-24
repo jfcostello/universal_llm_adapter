@@ -1,0 +1,11 @@
+This is a sample text file for testing document support.
+
+It contains multiple lines of text to ensure proper file loading and base64 encoding.
+
+Testing various features:
+- File loading from disk
+- MIME type detection
+- Base64 encoding
+- Document processing
+
+End of test document.

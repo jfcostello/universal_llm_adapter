@@ -295,7 +295,7 @@ export default class OpenAIResponsesCompat implements ICompatModule {
   /**
    * Convert content parts to Responses API format
    */
-  private serializeContent(parts: ContentPart[], textType: string): Array<{type: string; text?: string; image_url?: any}> {
+  private serializeContent(parts: ContentPart[], textType: string): Array<{type: string; text?: string; image_url?: any; file?: any}> {
     return parts.map(part => {
       if (part.type === 'text') {
         return { type: textType, text: part.text };
@@ -307,8 +307,35 @@ export default class OpenAIResponsesCompat implements ICompatModule {
           image_url: { url: part.imageUrl }
         };
       }
+      if (part.type === 'document') {
+        // OpenAI Responses API file format
+        const fileBlock: any = {
+          type: 'file',
+          file: {}
+        };
+
+        if (part.source.type === 'base64') {
+          const dataUrl = `data:${part.mimeType};base64,${part.source.data}`;
+          fileBlock.file = {
+            filename: part.filename || 'document',
+            file_data: dataUrl
+          };
+        } else if (part.source.type === 'url') {
+          // Responses API supports URLs
+          fileBlock.file = {
+            filename: part.filename || 'document',
+            file_data: part.source.url
+          };
+        } else if (part.source.type === 'file_id') {
+          fileBlock.file = {
+            file_id: part.source.fileId
+          };
+        }
+
+        return fileBlock;
+      }
       return null;
-    }).filter(Boolean) as Array<{type: string; text?: string; image_url?: any}>;
+    }).filter(Boolean) as Array<{type: string; text?: string; image_url?: any; file?: any}>;
   }
 
   /**

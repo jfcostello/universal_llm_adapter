@@ -203,6 +203,39 @@ export default class AnthropicCompat implements ICompatModule {
             }
           };
         }
+        if (part.type === 'document') {
+          // Anthropic document format
+          const docBlock: any = {
+            type: 'document',
+            source: {}
+          };
+
+          // Handle different source types
+          if (part.source.type === 'base64') {
+            docBlock.source = {
+              type: 'base64',
+              media_type: part.mimeType,
+              data: part.source.data  // Raw base64, no prefix
+            };
+          } else if (part.source.type === 'url') {
+            docBlock.source = {
+              type: 'url',
+              url: part.source.url
+            };
+          } else if (part.source.type === 'file_id') {
+            docBlock.source = {
+              type: 'file',
+              file_id: part.source.fileId
+            };
+          }
+
+          // Add prompt caching if specified
+          if (part.providerOptions?.anthropic?.cacheControl) {
+            docBlock.cache_control = part.providerOptions.anthropic.cacheControl;
+          }
+
+          return docBlock;
+        }
         // Skip tool_result content parts here - they're handled separately
         return null;
       })

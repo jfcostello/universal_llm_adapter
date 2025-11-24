@@ -8,7 +8,8 @@ import {
   UnifiedTool,
   StreamEventType,
   ToolCallEventType,
-  MCPServerConfig
+  MCPServerConfig,
+  DocumentContent
 } from '../core/types.js';
 import { PluginRegistry } from '../core/registry.js';
 import { LLMManager } from '../managers/llm-manager.js';
@@ -19,6 +20,7 @@ import { partitionSettings } from '../utils/settings/settings-partitioner.js';
 import { prepareMessages, appendAssistantToolCalls, appendToolResult } from '../utils/messages/message-utils.js';
 import { collectTools } from '../utils/tools/tool-discovery.js';
 import { sanitizeToolName } from '../utils/tools/tool-names.js';
+import { processDocumentContent } from '../utils/documents/document-loader.js';
 import { runToolLoop } from '../utils/tools/tool-loop.js';
 import { ProviderExecutionError } from '../core/errors.js';
 import { withRetries } from '../utils/retry/priority-handler.js';
@@ -99,7 +101,7 @@ export class LLMCoordinator {
       settings: provider
     };
 
-    const messages = prepareMessages(executionSpec);
+    const messages = this.prepareMessages(executionSpec);
 
     // Ensure tool coordinator is initialized if needed
     const needsTools = (spec.tools && spec.tools.length > 0) ||
@@ -212,7 +214,7 @@ export class LLMCoordinator {
 
     const providerPref = executionSpec.llmPriority[0];
     const providerManifest = await this.registry.getProvider(providerPref.provider);
-    const messages = prepareMessages(executionSpec);
+    const messages = this.prepareMessages(executionSpec);
 
     // Ensure tool coordinator is initialized if needed
     const needsTools = (spec.tools && spec.tools.length > 0) ||
@@ -488,7 +490,18 @@ export class LLMCoordinator {
   }
 
   private prepareMessages(spec: LLMCallSpec): Message[] {
-    return prepareMessages(spec);
+    const messages = prepareMessages(spec);
+
+    // Process document content: convert filepath sources to base64
+    return messages.map(msg => ({
+      ...msg,
+      content: msg.content.map(part => {
+        if (part.type === 'document') {
+          return processDocumentContent(part as DocumentContent);
+        }
+        return part;
+      })
+    }));
   }
 
   private async collectTools(spec: LLMCallSpec): Promise<[UnifiedTool[], string[], Record<string, string>]> {

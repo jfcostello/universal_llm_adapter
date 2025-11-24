@@ -112,10 +112,35 @@ export default class OpenAICompat implements ICompatModule {
         return { type: 'text', text: part.text };
       }
       if (part.type === 'image') {
-        return { 
-          type: 'image_url', 
-          image_url: { url: part.imageUrl } 
+        return {
+          type: 'image_url',
+          image_url: { url: part.imageUrl }
         };
+      }
+      if (part.type === 'document') {
+        // OpenAI file format
+        const fileBlock: any = {
+          type: 'file',
+          file: {}
+        };
+
+        if (part.source.type === 'base64') {
+          // OpenAI requires data URL format for base64
+          const dataUrl = `data:${part.mimeType};base64,${part.source.data}`;
+          fileBlock.file = {
+            filename: part.filename || 'document',
+            file_data: dataUrl
+          };
+        } else if (part.source.type === 'url') {
+          // OpenAI Chat Completions doesn't support direct URLs
+          throw new Error('OpenAI Chat Completions does not support file URLs. Use file_id or base64.');
+        } else if (part.source.type === 'file_id') {
+          fileBlock.file = {
+            file_id: part.source.fileId
+          };
+        }
+
+        return fileBlock;
       }
       return null;
     }).filter(Boolean);

@@ -26,7 +26,56 @@ export interface ToolResultContent {
   result: JsonValue;
 }
 
-export type ContentPart = TextContent | ImageContent | ToolResultContent;
+/**
+ * Represents a document/file to be processed by the LLM.
+ * Users provide file paths; the system loads, encodes, and transforms them.
+ */
+export interface DocumentContent {
+  type: 'document';
+
+  /**
+   * Source of the document data.
+   * - filepath: Local file path (will be loaded and converted to base64)
+   * - base64: Already encoded base64 data
+   * - url: Public URL to the document
+   * - file_id: Provider-specific file ID from their Files API
+   */
+  source:
+    | { type: 'filepath'; path: string }
+    | { type: 'base64'; data: string }
+    | { type: 'url'; url: string }
+    | { type: 'file_id'; fileId: string };
+
+  /**
+   * MIME type of the document.
+   * Examples: 'application/pdf', 'text/csv', 'text/plain', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+   * If not provided and source is filepath, will be auto-detected.
+   */
+  mimeType?: string;
+
+  /**
+   * Original filename (for logging, debugging, or provider requirements).
+   * If not provided and source is filepath, will be extracted from path.
+   */
+  filename?: string;
+
+  /**
+   * Provider-specific options (optional).
+   * Only used by certain providers (e.g., Anthropic prompt caching).
+   */
+  providerOptions?: {
+    anthropic?: {
+      cacheControl?: {
+        type: string;
+      };
+    };
+    openrouter?: {
+      plugin?: 'pdf-text' | 'mistral-ocr' | 'native';
+    };
+  };
+}
+
+export type ContentPart = TextContent | ImageContent | DocumentContent | ToolResultContent;
 
 export interface ReasoningData {
   text: string;

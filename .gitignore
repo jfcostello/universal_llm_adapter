@@ -90,3 +90,4 @@ plugins/tools/**
 .claude
 agents*.md
 jest-summary.json
+.history/

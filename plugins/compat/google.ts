@@ -21,6 +21,7 @@ import { sanitizeToolName } from '../../utils/tools/tool-names.js';
 type GooglePart = {
   text?: string;
   fileData?: { fileUri: string; mimeType?: string };
+  inlineData?: { mimeType: string; data: string };
   functionCall?: { name?: string; args?: any };
   functionResponse?: { name?: string; response?: any };
 };
@@ -198,7 +199,7 @@ export default class GoogleCompat implements ICompatModule {
 
       const parts: GooglePart[] = [];
 
-      // Text and images
+      // Text, images, and documents
       for (const part of m.content || []) {
         if (part.type === 'text') {
           parts.push({ text: (part as TextContent).text ?? '' });
@@ -210,6 +211,25 @@ export default class GoogleCompat implements ICompatModule {
               mimeType: imgPart.mimeType
             }
           });
+        } else if (part.type === 'document') {
+          const docPart = part as any;
+          if (docPart.source.type === 'base64') {
+            // Google inline data format
+            parts.push({
+              inlineData: {
+                mimeType: docPart.mimeType,
+                data: docPart.source.data  // Raw base64, no prefix
+              }
+            });
+          } else if (docPart.source.type === 'url' || docPart.source.type === 'file_id') {
+            // Google Files API format
+            parts.push({
+              fileData: {
+                fileUri: docPart.source.type === 'url' ? docPart.source.url : docPart.source.fileId,
+                mimeType: docPart.mimeType
+              }
+            });
+          }
         }
       }
 
