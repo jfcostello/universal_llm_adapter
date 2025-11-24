@@ -570,6 +570,31 @@ describe('compat/openai', () => {
     });
   });
 
+  test('applyProviderExtensions adds plugins configuration', () => {
+    const payload = { existing: true };
+    const extensions = {
+      plugins: [
+        {
+          id: 'file-parser',
+          pdf: { engine: 'pdf-text' }
+        }
+      ]
+    };
+
+    const extended = compat.applyProviderExtensions(payload, extensions);
+
+    expect(extended).toMatchObject({
+      existing: true,
+      plugins: [
+        {
+          id: 'file-parser',
+          pdf: { engine: 'pdf-text' }
+        }
+      ]
+    });
+    expect(extensions.plugins).toBeUndefined(); // Should be deleted
+  });
+
   test('getStreamingFlags exposes stream flag', () => {
     expect(compat.getStreamingFlags()).toEqual({ stream: true });
   });
@@ -831,6 +856,56 @@ describe('compat/openai', () => {
     );
 
     expect(payload.messages[0].reasoning).toBeUndefined();
+  });
+
+  test('buildPayload automatically adds plugins for PDF documents', () => {
+    const payload = compat.buildPayload(
+      'gpt-4o',
+      { temperature: 0 },
+      [
+        {
+          role: Role.USER,
+          content: [
+            { type: 'text', text: 'What is in this PDF?' },
+            {
+              type: 'document',
+              source: { type: 'base64', data: 'dGVzdA==' },
+              mimeType: 'application/pdf',
+              filename: 'test.pdf'
+            }
+          ]
+        }
+      ],
+      []
+    );
+
+    expect(payload.plugins).toEqual([
+      {
+        id: 'file-parser',
+        pdf: {
+          engine: 'pdf-text'
+        }
+      }
+    ]);
+  });
+
+  test('buildPayload does not add plugins when no PDF documents present', () => {
+    const payload = compat.buildPayload(
+      'gpt-4o',
+      { temperature: 0 },
+      [
+        {
+          role: Role.USER,
+          content: [
+            { type: 'text', text: 'Hello' },
+            { type: 'image', imageUrl: 'data:image/png;base64,test' }
+          ]
+        }
+      ],
+      []
+    );
+
+    expect(payload.plugins).toBeUndefined();
   });
 
   test('extractReasoningFromDelta aggregates string and object segments', () => {

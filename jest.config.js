@@ -36,7 +36,8 @@ export default {
     '!<rootDir>/node_modules/**',
     '!<rootDir>/tests/**',
     '!<rootDir>/jest.config.js',
-    '!<rootDir>/examples/**'
+    '!<rootDir>/examples/**',
+    '!<rootDir>/**/.history/**'
   ],
   coverageThreshold: {
     global: {
