@@ -16,7 +16,7 @@ import { LLMManager } from '../managers/llm-manager.js';
 import { getLogger, AdapterLogger, closeLogger as resetLogger } from '../core/logging.js';
 import { pruneToolResults, pruneReasoning } from '../utils/context/context-manager.js';
 import { RuntimeSettings } from '../core/types.js';
-import { partitionSettings } from '../utils/settings/settings-partitioner.js';
+import { partitionSettings, mergeProviderSettings } from '../utils/settings/settings-partitioner.js';
 import { prepareMessages, appendAssistantToolCalls, appendToolResult } from '../utils/messages/message-utils.js';
 import { collectTools } from '../utils/tools/tool-discovery.js';
 import { sanitizeToolName } from '../utils/tools/tool-names.js';
@@ -124,64 +124,76 @@ export class LLMCoordinator {
     const runLogger = this.logger.withCorrelation(spec.metadata?.correlationId as string);
 
     // Build retry sequence
-    const sequence = spec.llmPriority.map(item => ({
-      provider: item.provider,
-      model: item.model,
-      fn: async () => {
-        const providerManifest = await this.registry.getProvider(item.provider);
-        
-        runLogger.info('Calling provider endpoint', {
-          provider: providerManifest.id,
-          model: item.model,
-          tools: runContext.tools,
-          mcpServers: runContext.mcpServers
-        });
-        
-        let response = await this.llmManager.callProvider(
-          providerManifest,
-          item.model,
-          executionSpec.settings,
-          messages,
-          tools,
-          executionSpec.toolChoice,
-          providerExtras,
-          runLogger,
-          runContext
-        );
+    const sequence = spec.llmPriority.map(item => {
+      // Merge per-provider settings with global settings
+      const mergedSettings = mergeProviderSettings(executionSpec.settings, item.settings);
 
-        this.ensureValidAssistantResponse(response, providerManifest.id);
-        
-        runLogger.info('Provider response processed', {
-          provider: providerManifest.id,
-          model: item.model,
-          finishReason: response.finishReason,
-          toolCalls: response.toolCalls?.map(c => c.name) || [],
-          usage: response.usage ? {
-            promptTokens: response.usage.promptTokens,
-            completionTokens: response.usage.completionTokens,
-            reasoningTokens: response.usage.reasoningTokens
-          } : undefined
-        });
-        
-        response = await this.handleTools(
-          executionSpec,
-          runtime,
-          providerExtras,
-          providerManifest,
-          item.model,
-          messages,
-          tools,
-          response,
-          runLogger,
-          runContext,
-          toolNameMap
-        );
+      return {
+        provider: item.provider,
+        model: item.model,
+        fn: async () => {
+          const providerManifest = await this.registry.getProvider(item.provider);
 
-        this.ensureValidAssistantResponse(response, providerManifest.id);
+          runLogger.info('Calling provider endpoint', {
+            provider: providerManifest.id,
+            model: item.model,
+            tools: runContext.tools,
+            mcpServers: runContext.mcpServers,
+            hasPerProviderSettings: !!item.settings
+          });
 
-        return response;
-      }
-    }));
+          let response = await this.llmManager.callProvider(
+            providerManifest,
+            item.model,
+            mergedSettings,
+            messages,
+            tools,
+            executionSpec.toolChoice,
+            providerExtras,
+            runLogger,
+            runContext
+          );
+
+          this.ensureValidAssistantResponse(response, providerManifest.id);
+
+          runLogger.info('Provider response processed', {
+            provider: providerManifest.id,
+            model: item.model,
+            finishReason: response.finishReason,
+            toolCalls: response.toolCalls?.map(c => c.name) || [],
+            usage: response.usage ? {
+              promptTokens: response.usage.promptTokens,
+              completionTokens: response.usage.completionTokens,
+              reasoningTokens: response.usage.reasoningTokens
+            } : undefined
+          });
+
+          // Create spec with merged settings for tool loop
+          const providerSpec: LLMCallSpec = {
+            ...executionSpec,
+            settings: mergedSettings
+          };
+
+          response = await this.handleTools(
+            providerSpec,
+            runtime,
+            providerExtras,
+            providerManifest,
+            item.model,
+            messages,
+            tools,
+            response,
+            runLogger,
+            runContext,
+            toolNameMap
+          );
+
+          this.ensureValidAssistantResponse(response, providerManifest.id);
+
+          return response;
+        }
+      };
+    });
     
     if (!sequence.length) {
       throw new Error('LLMCallSpec.llmPriority must include at least one provider');
@@ -213,8 +225,16 @@ export class LLMCoordinator {
     };
 
     const providerPref = executionSpec.llmPriority[0];
+
+    // Merge per-provider settings for streaming (only first provider is used)
+    const mergedSettings = mergeProviderSettings(executionSpec.settings, providerPref.settings);
+    const streamExecutionSpec: LLMCallSpec = {
+      ...executionSpec,
+      settings: mergedSettings
+    };
+
     const providerManifest = await this.registry.getProvider(providerPref.provider);
-    const messages = this.prepareMessages(executionSpec);
+    const messages = this.prepareMessages(streamExecutionSpec);
 
     // Ensure tool coordinator is initialized if needed
     const needsTools = (spec.tools && spec.tools.length > 0) ||
@@ -253,7 +273,7 @@ export class LLMCoordinator {
     };
 
     yield* streamCoordinator.coordinateStream(
-      executionSpec,
+      streamExecutionSpec,
       messages,
       tools,
       context,

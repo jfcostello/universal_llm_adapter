@@ -5,12 +5,108 @@ Universal LLM adapter providing a unified interface across multiple AI providers
 ## Features
 
 - **Multi-Provider Support**: Seamless integration with Anthropic Claude, OpenAI GPT, Google Gemini, and OpenRouter
+- **Per-Provider Settings**: Configure different settings (temperature, maxTokens, etc.) for each provider in your priority list
 - **Document Processing**: Universal file support with automatic format detection and conversion
 - **Tool Calling**: Unified tool calling interface across providers
 - **MCP Integration**: Model Context Protocol server support
 - **Vector Stores**: Integration with vector databases for RAG applications
 - **Streaming**: Real-time streaming responses with tool support
 - **100% Test Coverage**: Comprehensive test suite with full coverage
+
+## Per-Provider Settings
+
+### Overview
+
+When specifying multiple providers in `llmPriority`, you can configure different settings for each provider. This is useful when:
+- Different providers perform better with different temperature values
+- You want to use extended thinking (reasoning) only with providers that support it
+- You need different token limits for different models
+
+### Usage
+
+#### Global Settings Only (Default)
+
+Settings apply to all providers in the priority list:
+
+```typescript
+const response = await coordinator.run({
+  messages: [...],
+  llmPriority: [
+    { provider: 'anthropic', model: 'claude-3-5-sonnet-20241022' },
+    { provider: 'openai', model: 'gpt-4o' }
+  ],
+  settings: {
+    temperature: 0.7,
+    maxTokens: 1000
+  }
+});
+// Both providers use temperature: 0.7, maxTokens: 1000
+```
+
+#### Per-Provider Settings
+
+Add a `settings` field to individual priority items:
+
+```typescript
+const response = await coordinator.run({
+  messages: [...],
+  llmPriority: [
+    {
+      provider: 'anthropic',
+      model: 'claude-3-5-sonnet-20241022',
+      settings: { temperature: 0.3 }  // Override for Anthropic
+    },
+    {
+      provider: 'openai',
+      model: 'gpt-4o'
+      // No override - uses global settings
+    }
+  ],
+  settings: {
+    temperature: 0.7,
+    maxTokens: 1000
+  }
+});
+// Anthropic gets: { temperature: 0.3, maxTokens: 1000 }
+// OpenAI gets: { temperature: 0.7, maxTokens: 1000 }
+```
+
+### Merge Behavior
+
+Per-provider settings use **deep merge** with global settings:
+
+- **Primitives**: Per-provider value overrides global
+- **Nested objects**: Deep merged (e.g., `reasoning` object)
+- **Arrays**: Replaced entirely (e.g., `stop` sequences)
+- **Undefined values**: Ignored (falls back to global)
+
+#### Deep Merge Example
+
+```typescript
+{
+  llmPriority: [
+    {
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-20250514',
+      settings: {
+        reasoning: { budget: 2000 }  // Override only budget
+      }
+    }
+  ],
+  settings: {
+    temperature: 0.7,
+    reasoning: { enabled: true, budget: 1000 }
+  }
+}
+// Anthropic gets: {
+//   temperature: 0.7,
+//   reasoning: { enabled: true, budget: 2000 }  // enabled preserved, budget overridden
+// }
+```
+
+### Tool Loop Propagation
+
+Per-provider settings automatically propagate to tool loop follow-up calls. If a provider makes multiple LLM calls during tool execution, all calls use the same merged settings.
 
 ## File Support
 

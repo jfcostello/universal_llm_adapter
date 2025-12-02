@@ -2,7 +2,7 @@ import path from 'path';
 import { jest } from '@jest/globals';
 import { PluginRegistry } from '@/core/registry.ts';
 import { LLMCoordinator } from '@/coordinator/coordinator.ts';
-import { Role, LLMResponse } from '@/core/types.ts';
+import { Role, LLMResponse, LLMCallSettings } from '@/core/types.ts';
 import { LLMManager } from '@/managers/llm-manager.ts';
 import { ROOT_DIR, resolveFixture } from '@tests/helpers/paths.ts';
 
@@ -274,5 +274,181 @@ describe('coordinator/coordinator integration', () => {
     expect(response.content[0].text).toBe('Analysis complete');
 
     await coordinator.close();
+  });
+
+  describe('per-provider settings', () => {
+    test('uses per-provider settings when specified', async () => {
+      const coordinator = await createCoordinator();
+      const mockResponse: LLMResponse = {
+        provider: 'test-openai',
+        model: 'stub-model',
+        role: Role.ASSISTANT,
+        finishReason: 'stop',
+        content: [{ type: 'text', text: 'response' }]
+      };
+
+      const callProviderMock = jest
+        .spyOn(LLMManager.prototype, 'callProvider')
+        .mockResolvedValue(mockResponse);
+
+      const spec = {
+        messages: [
+          { role: Role.USER, content: [{ type: 'text', text: 'test' }] }
+        ],
+        llmPriority: [
+          {
+            provider: 'test-openai',
+            model: 'stub-model',
+            settings: { temperature: 0.3 }  // Per-provider override
+          }
+        ],
+        settings: { temperature: 0.7, maxTokens: 100 }  // Global settings
+      };
+
+      await coordinator.run(spec as any);
+
+      // Check that the merged settings were passed to callProvider
+      const settingsArg = callProviderMock.mock.calls[0][2] as LLMCallSettings;
+      expect(settingsArg.temperature).toBe(0.3);  // Per-provider value
+      expect(settingsArg.maxTokens).toBe(100);    // Global fallback
+
+      await coordinator.close();
+    });
+
+    test('uses global settings when no per-provider settings specified', async () => {
+      const coordinator = await createCoordinator();
+      const mockResponse: LLMResponse = {
+        provider: 'test-openai',
+        model: 'stub-model',
+        role: Role.ASSISTANT,
+        finishReason: 'stop',
+        content: [{ type: 'text', text: 'response' }]
+      };
+
+      const callProviderMock = jest
+        .spyOn(LLMManager.prototype, 'callProvider')
+        .mockResolvedValue(mockResponse);
+
+      const spec = {
+        messages: [
+          { role: Role.USER, content: [{ type: 'text', text: 'test' }] }
+        ],
+        llmPriority: [
+          {
+            provider: 'test-openai',
+            model: 'stub-model'
+            // No per-provider settings
+          }
+        ],
+        settings: { temperature: 0.7, maxTokens: 100 }
+      };
+
+      await coordinator.run(spec as any);
+
+      const settingsArg = callProviderMock.mock.calls[0][2] as LLMCallSettings;
+      expect(settingsArg.temperature).toBe(0.7);
+      expect(settingsArg.maxTokens).toBe(100);
+
+      await coordinator.close();
+    });
+
+    test('deep merges nested objects like reasoning', async () => {
+      const coordinator = await createCoordinator();
+      const mockResponse: LLMResponse = {
+        provider: 'test-openai',
+        model: 'stub-model',
+        role: Role.ASSISTANT,
+        finishReason: 'stop',
+        content: [{ type: 'text', text: 'response' }]
+      };
+
+      const callProviderMock = jest
+        .spyOn(LLMManager.prototype, 'callProvider')
+        .mockResolvedValue(mockResponse);
+
+      const spec = {
+        messages: [
+          { role: Role.USER, content: [{ type: 'text', text: 'test' }] }
+        ],
+        llmPriority: [
+          {
+            provider: 'test-openai',
+            model: 'stub-model',
+            settings: { reasoning: { budget: 2000 } }  // Override only budget
+          }
+        ],
+        settings: {
+          temperature: 0.7,
+          reasoning: { enabled: true, budget: 1000 }  // Global reasoning
+        }
+      };
+
+      await coordinator.run(spec as any);
+
+      const settingsArg = callProviderMock.mock.calls[0][2] as LLMCallSettings;
+      expect(settingsArg.temperature).toBe(0.7);
+      expect(settingsArg.reasoning).toEqual({
+        enabled: true,  // Preserved from global
+        budget: 2000    // Overridden by per-provider
+      });
+
+      await coordinator.close();
+    });
+
+    test('per-provider settings propagate to tool loop', async () => {
+      const coordinator = await createCoordinator();
+      const responses: LLMResponse[] = [
+        {
+          provider: 'test-openai',
+          model: 'stub-model',
+          role: Role.ASSISTANT,
+          content: [],
+          toolCalls: [
+            { id: 'call-1', name: 'echo.text', arguments: { text: 'hello' } }
+          ]
+        },
+        {
+          provider: 'test-openai',
+          model: 'stub-model',
+          role: Role.ASSISTANT,
+          finishReason: 'stop',
+          content: [{ type: 'text', text: 'done' }]
+        }
+      ];
+
+      const callProviderMock = jest
+        .spyOn(LLMManager.prototype, 'callProvider')
+        .mockImplementation(async () => responses.shift()!);
+
+      const spec = {
+        messages: [
+          { role: Role.USER, content: [{ type: 'text', text: 'use tool' }] }
+        ],
+        llmPriority: [
+          {
+            provider: 'test-openai',
+            model: 'stub-model',
+            settings: { temperature: 0.2 }  // Per-provider
+          }
+        ],
+        settings: { temperature: 0.9, maxTokens: 500, maxToolIterations: 2 },
+        functionToolNames: ['echo.text']
+      };
+
+      await coordinator.run(spec as any);
+
+      // Both calls (initial and follow-up after tool) should use per-provider temperature
+      expect(callProviderMock).toHaveBeenCalledTimes(2);
+
+      const firstCallSettings = callProviderMock.mock.calls[0][2] as LLMCallSettings;
+      const secondCallSettings = callProviderMock.mock.calls[1][2] as LLMCallSettings;
+
+      expect(firstCallSettings.temperature).toBe(0.2);
+      expect(secondCallSettings.temperature).toBe(0.2);
+      expect(firstCallSettings.maxTokens).toBe(500);
+      expect(secondCallSettings.maxTokens).toBe(500);
+
+      await coordinator.close();
+    });
   });
 });
