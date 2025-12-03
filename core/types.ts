@@ -270,7 +270,126 @@ export interface VectorStoreConfig {
   id: string;
   kind: string;
   connection: JsonObject;
+  defaultCollection?: string;
   metadata?: JsonObject;
+}
+
+// ============================================================
+// EMBEDDING TYPES
+// ============================================================
+
+/**
+ * Configuration for an embedding provider (loaded from JSON)
+ */
+export interface EmbeddingProviderConfig {
+  id: string;
+  kind: string;
+  endpoint: {
+    urlTemplate: string;
+    headers: Record<string, string>;
+  };
+  model: string;
+  dimensions?: number;
+  metadata?: JsonObject;
+}
+
+/**
+ * Priority item for embedding - which provider/model to try
+ */
+export interface EmbeddingPriorityItem {
+  provider: string;
+  model?: string;
+}
+
+/**
+ * Result from an embedding operation
+ */
+export interface EmbeddingResult {
+  vectors: number[][];
+  model: string;
+  dimensions: number;
+  tokenCount?: number;
+}
+
+// ============================================================
+// VECTOR STORE TYPES
+// ============================================================
+
+/**
+ * A point to store in a vector database
+ */
+export interface VectorPoint {
+  id: string;
+  vector: number[];
+  payload?: JsonObject;
+}
+
+/**
+ * Result from a vector similarity search
+ */
+export interface VectorQueryResult {
+  id: string;
+  score: number;
+  payload?: JsonObject;
+  vector?: number[];
+}
+
+/**
+ * Options for vector queries
+ */
+export interface VectorQueryOptions {
+  filter?: JsonObject;
+  includeVector?: boolean;
+  includePayload?: boolean;
+}
+
+// ============================================================
+// COMPAT INTERFACES (implemented by plugins)
+// ============================================================
+
+/**
+ * Interface for embedding compat modules.
+ * Implemented by: plugins/embedding-compat/openrouter.ts, etc.
+ */
+export interface IEmbeddingCompat {
+  embed(
+    input: string | string[],
+    config: EmbeddingProviderConfig,
+    model?: string
+  ): Promise<EmbeddingResult>;
+
+  getDimensions(config: EmbeddingProviderConfig, model?: string): number;
+
+  validate?(config: EmbeddingProviderConfig): Promise<boolean>;
+}
+
+/**
+ * Interface for vector store compat modules.
+ * Implemented by: plugins/vector-compat/qdrant.ts, etc.
+ */
+export interface IVectorStoreCompat {
+  connect(config: VectorStoreConfig): Promise<void>;
+
+  close(): Promise<void>;
+
+  query(
+    collection: string,
+    vector: number[],
+    topK: number,
+    options?: VectorQueryOptions
+  ): Promise<VectorQueryResult[]>;
+
+  upsert(collection: string, points: VectorPoint[]): Promise<void>;
+
+  deleteByIds(collection: string, ids: string[]): Promise<void>;
+
+  collectionExists(collection: string): Promise<boolean>;
+
+  createCollection?(
+    collection: string,
+    dimensions: number,
+    options?: JsonObject
+  ): Promise<void>;
 }
 
 export interface ProcessMatchConfig {

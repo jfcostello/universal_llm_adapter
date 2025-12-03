@@ -1,0 +1,13 @@
+{
+  "id": "openrouter-embeddings",
+  "kind": "openrouter",
+  "endpoint": {
+    "urlTemplate": "https://openrouter.ai/api/v1/embeddings",
+    "headers": {
+      "Authorization": "Bearer ${OPENROUTER_API_KEY}",
+      "Content-Type": "application/json"
+    }
+  },
+  "model": "openai/text-embedding-3-small",
+  "dimensions": 1536
+}

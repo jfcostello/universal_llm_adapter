@@ -1,0 +1,9 @@
+{
+  "id": "qdrant-local",
+  "kind": "qdrant",
+  "connection": {
+    "host": "localhost",
+    "port": 6333
+  },
+  "defaultCollection": "documents"
+}

@@ -334,6 +334,242 @@ LLM API
 - `coordinator/coordinator.ts` - Message preprocessing integration
 - `plugins/compat/*.ts` - Provider-specific transformations
 
+## Vector Stores & Embeddings
+
+### Overview
+
+The coordinator provides unified vector store and embedding support for RAG (Retrieval Augmented Generation) applications. Like LLM providers, vector stores and embedding providers use a plugin architecture with priority-based fallback.
+
+**Key Principle**: Provider-specific code lives ONLY in `plugins/`. Main codebase stays agnostic.
+
+### Architecture
+
+```
+User Query → EmbeddingManager (agnostic) → embedding-compat (provider-specific) → OpenRouter/OpenAI
+                    ↓
+              Vector (numbers)
+                    ↓
+         VectorStoreManager (agnostic) → vector-compat (provider-specific) → Qdrant/Memory
+```
+
+### Embedding Providers
+
+#### Configuration
+
+Create JSON configs in `plugins/embeddings/`:
+
+```json
+// plugins/embeddings/openrouter.json
+{
+  "id": "openrouter-embeddings",
+  "kind": "openrouter",
+  "endpoint": {
+    "urlTemplate": "https://openrouter.ai/api/v1/embeddings",
+    "headers": {
+      "Authorization": "Bearer ${OPENROUTER_API_KEY}",
+      "Content-Type": "application/json"
+    }
+  },
+  "model": "openai/text-embedding-3-small",
+  "dimensions": 1536
+}
+```
+
+#### Usage
+
+```typescript
+import { EmbeddingManager } from './managers/embedding-manager';
+import { Registry } from './core/registry';
+
+const registry = new Registry();
+const embeddingManager = new EmbeddingManager(registry);
+
+// Embed text with priority fallback
+const result = await embeddingManager.embed('Hello world', [
+  { provider: 'openrouter-embeddings' },
+  { provider: 'backup-embeddings' }  // Falls back if first fails
+]);
+
+console.log(result.vectors);    // [[0.1, 0.2, ...]]
+console.log(result.dimensions); // 1536
+console.log(result.model);      // 'openai/text-embedding-3-small'
+
+// Get dimensions for a provider
+const dims = await embeddingManager.getDimensions('openrouter-embeddings');
+
+// Create embedder function for VectorStoreManager
+const embedFn = embeddingManager.createEmbedderFn([
+  { provider: 'openrouter-embeddings' }
+]);
+```
+
+### Vector Stores
+
+#### Supported Providers
+
+- **Qdrant**: Production-ready vector database
+- **Memory**: In-memory store for testing
+
+#### Configuration
+
+Create JSON configs in `plugins/vector/`:
+
+```json
+// plugins/vector/qdrant-local.json
+{
+  "id": "qdrant-local",
+  "kind": "qdrant",
+  "connection": {
+    "host": "localhost",
+    "port": 6333
+  },
+  "defaultCollection": "documents"
+}
+
+// plugins/vector/qdrant-cloud.json
+{
+  "id": "qdrant-cloud",
+  "kind": "qdrant",
+  "connection": {
+    "url": "https://your-cluster.qdrant.io",
+    "apiKey": "${QDRANT_API_KEY}"
+  },
+  "defaultCollection": "documents"
+}
+```
+
+#### Usage
+
+```typescript
+import { VectorStoreManager } from './managers/vector-store-manager';
+import { EmbeddingManager } from './managers/embedding-manager';
+import { Registry } from './core/registry';
+
+const registry = new Registry();
+const embeddingManager = new EmbeddingManager(registry);
+const vectorStore = new VectorStoreManager(
+  new Map(),  // configs
+  new Map(),  // adapters
+  embeddingManager.createEmbedderFn([{ provider: 'openrouter-embeddings' }]),
+  registry
+);
+
+// Query with priority fallback
+const { store, results } = await vectorStore.queryWithPriority(
+  ['qdrant-local', 'qdrant-cloud'],  // Priority list
+  'What is machine learning?',        // Query text (auto-embedded)
+  5,                                   // Top K
+  { category: 'tech' }                 // Optional filter
+);
+
+// Upsert points
+await vectorStore.upsert('qdrant-local', [
+  { id: 'doc1', vector: [0.1, 0.2, ...], payload: { text: 'Hello' } },
+  { id: 'doc2', vector: [0.3, 0.4, ...], payload: { text: 'World' } }
+]);
+
+// Delete points
+await vectorStore.deleteByIds('qdrant-local', ['doc1', 'doc2']);
+
+// Access underlying compat for advanced operations
+const compat = await vectorStore.getCompat('qdrant-local');
+if (compat) {
+  const exists = await compat.collectionExists('documents');
+  if (!exists) {
+    await compat.createCollection('documents', 1536, { distance: 'Cosine' });
+  }
+}
+
+// Close all connections
+await vectorStore.closeAll();
+```
+
+### Adding New Providers
+
+#### Embedding Compat
+
+Create `plugins/embedding-compat/your-provider.ts`:
+
+```typescript
+import { IEmbeddingCompat, EmbeddingProviderConfig, EmbeddingResult } from '../../core/types';
+
+export default class YourProviderEmbeddingCompat implements IEmbeddingCompat {
+  async embed(
+    input: string | string[],
+    config: EmbeddingProviderConfig,
+    modelOverride?: string
+  ): Promise<EmbeddingResult> {
+    // Provider-specific API call
+    return { vectors: [...], model: '...', dimensions: ... };
+  }
+
+  getDimensions(config: EmbeddingProviderConfig, model?: string): number {
+    return config.dimensions || 0;
+  }
+
+  async validate(config: EmbeddingProviderConfig): Promise<boolean> {
+    // Test API connectivity
+  }
+}
+```
+
+#### Vector Store Compat
+
+Create `plugins/vector-compat/your-provider.ts`:
+
+```typescript
+import { IVectorStoreCompat, VectorStoreConfig, VectorPoint, VectorQueryResult } from '../../core/types';
+
+export default class YourProviderCompat implements IVectorStoreCompat {
+  async connect(config: VectorStoreConfig): Promise<void> { /* ... */ }
+  async close(): Promise<void> { /* ... */ }
+  async query(collection: string, vector: number[], topK: number, options?: VectorQueryOptions): Promise<VectorQueryResult[]> { /* ... */ }
+  async upsert(collection: string, points: VectorPoint[]): Promise<void> { /* ... */ }
+  async deleteByIds(collection: string, ids: string[]): Promise<void> { /* ... */ }
+  async collectionExists(collection: string): Promise<boolean> { /* ... */ }
+  async createCollection(collection: string, dimensions: number, options?: JsonObject): Promise<void> { /* ... */ }
+}
+```
+
+### Types
+
+```typescript
+interface EmbeddingProviderConfig {
+  id: string;
+  kind: string;  // 'openrouter' | 'openai' | etc
+  endpoint: { urlTemplate: string; headers: Record<string, string> };
+  model: string;
+  dimensions?: number;
+}
+
+interface VectorStoreConfig {
+  id: string;
+  kind: string;  // 'qdrant' | 'memory' | etc
+  connection: JsonObject;
+  defaultCollection?: string;
+}
+
+interface VectorPoint {
+  id: string;
+  vector: number[];
+  payload?: JsonObject;
+}
+
+interface VectorQueryResult {
+  id: string;
+  score: number;
+  payload?: JsonObject;
+  vector?: number[];
+}
+
+interface EmbeddingResult {
+  vectors: number[][];
+  model: string;
+  dimensions: number;
+  tokenCount?: number;
+}
+```
+
 ## Testing
 
 The library maintains 100% test coverage. Run tests with:

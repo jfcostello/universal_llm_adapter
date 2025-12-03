@@ -196,4 +196,322 @@ describe('core/registry', () => {
       }
     });
   });
+
+  describe('embedding providers and compats', () => {
+    test('loads embedding provider config from plugins/embeddings', async () => {
+      await withTempCwd('registry-embeddings', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        // Create embeddings directory and config
+        const embeddingsDir = path.join(pluginsDir, 'embeddings');
+        fs.mkdirSync(embeddingsDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(embeddingsDir, 'test-embed.json'),
+          JSON.stringify({
+            id: 'test-embed',
+            kind: 'openrouter',
+            endpoint: {
+              urlTemplate: 'https://test.api/embeddings',
+              headers: { 'Authorization': 'Bearer test' }
+            },
+            model: 'test-model',
+            dimensions: 128
+          }),
+          'utf-8'
+        );
+
+        const registry = new PluginRegistry(pluginsDir);
+        const config = await registry.getEmbeddingProvider('test-embed');
+
+        expect(config.id).toBe('test-embed');
+        expect(config.kind).toBe('openrouter');
+        expect(config.dimensions).toBe(128);
+
+        // Call again to trigger early return in loadEmbeddingProviders
+        const config2 = await registry.getEmbeddingProvider('test-embed');
+        expect(config2.id).toBe('test-embed');
+      });
+    });
+
+    test('throws ManifestError for unknown embedding provider', async () => {
+      await withTempCwd('registry-embed-missing', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.getEmbeddingProvider('nonexistent')).rejects.toThrow(ManifestError);
+      });
+    });
+
+    test('loads embedding compat module from plugins/embedding-compat', async () => {
+      await withTempCwd('registry-embed-compat', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        // Use actual compiled modules from the project
+        const registry = new PluginRegistry(pluginsDir);
+
+        // The openrouter embedding compat is loaded from the project's dist/plugins/embedding-compat
+        const compat = await registry.getEmbeddingCompat('openrouter');
+
+        expect(typeof compat.embed).toBe('function');
+        expect(typeof compat.getDimensions).toBe('function');
+      });
+    });
+
+    test('throws ManifestError for unknown embedding compat', async () => {
+      await withTempCwd('registry-embed-compat-missing', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.getEmbeddingCompat('nonexistent')).rejects.toThrow(ManifestError);
+      });
+    });
+
+    test('loads vector store compat module from plugins/vector-compat', async () => {
+      await withTempCwd('registry-vector-compat', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        // Use actual compiled modules from the project
+        const registry = new PluginRegistry(pluginsDir);
+
+        // The memory vector compat is loaded from the project's dist/plugins/vector-compat
+        const compat = await registry.getVectorStoreCompat('memory');
+
+        expect(typeof compat.connect).toBe('function');
+        expect(typeof compat.query).toBe('function');
+        expect(typeof compat.upsert).toBe('function');
+      });
+    });
+
+    test('throws ManifestError for unknown vector store compat', async () => {
+      await withTempCwd('registry-vector-compat-missing', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.getVectorStoreCompat('nonexistent')).rejects.toThrow(ManifestError);
+      });
+    });
+
+    test('skips invalid embedding configs but continues loading', async () => {
+      await withTempCwd('registry-embed-invalid', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const embeddingsDir = path.join(pluginsDir, 'embeddings');
+        fs.mkdirSync(embeddingsDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(embeddingsDir, 'invalid.json'),
+          '{"id":',
+          'utf-8'
+        );
+        fs.writeFileSync(
+          path.join(embeddingsDir, 'valid.json'),
+          JSON.stringify({ id: 'valid', kind: 'test', endpoint: {}, model: 'test' }),
+          'utf-8'
+        );
+
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const registry = new PluginRegistry(pluginsDir);
+        const config = await registry.getEmbeddingProvider('valid');
+
+        expect(config.id).toBe('valid');
+        expect(warnSpy).toHaveBeenCalled();
+        warnSpy.mockRestore();
+      });
+    });
+
+    test('returns ManifestError for non-existent embedding compat module', async () => {
+      await withTempCwd('registry-embed-compat-broken', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const registry = new PluginRegistry(pluginsDir);
+
+        // Should be able to load existing compat
+        const compat = await registry.getEmbeddingCompat('openrouter');
+        expect(typeof compat.embed).toBe('function');
+
+        // Should throw for non-existent compat
+        await expect(registry.getEmbeddingCompat('non-existent-broken')).rejects.toThrow(ManifestError);
+      });
+    });
+
+    test('returns ManifestError for non-existent vector store compat module', async () => {
+      await withTempCwd('registry-vector-compat-broken', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const registry = new PluginRegistry(pluginsDir);
+
+        // Should be able to load existing compat
+        const compat = await registry.getVectorStoreCompat('memory');
+        expect(typeof compat.query).toBe('function');
+
+        // Should throw for non-existent compat
+        await expect(registry.getVectorStoreCompat('non-existent-broken')).rejects.toThrow(ManifestError);
+      });
+    });
+
+    test('loadEmbeddingCompats handles duplicates, ts fallbacks, and import failures', async () => {
+      await withTempCwd('registry-embed-compat-load', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const compatRoot = path.join(ROOT_DIR, 'plugins', 'embedding-compat');
+        const compatLocal = path.join(pluginsDir, 'embedding-compat');
+        fs.mkdirSync(compatLocal, { recursive: true });
+
+        const files = {
+          js: path.join(compatRoot, 'embed-test-temp.js'),
+          ts: path.join(compatRoot, 'embed-test-temp.ts'),
+          broken: path.join(compatRoot, 'embed-test-broken.js'),
+          duplicate: path.join(compatLocal, 'embed-test-temp.js'),
+          dts: path.join(compatRoot, 'embed-test-dts.d.ts')
+        };
+
+        fs.writeFileSync(
+          files.js,
+          'export default class EmbedTestTemp { constructor() { this.kind = "js"; } async embed() { return { vectors: [[1]], model: "m", dimensions: 1 }; } getDimensions() { return 1; } }',
+          'utf-8'
+        );
+        fs.writeFileSync(
+          files.ts,
+          'export default class EmbedTestTempTs { constructor() { throw new Error("ts should be skipped when js exists"); } }',
+          'utf-8'
+        );
+        fs.writeFileSync(files.broken, 'throw new Error("embed broken compat");', 'utf-8');
+        fs.writeFileSync(
+          files.duplicate,
+          'export default class EmbedTestTempDuplicate { constructor() { this.kind = "duplicate"; } }',
+          'utf-8'
+        );
+        fs.writeFileSync(files.dts, 'export declare const ignored: string;\n', 'utf-8');
+        // Named export test (no default export)
+        const namedFile = path.join(compatRoot, 'embed-test-named.js');
+        fs.writeFileSync(
+          namedFile,
+          'export class EmbedTestNamed { constructor() { this.kind = "named"; } async embed() { return { vectors: [[1]], model: "m", dimensions: 1 }; } getDimensions() { return 1; } }',
+          'utf-8'
+        );
+        (files as any).named = namedFile;
+
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const previousCwd = process.cwd();
+
+        try {
+          process.chdir(ROOT_DIR);
+
+          const registry = new PluginRegistry(pluginsDir);
+
+          // Trigger lazy loading
+          await registry.getEmbeddingCompat('openrouter');
+          await registry.getEmbeddingCompat('embed-test-temp');
+
+          const compatKeys = Array.from((registry as any).embeddingCompats.keys());
+          expect(compatKeys).toEqual(expect.arrayContaining(['openrouter', 'embed-test-temp', 'embed-test-named']));
+          expect(compatKeys).not.toContain('embed-test-dts');
+          await expect(registry.getEmbeddingCompat('embed-test-broken')).rejects.toThrow(ManifestError);
+          expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('embed-test-broken'));
+          expect(warnSpy.mock.calls.some(([msg]) => String(msg).includes('embed-test-dts'))).toBe(false);
+          const tempCompat = await registry.getEmbeddingCompat('embed-test-temp');
+          expect(tempCompat.kind).toBe('js');
+          // Test named export fallback
+          const namedCompat = await registry.getEmbeddingCompat('embed-test-named');
+          expect(namedCompat.kind).toBe('named');
+        } finally {
+          process.chdir(previousCwd);
+          warnSpy.mockRestore();
+          for (const file of Object.values(files)) {
+            if (fs.existsSync(file)) {
+              fs.unlinkSync(file);
+            }
+          }
+        }
+      });
+    });
+
+    test('loadVectorStoreCompats handles duplicates, ts fallbacks, and import failures', async () => {
+      await withTempCwd('registry-vector-compat-load', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const compatRoot = path.join(ROOT_DIR, 'plugins', 'vector-compat');
+        const compatLocal = path.join(pluginsDir, 'vector-compat');
+        fs.mkdirSync(compatLocal, { recursive: true });
+
+        const files = {
+          js: path.join(compatRoot, 'vector-test-temp.js'),
+          ts: path.join(compatRoot, 'vector-test-temp.ts'),
+          broken: path.join(compatRoot, 'vector-test-broken.js'),
+          duplicate: path.join(compatLocal, 'vector-test-temp.js'),
+          dts: path.join(compatRoot, 'vector-test-dts.d.ts')
+        };
+
+        fs.writeFileSync(
+          files.js,
+          'export default class VectorTestTemp { constructor() { this.kind = "js"; } async connect() {} async close() {} async query() { return []; } async upsert() {} async deleteByIds() {} async collectionExists() { return false; } }',
+          'utf-8'
+        );
+        fs.writeFileSync(
+          files.ts,
+          'export default class VectorTestTempTs { constructor() { throw new Error("ts should be skipped when js exists"); } }',
+          'utf-8'
+        );
+        fs.writeFileSync(files.broken, 'throw new Error("vector broken compat");', 'utf-8');
+        fs.writeFileSync(
+          files.duplicate,
+          'export default class VectorTestTempDuplicate { constructor() { this.kind = "duplicate"; } }',
+          'utf-8'
+        );
+        fs.writeFileSync(files.dts, 'export declare const ignored: string;\n', 'utf-8');
+        // Named export test (no default export)
+        const namedFile = path.join(compatRoot, 'vector-test-named.js');
+        fs.writeFileSync(
+          namedFile,
+          'export class VectorTestNamed { constructor() { this.kind = "named"; } async connect() {} async close() {} async query() { return []; } async upsert() {} async deleteByIds() {} async collectionExists() { return false; } }',
+          'utf-8'
+        );
+        (files as any).named = namedFile;
+
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const previousCwd = process.cwd();
+
+        try {
+          process.chdir(ROOT_DIR);
+
+          const registry = new PluginRegistry(pluginsDir);
+
+          // Trigger lazy loading
+          await registry.getVectorStoreCompat('memory');
+          await registry.getVectorStoreCompat('vector-test-temp');
+
+          const compatKeys = Array.from((registry as any).vectorStoreCompats.keys());
+          expect(compatKeys).toEqual(expect.arrayContaining(['memory', 'vector-test-temp', 'vector-test-named']));
+          expect(compatKeys).not.toContain('vector-test-dts');
+          await expect(registry.getVectorStoreCompat('vector-test-broken')).rejects.toThrow(ManifestError);
+          expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('vector-test-broken'));
+          expect(warnSpy.mock.calls.some(([msg]) => String(msg).includes('vector-test-dts'))).toBe(false);
+          const tempCompat = await registry.getVectorStoreCompat('vector-test-temp');
+          expect(tempCompat.kind).toBe('js');
+          // Test named export fallback
+          const namedCompat = await registry.getVectorStoreCompat('vector-test-named');
+          expect(namedCompat.kind).toBe('named');
+        } finally {
+          process.chdir(previousCwd);
+          warnSpy.mockRestore();
+          for (const file of Object.values(files)) {
+            if (fs.existsSync(file)) {
+              fs.unlinkSync(file);
+            }
+          }
+        }
+      });
+    });
+  });
 });
