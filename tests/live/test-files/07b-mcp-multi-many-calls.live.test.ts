@@ -1,7 +1,7 @@
 // 07b — MCP Many Calls
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { testRuns } from '../config.ts';
-import { withLiveEnv, makeSpec, buildLogPathFor } from '@tests/helpers/live-v2.ts';
+import { withLiveEnv, makeSpec, buildLogPathFor, mergeSettings } from '@tests/helpers/live-v2.ts';
 import fs from 'fs';
 
 const runLive = process.env.LLM_LIVE === '1';
@@ -41,7 +41,7 @@ The tools return unpredictable values that change every time. You must prove you
       llmPriority: runCfg.llmPriority,
       functionToolNames: ['test.echo'],
       mcpServers: ['testmcp'],
-      settings: { ...runCfg.settings, temperature: 0.1, maxTokens: 60000, preserveToolResults: 'all' }
+      settings: mergeSettings(runCfg.settings, { temperature: 0.1, maxTokens: 60000, preserveToolResults: 'all' })
     });
     const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE: '07b-mcp-multi-many-calls' }) });
     if (result.code !== 0) {

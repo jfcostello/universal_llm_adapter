@@ -1,7 +1,7 @@
 // 01 — Tool and Context: echo tool usage and context in args
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { testRuns } from '../config.ts';
-import { withLiveEnv, makeSpec } from '@tests/helpers/live-v2.ts';
+import { withLiveEnv, makeSpec, mergeSettings } from '@tests/helpers/live-v2.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
@@ -21,7 +21,7 @@ for (let i = 0; i < testRuns.length; i++) {
         llmPriority: runCfg.llmPriority,
         functionToolNames: ['test.echo'],
         toolChoice: { type: 'required', allowed: ['test.echo'] },
-        settings: { ...runCfg.settings, temperature: 0.1, maxTokens: 60000, provider: { require_parameters: true } }
+        settings: mergeSettings(runCfg.settings, { temperature: 0.1, maxTokens: 60000, provider: { require_parameters: true } })
       });
       const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE: '01-tool-and-context' }) });
       if (result.code !== 0 && /No endpoints found that can handle the requested parameters/i.test(result.stderr)) { expect(true).toBe(true); return; }
@@ -49,7 +49,7 @@ for (let i = 0; i < testRuns.length; i++) {
         llmPriority: runCfg.llmPriority,
         functionToolNames: ['test.echo'],
         toolChoice: { type: 'required', allowed: ['test.echo'] },
-        settings: { ...runCfg.settings, temperature: 0.1, maxTokens: 60000, provider: { require_parameters: true } }
+        settings: mergeSettings(runCfg.settings, { temperature: 0.1, maxTokens: 60000, provider: { require_parameters: true } })
       });
       const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE: '01-tool-and-context' }) });
       if (result.code !== 0 && /No endpoints found that can handle the requested parameters/i.test(result.stderr)) { expect(true).toBe(true); return; }

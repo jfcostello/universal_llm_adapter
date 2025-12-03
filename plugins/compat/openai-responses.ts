@@ -345,19 +345,15 @@ export default class OpenAIResponsesCompat implements ICompatModule {
       result.max_output_tokens = settings.maxTokens;
     }
 
-    // Don't send temperature: 0 as reasoning models (gpt-5-mini, o1, etc.) reject it
-    // Only include if explicitly set to a non-zero value
-    if (settings.temperature !== undefined && settings.temperature !== 0) {
+    // Include temperature if set
+    if (settings.temperature !== undefined) {
       result.temperature = settings.temperature;
     }
 
-    // Don't send topP: 1 (default value) - only include if explicitly different
-    if (settings.topP !== undefined && settings.topP !== 1) {
+    // Include topP if set
+    if (settings.topP !== undefined) {
       result.top_p = settings.topP;
     }
-
-    // Note: stop, responseFormat, seed may not be supported in Responses API
-    // Will need to verify during testing
 
     return result;
   }

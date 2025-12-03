@@ -1,7 +1,7 @@
 // 03 — Budget and Final Prompt
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { testRuns } from '../config.ts';
-import { withLiveEnv, makeSpec, buildLogPathFor, parseLogBodies } from '@tests/helpers/live-v2.ts';
+import { withLiveEnv, makeSpec, buildLogPathFor, parseLogBodies, mergeSettings } from '@tests/helpers/live-v2.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
@@ -35,7 +35,7 @@ CRITICAL: The tool result messages contain important information about your prog
         ],
         llmPriority: runCfg.llmPriority,
         functionToolNames: ['test.echo'],
-        settings: { ...runCfg.settings, temperature: 0.1, maxTokens: 60000, maxToolIterations: 2, toolCountdownEnabled: true, toolFinalPromptEnabled: true, provider: { require_parameters: true } }
+        settings: mergeSettings(runCfg.settings, { temperature: 0.1, maxTokens: 60000, maxToolIterations: 2, toolCountdownEnabled: true, toolFinalPromptEnabled: true, provider: { require_parameters: true } })
       });
       const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
       if (result.code !== 0 && providerNotSupportingTools(result.stderr)) { expect(true).toBe(true); return; }

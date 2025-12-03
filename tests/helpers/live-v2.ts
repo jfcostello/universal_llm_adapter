@@ -29,6 +29,27 @@ export function makeSpec(base: BaseSpec): BaseSpec {
   return base; // pass-through helper for clarity/extensibility
 }
 
+/**
+ * Merge test settings with config settings.
+ * Config temperature always wins - tests should not override provider-specific temperature settings.
+ * This allows providers with temperature restrictions (like openai-responses) to work correctly.
+ */
+export function mergeSettings(
+  configSettings: Record<string, any>,
+  testOverrides: Record<string, any>
+): Record<string, any> {
+  const result = { ...configSettings, ...testOverrides };
+  // Config temperature always takes precedence - don't let tests override it
+  // This ensures provider-specific temperature requirements are respected
+  if (configSettings.temperature !== undefined) {
+    result.temperature = configSettings.temperature;
+  } else if (testOverrides.temperature !== undefined) {
+    // If config doesn't have temperature, don't add it from test overrides
+    delete result.temperature;
+  }
+  return result;
+}
+
 // Parse JSON bodies from the raw test log file
 export function parseLogBodies(logPath: string): any[] {
   if (!fs.existsSync(logPath)) return [];

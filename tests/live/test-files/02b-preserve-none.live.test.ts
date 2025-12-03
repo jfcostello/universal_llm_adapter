@@ -1,7 +1,7 @@
 // 02b — Preserve None
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { testRuns } from '../config.ts';
-import { withLiveEnv, makeSpec, buildLogPathFor, parseLogBodies } from '@tests/helpers/live-v2.ts';
+import { withLiveEnv, makeSpec, buildLogPathFor, parseLogBodies, mergeSettings } from '@tests/helpers/live-v2.ts';
 import fs from 'fs';
 
 const runLive = process.env.LLM_LIVE === '1';
@@ -16,7 +16,8 @@ for (let i = 0; i < testRuns.length; i++) {
   const runCfg = testRuns[i];
   (runLive ? describe : describe.skip)(`02b-preserve-none — ${runCfg.name}`, () => {
     const isAnthropic = /Anthropic/i.test(runCfg.name);
-    const runTemp = isAnthropic ? 1 : 0.1;
+    // Use config's temperature if set, otherwise use provider-specific defaults
+    const runTemp = runCfg.settings.temperature !== undefined ? runCfg.settings.temperature : (isAnthropic ? 1 : 0.1);
 
     test('Call 1 — reflect once', async () => {
       const spec = makeSpec({
@@ -26,7 +27,7 @@ for (let i = 0; i < testRuns.length; i++) {
         ],
         llmPriority: runCfg.llmPriority,
         functionToolNames: ['test.echo'],
-        settings: { ...runCfg.settings, temperature: runTemp, maxTokens: 300, preserveToolResults: 'none', toolCountdownEnabled: true, provider: { require_parameters: true } }
+        settings: mergeSettings(runCfg.settings, { temperature: runTemp, maxTokens: 300, preserveToolResults: 'none', toolCountdownEnabled: true, provider: { require_parameters: true } })
       });
       const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
       if (result.code !== 0 && providerNotSupportingTools(result.stderr)) { expect(true).toBe(true); return; }
@@ -44,7 +45,7 @@ for (let i = 0; i < testRuns.length; i++) {
         ],
         llmPriority: runCfg.llmPriority,
         functionToolNames: ['test.echo'],
-        settings: { ...runCfg.settings, temperature: runTemp, maxTokens: 300, preserveToolResults: 'none', toolCountdownEnabled: true, provider: { require_parameters: true } }
+        settings: mergeSettings(runCfg.settings, { temperature: runTemp, maxTokens: 300, preserveToolResults: 'none', toolCountdownEnabled: true, provider: { require_parameters: true } })
       });
       const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
       if (result.code !== 0 && providerNotSupportingTools(result.stderr)) { expect(true).toBe(true); return; }

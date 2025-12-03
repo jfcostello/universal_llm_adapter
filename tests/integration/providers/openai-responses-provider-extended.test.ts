@@ -66,10 +66,9 @@ describe('integration/providers/openai-responses-provider-extended', () => {
   });
 
   describe('Settings Edge Cases', () => {
-    test('handles zero temperature (omitted for reasoning models)', () => {
+    test('handles zero temperature', () => {
       const params: any = (compat as any).buildSDKParams('gpt-4o', { temperature: 0 }, [], [], undefined);
-      // temperature: 0 should be omitted to support reasoning models
-      expect(params.temperature).toBeUndefined();
+      expect(params.temperature).toBe(0);
     });
 
     test('handles maximum temperature', () => {
@@ -81,9 +80,8 @@ describe('integration/providers/openai-responses-provider-extended', () => {
       let params: any = (compat as any).buildSDKParams('gpt-4o', { topP: 0 }, [], [], undefined);
       expect(params.top_p).toBe(0);
 
-      // topP: 1 (default) should be omitted
       params = (compat as any).buildSDKParams('gpt-4o', { topP: 1 }, [], [], undefined);
-      expect(params.top_p).toBeUndefined();
+      expect(params.top_p).toBe(1);
     });
 
     test('handles very small maxTokens', () => {

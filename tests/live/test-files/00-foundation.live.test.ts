@@ -2,7 +2,7 @@
 import fs from 'fs';
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { testRuns, invalidPriorityEntry } from '../config.ts';
-import { withLiveEnv, buildLogPathFor, redactionFoundIn, makeSpec } from '@tests/helpers/live-v2.ts';
+import { withLiveEnv, buildLogPathFor, redactionFoundIn, makeSpec, mergeSettings } from '@tests/helpers/live-v2.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
@@ -30,7 +30,7 @@ for (let i = 0; i < testRuns.length; i++) {
           { role: 'user', content: [{ type: 'text', text: 'Reply exactly with: INTEGRATION_TEST_OK' }]}
         ],
         llmPriority: [invalidPriorityEntry as any, ...runCfg.llmPriority],
-        settings: { ...runCfg.settings, temperature: 0, maxTokens: 60000, fakeField: 'fakeValue' },
+        settings: mergeSettings(runCfg.settings, { temperature: 0, maxTokens: 60000, fakeField: 'fakeValue' }),
         functionToolNames: []
       });
 
@@ -65,7 +65,7 @@ for (let i = 0; i < testRuns.length; i++) {
           { role: 'user', content: [{ type: 'text', text: 'What is 2 + 2? Reply with only the number.' }]}
         ],
         llmPriority: runCfg.llmPriority,
-        settings: { ...runCfg.settings, temperature: 0, maxTokens: 60000 },
+        settings: mergeSettings(runCfg.settings, { temperature: 0, maxTokens: 60000 }),
         functionToolNames: []
       });
 

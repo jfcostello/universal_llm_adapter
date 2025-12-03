@@ -1,6 +1,11 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const dotenv = require('dotenv');
+
+// Load .env file from project root so API keys are available in process.env
+// This is needed because tests spawn child processes that inherit process.env
+dotenv.config();
 
 process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 // API keys should come from .env file - no test defaults

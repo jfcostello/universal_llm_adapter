@@ -317,10 +317,10 @@ describe('integration/providers/openai-responses-provider', () => {
         expect(params.temperature).toBe(0.7);
       });
 
-      test('omits temperature when zero (for reasoning model support)', () => {
+      test('includes temperature when zero', () => {
         const params: any = (compat as any).buildSDKParams('gpt-4o', { temperature: 0 }, baseMessages, [], undefined);
 
-        expect(params.temperature).toBeUndefined();
+        expect(params.temperature).toBe(0);
       });
 
       test('maps topP to top_p', () => {
@@ -339,8 +339,7 @@ describe('integration/providers/openai-responses-provider', () => {
       test('handles partial settings', () => {
         const params: any = (compat as any).buildSDKParams('gpt-4o', { temperature: 0 }, baseMessages, [], undefined);
 
-        // temperature: 0 omitted for reasoning model support
-        expect(params.temperature).toBeUndefined();
+        expect(params.temperature).toBe(0);
         expect(params.max_output_tokens).toBeUndefined();
       });
     });

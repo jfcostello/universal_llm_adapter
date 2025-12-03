@@ -1,7 +1,7 @@
 // 14 — Document Processing: Multiple documents in single message
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { testRuns } from '../config.ts';
-import { withLiveEnv, makeSpec } from '@tests/helpers/live-v2.ts';
+import { withLiveEnv, makeSpec, mergeSettings } from '@tests/helpers/live-v2.ts';
 import * as path from 'path';
 
 const runLive = process.env.LLM_LIVE === '1';
@@ -43,7 +43,7 @@ for (let i = 0; i < testRuns.length; i++) {
           }
         ],
         llmPriority: runCfg.llmPriority,
-        settings: { ...runCfg.settings, temperature: 0, maxTokens: 60000 },
+        settings: mergeSettings(runCfg.settings, { temperature: 0, maxTokens: 60000 }),
         functionToolNames: []
       });
 

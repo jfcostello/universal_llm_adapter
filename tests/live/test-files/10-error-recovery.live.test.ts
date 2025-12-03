@@ -1,7 +1,7 @@
 // 10 — Error Recovery
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { testRuns } from '../config.ts';
-import { withLiveEnv, makeSpec } from '@tests/helpers/live-v2.ts';
+import { withLiveEnv, makeSpec, mergeSettings } from '@tests/helpers/live-v2.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
@@ -21,7 +21,7 @@ for (let i = 0; i < testRuns.length; i++) {
       ],
       llmPriority: runCfg.llmPriority,
       functionToolNames: ['test.echo'],
-      settings: { ...runCfg.settings, temperature: 0.2, maxTokens: 60000, provider: { require_parameters: true } }
+      settings: mergeSettings(runCfg.settings, { temperature: 0.2, maxTokens: 60000, provider: { require_parameters: true } })
     });
     const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
     if (result.code !== 0 && providerNotSupportingTools(result.stderr)) { expect(true).toBe(true); return; }

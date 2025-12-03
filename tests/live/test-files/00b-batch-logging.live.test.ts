@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { testRuns } from '../config.ts';
-import { withLiveEnv, redactionFoundIn } from '@tests/helpers/live-v2.ts';
+import { withLiveEnv, redactionFoundIn, mergeSettings } from '@tests/helpers/live-v2.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
@@ -16,7 +16,7 @@ for (let i = 0; i < testRuns.length; i++) {
     const spec = {
       messages: [{ role: 'user', content: [{ type: 'text', text: 'Reply exactly with: OK' }] }],
       llmPriority: runCfg.llmPriority,
-      settings: { ...runCfg.settings, temperature: 0, maxTokens: 200 },
+      settings: mergeSettings(runCfg.settings, { temperature: 0, maxTokens: 200 }),
       functionToolNames: []
     };
     const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath, '--batch-id', 'testbatch123'], cwd: process.cwd(), env });

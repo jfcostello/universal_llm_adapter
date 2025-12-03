@@ -1,7 +1,7 @@
 // 02 — Chained tools and redaction (N=2)
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { testRuns } from '../config.ts';
-import { withLiveEnv, makeSpec, buildLogPathFor, parseLogBodies, findLatestRandomValue } from '@tests/helpers/live-v2.ts';
+import { withLiveEnv, makeSpec, buildLogPathFor, parseLogBodies, findLatestRandomValue, mergeSettings } from '@tests/helpers/live-v2.ts';
 import fs from 'fs';
 
 const runLive = process.env.LLM_LIVE === '1';
@@ -16,7 +16,9 @@ for (let i = 0; i < testRuns.length; i++) {
   const runCfg = testRuns[i];
   (runLive ? describe : describe.skip)(`02-chained-tools-and-redaction — ${runCfg.name}`, () => {
     const isAnthropic = /Anthropic/i.test(runCfg.name);
-    const runTemp = isAnthropic ? 1 : 0.1;
+    // Use config's temperature if set, otherwise use provider-specific defaults
+    // If config has no temperature (e.g., openai-responses), don't set one
+    const runTemp = runCfg.settings.temperature !== undefined ? runCfg.settings.temperature : (isAnthropic ? 1 : 0.1);
     const runBudget = isAnthropic ? 1024 : 4096;
     const runMaxTokens = isAnthropic ? 2048 : 60000;
 
@@ -53,7 +55,7 @@ CRITICAL RULES:
         ],
         llmPriority: runCfg.llmPriority,
         functionToolNames: ['test.random', 'test.echo'],
-        settings: { ...runCfg.settings, temperature: runTemp, maxTokens: runMaxTokens, reasoning: { enabled: true, budget: runBudget }, maxToolIterations: 6, preserveToolResults: 2, preserveReasoning: 2, toolCountdownEnabled: true, provider: { require_parameters: true } }
+        settings: mergeSettings(runCfg.settings, { temperature: runTemp, maxTokens: runMaxTokens, reasoning: { enabled: true, budget: runBudget }, maxToolIterations: 6, preserveToolResults: 2, preserveReasoning: 2, toolCountdownEnabled: true, provider: { require_parameters: true } })
       });
       const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
       if (result.code !== 0 && providerNotSupportingTools(result.stderr)) { expect(true).toBe(true); return; }
@@ -127,7 +129,7 @@ CRITICAL RULES:
         ],
         llmPriority: runCfg.llmPriority,
         functionToolNames: ['test.random', 'test.echo'],
-        settings: { ...runCfg.settings, temperature: runTemp, maxTokens: runMaxTokens, reasoning: { enabled: true, budget: runBudget }, maxToolIterations: 6, preserveToolResults: 2, preserveReasoning: 2, toolCountdownEnabled: true, provider: { require_parameters: true } }
+        settings: mergeSettings(runCfg.settings, { temperature: runTemp, maxTokens: runMaxTokens, reasoning: { enabled: true, budget: runBudget }, maxToolIterations: 6, preserveToolResults: 2, preserveReasoning: 2, toolCountdownEnabled: true, provider: { require_parameters: true } })
       });
       const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
       if (result.code !== 0 && providerNotSupportingTools(result.stderr)) { expect(true).toBe(true); return; }
@@ -154,7 +156,7 @@ CRITICAL RULES:
         ],
         llmPriority: runCfg.llmPriority,
         functionToolNames: ['test.random', 'test.echo'],
-        settings: { ...runCfg.settings, temperature: runTemp, maxTokens: runMaxTokens, reasoning: { enabled: true, budget: runBudget }, maxToolIterations: 6, preserveToolResults: 2, preserveReasoning: 2, toolCountdownEnabled: true, provider: { require_parameters: true } }
+        settings: mergeSettings(runCfg.settings, { temperature: runTemp, maxTokens: runMaxTokens, reasoning: { enabled: true, budget: runBudget }, maxToolIterations: 6, preserveToolResults: 2, preserveReasoning: 2, toolCountdownEnabled: true, provider: { require_parameters: true } })
       });
       const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
       if (result.code !== 0 && providerNotSupportingTools(result.stderr)) { expect(true).toBe(true); return; }
