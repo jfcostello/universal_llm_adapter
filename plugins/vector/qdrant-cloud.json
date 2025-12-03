@@ -1,0 +1,9 @@
+{
+  "id": "qdrant-cloud",
+  "kind": "qdrant",
+  "connection": {
+    "url": "${QDRANT_CLOUD_URL}",
+    "apiKey": "${QDRANT_API_KEY}"
+  },
+  "defaultCollection": "documents"
+}

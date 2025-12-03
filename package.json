@@ -9,10 +9,15 @@
     "build": "tsc",
     "dev": "tsx watch llm_coordinator.ts",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand --forceExit",
+    "test:all": "LLM_LIVE=1 node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand --forceExit",
+    "test:live": "LLM_LIVE=1 node --experimental-vm-modules ./node_modules/jest/bin/jest.js --testPathPattern=live --runInBand --forceExit",
+    "test:live:embeddings": "LLM_LIVE=1 node --experimental-vm-modules ./node_modules/jest/bin/jest.js --testPathPattern=15-embeddings --runInBand --forceExit",
+    "test:live:vector": "LLM_LIVE=1 node --experimental-vm-modules ./node_modules/jest/bin/jest.js --testPathPattern=16-vector-store --runInBand --forceExit",
     "start": "node dist/llm_coordinator.js"
   },
   "dependencies": {
     "@google/genai": "^1.27.0",
+    "@qdrant/js-client-rest": "^1.9.0",
     "ajv": "^8.12.0",
     "axios": "^1.6.0",
     "commander": "^11.1.0",
@@ -25,7 +30,7 @@
     "winston-daily-rotate-file": "^4.7.1"
   },
   "devDependencies": {
-    "@types/jest": "^29.5.0",
+        "@types/jest": "^29.5.0",
     "@types/minimatch": "^5.1.2",
     "@types/node": "^20.10.0",
     "jest": "^29.7.0",

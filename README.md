@@ -588,6 +588,54 @@ Coverage report:
 npm test -- --coverage
 ```
 
+### Live Tests
+
+Live tests make real API calls to test actual integrations. They require API keys and external services.
+
+#### Prerequisites
+
+Set required environment variables:
+```bash
+# For LLM providers
+export ANTHROPIC_API_KEY=your-key
+export OPENAI_API_KEY=your-key
+export OPENROUTER_API_KEY=your-key
+export GOOGLE_API_KEY=your-key
+
+# For Qdrant Cloud (optional)
+export QDRANT_CLOUD_URL=https://your-cluster.qdrant.io
+export QDRANT_API_KEY=your-key
+```
+
+For local Qdrant, start the server:
+```bash
+docker run -p 6333:6333 qdrant/qdrant
+```
+
+#### Running Live Tests
+
+```bash
+# Run ALL tests (unit + integration + live) - for CI
+npm run test:all
+
+# Run only live tests
+npm run test:live
+
+# Run embedding live tests only
+npm run test:live:embeddings
+
+# Run vector store live tests (Qdrant Cloud)
+npm run test:live:vector
+```
+
+#### Available Live Test Suites
+
+| Test File | Description |
+|-----------|-------------|
+| `15-embeddings.live.test.ts` | OpenRouter embeddings API |
+| `16-vector-store.live.test.ts` | Qdrant vector store operations |
+| `00-14-*.live.test.ts` | LLM provider tests |
+
 ## Contributing
 
 When adding new features:
