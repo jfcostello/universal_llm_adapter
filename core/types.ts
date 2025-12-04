@@ -529,6 +529,10 @@ export interface IVectorStoreCompat {
     dimensions: number,
     options?: JsonObject
   ): Promise<void>;
+
+  listCollections?(): Promise<string[]>;
+
+  deleteCollection?(collection: string): Promise<void>;
 }
 
 export interface ProcessMatchConfig {

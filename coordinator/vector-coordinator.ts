@@ -397,7 +397,13 @@ export class VectorStoreCoordinator {
           };
         }
         if (compat.createCollection) {
-          await compat.createCollection(input.collectionName, input.dimensions);
+          await compat.createCollection(
+            input.collectionName,
+            input.dimensions,
+            {
+              payloadIndexes: input.payloadIndexes ?? []
+            }
+          );
           return { operation: 'collections', success: true, created: true };
         }
         return {

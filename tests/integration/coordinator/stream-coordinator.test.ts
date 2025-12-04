@@ -227,7 +227,7 @@ describe('StreamCoordinator', () => {
     // Stream now emits {type: "delta", content: "..."} and {type: "DONE", response: {...}}
     expect(events.length).toBe(2);
     expect(events[0]).toMatchObject({ type: 'delta', content: 'chunk-1' });
-    expect(events[1].type).toBe('DONE');
+    expect(events[1].type).toBe('done');
     expect(events[1].response).toBeDefined();
     expect(llmManager.streamProvider).toHaveBeenCalledTimes(1);
   });
@@ -375,7 +375,7 @@ describe('StreamCoordinator', () => {
       events.push(event);
     }
 
-    const doneEvent = events.find(e => e.type === 'DONE');
+    const doneEvent = events.find(e => e.type === 'done');
     expect(doneEvent).toBeDefined();
     expect(doneEvent.response.content[0].text).toBe('Hello world!');
     expect(doneEvent.response.finishReason).toBe('stop');
@@ -508,7 +508,7 @@ describe('StreamCoordinator', () => {
     expect(callId).toBe('call-1');
     expect(args).toEqual({ text: 'value' });
     expect(callContext).toEqual(expect.objectContaining({ provider: 'test-openai', model: 'stub' }));
-    const doneEvent = events.find(e => e.type === 'DONE');
+    const doneEvent = events.find(e => e.type === 'done');
     expect(doneEvent?.response.content[0].text).toContain('back-online');
   });
 
@@ -559,7 +559,7 @@ describe('StreamCoordinator', () => {
     expect(tokenEvents[0]?.metadata?.usage?.totalTokens).toBe(11);
     expect(tokenEvents[1]?.metadata?.usage?.totalTokens).toBe(15);
 
-    const doneEvent = events.find(e => e.type === 'DONE');
+    const doneEvent = events.find(e => e.type === 'done');
     expect(doneEvent?.response.usage?.totalTokens).toBe(15);
   });
 
@@ -601,7 +601,7 @@ describe('StreamCoordinator', () => {
       events.push(event);
     }
 
-    const doneEvent = events.find(e => e.type === 'DONE');
+    const doneEvent = events.find(e => e.type === 'done');
     expect(doneEvent?.response.reasoning?.text).toBe('Step 1. Step 2.');
     const tokenEvents = events.filter(e => e.type === StreamEventType.TOKEN);
     expect(tokenEvents.length).toBe(0); // no usage emitted
@@ -676,7 +676,7 @@ describe('StreamCoordinator', () => {
       events.push(event);
     }
 
-    const doneEvent = events.find(e => e.type === 'DONE');
+    const doneEvent = events.find(e => e.type === 'done');
     expect(doneEvent?.response.reasoning?.text).toBe('Primary reasoning. Secondary reasoning.');
     expect(doneEvent?.response.reasoning?.metadata).toEqual(expect.objectContaining({ stage: 'followup' }));
     expect(doneEvent?.response.usage?.totalTokens).toBe(7);
@@ -704,7 +704,7 @@ describe('StreamCoordinator', () => {
 
     expect(toolCoordinator.routeAndInvoke).toHaveBeenCalledTimes(1);
     expect(llmManager.streamProvider).toHaveBeenCalledTimes(2);
-    const doneEvent = collected.find(event => event.type === 'DONE');
+    const doneEvent = collected.find(event => event.type === 'done');
     expect(doneEvent?.response.content[0].text).toContain('follow-up');
   });
 

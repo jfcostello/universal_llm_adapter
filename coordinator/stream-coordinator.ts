@@ -285,7 +285,7 @@ export class StreamCoordinator {
 
     // Signal completion with final response
     yield {
-      type: 'DONE' as any,
+      type: StreamEventType.DONE,
       response: {
         provider,
         model,

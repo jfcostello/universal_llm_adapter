@@ -85,7 +85,7 @@ describe('StreamCoordinator reasoning aggregation', () => {
     }
 
     const done = events.at(-1);
-    expect(done.type).toBe('DONE');
+    expect(done.type).toBe('done');
     expect(done.response.reasoning).toEqual({
       text: 'Follow-up reasoning',
       metadata: { stage: 'follow' }
@@ -180,7 +180,7 @@ describe('StreamCoordinator reasoning aggregation', () => {
       }
     )) {
       events.push(event);
-      if (event.type === 'DONE') {
+      if (event.type === 'done') {
         break;
       }
     }

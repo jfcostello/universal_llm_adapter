@@ -41,7 +41,7 @@ export const testRuns: TestRun[] = [
     llmPriority: [
       {
         provider: 'openai-responses',
-        model: 'gpt-5-mini'
+        model: 'gpt-4o-mini'
       }
     ],
     settings: {
@@ -54,7 +54,7 @@ export const testRuns: TestRun[] = [
     llmPriority: [
       {
         provider: 'openrouter',
-        model: 'google/gemini-2.5-flash-preview-09-2025'
+        model: 'google/gemini-2.0-flash-001'
       }
     ],
     settings: {
@@ -67,7 +67,7 @@ export const testRuns: TestRun[] = [
     llmPriority: [
       {
         provider: 'google',
-        model: 'gemini-2.5-flash-preview-09-2025'
+        model: 'gemini-2.5-flash'
       }
     ],
     settings: {

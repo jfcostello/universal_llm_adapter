@@ -576,7 +576,7 @@ describe('plugins/vector-compat/qdrant', () => {
         operation: 'createCollection',
         store: 'test-qdrant',
         collection: 'new-collection',
-        params: { dimensions: 128, distance: 'Cosine' }
+        params: { dimensions: 128, distance: 'Cosine', payloadIndexes: 0 }
       });
 
       expect(mockLogger.logVectorResponse).toHaveBeenCalledWith(

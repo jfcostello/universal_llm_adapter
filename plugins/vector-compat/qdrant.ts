@@ -303,14 +303,18 @@ export default class QdrantCompat implements IVectorStoreCompat {
     this.requireClient();
     const storeId = this.config!.id;
     const startTime = Date.now();
-    const distance = (options?.distance as 'Cosine' | 'Euclid' | 'Dot' | 'Manhattan') || 'Cosine';
+    const distance =
+      ((options as any)?.distance as 'Cosine' | 'Euclid' | 'Dot' | 'Manhattan') || 'Cosine';
+    const payloadIndexes = (options as any)?.payloadIndexes as
+      | Array<{ field: string; type: 'keyword' | 'integer' | 'float' | 'boolean' }>
+      | undefined;
 
     // Log createCollection request
     this.logger?.logVectorRequest({
       operation: 'createCollection',
       store: storeId,
       collection,
-      params: { dimensions, distance }
+      params: { dimensions, distance, payloadIndexes: payloadIndexes?.length ?? 0 }
     });
 
     try {
@@ -321,12 +325,25 @@ export default class QdrantCompat implements IVectorStoreCompat {
         }
       });
 
+      if (payloadIndexes?.length) {
+        for (const idx of payloadIndexes) {
+          const schema =
+            idx.type === 'boolean'
+              ? 'bool'
+              : (idx.type as 'keyword' | 'integer' | 'float' | 'bool');
+          await this.client!.createPayloadIndex(collection, {
+            field_name: idx.field,
+            field_schema: schema
+          });
+        }
+      }
+
       // Log success
       this.logger?.logVectorResponse({
         operation: 'createCollection',
         store: storeId,
         collection,
-        result: { success: true, dimensions, distance },
+        result: { success: true, dimensions, distance, indexes: payloadIndexes?.length ?? 0 },
         duration: Date.now() - startTime
       });
     } catch (error: any) {
@@ -345,6 +362,17 @@ export default class QdrantCompat implements IVectorStoreCompat {
         collection
       );
     }
+  }
+
+  async listCollections(): Promise<string[]> {
+    this.requireClient();
+    const res = await this.client!.getCollections();
+    return res.collections?.map((c: any) => c.name) ?? [];
+  }
+
+  async deleteCollection(collection: string): Promise<void> {
+    this.requireClient();
+    await this.client!.deleteCollection(collection);
   }
 
   /**

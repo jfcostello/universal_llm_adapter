@@ -76,7 +76,7 @@ describe('coordinator/runStream', () => {
     // Stream now emits {type: "delta", content: "..."} and {type: "DONE", response: {...}}
     expect(events[0]).toMatchObject({ type: 'delta', content: 'Hi' });
     expect(events.some(event => event.type === StreamEventType.TOOL)).toBe(true);
-    expect(events[events.length - 1].type).toBe('DONE');
+    expect(events[events.length - 1].type).toBe('done');
     expect(events[events.length - 1].response).toBeDefined();
     await coordinator.close();
   });
@@ -163,7 +163,7 @@ describe('coordinator/runStream', () => {
     expect(deltaEvents.some(e => e.content === 'Done!')).toBe(true);
 
     // Verify final DONE event
-    expect(events[events.length - 1].type).toBe('DONE');
+    expect(events[events.length - 1].type).toBe('done');
     expect(events[events.length - 1].response.toolCalls).toHaveLength(1);
 
     await coordinator.close();
@@ -213,7 +213,7 @@ describe('coordinator/runStream', () => {
     }
 
     // Verify error handling happened (lines 342-354)
-    expect(events[events.length - 1].type).toBe('DONE');
+    expect(events[events.length - 1].type).toBe('done');
 
     await coordinator.close();
   });
@@ -353,7 +353,7 @@ describe('coordinator/runStream', () => {
     }
 
     // Verify error was handled (lines 345, 351 String(error) branches)
-    expect(events[events.length - 1].type).toBe('DONE');
+    expect(events[events.length - 1].type).toBe('done');
 
     await coordinator.close();
   });
@@ -481,7 +481,7 @@ describe('coordinator/runStream', () => {
       events.push(event);
     }
 
-    expect(events[events.length - 1].type).toBe('DONE');
+    expect(events[events.length - 1].type).toBe('done');
 
     await coordinator.close();
   });
@@ -529,7 +529,7 @@ describe('coordinator/runStream', () => {
       events.push(event);
     }
 
-    expect(events[events.length - 1].type).toBe('DONE');
+    expect(events[events.length - 1].type).toBe('done');
 
     await coordinator.close();
   });
@@ -572,7 +572,7 @@ describe('coordinator/runStream', () => {
       events.push(event);
     }
 
-    expect(events[events.length - 1].type).toBe('DONE');
+    expect(events[events.length - 1].type).toBe('done');
 
     await coordinator.close();
   });
@@ -650,7 +650,7 @@ describe('coordinator/runStream', () => {
     }
 
   const done = events[events.length - 1];
-  expect(done.type).toBe('DONE');
+  expect(done.type).toBe('done');
   expect(done.response.reasoning).toEqual({
     text: 'Initial reasoning. Reasoned outcome Additional detail.',
     metadata: { phase: 'initial', step: 'final', merged: true }

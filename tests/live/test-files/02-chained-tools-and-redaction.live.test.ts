@@ -25,7 +25,7 @@ for (let i = 0; i < testRuns.length; i++) {
     test('Call 1 — generate then repeat', async () => {
       const spec = makeSpec({
         messages: [
-          { role: 'system', content: [{ type: 'text', text: `You are a sequential function-calling assistant. You must follow these steps EXACTLY:
+          { role: 'system', content: [{ type: 'text', text: `You are a sequential function-calling assistant. You must follow these steps EXACTLY. The grader will FAIL you unless you produce at least TWO function calls: first test.random, then test.echo using the returned value. Do not emit any final assistant text until both tool calls are completed.
 
 STEP 1: Generate a random value
 - Call the function that generates an unpredictable value (test.random)
@@ -50,7 +50,8 @@ CRITICAL RULES:
 - You MUST wait for its actual result before calling test.echo
 - You MUST use the exact value returned by test.random when calling test.echo
 - DO NOT call both functions at the same time
-- DO NOT make up or predict values` }]},
+- DO NOT make up or predict values
+- DO NOT provide any final assistant message until AFTER both function calls have completed` }]},
           { role: 'user', content: [{ type: 'text', text: 'Follow the steps exactly as described. Generate the random value, wait for it, then echo it back.' }]}
         ],
         llmPriority: runCfg.llmPriority,
@@ -187,4 +188,3 @@ CRITICAL RULES:
     }, 180000);
   });
 }
-

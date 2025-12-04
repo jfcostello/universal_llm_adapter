@@ -68,7 +68,7 @@ describe('LLMCoordinator runStream', () => {
     // Events are now {type: "delta", content: "..."} and {type: "DONE", response: {...}}
     expect(events.length).toBeGreaterThanOrEqual(1);
     expect(events.some(e => e.type === 'delta' && e.content === 'token')).toBe(true);
-    expect(events.some(e => e.type === 'DONE')).toBe(true);
+    expect(events.some(e => e.type === 'done')).toBe(true);
     expect(handleChunkMock).not.toHaveBeenCalled();
     expect(compatModule.parseStreamChunk).toHaveBeenCalled();
   });
@@ -89,7 +89,7 @@ describe('LLMCoordinator runStream', () => {
     // Events are now {type: "delta", content: "..."} and {type: "DONE", response: {...}}
     const deltaEvents = events.filter(e => e.type === 'delta' && e.content === 'token');
     const toolEvents = events.filter(e => e.type === StreamEventType.TOOL);
-    const doneEvents = events.filter(e => e.type === 'DONE');
+    const doneEvents = events.filter(e => e.type === 'done');
 
     expect(deltaEvents.length).toBeGreaterThanOrEqual(1);
     expect(toolEvents.length).toBe(3);

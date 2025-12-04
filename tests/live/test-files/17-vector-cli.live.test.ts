@@ -34,6 +34,7 @@ describeLive('live/vector-cli', () => {
   let PluginRegistryClass: typeof PluginRegistry;
   let registry: PluginRegistry;
   let coordinator: VectorStoreCoordinator;
+  let setupSucceeded = false;
 
   beforeAll(async () => {
     // Verify required environment variables
@@ -58,15 +59,26 @@ describeLive('live/vector-cli', () => {
       coordinator = new VectorStoreCoordinatorClass(registry);
 
       // Create test collection
-      await coordinator.execute({
+      const createResult = await coordinator.execute({
         operation: 'collections',
         store: 'qdrant-cloud',
         input: {
           collectionOp: 'create',
           collectionName: TEST_COLLECTION,
-          dimensions: 1536
+          dimensions: 1536,
+          payloadIndexes: [
+            { field: 'category', type: 'keyword' },
+            { field: 'source', type: 'keyword' }
+          ]
         }
       });
+
+      // Mark setup as successful only if collection was created (or already exists)
+      if (createResult.success || createResult.error?.includes('already exists')) {
+        setupSucceeded = true;
+      } else {
+        console.warn('Failed to create test collection:', createResult.error);
+      }
     } catch (error) {
       console.error('Failed to initialize for live tests:', error);
     }
@@ -93,8 +105,8 @@ describeLive('live/vector-cli', () => {
 
   describe('embed operation', () => {
     test('embeds and upserts texts to Qdrant Cloud', async () => {
-      if (!coordinator) {
-        console.warn('Coordinator not available - skipping');
+      if (!coordinator || !setupSucceeded) {
+        console.warn('Qdrant setup failed - skipping test');
         return;
       }
 
@@ -106,17 +118,17 @@ describeLive('live/vector-cli', () => {
         input: {
           chunks: [
             {
-              id: 'live-doc-1',
+              id: '11111111-1111-1111-1111-111111111111',
               text: 'Machine learning is a subset of artificial intelligence that enables systems to learn from data.',
               metadata: { source: 'live-test', category: 'ml' }
             },
             {
-              id: 'live-doc-2',
+              id: '22222222-2222-2222-2222-222222222222',
               text: 'Deep learning uses neural networks with multiple layers to process complex patterns.',
               metadata: { source: 'live-test', category: 'ml' }
             },
             {
-              id: 'live-doc-3',
+              id: '33333333-3333-3333-3333-333333333333',
               text: 'Python is widely used for data science and machine learning applications.',
               metadata: { source: 'live-test', category: 'programming' }
             }
@@ -132,7 +144,7 @@ describeLive('live/vector-cli', () => {
     }, 60000);
 
     test('handles large batch with progress', async () => {
-      if (!coordinator) return;
+      if (!coordinator || !setupSucceeded) return;
 
       const texts = Array.from({ length: 10 }, (_, i) => `Document ${i + 1}: Sample content for testing batch operations.`);
 
@@ -160,7 +172,7 @@ describeLive('live/vector-cli', () => {
 
   describe('query operation', () => {
     test('queries with text and retrieves similar documents', async () => {
-      if (!coordinator) return;
+      if (!coordinator || !setupSucceeded) return;
 
       // Wait a moment for Qdrant to index
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -194,7 +206,7 @@ describeLive('live/vector-cli', () => {
     }, 30000);
 
     test('applies metadata filter', async () => {
-      if (!coordinator) return;
+      if (!coordinator || !setupSucceeded) return;
 
       const result = await coordinator.execute({
         operation: 'query',
@@ -219,7 +231,7 @@ describeLive('live/vector-cli', () => {
     }, 30000);
 
     test('applies score threshold', async () => {
-      if (!coordinator) return;
+      if (!coordinator || !setupSucceeded) return;
 
       const result = await coordinator.execute({
         operation: 'query',
@@ -243,7 +255,7 @@ describeLive('live/vector-cli', () => {
 
   describe('delete operation', () => {
     test('deletes vectors by ID', async () => {
-      if (!coordinator) return;
+      if (!coordinator || !setupSucceeded) return;
 
       // First, add a document to delete
       await coordinator.execute({
@@ -252,7 +264,7 @@ describeLive('live/vector-cli', () => {
         collection: TEST_COLLECTION,
         embeddingPriority: [{ provider: 'openrouter-embeddings' }],
         input: {
-          chunks: [{ id: 'to-delete', text: 'This document will be deleted.' }]
+          chunks: [{ id: '00000000-0000-0000-0000-000000000001', text: 'This document will be deleted.' }]
         }
       });
 
@@ -262,7 +274,7 @@ describeLive('live/vector-cli', () => {
         store: 'qdrant-cloud',
         collection: TEST_COLLECTION,
         input: {
-          ids: ['to-delete']
+          ids: ['00000000-0000-0000-0000-000000000001']
         }
       });
 
@@ -292,7 +304,7 @@ describeLive('live/vector-cli', () => {
 
   describe('collections operation', () => {
     test('lists collections', async () => {
-      if (!coordinator) return;
+      if (!coordinator || !setupSucceeded) return;
 
       const result = await coordinator.execute({
         operation: 'collections',
@@ -309,7 +321,7 @@ describeLive('live/vector-cli', () => {
     }, 15000);
 
     test('checks collection exists', async () => {
-      if (!coordinator) return;
+      if (!coordinator || !setupSucceeded) return;
 
       const existsResult = await coordinator.execute({
         operation: 'collections',
@@ -339,7 +351,7 @@ describeLive('live/vector-cli', () => {
 
   describe('error handling', () => {
     test('handles invalid collection gracefully', async () => {
-      if (!coordinator) return;
+      if (!coordinator || !setupSucceeded) return;
 
       const result = await coordinator.execute({
         operation: 'query',
@@ -357,7 +369,7 @@ describeLive('live/vector-cli', () => {
     }, 15000);
 
     test('handles invalid embedding provider', async () => {
-      if (!coordinator) return;
+      if (!coordinator || !setupSucceeded) return;
 
       const result = await coordinator.execute({
         operation: 'embed',

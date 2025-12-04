@@ -76,7 +76,7 @@ describe('StreamCoordinator', () => {
     // Stream now emits {type: "delta", content: "..."} and {type: "DONE", response: {...}}
     expect(events.length).toBe(2);
     expect(events[0]).toMatchObject({ type: 'delta', content: 'hello' });
-    expect(events[1].type).toBe('DONE');
+    expect(events[1].type).toBe('done');
     expect(events[1].response).toBeDefined();
   });
 
@@ -151,7 +151,7 @@ describe('StreamCoordinator', () => {
     // Stream now emits {type: "delta", content: "..."}, {type: "tool_call", toolCall: {...}}, and {type: "DONE", response: {...}}
     const deltaEvents = events.filter(e => e.type === 'delta');
     const toolEvents = events.filter(e => e.type === StreamEventType.TOOL);
-    const doneEvents = events.filter(e => e.type === 'DONE');
+    const doneEvents = events.filter(e => e.type === 'done');
 
     expect(deltaEvents.length).toBeGreaterThanOrEqual(2);
     expect(deltaEvents[0].content).toBe('token-1');
@@ -223,7 +223,7 @@ describe('StreamCoordinator', () => {
     expect(followUpArgs[4]).toEqual([]);
     expect(followUpArgs[5]).toBe('none');
     // Stream now emits {type: "DONE", response: {...}} and {type: "delta", content: "..."}
-    expect(events[events.length - 1].type).toBe('DONE');
+    expect(events[events.length - 1].type).toBe('done');
     expect(events[events.length - 1].response).toBeDefined();
     expect(events.find(e => e.type === 'delta' && e.content === 'summary')).toBeDefined();
   });
@@ -295,7 +295,7 @@ describe('StreamCoordinator', () => {
     );
     expect(toolResultEvent?.toolEvent?.arguments).toBe(JSON.stringify('string-result'));
     // Stream now emits {type: "DONE", response: {...}} and {type: "delta", content: "..."}
-    expect(events[events.length - 1].type).toBe('DONE');
+    expect(events[events.length - 1].type).toBe('done');
     expect(events[events.length - 1].response).toBeDefined();
     expect(events.find(e => e.type === 'delta' && e.content === 'done')).toBeDefined();
   });

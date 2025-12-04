@@ -120,6 +120,15 @@ export interface VectorOperationInput {
    * Dimensions for collection creation
    */
   dimensions?: number;
+
+  /**
+   * Optional payload indexes to create when making a collection (store-specific support).
+   * Example (Qdrant): [{ field: 'category', type: 'keyword' }]
+   */
+  payloadIndexes?: Array<{
+    field: string;
+    type: 'keyword' | 'integer' | 'float' | 'boolean';
+  }>;
 }
 
 /**

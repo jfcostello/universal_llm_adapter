@@ -308,27 +308,30 @@ export default class OpenAIResponsesCompat implements ICompatModule {
         };
       }
       if (part.type === 'document') {
-        // OpenAI Responses API file format - FLAT structure per Azure docs
-        // Base64: { type: 'input_file', filename: '...', file_data: 'data:...' }
-        // File ID: { type: 'input_file', file_id: '...' }
-        const fileBlock: any = {
-          type: 'input_file'
-        };
-
+        // OpenAI Responses API file format (input_file content part)
+        // Accepts either file_data (base64/data URL), file_url, or file_id
+        const filename = part.filename || 'document';
         if (part.source.type === 'base64') {
           const dataUrl = `data:${part.mimeType};base64,${part.source.data}`;
-          fileBlock.filename = part.filename || 'document';
-          fileBlock.file_data = dataUrl;
-        } else if (part.source.type === 'url') {
-          // Responses API supports URLs (treated like base64)
-          fileBlock.filename = part.filename || 'document';
-          fileBlock.file_data = part.source.url;
-        } else if (part.source.type === 'file_id') {
-          // File ID format (flat structure)
-          fileBlock.file_id = part.source.fileId;
+          return {
+            type: 'input_file',
+            filename,
+            file_data: dataUrl
+          };
         }
-
-        return fileBlock;
+        if (part.source.type === 'url') {
+          return {
+            type: 'input_file',
+            filename,
+            file_data: part.source.url
+          };
+        }
+        if (part.source.type === 'file_id') {
+          return {
+            type: 'input_file',
+            file_id: part.source.fileId
+          };
+        }
       }
       return null;
     }).filter(Boolean) as Array<{type: string; text?: string; image_url?: any; file?: any}>;

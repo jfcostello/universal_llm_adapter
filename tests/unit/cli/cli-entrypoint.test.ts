@@ -58,7 +58,7 @@ describe('llm_coordinator CLI entrypoint', () => {
 
   test('stream command logs events and exits 0', async () => {
     const harness = createCliTestHarness();
-    const events = [{ type: 'TOKEN', text: 'hi' }, { type: 'DONE' }];
+    const events = [{ type: 'TOKEN', text: 'hi' }, { type: 'done' }];
     harness.coordinator.runStream.mockImplementation(() => (async function* () {
       for (const event of events) {
         yield event as any;

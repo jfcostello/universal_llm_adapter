@@ -179,7 +179,7 @@ describe('CLI llm-coordinator', () => {
     // Stream now emits {type: "delta", content: "..."} and {type: "DONE"}
     expect(lines[0]).toContain('"type":"delta"');
     expect(lines[0]).toContain('"content":"Hi"');
-    expect(lines[lines.length - 1]).toContain('"type":"DONE"');
+    expect(lines[lines.length - 1]).toContain('"type":"done"');
   });
 
   test('run command loads spec from file and stdin', async () => {

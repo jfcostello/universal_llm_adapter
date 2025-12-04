@@ -544,7 +544,8 @@ describe('coordinator/vector-coordinator', () => {
         expect(result.created).toBe(true);
         expect(vectorCompat.createCollection).toHaveBeenCalledWith(
           'new-collection',
-          1536
+          1536,
+          { payloadIndexes: [] }
         );
       });
 

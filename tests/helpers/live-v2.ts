@@ -115,7 +115,7 @@ export function collectDeltaText(events: any[]): string {
 
 export function findDone(events: any[]): any | undefined {
   for (let i = events.length - 1; i >= 0; i--) {
-    if (events[i]?.type === 'DONE') return events[i];
+    if (events[i]?.type === 'done') return events[i];
   }
   return undefined;
 }

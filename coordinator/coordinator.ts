@@ -19,7 +19,7 @@ import { RuntimeSettings } from '../core/types.js';
 import { partitionSettings, mergeProviderSettings } from '../utils/settings/settings-partitioner.js';
 import { prepareMessages, appendAssistantToolCalls, appendToolResult } from '../utils/messages/message-utils.js';
 import { collectTools } from '../utils/tools/tool-discovery.js';
-import { sanitizeToolName } from '../utils/tools/tool-names.js';
+import { sanitizeToolName, sanitizeToolChoice } from '../utils/tools/tool-names.js';
 import { processDocumentContent } from '../utils/documents/document-loader.js';
 import { runToolLoop } from '../utils/tools/tool-loop.js';
 import { ProviderExecutionError } from '../core/errors.js';
@@ -128,6 +128,9 @@ export class LLMCoordinator {
     }
 
     const [tools, mcpServers, toolNameMap] = await this.collectTools(executionSpec);
+
+    // Sanitize toolChoice to match sanitized tool names
+    executionSpec.toolChoice = sanitizeToolChoice(executionSpec.toolChoice);
 
     const runContext = {
       tools: tools.map(t => t.name),
@@ -273,6 +276,9 @@ export class LLMCoordinator {
     }
 
     const [tools, mcpServers, toolNameMap] = await this.collectTools(executionSpec);
+
+    // Sanitize toolChoice to match sanitized tool names
+    streamExecutionSpec.toolChoice = sanitizeToolChoice(streamExecutionSpec.toolChoice);
 
     const runLogger = this.logger.withCorrelation(spec.metadata?.correlationId as string);
     runLogger.info('Streaming call started', {

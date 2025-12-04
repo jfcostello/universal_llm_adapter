@@ -801,6 +801,10 @@ export QDRANT_CLOUD_URL=https://your-cluster.qdrant.io
 export QDRANT_API_KEY=your-key
 ```
 
+Qdrant notes:
+- Point IDs must be UUIDs or integers (e.g., `11111111-1111-1111-1111-111111111111`). Non-UUID strings will be rejected by the API.
+- Filtering by payload fields on Qdrant Cloud requires creating a payload index first (e.g., add `payloadIndexes: [{ field: 'category', type: 'keyword' }]` when creating the collection).
+
 For local Qdrant, start the server:
 ```bash
 docker run -p 6333:6333 qdrant/qdrant
