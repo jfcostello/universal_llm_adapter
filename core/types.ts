@@ -201,6 +201,12 @@ export interface VectorContextConfig {
   stores: string[];
 
   /**
+   * Collection to query. Overrides defaultCollection from store config.
+   * If not specified, uses the store's defaultCollection.
+   */
+  collection?: string;
+
+  /**
    * How to use vector search results:
    * - 'auto': Query before LLM call, inject results into context
    * - 'tool': Create a vector_search tool the LLM can call

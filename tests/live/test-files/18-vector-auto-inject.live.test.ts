@@ -146,6 +146,7 @@ describeLive('live/vector-auto-inject', () => {
         ],
         vectorContext: {
           stores: ['qdrant-cloud'],
+          collection: TEST_COLLECTION,
           mode: 'auto',
           topK: 2,
           injectAs: 'system',
@@ -179,6 +180,7 @@ describeLive('live/vector-auto-inject', () => {
         ],
         vectorContext: {
           stores: ['qdrant-cloud'],
+          collection: TEST_COLLECTION,
           mode: 'auto',
           topK: 5,
           filter: { topic: 'geography' },
@@ -210,6 +212,7 @@ describeLive('live/vector-auto-inject', () => {
         ],
         vectorContext: {
           stores: ['qdrant-cloud'],
+          collection: TEST_COLLECTION,
           mode: 'auto',
           topK: 3,
           scoreThreshold: 0.9, // Very high threshold - unlikely to match
@@ -241,6 +244,7 @@ describeLive('live/vector-auto-inject', () => {
         ],
         vectorContext: {
           stores: ['qdrant-cloud'],
+          collection: TEST_COLLECTION,
           mode: 'tool',
           topK: 3,
           toolName: 'search_knowledge_base',
@@ -275,6 +279,7 @@ describeLive('live/vector-auto-inject', () => {
         ],
         vectorContext: {
           stores: ['qdrant-cloud'],
+          collection: TEST_COLLECTION,
           mode: 'both',
           topK: 2,
           injectAs: 'system',
@@ -310,6 +315,7 @@ describeLive('live/vector-auto-inject', () => {
         ],
         vectorContext: {
           stores: ['qdrant-cloud'],
+          collection: TEST_COLLECTION,
           mode: 'auto',
           topK: 2,
           injectAs: 'system'

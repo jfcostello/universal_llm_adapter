@@ -5,7 +5,8 @@ import { fileURLToPath } from 'url';
 // Type imports
 import type { LLMCoordinator } from '@/coordinator/coordinator.ts';
 import type { PluginRegistry } from '@/core/registry.ts';
-import type { LLMCallSpec, Message, Role, VectorContextConfig } from '@/core/types.ts';
+import type { LLMCallSpec, Message, Role, VectorContextConfig, TextContent } from '@/core/types.ts';
+import type { VectorContextInjector } from '@/utils/vector/vector-context-injector.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,6 +15,7 @@ const ROOT_DIR = path.resolve(__dirname, '../../..');
 describe('integration/vector/auto-inject', () => {
   let LLMCoordinatorClass: typeof LLMCoordinator;
   let PluginRegistryClass: typeof PluginRegistry;
+  let VectorContextInjectorClass: typeof VectorContextInjector;
   let registry: PluginRegistry;
   let coordinator: LLMCoordinator;
 
@@ -21,8 +23,10 @@ describe('integration/vector/auto-inject', () => {
     try {
       const coordinatorModule = await import('@/coordinator/coordinator.ts');
       const registryModule = await import('@/core/registry.ts');
+      const injectorModule = await import('@/utils/vector/vector-context-injector.ts');
       LLMCoordinatorClass = coordinatorModule.LLMCoordinator;
       PluginRegistryClass = registryModule.PluginRegistry;
+      VectorContextInjectorClass = injectorModule.VectorContextInjector;
     } catch (error) {
       console.warn('Modules not available - skipping auto-inject integration tests');
     }
@@ -35,8 +39,6 @@ describe('integration/vector/auto-inject', () => {
     registry = new PluginRegistryClass(pluginsPath);
     await registry.loadAll();
 
-    // Set up coordinator with a vector manager
-    // Note: This may need adjustment based on actual implementation
     coordinator = new LLMCoordinatorClass(registry);
   });
 
@@ -44,145 +46,435 @@ describe('integration/vector/auto-inject', () => {
     await coordinator?.close();
   });
 
-  describe('auto-inject mode', () => {
-    test('injects retrieved context into system prompt', async () => {
-      if (!coordinator) {
-        console.warn('Skipping - coordinator not available');
-        return;
-      }
+  describe('VectorContextInjector execution', () => {
+    test('injectContext modifies messages with retrieved context', async () => {
+      if (!VectorContextInjectorClass) return;
 
-      // This test documents expected behavior
-      // The actual LLM call will be mocked in real tests
-
-      const spec: LLMCallSpec = {
-        messages: [
-          {
-            role: 'user' as any,
-            content: [{ type: 'text', text: 'What is machine learning?' }]
-          }
-        ],
-        vectorContext: {
-          stores: ['memory'],
-          mode: 'auto',
-          topK: 3,
-          injectAs: 'system',
-          injectTemplate: 'Use this context:\n\n{{results}}'
-        },
-        llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
-        settings: { temperature: 0.7 }
+      // Create mock registry with vector store and embedding support
+      const mockEmbeddingCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1, 0.2, 0.3]],
+          model: 'test-model',
+          dimensions: 3
+        }),
+        getDimensions: jest.fn().mockReturnValue(3)
       };
 
-      // Note: This test requires mocking or a test LLM provider
-      // For now, we're documenting the expected interface
-      expect(spec.vectorContext?.mode).toBe('auto');
-      expect(spec.vectorContext?.injectAs).toBe('system');
+      const mockVectorCompat = {
+        connect: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockResolvedValue([
+          { id: 'doc1', score: 0.95, payload: { text: 'Machine learning is a subset of AI.' } },
+          { id: 'doc2', score: 0.85, payload: { text: 'Neural networks process data.' } }
+        ]),
+        close: jest.fn().mockResolvedValue(undefined)
+      };
+
+      const mockRegistry = {
+        getEmbeddingProvider: jest.fn().mockResolvedValue({
+          id: 'test-embeddings',
+          kind: 'openrouter',
+          endpoint: { urlTemplate: 'http://test', headers: {} },
+          model: 'test-model',
+          dimensions: 3
+        }),
+        getEmbeddingCompat: jest.fn().mockResolvedValue(mockEmbeddingCompat),
+        getVectorStore: jest.fn().mockResolvedValue({
+          id: 'test-store',
+          kind: 'memory',
+          defaultCollection: 'test-collection'
+        }),
+        getVectorStoreCompat: jest.fn().mockResolvedValue(mockVectorCompat)
+      };
+
+      const injector = new VectorContextInjectorClass({
+        registry: mockRegistry as any
+      });
+
+      const messages: Message[] = [
+        {
+          role: 'user' as Role,
+          content: [{ type: 'text', text: 'What is machine learning?' }]
+        }
+      ];
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        topK: 2,
+        injectAs: 'system',
+        injectTemplate: 'Relevant context:\n{{results}}',
+        embeddingPriority: [{ provider: 'test-embeddings' }]
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      // Verify context was injected
+      expect(result.resultsInjected).toBe(2);
+      expect(result.query).toBe('What is machine learning?');
+      expect(result.messages.length).toBeGreaterThan(messages.length);
+
+      // Verify system message was added with context
+      const systemMessage = result.messages.find(m => m.role === 'system');
+      expect(systemMessage).toBeDefined();
+      const systemText = (systemMessage!.content[0] as TextContent).text;
+      expect(systemText).toContain('Machine learning is a subset of AI');
+      expect(systemText).toContain('Neural networks process data');
     });
 
-    test('injects context as user_context message', async () => {
-      if (!coordinator) return;
+    test('injectContext respects collection override', async () => {
+      if (!VectorContextInjectorClass) return;
 
-      const spec: LLMCallSpec = {
-        systemPrompt: 'You are a helpful assistant.',
-        messages: [
-          { role: 'user' as any, content: [{ type: 'text', text: 'Previous question' }] },
-          { role: 'assistant' as any, content: [{ type: 'text', text: 'Previous answer' }] },
-          { role: 'user' as any, content: [{ type: 'text', text: 'Follow-up question' }] }
-        ],
-        vectorContext: {
-          stores: ['memory'],
-          mode: 'auto',
-          topK: 5,
-          injectAs: 'user_context'
-        },
-        llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
-        settings: {}
+      const mockEmbeddingCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1, 0.2, 0.3]],
+          model: 'test-model',
+          dimensions: 3
+        }),
+        getDimensions: jest.fn().mockReturnValue(3)
       };
 
-      expect(spec.vectorContext?.injectAs).toBe('user_context');
+      const mockVectorCompat = {
+        connect: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockResolvedValue([
+          { id: 'doc1', score: 0.9, payload: { text: 'Custom collection data.' } }
+        ]),
+        close: jest.fn().mockResolvedValue(undefined)
+      };
+
+      const mockRegistry = {
+        getEmbeddingProvider: jest.fn().mockResolvedValue({
+          id: 'test-embeddings',
+          kind: 'openrouter',
+          endpoint: { urlTemplate: 'http://test', headers: {} },
+          model: 'test-model',
+          dimensions: 3
+        }),
+        getEmbeddingCompat: jest.fn().mockResolvedValue(mockEmbeddingCompat),
+        getVectorStore: jest.fn().mockResolvedValue({
+          id: 'test-store',
+          kind: 'memory',
+          defaultCollection: 'default-collection'  // This should be overridden
+        }),
+        getVectorStoreCompat: jest.fn().mockResolvedValue(mockVectorCompat)
+      };
+
+      const injector = new VectorContextInjectorClass({
+        registry: mockRegistry as any
+      });
+
+      const messages: Message[] = [
+        { role: 'user' as Role, content: [{ type: 'text', text: 'Query' }] }
+      ];
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        collection: 'custom-collection',  // Override default
+        embeddingPriority: [{ provider: 'test-embeddings' }]
+      };
+
+      await injector.injectContext(messages, config);
+
+      // Verify query was called with the custom collection, not default
+      expect(mockVectorCompat.query).toHaveBeenCalledWith(
+        'custom-collection',
+        expect.any(Array),
+        expect.any(Number),
+        expect.any(Object)
+      );
+    });
+
+    test('injectContext uses default collection when not specified', async () => {
+      if (!VectorContextInjectorClass) return;
+
+      const mockEmbeddingCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1, 0.2, 0.3]],
+          model: 'test-model',
+          dimensions: 3
+        }),
+        getDimensions: jest.fn().mockReturnValue(3)
+      };
+
+      const mockVectorCompat = {
+        connect: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockResolvedValue([]),
+        close: jest.fn().mockResolvedValue(undefined)
+      };
+
+      const mockRegistry = {
+        getEmbeddingProvider: jest.fn().mockResolvedValue({
+          id: 'test-embeddings',
+          kind: 'openrouter',
+          endpoint: { urlTemplate: 'http://test', headers: {} },
+          model: 'test-model',
+          dimensions: 3
+        }),
+        getEmbeddingCompat: jest.fn().mockResolvedValue(mockEmbeddingCompat),
+        getVectorStore: jest.fn().mockResolvedValue({
+          id: 'test-store',
+          kind: 'memory',
+          defaultCollection: 'store-default-collection'
+        }),
+        getVectorStoreCompat: jest.fn().mockResolvedValue(mockVectorCompat)
+      };
+
+      const injector = new VectorContextInjectorClass({
+        registry: mockRegistry as any
+      });
+
+      const messages: Message[] = [
+        { role: 'user' as Role, content: [{ type: 'text', text: 'Query' }] }
+      ];
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        // No collection specified - should use store default
+        embeddingPriority: [{ provider: 'test-embeddings' }]
+      };
+
+      await injector.injectContext(messages, config);
+
+      // Verify query was called with the store's default collection
+      expect(mockVectorCompat.query).toHaveBeenCalledWith(
+        'store-default-collection',
+        expect.any(Array),
+        expect.any(Number),
+        expect.any(Object)
+      );
+    });
+
+    test('injectContext applies score threshold', async () => {
+      if (!VectorContextInjectorClass) return;
+
+      const mockEmbeddingCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1, 0.2, 0.3]],
+          model: 'test-model',
+          dimensions: 3
+        }),
+        getDimensions: jest.fn().mockReturnValue(3)
+      };
+
+      const mockVectorCompat = {
+        connect: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockResolvedValue([
+          { id: 'doc1', score: 0.95, payload: { text: 'High score result.' } },
+          { id: 'doc2', score: 0.75, payload: { text: 'Medium score result.' } },
+          { id: 'doc3', score: 0.50, payload: { text: 'Low score result.' } }
+        ]),
+        close: jest.fn().mockResolvedValue(undefined)
+      };
+
+      const mockRegistry = {
+        getEmbeddingProvider: jest.fn().mockResolvedValue({
+          id: 'test-embeddings',
+          kind: 'openrouter',
+          endpoint: { urlTemplate: 'http://test', headers: {} },
+          model: 'test-model',
+          dimensions: 3
+        }),
+        getEmbeddingCompat: jest.fn().mockResolvedValue(mockEmbeddingCompat),
+        getVectorStore: jest.fn().mockResolvedValue({
+          id: 'test-store',
+          kind: 'memory',
+          defaultCollection: 'test'
+        }),
+        getVectorStoreCompat: jest.fn().mockResolvedValue(mockVectorCompat)
+      };
+
+      const injector = new VectorContextInjectorClass({
+        registry: mockRegistry as any
+      });
+
+      const messages: Message[] = [
+        { role: 'user' as Role, content: [{ type: 'text', text: 'Query' }] }
+      ];
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        scoreThreshold: 0.8,  // Only results >= 0.8
+        embeddingPriority: [{ provider: 'test-embeddings' }]
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      // Only the high score result should be injected
+      expect(result.resultsInjected).toBe(1);
+      const systemMessage = result.messages.find(m => m.role === 'system');
+      const systemText = (systemMessage!.content[0] as TextContent).text;
+      expect(systemText).toContain('High score result');
+      expect(systemText).not.toContain('Medium score result');
+      expect(systemText).not.toContain('Low score result');
+    });
+
+    test('injectContext injects as user_context before last user message', async () => {
+      if (!VectorContextInjectorClass) return;
+
+      const mockEmbeddingCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1, 0.2, 0.3]],
+          model: 'test-model',
+          dimensions: 3
+        }),
+        getDimensions: jest.fn().mockReturnValue(3)
+      };
+
+      const mockVectorCompat = {
+        connect: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockResolvedValue([
+          { id: 'doc1', score: 0.9, payload: { text: 'Context data.' } }
+        ]),
+        close: jest.fn().mockResolvedValue(undefined)
+      };
+
+      const mockRegistry = {
+        getEmbeddingProvider: jest.fn().mockResolvedValue({
+          id: 'test-embeddings',
+          kind: 'openrouter',
+          endpoint: { urlTemplate: 'http://test', headers: {} },
+          model: 'test-model',
+          dimensions: 3
+        }),
+        getEmbeddingCompat: jest.fn().mockResolvedValue(mockEmbeddingCompat),
+        getVectorStore: jest.fn().mockResolvedValue({
+          id: 'test-store',
+          kind: 'memory',
+          defaultCollection: 'test'
+        }),
+        getVectorStoreCompat: jest.fn().mockResolvedValue(mockVectorCompat)
+      };
+
+      const injector = new VectorContextInjectorClass({
+        registry: mockRegistry as any
+      });
+
+      const messages: Message[] = [
+        { role: 'user' as Role, content: [{ type: 'text', text: 'First question' }] },
+        { role: 'assistant' as Role, content: [{ type: 'text', text: 'First answer' }] },
+        { role: 'user' as Role, content: [{ type: 'text', text: 'Follow-up question' }] }
+      ];
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        injectAs: 'user_context',
+        embeddingPriority: [{ provider: 'test-embeddings' }]
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      // Context should be inserted before the last user message
+      expect(result.messages.length).toBe(4);  // Original 3 + 1 injected
+
+      // Find injected message (should be at index 2, before "Follow-up question")
+      const injectedMessage = result.messages[2];
+      expect(injectedMessage.role).toBe('user');
+      expect((injectedMessage.content[0] as TextContent).text).toContain('Context data');
+
+      // Last message should still be the follow-up question
+      const lastMessage = result.messages[3];
+      expect((lastMessage.content[0] as TextContent).text).toBe('Follow-up question');
+    });
+
+    test('injectContext returns original messages for tool mode', async () => {
+      if (!VectorContextInjectorClass) return;
+
+      const mockRegistry = {
+        getEmbeddingProvider: jest.fn(),
+        getEmbeddingCompat: jest.fn(),
+        getVectorStore: jest.fn(),
+        getVectorStoreCompat: jest.fn()
+      };
+
+      const injector = new VectorContextInjectorClass({
+        registry: mockRegistry as any
+      });
+
+      const messages: Message[] = [
+        { role: 'user' as Role, content: [{ type: 'text', text: 'Query' }] }
+      ];
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'tool'  // Tool mode - no auto-injection
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      // Should return original messages unchanged
+      expect(result.messages).toEqual(messages);
+      expect(result.resultsInjected).toBe(0);
+
+      // No vector operations should have been called
+      expect(mockRegistry.getVectorStore).not.toHaveBeenCalled();
     });
   });
 
-  describe('tool mode', () => {
-    test('creates vector_search tool when mode is tool', async () => {
-      if (!coordinator) return;
+  describe('tool mode - vector_search tool creation', () => {
+    test('creates vector_search tool with correct schema', async () => {
+      const { createVectorSearchTool } = await import('@/utils/tools/tool-discovery.ts');
 
-      const spec: LLMCallSpec = {
-        messages: [
-          { role: 'user' as any, content: [{ type: 'text', text: 'Search for relevant docs' }] }
-        ],
-        vectorContext: {
-          stores: ['memory'],
-          mode: 'tool',
-          toolName: 'search_knowledge_base',
-          toolDescription: 'Search the knowledge base for relevant information'
-        },
-        llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
-        settings: {}
+      const config: VectorContextConfig = {
+        stores: ['store1', 'store2'],
+        mode: 'tool',
+        topK: 10,
+        toolName: 'search_docs',
+        toolDescription: 'Search documentation'
       };
 
-      expect(spec.vectorContext?.mode).toBe('tool');
-      expect(spec.vectorContext?.toolName).toBe('search_knowledge_base');
+      const tool = createVectorSearchTool(config);
+
+      expect(tool.name).toBe('search_docs');
+      expect(tool.description).toBe('Search documentation');
+      expect(tool.parametersJsonSchema).toBeDefined();
+      expect(tool.parametersJsonSchema.properties.query).toBeDefined();
+      expect(tool.parametersJsonSchema.properties.topK).toBeDefined();
+      expect(tool.parametersJsonSchema.properties.store).toBeDefined();
+      expect(tool.parametersJsonSchema.required).toContain('query');
+    });
+
+    test('uses default tool name and description when not specified', async () => {
+      const { createVectorSearchTool } = await import('@/utils/tools/tool-discovery.ts');
+
+      const config: VectorContextConfig = {
+        stores: ['my-store'],
+        mode: 'tool'
+      };
+
+      const tool = createVectorSearchTool(config);
+
+      expect(tool.name).toBe('vector_search');
+      expect(tool.description).toContain('my-store');
     });
   });
 
-  describe('both mode (hybrid)', () => {
-    test('injects context and provides tool', async () => {
-      if (!coordinator) return;
+  describe('both mode - hybrid behavior', () => {
+    test('shouldCreateVectorSearchTool returns true for both mode', async () => {
+      const { shouldCreateVectorSearchTool } = await import('@/utils/tools/tool-discovery.ts');
 
-      const spec: LLMCallSpec = {
-        systemPrompt: 'You are a helpful assistant with access to a knowledge base.',
-        messages: [
-          { role: 'user' as any, content: [{ type: 'text', text: 'Tell me about machine learning' }] }
-        ],
-        vectorContext: {
-          stores: ['memory'],
-          mode: 'both',
-          topK: 3,
-          injectAs: 'system',
-          injectTemplate: 'Initial context:\n{{results}}\n\nYou can search for more using the search tool.',
-          toolName: 'search_more',
-          toolDescription: 'Search for additional information'
-        },
-        llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
-        settings: {}
-      };
-
-      expect(spec.vectorContext?.mode).toBe('both');
-      // In 'both' mode:
-      // 1. Context is auto-injected before the call
-      // 2. A search tool is also available for follow-up queries
+      expect(shouldCreateVectorSearchTool('both')).toBe(true);
+      expect(shouldCreateVectorSearchTool('tool')).toBe(true);
+      expect(shouldCreateVectorSearchTool('auto')).toBe(false);
+      expect(shouldCreateVectorSearchTool(undefined)).toBe(false);
     });
   });
 
   describe('backward compatibility', () => {
-    test('existing vectorPriority still works for tool retrieval', async () => {
+    test('vectorPriority and vectorContext are independent', async () => {
       if (!coordinator) return;
 
-      // vectorPriority is for semantic tool selection (existing behavior)
-      const spec: LLMCallSpec = {
-        messages: [
-          { role: 'user' as any, content: [{ type: 'text', text: 'I need to calculate something' }] }
-        ],
-        vectorPriority: ['tool-store'], // Retrieves tools from vector store
-        llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
-        settings: {}
-      };
-
-      // This should work independently of vectorContext
-      expect(spec.vectorPriority).toBeDefined();
-      expect(spec.vectorContext).toBeUndefined();
-    });
-
-    test('vectorContext and vectorPriority can coexist', async () => {
-      if (!coordinator) return;
+      // vectorPriority is for semantic tool selection
+      // vectorContext is for RAG context injection
+      // Both can be specified and work independently
 
       const spec: LLMCallSpec = {
         messages: [
-          { role: 'user' as any, content: [{ type: 'text', text: 'Complex query' }] }
+          { role: 'user' as Role, content: [{ type: 'text', text: 'Query' }] }
         ],
-        // vectorPriority for tool selection
         vectorPriority: ['tool-store'],
-        // vectorContext for RAG
         vectorContext: {
           stores: ['doc-store'],
           mode: 'auto',
@@ -192,70 +484,12 @@ describe('integration/vector/auto-inject', () => {
         settings: {}
       };
 
-      // Both can be specified for different purposes
+      // Both can be defined
       expect(spec.vectorPriority).toBeDefined();
       expect(spec.vectorContext).toBeDefined();
-    });
-  });
-
-  describe('configuration options', () => {
-    test('respects score threshold', async () => {
-      if (!coordinator) return;
-
-      const spec: LLMCallSpec = {
-        messages: [
-          { role: 'user' as any, content: [{ type: 'text', text: 'Query' }] }
-        ],
-        vectorContext: {
-          stores: ['memory'],
-          mode: 'auto',
-          scoreThreshold: 0.8 // Only inject results with score >= 0.8
-        },
-        llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
-        settings: {}
-      };
-
-      expect(spec.vectorContext?.scoreThreshold).toBe(0.8);
-    });
-
-    test('applies metadata filter', async () => {
-      if (!coordinator) return;
-
-      const spec: LLMCallSpec = {
-        messages: [
-          { role: 'user' as any, content: [{ type: 'text', text: 'Query about tech' }] }
-        ],
-        vectorContext: {
-          stores: ['memory'],
-          mode: 'auto',
-          filter: { category: 'technology', year: 2024 }
-        },
-        llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
-        settings: {}
-      };
-
-      expect(spec.vectorContext?.filter).toEqual({ category: 'technology', year: 2024 });
-    });
-
-    test('uses custom embedding priority', async () => {
-      if (!coordinator) return;
-
-      const spec: LLMCallSpec = {
-        messages: [
-          { role: 'user' as any, content: [{ type: 'text', text: 'Query' }] }
-        ],
-        vectorContext: {
-          stores: ['memory'],
-          mode: 'auto',
-          embeddingPriority: [
-            { provider: 'openrouter-embeddings', model: 'openai/text-embedding-3-large' }
-          ]
-        },
-        llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
-        settings: {}
-      };
-
-      expect(spec.vectorContext?.embeddingPriority?.[0].model).toBe('openai/text-embedding-3-large');
+      // They serve different purposes
+      expect(spec.vectorPriority).toContain('tool-store');
+      expect(spec.vectorContext?.stores).toContain('doc-store');
     });
   });
 });

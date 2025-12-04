@@ -98,7 +98,7 @@ export class VectorContextInjector {
           const compat = (await this.vectorManager!.getCompat(storeId))!;
 
           const storeConfig = await this.registry.getVectorStore(storeId);
-          const collection = storeConfig.defaultCollection ?? 'default';
+          const collection = config.collection ?? storeConfig.defaultCollection ?? 'default';
 
           const storeResults = await compat.query(
             collection,
