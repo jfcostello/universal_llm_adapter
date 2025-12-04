@@ -250,6 +250,46 @@ describe('plugins/vector-compat/memory', () => {
     });
   });
 
+  describe('deleteCollection', () => {
+    test('deletes existing collection', async () => {
+      await compat.createCollection('to-delete', 128);
+      expect(await compat.collectionExists('to-delete')).toBe(true);
+
+      await compat.deleteCollection('to-delete');
+      expect(await compat.collectionExists('to-delete')).toBe(false);
+    });
+
+    test('does not throw if collection does not exist', async () => {
+      await expect(compat.deleteCollection('nonexistent')).resolves.not.toThrow();
+    });
+
+    test('throws when not connected', async () => {
+      const disconnected = new MemoryCompat();
+      await expect(disconnected.deleteCollection('test')).rejects.toThrow(VectorStoreError);
+    });
+  });
+
+  describe('listCollections', () => {
+    test('lists all collections', async () => {
+      await compat.createCollection('col1', 128);
+      await compat.createCollection('col2', 128);
+
+      const collections = await compat.listCollections();
+      expect(collections).toContain('col1');
+      expect(collections).toContain('col2');
+    });
+
+    test('returns empty array when no collections', async () => {
+      const collections = await compat.listCollections();
+      expect(collections).toEqual([]);
+    });
+
+    test('throws when not connected', async () => {
+      const disconnected = new MemoryCompat();
+      await expect(disconnected.listCollections()).rejects.toThrow(VectorStoreError);
+    });
+  });
+
   describe('utility methods', () => {
     test('getCollectionPoints returns all points', async () => {
       await compat.upsert('test', [

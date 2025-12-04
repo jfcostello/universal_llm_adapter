@@ -309,4 +309,60 @@ describe('managers/vector-store-manager', () => {
       expect(mockRegistry.getVectorStoreCompat).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('upsert with collection parameter', () => {
+    test('throws error when compat not found for upsert with collection', async () => {
+      const mockRegistry = {
+        getVectorStore: jest.fn().mockResolvedValue({
+          id: 'store',
+          kind: 'unknown'
+        }),
+        getVectorStoreCompat: jest.fn().mockResolvedValue(null)
+      };
+
+      const manager = new VectorStoreManager(new Map(), new Map(), async () => [0.1], mockRegistry);
+
+      await expect(manager.upsert('store', [{ id: '1', vector: [0.1] }], 'custom-collection'))
+        .rejects
+        .toThrow("No adapter registered for vector store 'store'");
+    });
+
+    test('upserts to specified collection when compat is found', async () => {
+      const mockCompat = createMockCompat();
+      const mockRegistry = createMockRegistry({ compat: mockCompat });
+      const manager = new VectorStoreManager(new Map(), new Map(), async () => [0.1], mockRegistry);
+
+      await manager.upsert('store', [{ id: '1', vector: [0.1] }], 'custom-collection');
+
+      expect(mockCompat.upsert).toHaveBeenCalledWith('custom-collection', [{ id: '1', vector: [0.1] }]);
+    });
+  });
+
+  describe('deleteByIds with collection parameter', () => {
+    test('throws error when compat not found for deleteByIds with collection', async () => {
+      const mockRegistry = {
+        getVectorStore: jest.fn().mockResolvedValue({
+          id: 'store',
+          kind: 'unknown'
+        }),
+        getVectorStoreCompat: jest.fn().mockResolvedValue(null)
+      };
+
+      const manager = new VectorStoreManager(new Map(), new Map(), async () => [0.1], mockRegistry);
+
+      await expect(manager.deleteByIds('store', ['id1', 'id2'], 'custom-collection'))
+        .rejects
+        .toThrow("No adapter registered for vector store 'store'");
+    });
+
+    test('deletes from specified collection when compat is found', async () => {
+      const mockCompat = createMockCompat();
+      const mockRegistry = createMockRegistry({ compat: mockCompat });
+      const manager = new VectorStoreManager(new Map(), new Map(), async () => [0.1], mockRegistry);
+
+      await manager.deleteByIds('store', ['id1', 'id2'], 'custom-collection');
+
+      expect(mockCompat.deleteByIds).toHaveBeenCalledWith('custom-collection', ['id1', 'id2']);
+    });
+  });
 });

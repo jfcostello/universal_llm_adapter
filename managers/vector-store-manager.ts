@@ -98,18 +98,42 @@ export class VectorStoreManager {
 
   /**
    * Upsert points to a specific store
+   * @param storeId - The store ID to upsert to
+   * @param points - The vector points to upsert
+   * @param collection - Optional collection override (uses default from config if not provided)
    */
-  async upsert(storeId: string, points: VectorPoint[]): Promise<void> {
-    const adapter = await this.requireAdapter(storeId);
-    await adapter.upsert(points);
+  async upsert(storeId: string, points: VectorPoint[], collection?: string): Promise<void> {
+    if (collection) {
+      // Direct compat access for collection override
+      const compat = await this.getCompat(storeId);
+      if (!compat) {
+        throw new VectorStoreError(`No adapter registered for vector store '${storeId}'`, storeId);
+      }
+      await compat.upsert(collection, points);
+    } else {
+      const adapter = await this.requireAdapter(storeId);
+      await adapter.upsert(points);
+    }
   }
 
   /**
    * Delete points by ID from a specific store
+   * @param storeId - The store ID to delete from
+   * @param ids - The IDs to delete
+   * @param collection - Optional collection override (uses default from config if not provided)
    */
-  async deleteByIds(storeId: string, ids: string[]): Promise<void> {
-    const adapter = await this.requireAdapter(storeId);
-    await adapter.deleteByIds(ids);
+  async deleteByIds(storeId: string, ids: string[], collection?: string): Promise<void> {
+    if (collection) {
+      // Direct compat access for collection override
+      const compat = await this.getCompat(storeId);
+      if (!compat) {
+        throw new VectorStoreError(`No adapter registered for vector store '${storeId}'`, storeId);
+      }
+      await compat.deleteByIds(collection, ids);
+    } else {
+      const adapter = await this.requireAdapter(storeId);
+      await adapter.deleteByIds(ids);
+    }
   }
 
   /**

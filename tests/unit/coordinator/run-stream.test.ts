@@ -667,4 +667,128 @@ describe('LLMCoordinator runStream', () => {
     // No assertion needed; the goal is to cover the false branch of if(parsed.text)
     expect(true).toBe(true);
   });
+
+  describe('vector context injection', () => {
+    function createCoordinatorWithVectorSupport() {
+      const mockInjector = {
+        injectContext: jest.fn().mockResolvedValue({
+          messages: [{ role: Role.USER, content: [{ type: 'text', text: 'Modified query' }] }],
+          resultsInjected: 2,
+          query: 'test query'
+        })
+      };
+
+      const registry = {
+        getProvider: jest.fn().mockReturnValue({ id: 'openrouter', compat: 'openai' }),
+        getCompatModule: jest.fn().mockReturnValue({
+          parseStreamChunk: jest.fn().mockReturnValue({ text: 'response' })
+        }),
+        getMCPServers: jest.fn().mockReturnValue([]),
+        getProcessRoutes: jest.fn().mockReturnValue([]),
+        getVectorStore: jest.fn().mockResolvedValue({ id: 'test-store', kind: 'memory' }),
+        getVectorStoreCompat: jest.fn().mockResolvedValue({
+          connect: jest.fn(),
+          close: jest.fn(),
+          query: jest.fn().mockResolvedValue([])
+        }),
+        getEmbeddingProvider: jest.fn().mockReturnValue({
+          compat: { embed: jest.fn().mockResolvedValue({ vectors: [[0.1]], model: 'test', dimensions: 1 }) }
+        })
+      } as any;
+
+      const coordinator = new LLMCoordinator(registry);
+
+      // Mock the LLM manager
+      (coordinator as any).llmManager = {
+        streamProvider: jest.fn().mockImplementation(async function* () {
+          yield { text: 'response' };
+        }),
+        callProvider: jest.fn().mockResolvedValue({
+          text: 'LLM response',
+          usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30 }
+        })
+      };
+
+      return { coordinator, registry, mockInjector };
+    }
+
+    test('runStream injects vector context when mode is auto', async () => {
+      const { coordinator, mockInjector } = createCoordinatorWithVectorSupport();
+
+      // Inject the mock injector
+      (coordinator as any).vectorContextInjector = mockInjector;
+
+      const events: any[] = [];
+      for await (const event of coordinator.runStream({
+        messages: [{ role: Role.USER, content: [{ type: 'text', text: 'Query' }] }],
+        llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
+        settings: {},
+        vectorContext: {
+          stores: ['test-store'],
+          mode: 'auto'
+        }
+      })) {
+        events.push(event);
+      }
+
+      expect(mockInjector.injectContext).toHaveBeenCalled();
+    });
+
+    test('runStream injects vector context when mode is both', async () => {
+      const { coordinator, mockInjector } = createCoordinatorWithVectorSupport();
+
+      // Inject the mock injector
+      (coordinator as any).vectorContextInjector = mockInjector;
+
+      const events: any[] = [];
+      for await (const event of coordinator.runStream({
+        messages: [{ role: Role.USER, content: [{ type: 'text', text: 'Query' }] }],
+        llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
+        settings: {},
+        vectorContext: {
+          stores: ['test-store'],
+          mode: 'both'
+        }
+      })) {
+        events.push(event);
+      }
+
+      expect(mockInjector.injectContext).toHaveBeenCalled();
+    });
+
+    test('runStream does not inject when mode is tool', async () => {
+      const { coordinator, mockInjector } = createCoordinatorWithVectorSupport();
+
+      // Inject the mock injector
+      (coordinator as any).vectorContextInjector = mockInjector;
+
+      const events: any[] = [];
+      for await (const event of coordinator.runStream({
+        messages: [{ role: Role.USER, content: [{ type: 'text', text: 'Query' }] }],
+        llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
+        settings: {},
+        vectorContext: {
+          stores: ['test-store'],
+          mode: 'tool'
+        }
+      })) {
+        events.push(event);
+      }
+
+      expect(mockInjector.injectContext).not.toHaveBeenCalled();
+    });
+
+    test('ensureVectorContextInjector lazily initializes injector', async () => {
+      const { coordinator, registry } = createCoordinatorWithVectorSupport();
+
+      // Initially no injector
+      expect((coordinator as any).vectorContextInjector).toBeUndefined();
+
+      // Call private method to ensure initialization
+      const injector = await (coordinator as any).ensureVectorContextInjector();
+
+      expect(injector).toBeDefined();
+      expect((coordinator as any).vectorContextInjector).toBe(injector);
+    });
+  });
 });

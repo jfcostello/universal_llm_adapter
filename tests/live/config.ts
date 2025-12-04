@@ -54,7 +54,7 @@ export const testRuns: TestRun[] = [
     llmPriority: [
       {
         provider: 'openrouter',
-        model: 'openai/gpt-5-mini'
+        model: 'google/gemini-2.5-flash-preview-09-2025'
       }
     ],
     settings: {
@@ -95,6 +95,6 @@ export const invalidPriorityEntry = {
  * - 2 providers: 60s * 2 = 120s total timeout per test
  * - 3 providers: 600s * 3 = 180s total timeout per test
  */
-export const baseTestTimeout = 60000; // 60 seconds per provider
+export const baseTestTimeout = 120000; // 120 seconds per provider
 export const timeoutMultiplier = testRuns.length;
 export const totalTestTimeout = baseTestTimeout * timeoutMultiplier;

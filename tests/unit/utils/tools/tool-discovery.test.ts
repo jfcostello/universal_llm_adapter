@@ -1,6 +1,6 @@
 import { describe, expect, jest, test } from '@jest/globals';
-import { collectTools } from '@/utils/tools/tool-discovery.ts';
-import { LLMCallSpec, UnifiedTool } from '@/core/types.ts';
+import { collectTools, shouldCreateVectorSearchTool, createVectorSearchTool } from '@/utils/tools/tool-discovery.ts';
+import { LLMCallSpec, UnifiedTool, VectorContextConfig } from '@/core/types.ts';
 import { PluginRegistry } from '@/core/registry.ts';
 import { MCPManager } from '@/managers/mcp-manager.ts';
 
@@ -234,5 +234,160 @@ describe('utils/tools/tool-discovery', () => {
     });
 
     expect(result.tools).toEqual([]);
+  });
+
+  describe('shouldCreateVectorSearchTool', () => {
+    test('returns true for tool mode', () => {
+      expect(shouldCreateVectorSearchTool('tool')).toBe(true);
+    });
+
+    test('returns true for both mode', () => {
+      expect(shouldCreateVectorSearchTool('both')).toBe(true);
+    });
+
+    test('returns false for auto mode', () => {
+      expect(shouldCreateVectorSearchTool('auto')).toBe(false);
+    });
+
+    test('returns false for undefined mode', () => {
+      expect(shouldCreateVectorSearchTool(undefined)).toBe(false);
+    });
+  });
+
+  describe('createVectorSearchTool', () => {
+    test('creates tool with default name and description', () => {
+      const config: VectorContextConfig = {
+        stores: ['qdrant-cloud'],
+        mode: 'tool'
+      };
+
+      const tool = createVectorSearchTool(config);
+
+      expect(tool.name).toBe('vector_search');
+      expect(tool.description).toContain('qdrant-cloud');
+      expect(tool.parametersJsonSchema.properties.query).toBeDefined();
+      expect(tool.parametersJsonSchema.required).toContain('query');
+    });
+
+    test('uses custom tool name when provided', () => {
+      const config: VectorContextConfig = {
+        stores: ['memory'],
+        mode: 'tool',
+        toolName: 'semantic_search'
+      };
+
+      const tool = createVectorSearchTool(config);
+
+      expect(tool.name).toBe('semantic_search');
+    });
+
+    test('uses custom description when provided', () => {
+      const config: VectorContextConfig = {
+        stores: ['memory'],
+        mode: 'tool',
+        toolDescription: 'Custom search description'
+      };
+
+      const tool = createVectorSearchTool(config);
+
+      expect(tool.description).toBe('Custom search description');
+    });
+
+    test('includes topK default in description', () => {
+      const config: VectorContextConfig = {
+        stores: ['memory'],
+        mode: 'tool',
+        topK: 10
+      };
+
+      const tool = createVectorSearchTool(config);
+
+      expect(tool.parametersJsonSchema.properties.topK.description).toContain('10');
+    });
+
+    test('lists all stores in description', () => {
+      const config: VectorContextConfig = {
+        stores: ['store1', 'store2', 'store3'],
+        mode: 'tool'
+      };
+
+      const tool = createVectorSearchTool(config);
+
+      expect(tool.description).toContain('store1');
+      expect(tool.description).toContain('store2');
+      expect(tool.description).toContain('store3');
+    });
+  });
+
+  test('collectTools creates vector_search tool when vectorContext.mode is tool', async () => {
+    const spec = {
+      messages: [],
+      llmPriority: [],
+      settings: {},
+      vectorContext: {
+        stores: ['qdrant-cloud'],
+        mode: 'tool'
+      }
+    } as unknown as LLMCallSpec;
+
+    const registry = {
+      getTool: jest.fn()
+    } as unknown as PluginRegistry;
+
+    const result = await collectTools({
+      spec,
+      registry
+    });
+
+    expect(result.tools).toHaveLength(1);
+    expect(result.tools[0].name).toBe('vector_search');
+  });
+
+  test('collectTools creates vector_search tool when vectorContext.mode is both', async () => {
+    const spec = {
+      messages: [],
+      llmPriority: [],
+      settings: {},
+      vectorContext: {
+        stores: ['memory'],
+        mode: 'both',
+        toolName: 'context_search'
+      }
+    } as unknown as LLMCallSpec;
+
+    const registry = {
+      getTool: jest.fn()
+    } as unknown as PluginRegistry;
+
+    const result = await collectTools({
+      spec,
+      registry
+    });
+
+    expect(result.tools).toHaveLength(1);
+    expect(result.tools[0].name).toBe('context_search');
+  });
+
+  test('collectTools does not create vector_search tool when mode is auto', async () => {
+    const spec = {
+      messages: [],
+      llmPriority: [],
+      settings: {},
+      vectorContext: {
+        stores: ['memory'],
+        mode: 'auto'
+      }
+    } as unknown as LLMCallSpec;
+
+    const registry = {
+      getTool: jest.fn()
+    } as unknown as PluginRegistry;
+
+    const result = await collectTools({
+      spec,
+      registry
+    });
+
+    expect(result.tools).toHaveLength(0);
   });
 });

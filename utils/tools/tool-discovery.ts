@@ -1,5 +1,5 @@
 import { PluginRegistry } from '../../core/registry.js';
-import { LLMCallSpec, UnifiedTool } from '../../core/types.js';
+import { LLMCallSpec, UnifiedTool, VectorContextConfig } from '../../core/types.js';
 import { MCPManager } from '../../managers/mcp-manager.js';
 import { VectorStoreManager } from '../../managers/vector-store-manager.js';
 import { sanitizeToolName } from './tool-names.js';
@@ -66,6 +66,12 @@ export async function collectTools({
     }
   }
 
+  // Create vector_search tool if vectorContext mode is 'tool' or 'both'
+  if (spec.vectorContext && shouldCreateVectorSearchTool(spec.vectorContext.mode)) {
+    const vectorSearchTool = createVectorSearchTool(spec.vectorContext);
+    toolMap.set(vectorSearchTool.name, vectorSearchTool);
+  }
+
   const sanitize = sanitizeName ?? sanitizeToolName;
   const sanitizedTools: UnifiedTool[] = [];
   const toolNameMap: Record<string, string> = {};
@@ -125,4 +131,43 @@ function isUnifiedTool(value: unknown): value is UnifiedTool {
     typeof record.name === 'string' &&
     (record.parametersJsonSchema === undefined || typeof record.parametersJsonSchema === 'object')
   );
+}
+
+/**
+ * Check if a vector_search tool should be created based on vectorContext mode.
+ */
+export function shouldCreateVectorSearchTool(mode: string | undefined): boolean {
+  return mode === 'tool' || mode === 'both';
+}
+
+/**
+ * Create a vector_search tool for LLM-driven vector store queries.
+ */
+export function createVectorSearchTool(config: VectorContextConfig): UnifiedTool {
+  const toolName = config.toolName ?? 'vector_search';
+  const description = config.toolDescription ??
+    `Search the vector store for relevant information. Available stores: ${config.stores.join(', ')}`;
+
+  return {
+    name: toolName,
+    description,
+    parametersJsonSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'The search query to find relevant context'
+        },
+        topK: {
+          type: 'number',
+          description: `Number of results to return (default: ${config.topK ?? 5})`
+        },
+        store: {
+          type: 'string',
+          description: `Which store to search (options: ${config.stores.join(', ')})`
+        }
+      },
+      required: ['query']
+    }
+  };
 }

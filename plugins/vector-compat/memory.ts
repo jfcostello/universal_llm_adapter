@@ -109,6 +109,16 @@ export default class MemoryCompat implements IVectorStoreCompat {
     }
   }
 
+  async deleteCollection(collection: string): Promise<void> {
+    this.requireConnected();
+    this.collections.delete(collection);
+  }
+
+  async listCollections(): Promise<string[]> {
+    this.requireConnected();
+    return Array.from(this.collections.keys());
+  }
+
   /**
    * Calculate cosine similarity between two vectors
    */

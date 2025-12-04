@@ -183,4 +183,51 @@ describe('LLMCoordinator guard clauses', () => {
     const result = await coordinator.run(spec);
     expect(result.model).toBe('stub-model');
   });
+
+  test('run injects vector context when mode is auto', async () => {
+    const registry = createRegistryStub();
+    registry.getProvider = jest.fn(() => ({ id: 'stub-provider', compat: 'openai' }));
+    const coordinator = new LLMCoordinator(registry);
+
+    const mockInjector = {
+      injectContext: jest.fn().mockResolvedValue({
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'Query' }] }],
+        resultsInjected: 2,
+        query: 'Query',
+        retrievedResults: []
+      })
+    };
+    (coordinator as any).vectorContextInjector = mockInjector;
+
+    const spec = {
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'Query' }] }],
+      llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
+      settings: {},
+      vectorContext: {
+        stores: ['test-store'],
+        mode: 'auto'
+      },
+      tools: [],
+      functionToolNames: []
+    } as any;
+
+    (coordinator as any).llmManager = {
+      callProvider: jest.fn().mockResolvedValue({
+        provider: 'stub-provider',
+        model: 'stub-model',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Response' }],
+        finishReason: 'stop',
+        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 }
+      })
+    };
+
+    await coordinator.run(spec);
+
+    expect(mockInjector.injectContext).toHaveBeenCalledWith(
+      expect.any(Array),
+      spec.vectorContext,
+      undefined
+    );
+  });
 });

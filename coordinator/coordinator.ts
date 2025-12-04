@@ -29,11 +29,13 @@ import { ToolCoordinator } from '../utils/tools/tool-coordinator.js';
 // Type-only imports for lazy loading
 import type { MCPManager } from '../managers/mcp-manager.js';
 import type { VectorStoreManager } from '../managers/vector-store-manager.js';
+import type { VectorContextInjector } from '../utils/vector/vector-context-injector.js';
 
 export class LLMCoordinator {
   private llmManager: LLMManager;
   private mcpManager?: MCPManager;
   private vectorManager?: VectorStoreManager;
+  private vectorContextInjector?: VectorContextInjector;
   private toolCoordinator: ToolCoordinator;
   private logger: AdapterLogger;
   private toolCoordinatorInitialized = false;
@@ -101,13 +103,25 @@ export class LLMCoordinator {
       settings: provider
     };
 
-    const messages = this.prepareMessages(executionSpec);
+    let messages = this.prepareMessages(executionSpec);
+
+    // Inject vector context if configured for auto or both mode
+    if (this.shouldInjectVectorContext(spec)) {
+      const injector = await this.ensureVectorContextInjector();
+      const injectionResult = await injector.injectContext(
+        messages,
+        spec.vectorContext!,
+        spec.systemPrompt
+      );
+      messages = injectionResult.messages;
+    }
 
     // Ensure tool coordinator is initialized if needed
     const needsTools = (spec.tools && spec.tools.length > 0) ||
                       (spec.functionToolNames && spec.functionToolNames.length > 0) ||
                       (spec.mcpServers && spec.mcpServers.length > 0) ||
-                      (spec.vectorPriority && spec.vectorPriority.length > 0);
+                      (spec.vectorPriority && spec.vectorPriority.length > 0) ||
+                      this.shouldCreateVectorTool(spec);
 
     if (needsTools) {
       await this.ensureToolCoordinator(executionSpec);
@@ -234,13 +248,25 @@ export class LLMCoordinator {
     };
 
     const providerManifest = await this.registry.getProvider(providerPref.provider);
-    const messages = this.prepareMessages(streamExecutionSpec);
+    let messages = this.prepareMessages(streamExecutionSpec);
+
+    // Inject vector context if configured for auto or both mode
+    if (this.shouldInjectVectorContext(spec)) {
+      const injector = await this.ensureVectorContextInjector();
+      const injectionResult = await injector.injectContext(
+        messages,
+        spec.vectorContext!,
+        spec.systemPrompt
+      );
+      messages = injectionResult.messages;
+    }
 
     // Ensure tool coordinator is initialized if needed
     const needsTools = (spec.tools && spec.tools.length > 0) ||
                       (spec.functionToolNames && spec.functionToolNames.length > 0) ||
                       (spec.mcpServers && spec.mcpServers.length > 0) ||
-                      (spec.vectorPriority && spec.vectorPriority.length > 0);
+                      (spec.vectorPriority && spec.vectorPriority.length > 0) ||
+                      this.shouldCreateVectorTool(spec);
 
     if (needsTools) {
       await this.ensureToolCoordinator(executionSpec);
@@ -551,5 +577,54 @@ export class LLMCoordinator {
     if (!Array.isArray(response.content)) {
       throw new ProviderExecutionError(targetProvider, 'Malformed LLM response: content must be an array');
     }
+  }
+
+  /**
+   * Check if vector context should be auto-injected before the LLM call.
+   * Returns true for 'auto' or 'both' modes.
+   */
+  private shouldInjectVectorContext(spec: LLMCallSpec): boolean {
+    const mode = spec.vectorContext?.mode;
+    return mode === 'auto' || mode === 'both';
+  }
+
+  /**
+   * Check if a vector_search tool should be created for the LLM.
+   * Returns true for 'tool' or 'both' modes.
+   */
+  private shouldCreateVectorTool(spec: LLMCallSpec): boolean {
+    const mode = spec.vectorContext?.mode;
+    return mode === 'tool' || mode === 'both';
+  }
+
+  /**
+   * Lazily initialize the VectorContextInjector.
+   */
+  private async ensureVectorContextInjector(): Promise<VectorContextInjector> {
+    if (!this.vectorContextInjector) {
+      // Lazy-load VectorStoreManager if not already provided
+      if (!this.vectorManager) {
+        const { VectorStoreManager } = await import('../managers/vector-store-manager.js');
+        this.vectorManager = new VectorStoreManager(
+          new Map(),  // configs - will be loaded from registry
+          new Map(),  // adapters - will be created via compat
+          undefined,  // embedder - not needed, we use EmbeddingManager directly
+          this.registry
+        );
+      }
+
+      // Lazy-load EmbeddingManager
+      const { EmbeddingManager } = await import('../managers/embedding-manager.js');
+      const embeddingManager = new EmbeddingManager(this.registry);
+
+      // Lazy-load VectorContextInjector
+      const { VectorContextInjector } = await import('../utils/vector/vector-context-injector.js');
+      this.vectorContextInjector = new VectorContextInjector({
+        registry: this.registry,
+        embeddingManager,
+        vectorManager: this.vectorManager
+      });
+    }
+    return this.vectorContextInjector;
   }
 }

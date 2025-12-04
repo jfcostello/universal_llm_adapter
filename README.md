@@ -333,6 +333,11 @@ LLM API
 - `utils/documents/mime-types.ts` - MIME type detection
 - `coordinator/coordinator.ts` - Message preprocessing integration
 - `plugins/compat/*.ts` - Provider-specific transformations
+- `vector_store_coordinator.ts` - Vector Store CLI entry point
+- `coordinator/vector-coordinator.ts` - VectorStoreCoordinator class
+- `core/vector-spec-types.ts` - VectorCallSpec and related types
+- `utils/vector/vector-chunker.ts` - Text chunking utility
+- `utils/vector/vector-context-injector.ts` - RAG context injection
 
 ## Vector Stores & Embeddings
 
@@ -341,6 +346,11 @@ LLM API
 The coordinator provides unified vector store and embedding support for RAG (Retrieval Augmented Generation) applications. Like LLM providers, vector stores and embedding providers use a plugin architecture with priority-based fallback.
 
 **Key Principle**: Provider-specific code lives ONLY in `plugins/`. Main codebase stays agnostic.
+
+### Two Ways to Use Vector Stores
+
+1. **Vector Store CLI** (`vector_store_coordinator.ts`): Batch operations for managing vector data (embed, upsert, query, delete, collections)
+2. **VectorContextConfig** in `LLMCallSpec`: RAG context injection during LLM calls (auto-inject, tool mode, or both)
 
 ### Architecture
 
@@ -482,6 +492,190 @@ if (compat) {
 
 // Close all connections
 await vectorStore.closeAll();
+```
+
+### Vector Store CLI
+
+The Vector Store CLI (`vector_store_coordinator.ts`) provides batch operations for managing vector data outside of LLM calls.
+
+#### Commands
+
+| Command | Description |
+|---------|-------------|
+| `embed` | Embed texts and optionally upsert to a vector store |
+| `upsert` | Upsert pre-computed vectors to a store |
+| `query` | Query a vector store |
+| `delete` | Delete vectors by ID |
+| `collections` | Manage collections (list, create, delete, exists) |
+
+#### Usage
+
+```bash
+# Embed texts and upsert
+npx ts-node vector_store_coordinator.ts embed --spec '{
+  "operation": "embed",
+  "store": "qdrant-local",
+  "embeddingPriority": [{ "provider": "openrouter-embeddings" }],
+  "input": { "texts": ["Hello world", "Machine learning is..."] }
+}'
+
+# Query with a text query (auto-embedded)
+npx ts-node vector_store_coordinator.ts query --spec '{
+  "operation": "query",
+  "store": "qdrant-local",
+  "embeddingPriority": [{ "provider": "openrouter-embeddings" }],
+  "input": { "query": "What is ML?", "topK": 5 }
+}'
+
+# Query with pre-computed vector
+npx ts-node vector_store_coordinator.ts query --spec '{
+  "operation": "query",
+  "store": "qdrant-local",
+  "input": { "vector": [0.1, 0.2, ...], "topK": 5 }
+}'
+
+# Delete vectors
+npx ts-node vector_store_coordinator.ts delete --spec '{
+  "operation": "delete",
+  "store": "qdrant-local",
+  "input": { "ids": ["doc1", "doc2"] }
+}'
+
+# List collections
+npx ts-node vector_store_coordinator.ts collections --spec '{
+  "operation": "collections",
+  "store": "qdrant-local",
+  "input": { "collectionOp": "list" }
+}'
+
+# Stream progress for batch operations
+npx ts-node vector_store_coordinator.ts embed --stream --spec '{...}'
+```
+
+#### CLI Options
+
+- `--spec <json>`: Spec as JSON string
+- `--file <path>`: Path to spec JSON file
+- `--plugins <path>`: Path to plugins directory (default: `./plugins`)
+- `--pretty`: Pretty print output
+- `--stream`: Stream progress events (for `embed` command)
+- `--batch-id <id>`: Optional batch identifier for grouped logging
+
+### VectorContextConfig (RAG Integration)
+
+The `VectorContextConfig` field in `LLMCallSpec` enables automatic RAG (Retrieval Augmented Generation) during LLM calls.
+
+#### Modes
+
+| Mode | Behavior |
+|------|----------|
+| `auto` | Query vectors with user message, inject results before LLM call |
+| `tool` | Create a `vector_search` tool the LLM can call on-demand |
+| `both` | Auto-inject initial context + provide tool for follow-up queries |
+
+#### Auto-Inject Mode
+
+Context is automatically retrieved and injected into messages before the LLM call:
+
+```typescript
+const response = await coordinator.run({
+  messages: [
+    { role: 'user', content: [{ type: 'text', text: 'What is machine learning?' }] }
+  ],
+  llmPriority: [{ provider: 'anthropic', model: 'claude-3-5-sonnet-20241022' }],
+  vectorContext: {
+    stores: ['qdrant-local'],
+    mode: 'auto',
+    topK: 5,
+    scoreThreshold: 0.7,
+    embeddingPriority: [{ provider: 'openrouter-embeddings' }],
+    injectAs: 'system',  // or 'user_context'
+    injectTemplate: 'Relevant context:\n\n{{results}}'
+  }
+});
+```
+
+#### Tool Mode
+
+Creates a tool the LLM can call to search when needed:
+
+```typescript
+const response = await coordinator.run({
+  messages: [...],
+  llmPriority: [...],
+  vectorContext: {
+    stores: ['qdrant-local'],
+    mode: 'tool',
+    toolName: 'search_knowledge_base',  // default: 'vector_search'
+    toolDescription: 'Search the knowledge base for relevant information',
+    embeddingPriority: [{ provider: 'openrouter-embeddings' }]
+  }
+});
+```
+
+#### Both Mode (Hybrid)
+
+Auto-injects initial context AND provides a tool for follow-up queries:
+
+```typescript
+const response = await coordinator.run({
+  messages: [...],
+  llmPriority: [...],
+  vectorContext: {
+    stores: ['qdrant-local'],
+    mode: 'both',
+    topK: 3,
+    injectAs: 'system',
+    injectTemplate: 'Initial context:\n{{results}}\n\nYou can search for more using the search tool.',
+    toolName: 'search_more',
+    toolDescription: 'Search for additional information'
+  }
+});
+```
+
+#### VectorContextConfig Options
+
+```typescript
+interface VectorContextConfig {
+  stores: string[];                       // Which stores to query
+  mode: 'tool' | 'auto' | 'both';         // How to use results
+
+  // Query config
+  topK?: number;                          // Default: 5
+  scoreThreshold?: number;                // Minimum score (0-1)
+  filter?: JsonObject;                    // Metadata filter
+  embeddingPriority?: EmbeddingPriorityItem[];
+
+  // Auto-inject config
+  injectAs?: 'system' | 'user_context';   // Default: 'system'
+  injectTemplate?: string;                // Default: "Relevant context:\n{{results}}"
+  resultFormat?: string;                  // Default: "- {{payload.text}} (score: {{score}})"
+
+  // Tool mode config
+  toolName?: string;                      // Default: 'vector_search'
+  toolDescription?: string;
+}
+```
+
+#### VectorContext vs VectorPriority
+
+These serve different purposes and can coexist:
+
+- **`vectorPriority`**: Semantic tool selection - retrieves *tools* from vector stores based on relevance
+- **`vectorContext`**: RAG context injection - retrieves *context* for the LLM to use
+
+```typescript
+{
+  // vectorPriority for tool selection
+  vectorPriority: ['tool-store'],
+
+  // vectorContext for RAG
+  vectorContext: {
+    stores: ['doc-store'],
+    mode: 'auto',
+    topK: 5
+  }
+}
 ```
 
 ### Adding New Providers
@@ -634,6 +828,8 @@ npm run test:live:vector
 |-----------|-------------|
 | `15-embeddings.live.test.ts` | OpenRouter embeddings API |
 | `16-vector-store.live.test.ts` | Qdrant vector store operations |
+| `17-vector-cli.live.test.ts` | Vector Store CLI operations |
+| `18-vector-auto-inject.live.test.ts` | VectorContext RAG integration |
 | `00-14-*.live.test.ts` | LLM provider tests |
 
 ## Contributing

@@ -189,6 +189,93 @@ export interface LLMPriorityItem {
   settings?: Partial<LLMCallSettings>;
 }
 
+/**
+ * Configuration for vector-based context retrieval and injection.
+ * Used in LLMCallSpec to enable RAG capabilities.
+ */
+export interface VectorContextConfig {
+  /**
+   * Vector stores to query, in priority order.
+   * Must match IDs from plugins/vector/*.json
+   */
+  stores: string[];
+
+  /**
+   * How to use vector search results:
+   * - 'auto': Query before LLM call, inject results into context
+   * - 'tool': Create a vector_search tool the LLM can call
+   * - 'both': Auto-inject initial context + provide tool for follow-ups
+   */
+  mode: 'tool' | 'auto' | 'both';
+
+  /**
+   * Number of results to retrieve. Default: 5
+   */
+  topK?: number;
+
+  /**
+   * Minimum similarity score (0-1). Results below this are filtered out.
+   */
+  scoreThreshold?: number;
+
+  /**
+   * Metadata filters to apply to the query.
+   */
+  filter?: JsonObject;
+
+  /**
+   * Which embedding provider(s) to use for query embedding.
+   * Falls back through priority list on errors.
+   */
+  embeddingPriority?: EmbeddingPriorityItem[];
+
+  // ========================================
+  // Auto-inject mode configuration
+  // ========================================
+
+  /**
+   * Where to inject retrieved context:
+   * - 'system': Append to system prompt
+   * - 'user_context': Insert as a user message before the last user message
+   * Default: 'system'
+   */
+  injectAs?: 'system' | 'user_context';
+
+  /**
+   * Template for formatting retrieved results.
+   * Use {{results}} placeholder for the formatted results.
+   * Default: "Relevant context:\n{{results}}"
+   */
+  injectTemplate?: string;
+
+  /**
+   * Maximum tokens to include in injected context.
+   * Results are truncated if they exceed this limit.
+   */
+  maxContextTokens?: number;
+
+  /**
+   * Format for each result in the context.
+   * Default: "- {{payload.text}} (score: {{score}})"
+   */
+  resultFormat?: string;
+
+  // ========================================
+  // Tool mode configuration
+  // ========================================
+
+  /**
+   * Name for the vector search tool. Default: 'vector_search'
+   */
+  toolName?: string;
+
+  /**
+   * Description for the vector search tool.
+   * Default: "Search for relevant information in the knowledge base"
+   */
+  toolDescription?: string;
+}
+
 export interface LLMCallSpec {
   systemPrompt?: string;
   messages: Message[];
@@ -196,7 +283,10 @@ export interface LLMCallSpec {
   tools?: UnifiedTool[];
   mcpServers?: string[];
   vectorStores?: string[];
+  /** @deprecated Use vectorContext instead. Used for semantic tool retrieval. */
   vectorPriority?: string[];
+  /** Vector context configuration for RAG capabilities */
+  vectorContext?: VectorContextConfig;
   llmPriority: LLMPriorityItem[];
   toolChoice?: ToolChoice;
   rateLimitRetryDelays?: number[];
