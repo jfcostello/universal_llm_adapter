@@ -365,4 +365,49 @@ describe('managers/vector-store-manager', () => {
       expect(mockCompat.deleteByIds).toHaveBeenCalledWith('custom-collection', ['id1', 'id2']);
     });
   });
+
+  describe('setLogger', () => {
+    test('sets logger and updates already-loaded compats', async () => {
+      const setLoggerMock = jest.fn();
+      const mockCompat = {
+        ...createMockCompat(),
+        setLogger: setLoggerMock
+      };
+      const mockRegistry = createMockRegistry({ compat: mockCompat });
+      const manager = new VectorStoreManager(new Map(), new Map(), async () => [0.1], mockRegistry);
+
+      // First load the compat
+      await manager.getCompat('store');
+
+      // Then set the logger
+      const mockLogger = {
+        logEmbeddingRequest: jest.fn(),
+        logEmbeddingResponse: jest.fn(),
+        logVectorRequest: jest.fn(),
+        logVectorResponse: jest.fn()
+      };
+      manager.setLogger(mockLogger);
+
+      // setLogger should have been called on the compat
+      expect(setLoggerMock).toHaveBeenCalledWith(mockLogger);
+    });
+
+    test('handles compats without setLogger method', async () => {
+      const mockCompat = createMockCompat(); // No setLogger method
+      const mockRegistry = createMockRegistry({ compat: mockCompat });
+      const manager = new VectorStoreManager(new Map(), new Map(), async () => [0.1], mockRegistry);
+
+      // Load the compat
+      await manager.getCompat('store');
+
+      // Setting logger should not throw even if compat doesn't have setLogger
+      const mockLogger = {
+        logEmbeddingRequest: jest.fn(),
+        logEmbeddingResponse: jest.fn(),
+        logVectorRequest: jest.fn(),
+        logVectorResponse: jest.fn()
+      };
+      expect(() => manager.setLogger(mockLogger)).not.toThrow();
+    });
+  });
 });

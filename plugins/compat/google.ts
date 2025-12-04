@@ -263,15 +263,15 @@ export default class GoogleCompat implements ICompatModule {
    * Extract tool response from tool message
    */
   private extractToolResponse(message: Message): [string | undefined, any] {
-    const toolPart = (message.content || []).find(p => p.type === 'tool_result') as any;
+    const contentParts = message.content || [];
+    const toolPart = contentParts.find(p => p.type === 'tool_result') as any;
     if (toolPart && toolPart.toolName) {
       // CRITICAL: Must sanitize to match functionDeclaration name
       const name = sanitizeToolName(toolPart.toolName);
 
       // Collect ALL text parts (formatted result + countdown text + truncation notices)
       // This is critical for the model to see tool call budget information
-      // istanbul ignore next - content is guaranteed to exist if toolPart exists
-      const textParts = (message.content || [])
+      const textParts = contentParts
         .filter(p => p.type === 'text')
         .map(p => (p as TextContent).text ?? '');
 
@@ -295,8 +295,7 @@ export default class GoogleCompat implements ICompatModule {
       .filter(p => p.type === 'text')
       .map(p => (p as TextContent).text ?? '')
       .join('');
-    // istanbul ignore next - join('') always returns string
-    return [undefined, typeof text === 'string' ? text : { result: text || '' }];
+    return [undefined, text];
   }
 
   /**
@@ -445,7 +444,7 @@ export default class GoogleCompat implements ICompatModule {
 
     const content: ContentPart[] = parts
       .filter(p => typeof p?.text === 'string' && p.thought !== true)
-      .map(p => ({ type: 'text', text: /* istanbul ignore next */ p.text ?? '' } as TextContent));
+      .map(p => ({ type: 'text', text: p.text } as TextContent));
 
     const toolCalls = this.extractToolCalls(parts);
     const usage = this.extractUsage(raw.usageMetadata);

@@ -4,7 +4,8 @@ import {
   VectorPoint,
   VectorQueryResult,
   VectorQueryOptions,
-  JsonObject
+  JsonObject,
+  IOperationLogger
 } from '../../core/types.js';
 import { VectorStoreError } from '../../core/errors.js';
 
@@ -18,6 +19,12 @@ export default class MemoryCompat implements IVectorStoreCompat {
   private collections = new Map<string, Map<string, VectorPoint>>();
   private connected = false;
   private config: VectorStoreConfig | null = null;
+  // Logger is optional for in-memory operations (no HTTP to log)
+  private logger?: IOperationLogger;
+
+  setLogger(logger: IOperationLogger): void {
+    this.logger = logger;
+  }
 
   async connect(config: VectorStoreConfig): Promise<void> {
     this.config = config;

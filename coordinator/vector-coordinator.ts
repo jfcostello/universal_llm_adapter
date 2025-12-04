@@ -487,18 +487,21 @@ export class VectorStoreCoordinator {
 
   private async ensureManagers(spec: VectorCallSpec): Promise<void> {
     if (!this.embeddingManager) {
-      this.embeddingManager = new EmbeddingManager(this.registry);
+      // Pass logger to embedding manager for HTTP request logging
+      this.embeddingManager = new EmbeddingManager(this.registry, this.logger);
     }
     await this.ensureVectorManager(spec);
   }
 
   private async ensureVectorManager(spec: VectorCallSpec): Promise<void> {
     if (!this.vectorManager) {
+      // Pass logger to vector manager for operation logging
       this.vectorManager = new VectorStoreManager(
         new Map(),  // configs - will be loaded from registry
         new Map(),  // adapters - will be created via compat
         undefined,  // embedder - not needed, we use EmbeddingManager directly
-        this.registry
+        this.registry,
+        this.logger  // logger for vector operations
       );
     }
 
@@ -509,6 +512,12 @@ export class VectorStoreCoordinator {
       if (!compat) {
         throw new Error(`Vector store compat not found for kind: ${storeConfig.kind}`);
       }
+
+      // Inject logger for operation logging
+      if (typeof compat.setLogger === 'function') {
+        compat.setLogger(this.logger);
+      }
+
       await compat.connect(storeConfig);
       this.initializedStores.add(spec.store);
     }

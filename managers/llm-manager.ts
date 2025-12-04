@@ -353,7 +353,6 @@ export class LLMManager {
       }
     }
 
-    /* istanbul ignore next: object spread defaults are runtime-equivalent and hard to branch-cover */
     const mergedHeaders = { ...(provider.endpoint.headers || {}), ...(provider.endpoint.streamingHeaders || {}) };
 
     const response = await this.httpClient.request({

@@ -5,7 +5,8 @@ import {
   VectorPoint,
   VectorQueryResult,
   VectorQueryOptions,
-  JsonObject
+  JsonObject,
+  IOperationLogger
 } from '../../core/types.js';
 import { VectorStoreConnectionError, VectorStoreError } from '../../core/errors.js';
 
@@ -22,14 +23,32 @@ export default class QdrantCompat implements IVectorStoreCompat {
   private client: QdrantClient | null = null;
   private config: VectorStoreConfig | null = null;
   private clientFactory: QdrantClientFactory;
+  private logger?: IOperationLogger;
 
   constructor(clientFactory?: QdrantClientFactory) {
     this.clientFactory = clientFactory || ((opts) => new QdrantClient(opts));
   }
 
+  setLogger(logger: IOperationLogger): void {
+    this.logger = logger;
+  }
+
   async connect(config: VectorStoreConfig): Promise<void> {
     this.config = config;
     const conn = config.connection;
+    const startTime = Date.now();
+
+    // Log connect request
+    this.logger?.logVectorRequest({
+      operation: 'connect',
+      store: config.id,
+      params: {
+        url: conn.url ? String(conn.url).replace(/\/\/[^:]+:[^@]+@/, '//***:***@') : undefined,
+        host: conn.host as string | undefined,
+        port: conn.port as number | undefined,
+        hasApiKey: !!conn.apiKey
+      }
+    });
 
     try {
       if (conn.url) {
@@ -53,7 +72,23 @@ export default class QdrantCompat implements IVectorStoreCompat {
 
       // Verify connection by listing collections
       await this.client.getCollections();
+
+      // Log success
+      this.logger?.logVectorResponse({
+        operation: 'connect',
+        store: config.id,
+        result: 'success',
+        duration: Date.now() - startTime
+      });
     } catch (error: any) {
+      // Log failure
+      this.logger?.logVectorResponse({
+        operation: 'connect',
+        store: config.id,
+        result: { error: error.message },
+        duration: Date.now() - startTime
+      });
+
       if (error instanceof VectorStoreConnectionError) {
         throw error;
       }
@@ -74,6 +109,22 @@ export default class QdrantCompat implements IVectorStoreCompat {
     options?: VectorQueryOptions
   ): Promise<VectorQueryResult[]> {
     this.requireClient();
+    const storeId = this.config!.id;
+    const startTime = Date.now();
+
+    // Log query request
+    this.logger?.logVectorRequest({
+      operation: 'query',
+      store: storeId,
+      collection,
+      params: {
+        vectorDimensions: vector.length,
+        topK,
+        filter: options?.filter,
+        includePayload: options?.includePayload !== false,
+        includeVector: options?.includeVector || false
+      }
+    });
 
     try {
       const searchParams: any = {
@@ -90,16 +141,40 @@ export default class QdrantCompat implements IVectorStoreCompat {
 
       const results = await this.client!.search(collection, searchParams);
 
-      return results.map(item => ({
+      const mappedResults = results.map(item => ({
         id: String(item.id),
         score: item.score,
         payload: item.payload as JsonObject | undefined,
         vector: item.vector as number[] | undefined
       }));
+
+      // Log success
+      this.logger?.logVectorResponse({
+        operation: 'query',
+        store: storeId,
+        collection,
+        result: {
+          count: mappedResults.length,
+          topScore: mappedResults[0]?.score,
+          ids: mappedResults.map(r => r.id)
+        },
+        duration: Date.now() - startTime
+      });
+
+      return mappedResults;
     } catch (error: any) {
+      // Log failure
+      this.logger?.logVectorResponse({
+        operation: 'query',
+        store: storeId,
+        collection,
+        result: { error: error.message },
+        duration: Date.now() - startTime
+      });
+
       throw new VectorStoreError(
         `Query failed: ${error.message}`,
-        this.config?.id,
+        storeId,
         collection
       );
     }
@@ -107,6 +182,20 @@ export default class QdrantCompat implements IVectorStoreCompat {
 
   async upsert(collection: string, points: VectorPoint[]): Promise<void> {
     this.requireClient();
+    const storeId = this.config!.id;
+    const startTime = Date.now();
+
+    // Log upsert request
+    this.logger?.logVectorRequest({
+      operation: 'upsert',
+      store: storeId,
+      collection,
+      params: {
+        pointCount: points.length,
+        ids: points.map(p => p.id),
+        vectorDimensions: points[0]?.vector.length
+      }
+    });
 
     try {
       const qdrantPoints = points.map(point => ({
@@ -119,10 +208,28 @@ export default class QdrantCompat implements IVectorStoreCompat {
         wait: true,
         points: qdrantPoints
       });
+
+      // Log success
+      this.logger?.logVectorResponse({
+        operation: 'upsert',
+        store: storeId,
+        collection,
+        result: { success: true, pointCount: points.length },
+        duration: Date.now() - startTime
+      });
     } catch (error: any) {
+      // Log failure
+      this.logger?.logVectorResponse({
+        operation: 'upsert',
+        store: storeId,
+        collection,
+        result: { error: error.message },
+        duration: Date.now() - startTime
+      });
+
       throw new VectorStoreError(
         `Upsert failed: ${error.message}`,
-        this.config?.id,
+        storeId,
         collection
       );
     }
@@ -130,16 +237,44 @@ export default class QdrantCompat implements IVectorStoreCompat {
 
   async deleteByIds(collection: string, ids: string[]): Promise<void> {
     this.requireClient();
+    const storeId = this.config!.id;
+    const startTime = Date.now();
+
+    // Log delete request
+    this.logger?.logVectorRequest({
+      operation: 'delete',
+      store: storeId,
+      collection,
+      params: { idCount: ids.length, ids }
+    });
 
     try {
       await this.client!.delete(collection, {
         wait: true,
         points: ids
       });
+
+      // Log success
+      this.logger?.logVectorResponse({
+        operation: 'delete',
+        store: storeId,
+        collection,
+        result: { success: true, deletedCount: ids.length },
+        duration: Date.now() - startTime
+      });
     } catch (error: any) {
+      // Log failure
+      this.logger?.logVectorResponse({
+        operation: 'delete',
+        store: storeId,
+        collection,
+        result: { error: error.message },
+        duration: Date.now() - startTime
+      });
+
       throw new VectorStoreError(
         `Delete failed: ${error.message}`,
-        this.config?.id,
+        storeId,
         collection
       );
     }
@@ -154,7 +289,7 @@ export default class QdrantCompat implements IVectorStoreCompat {
     } catch (error: any) {
       throw new VectorStoreError(
         `Failed to check collection existence: ${error.message}`,
-        this.config?.id,
+        this.config!.id,
         collection
       );
     }
@@ -166,19 +301,47 @@ export default class QdrantCompat implements IVectorStoreCompat {
     options?: JsonObject
   ): Promise<void> {
     this.requireClient();
+    const storeId = this.config!.id;
+    const startTime = Date.now();
+    const distance = (options?.distance as 'Cosine' | 'Euclid' | 'Dot' | 'Manhattan') || 'Cosine';
+
+    // Log createCollection request
+    this.logger?.logVectorRequest({
+      operation: 'createCollection',
+      store: storeId,
+      collection,
+      params: { dimensions, distance }
+    });
 
     try {
-      const distance = (options?.distance as 'Cosine' | 'Euclid' | 'Dot' | 'Manhattan') || 'Cosine';
       await this.client!.createCollection(collection, {
         vectors: {
           size: dimensions,
           distance
         }
       });
+
+      // Log success
+      this.logger?.logVectorResponse({
+        operation: 'createCollection',
+        store: storeId,
+        collection,
+        result: { success: true, dimensions, distance },
+        duration: Date.now() - startTime
+      });
     } catch (error: any) {
+      // Log failure
+      this.logger?.logVectorResponse({
+        operation: 'createCollection',
+        store: storeId,
+        collection,
+        result: { error: error.message },
+        duration: Date.now() - startTime
+      });
+
       throw new VectorStoreError(
         `Failed to create collection: ${error.message}`,
-        this.config?.id,
+        storeId,
         collection
       );
     }

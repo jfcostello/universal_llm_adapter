@@ -4,7 +4,8 @@ import {
   IVectorStoreCompat,
   VectorPoint,
   VectorQueryResult,
-  VectorQueryOptions
+  VectorQueryOptions,
+  IOperationLogger
 } from '../core/types.js';
 import { VectorStoreError } from '../core/errors.js';
 
@@ -53,13 +54,17 @@ class CompatAdapterWrapper implements VectorStoreAdapter {
  */
 export class VectorStoreManager {
   private loadedCompats = new Map<string, IVectorStoreCompat>();
+  private logger?: IOperationLogger;
 
   constructor(
     private configs: Map<string, VectorStoreConfig>,
     private adapters: Map<string, VectorStoreAdapter>,
     private embedder?: EmbedderFn,
-    private registry?: any
-  ) {}
+    private registry?: any,
+    logger?: IOperationLogger
+  ) {
+    this.logger = logger;
+  }
 
   /**
    * Set the embedder function (can be set after construction)
@@ -154,6 +159,11 @@ export class VectorStoreManager {
       const config = await this.registry.getVectorStore(storeId);
       const compat = await this.registry.getVectorStoreCompat(config.kind);
 
+      // Inject logger for operation logging
+      if (this.logger && typeof compat.setLogger === 'function') {
+        compat.setLogger(this.logger);
+      }
+
       // Connect the compat
       await compat.connect(config);
 
@@ -161,6 +171,19 @@ export class VectorStoreManager {
       return compat;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Set the logger for this manager and all loaded compats
+   */
+  setLogger(logger: IOperationLogger): void {
+    this.logger = logger;
+    // Update all already-loaded compats
+    for (const compat of this.loadedCompats.values()) {
+      if (typeof compat.setLogger === 'function') {
+        compat.setLogger(logger);
+      }
     }
   }
 

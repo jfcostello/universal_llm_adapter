@@ -2,7 +2,8 @@ import axios, { AxiosInstance } from 'axios';
 import {
   IEmbeddingCompat,
   EmbeddingProviderConfig,
-  EmbeddingResult
+  EmbeddingResult,
+  IOperationLogger
 } from '../../core/types.js';
 import { EmbeddingProviderError } from '../../core/errors.js';
 
@@ -45,7 +46,8 @@ export default class OpenRouterEmbeddingCompat implements IEmbeddingCompat {
   async embed(
     input: string | string[],
     config: EmbeddingProviderConfig,
-    model?: string
+    model?: string,
+    logger?: IOperationLogger
   ): Promise<EmbeddingResult> {
     const effectiveModel = model || config.model;
     const url = config.endpoint.urlTemplate;
@@ -57,6 +59,16 @@ export default class OpenRouterEmbeddingCompat implements IEmbeddingCompat {
     };
 
     try {
+      // Log the request
+      logger?.logEmbeddingRequest({
+        url,
+        method: 'POST',
+        headers,
+        body: payload,
+        provider: 'openrouter',
+        model: effectiveModel
+      });
+
       const response = await this.httpClient.request({
         method: 'POST',
         url,
@@ -65,6 +77,14 @@ export default class OpenRouterEmbeddingCompat implements IEmbeddingCompat {
       });
 
       if (response.status >= 400) {
+        // Log error response
+        logger?.logEmbeddingResponse({
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers || {},
+          body: response.data
+        });
+
         const isRateLimit = response.status === 429 ||
           (typeof response.data === 'string' && response.data.toLowerCase().includes('rate')) ||
           (response.data?.error?.message?.toLowerCase().includes('rate'));
@@ -85,6 +105,16 @@ export default class OpenRouterEmbeddingCompat implements IEmbeddingCompat {
 
       // Dimensions come from the actual response or config - never hardcoded
       const dimensions = vectors[0]?.length || config.dimensions || 0;
+
+      // Log successful response
+      logger?.logEmbeddingResponse({
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers || {},
+        body: data,
+        dimensions,
+        tokenCount: data.usage?.total_tokens
+      });
 
       return {
         vectors,

@@ -119,7 +119,8 @@ describe('coordinator/vector-coordinator', () => {
         expect(embeddingCompat.embed).toHaveBeenCalledWith(
           ['hello', 'world'],
           expect.anything(),
-          undefined
+          undefined,
+          expect.anything() // logger parameter
         );
         expect(vectorCompat.upsert).toHaveBeenCalled();
       });
@@ -338,7 +339,8 @@ describe('coordinator/vector-coordinator', () => {
         expect(embeddingCompat.embed).toHaveBeenCalledWith(
           'What is machine learning?',
           expect.anything(),
-          undefined
+          undefined,
+          expect.anything() // logger parameter
         );
         expect(vectorCompat.query).toHaveBeenCalledWith(
           'docs',

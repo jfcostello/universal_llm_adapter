@@ -11,6 +11,8 @@ const disableFileLogs = process.env.LLM_ADAPTER_DISABLE_FILE_LOGS === '1';
 const disableConsoleLogs = process.env.LLM_ADAPTER_DISABLE_CONSOLE_LOGS === '1';
 const logDir = path.join(process.cwd(), 'logs');
 const llmLogDir = path.join(process.cwd(), 'logs', 'llm');
+const embeddingLogDir = path.join(process.cwd(), 'logs', 'embedding');
+const vectorLogDir = path.join(process.cwd(), 'logs', 'vector');
 
 // Retention configuration (env overrides)
 const DEFAULT_MAX_FILES = readEnvInt('LLM_ADAPTER_LOG_MAX_FILES', 50);
@@ -22,6 +24,12 @@ const LLM_MAX_AGE_DAYS = readEnvFloat('LLM_ADAPTER_LLM_LOG_MAX_AGE_DAYS', DEFAUL
 const ADAPTER_MAX_FILES = readEnvInt('LLM_ADAPTER_ADAPTER_LOG_MAX_FILES', DEFAULT_MAX_FILES);
 const ADAPTER_MAX_AGE_DAYS = readEnvFloat('LLM_ADAPTER_ADAPTER_LOG_MAX_AGE_DAYS', DEFAULT_MAX_AGE_DAYS);
 const ADAPTER_BATCH_MAX_FILES = readEnvInt('LLM_ADAPTER_BATCH_LOG_MAX_FILES', ADAPTER_MAX_FILES);
+
+const EMBEDDING_MAX_FILES = readEnvInt('LLM_ADAPTER_EMBEDDING_LOG_MAX_FILES', DEFAULT_MAX_FILES);
+const EMBEDDING_MAX_AGE_DAYS = readEnvFloat('LLM_ADAPTER_EMBEDDING_LOG_MAX_AGE_DAYS', DEFAULT_MAX_AGE_DAYS);
+
+const VECTOR_MAX_FILES = readEnvInt('LLM_ADAPTER_VECTOR_LOG_MAX_FILES', DEFAULT_MAX_FILES);
+const VECTOR_MAX_AGE_DAYS = readEnvFloat('LLM_ADAPTER_VECTOR_LOG_MAX_AGE_DAYS', DEFAULT_MAX_AGE_DAYS);
 
 function sanitizeId(id: string): string {
   return id.replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 64);
@@ -48,6 +56,12 @@ if (!disableFileLogs) {
   }
   if (!fs.existsSync(llmLogDir)) {
     fs.mkdirSync(llmLogDir, { recursive: true });
+  }
+  if (!fs.existsSync(embeddingLogDir)) {
+    fs.mkdirSync(embeddingLogDir, { recursive: true });
+  }
+  if (!fs.existsSync(vectorLogDir)) {
+    fs.mkdirSync(vectorLogDir, { recursive: true });
   }
 }
 
@@ -149,6 +163,10 @@ export class AdapterLogger {
   private correlationId?: string;
   private llmLogFile?: string;
   private llmRetentionApplied = false;
+  private embeddingLogFile?: string;
+  private embeddingRetentionApplied = false;
+  private vectorLogFile?: string;
+  private vectorRetentionApplied = false;
 
   constructor(level: LogLevel = LogLevel.INFO, correlationId?: string) {
     this.correlationId = correlationId;
@@ -193,8 +211,80 @@ export class AdapterLogger {
           exclude: [this.llmLogFile]
         });
       }
+
+      // Initialize embedding log file (same pattern as LLM)
+      if (batchId) {
+        const baseDir = useBatchDir ? path.join(embeddingLogDir, `batch-${batchId}`) : embeddingLogDir;
+        if (!fs.existsSync(baseDir)) fs.mkdirSync(baseDir, { recursive: true });
+        this.embeddingLogFile = useBatchDir
+          ? path.join(baseDir, 'embedding.log')
+          : path.join(baseDir, `embedding-batch-${batchId}.log`);
+        if (useBatchDir) {
+          enforceRetention(embeddingLogDir, {
+            includeDirs: true,
+            match: (d) => d.isDirectory() && d.name.startsWith('batch-'),
+            maxFiles: EMBEDDING_MAX_FILES,
+            maxAgeDays: EMBEDDING_MAX_AGE_DAYS,
+            exclude: [path.join(embeddingLogDir, `batch-${batchId}`)]
+          });
+        } else {
+          enforceRetention(embeddingLogDir, {
+            includeDirs: false,
+            match: (d) => d.isFile() && /^embedding-batch-.*\.log$/.test(d.name),
+            maxFiles: EMBEDDING_MAX_FILES,
+            maxAgeDays: EMBEDDING_MAX_AGE_DAYS,
+            exclude: [this.embeddingLogFile]
+          });
+        }
+      } else {
+        const timestamp = createIsoFilenameStamp();
+        this.embeddingLogFile = path.join(embeddingLogDir, `embedding-${timestamp}.log`);
+        enforceRetention(embeddingLogDir, {
+          includeDirs: false,
+          match: (d) => d.isFile() && /^embedding-.*\.log$/.test(d.name),
+          maxFiles: EMBEDDING_MAX_FILES,
+          maxAgeDays: EMBEDDING_MAX_AGE_DAYS,
+          exclude: [this.embeddingLogFile]
+        });
+      }
+
+      // Initialize vector log file (same pattern as LLM)
+      if (batchId) {
+        const baseDir = useBatchDir ? path.join(vectorLogDir, `batch-${batchId}`) : vectorLogDir;
+        if (!fs.existsSync(baseDir)) fs.mkdirSync(baseDir, { recursive: true });
+        this.vectorLogFile = useBatchDir
+          ? path.join(baseDir, 'vector.log')
+          : path.join(baseDir, `vector-batch-${batchId}.log`);
+        if (useBatchDir) {
+          enforceRetention(vectorLogDir, {
+            includeDirs: true,
+            match: (d) => d.isDirectory() && d.name.startsWith('batch-'),
+            maxFiles: VECTOR_MAX_FILES,
+            maxAgeDays: VECTOR_MAX_AGE_DAYS,
+            exclude: [path.join(vectorLogDir, `batch-${batchId}`)]
+          });
+        } else {
+          enforceRetention(vectorLogDir, {
+            includeDirs: false,
+            match: (d) => d.isFile() && /^vector-batch-.*\.log$/.test(d.name),
+            maxFiles: VECTOR_MAX_FILES,
+            maxAgeDays: VECTOR_MAX_AGE_DAYS,
+            exclude: [this.vectorLogFile]
+          });
+        }
+      } else {
+        const timestamp = createIsoFilenameStamp();
+        this.vectorLogFile = path.join(vectorLogDir, `vector-${timestamp}.log`);
+        enforceRetention(vectorLogDir, {
+          includeDirs: false,
+          match: (d) => d.isFile() && /^vector-.*\.log$/.test(d.name),
+          maxFiles: VECTOR_MAX_FILES,
+          maxAgeDays: VECTOR_MAX_AGE_DAYS,
+          exclude: [this.vectorLogFile]
+        });
+      }
     }
-    
+
     const transports: winston.transport[] = [];
 
     if (!disableFileLogs) {
@@ -326,6 +416,141 @@ export class AdapterLogger {
     this.applyLlmRetentionOnce();
   }
 
+  /**
+   * Log embedding HTTP request with beautiful formatting (raw payload, headers with redacted API keys)
+   */
+  logEmbeddingRequest(data: {
+    url: string;
+    method: string;
+    headers: Record<string, any>;
+    body: any;
+    provider?: string;
+    model?: string;
+  }): void {
+    if (!this.embeddingLogFile) return;
+
+    const separator = '\n' + '='.repeat(80) + '\n';
+    const log = [
+      separator,
+      '>>> EMBEDDING REQUEST >>>',
+      separator,
+      `Timestamp: ${new Date().toISOString()}`,
+      data.provider ? `Provider: ${data.provider}` : null,
+      data.model ? `Model: ${data.model}` : null,
+      `Method: ${data.method}`,
+      `URL: ${data.url}`,
+      '',
+      '--- HEADERS ---',
+      JSON.stringify(this.redactHeaders(data.headers), null, 2),
+      '',
+      '--- BODY ---',
+      JSON.stringify(data.body, null, 2),
+      separator,
+      ''
+    ].filter(Boolean).join('\n');
+
+    fs.appendFileSync(this.embeddingLogFile, log);
+    this.applyEmbeddingRetentionOnce();
+  }
+
+  /**
+   * Log embedding HTTP response with beautiful formatting (raw payload)
+   */
+  logEmbeddingResponse(data: {
+    status: number;
+    statusText?: string;
+    headers: Record<string, any>;
+    body: any;
+    dimensions?: number;
+    tokenCount?: number;
+  }): void {
+    if (!this.embeddingLogFile) return;
+
+    const separator = '\n' + '='.repeat(80) + '\n';
+    const log = [
+      separator,
+      '<<< EMBEDDING RESPONSE <<<',
+      separator,
+      `Timestamp: ${new Date().toISOString()}`,
+      `Status: ${data.status} ${data.statusText || ''}`,
+      data.dimensions !== undefined ? `Dimensions: ${data.dimensions}` : null,
+      data.tokenCount !== undefined ? `Token Count: ${data.tokenCount}` : null,
+      '',
+      '--- HEADERS ---',
+      JSON.stringify(data.headers, null, 2),
+      '',
+      '--- BODY ---',
+      JSON.stringify(data.body, null, 2),
+      separator,
+      ''
+    ].filter(Boolean).join('\n');
+
+    fs.appendFileSync(this.embeddingLogFile, log);
+    this.applyEmbeddingRetentionOnce();
+  }
+
+  /**
+   * Log vector store operation request
+   */
+  logVectorRequest(data: {
+    operation: string;
+    store: string;
+    collection?: string;
+    params: Record<string, any>;
+  }): void {
+    if (!this.vectorLogFile) return;
+
+    const separator = '\n' + '='.repeat(80) + '\n';
+    const log = [
+      separator,
+      `>>> VECTOR OPERATION: ${data.operation} >>>`,
+      separator,
+      `Timestamp: ${new Date().toISOString()}`,
+      `Store: ${data.store}`,
+      data.collection ? `Collection: ${data.collection}` : null,
+      '',
+      '--- PARAMS ---',
+      JSON.stringify(data.params, null, 2),
+      separator,
+      ''
+    ].filter(Boolean).join('\n');
+
+    fs.appendFileSync(this.vectorLogFile, log);
+    this.applyVectorRetentionOnce();
+  }
+
+  /**
+   * Log vector store operation response
+   */
+  logVectorResponse(data: {
+    operation: string;
+    store: string;
+    collection?: string;
+    result: any;
+    duration?: number;
+  }): void {
+    if (!this.vectorLogFile) return;
+
+    const separator = '\n' + '='.repeat(80) + '\n';
+    const log = [
+      separator,
+      `<<< VECTOR RESULT: ${data.operation} <<<`,
+      separator,
+      `Timestamp: ${new Date().toISOString()}`,
+      `Store: ${data.store}`,
+      data.collection ? `Collection: ${data.collection}` : null,
+      data.duration !== undefined ? `Duration: ${data.duration}ms` : null,
+      '',
+      '--- RESULT ---',
+      JSON.stringify(data.result, null, 2),
+      separator,
+      ''
+    ].filter(Boolean).join('\n');
+
+    fs.appendFileSync(this.vectorLogFile, log);
+    this.applyVectorRetentionOnce();
+  }
+
   async close(): Promise<void> {
     return new Promise<void>((resolve) => {
       // Timeout after 250ms - worst case we miss some file logs, console logs are already flushed
@@ -429,6 +654,48 @@ export class AdapterLogger {
       });
     }
     this.llmRetentionApplied = true;
+  }
+
+  private applyEmbeddingRetentionOnce(): void {
+    if (this.embeddingRetentionApplied) return;
+    const { batchId, useBatchDir } = getBatchEnv();
+    if (batchId && useBatchDir) {
+      enforceRetention(embeddingLogDir, {
+        includeDirs: true,
+        match: (d) => d.isDirectory() && d.name.startsWith('batch-'),
+        maxFiles: EMBEDDING_MAX_FILES,
+        maxAgeDays: EMBEDDING_MAX_AGE_DAYS
+      });
+    } else {
+      enforceRetention(embeddingLogDir, {
+        includeDirs: false,
+        match: (d) => d.isFile() && /^embedding.*\.log$/.test(d.name),
+        maxFiles: EMBEDDING_MAX_FILES,
+        maxAgeDays: EMBEDDING_MAX_AGE_DAYS
+      });
+    }
+    this.embeddingRetentionApplied = true;
+  }
+
+  private applyVectorRetentionOnce(): void {
+    if (this.vectorRetentionApplied) return;
+    const { batchId, useBatchDir } = getBatchEnv();
+    if (batchId && useBatchDir) {
+      enforceRetention(vectorLogDir, {
+        includeDirs: true,
+        match: (d) => d.isDirectory() && d.name.startsWith('batch-'),
+        maxFiles: VECTOR_MAX_FILES,
+        maxAgeDays: VECTOR_MAX_AGE_DAYS
+      });
+    } else {
+      enforceRetention(vectorLogDir, {
+        includeDirs: false,
+        match: (d) => d.isFile() && /^vector.*\.log$/.test(d.name),
+        maxFiles: VECTOR_MAX_FILES,
+        maxAgeDays: VECTOR_MAX_AGE_DAYS
+      });
+    }
+    this.vectorRetentionApplied = true;
   }
 
   private performPostCloseRetention(): void {

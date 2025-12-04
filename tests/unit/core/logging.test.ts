@@ -658,4 +658,552 @@ describe('core/logging', () => {
       }
     });
   });
+
+  test('logEmbeddingRequest writes beautifully formatted request to embedding log file', async () => {
+    await withTempCwd('logging-embedding-request', async (cwd) => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
+      try {
+        const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+        const { AdapterLogger, LogLevel } = module;
+
+        const logger = new AdapterLogger(LogLevel.DEBUG);
+
+        const requestData = {
+          url: 'https://api.openrouter.ai/v1/embeddings',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer sk-or-test1234567890abcdef'
+          },
+          body: {
+            model: 'text-embedding-3-small',
+            input: ['Hello world']
+          },
+          provider: 'openrouter',
+          model: 'text-embedding-3-small'
+        };
+
+        logger.logEmbeddingRequest(requestData);
+
+        const embeddingLogsDir = path.join(cwd, 'logs', 'embedding');
+        expect(fs.existsSync(embeddingLogsDir)).toBe(true);
+
+        const logFiles = fs.readdirSync(embeddingLogsDir);
+        expect(logFiles.length).toBe(1);
+        expect(logFiles[0]).toBe('embedding-2025-10-18T10-00-00-000Z.log');
+
+        const logContent = fs.readFileSync(path.join(embeddingLogsDir, logFiles[0]), 'utf-8');
+
+        // Verify the beautiful formatting
+        expect(logContent).toContain('='.repeat(80));
+        expect(logContent).toContain('>>> EMBEDDING REQUEST >>>');
+        expect(logContent).toContain('Provider: openrouter');
+        expect(logContent).toContain('Model: text-embedding-3-small');
+        expect(logContent).toContain('Method: POST');
+        expect(logContent).toContain('URL: https://api.openrouter.ai/v1/embeddings');
+        expect(logContent).toContain('--- HEADERS ---');
+        expect(logContent).toContain('--- BODY ---');
+
+        // Verify API key redaction
+        expect(logContent).toContain('Bearer ***cdef');
+        expect(logContent).not.toContain('sk-or-test1234567890abcdef');
+
+        // Verify body content
+        expect(logContent).toContain('"model": "text-embedding-3-small"');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  test('logEmbeddingResponse writes beautifully formatted response to embedding log file', async () => {
+    await withTempCwd('logging-embedding-response', async (cwd) => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
+      try {
+        const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+        const { AdapterLogger, LogLevel } = module;
+
+        const logger = new AdapterLogger(LogLevel.DEBUG);
+
+        const responseData = {
+          status: 200,
+          statusText: 'OK',
+          headers: {
+            'content-type': 'application/json'
+          },
+          body: {
+            data: [{ embedding: [0.1, 0.2, 0.3], index: 0 }],
+            model: 'text-embedding-3-small',
+            usage: { prompt_tokens: 5, total_tokens: 5 }
+          },
+          dimensions: 3,
+          tokenCount: 5
+        };
+
+        logger.logEmbeddingResponse(responseData);
+
+        const embeddingLogsDir = path.join(cwd, 'logs', 'embedding');
+        expect(fs.existsSync(embeddingLogsDir)).toBe(true);
+
+        const logFiles = fs.readdirSync(embeddingLogsDir);
+        expect(logFiles.length).toBe(1);
+
+        const logContent = fs.readFileSync(path.join(embeddingLogsDir, logFiles[0]), 'utf-8');
+
+        // Verify the beautiful formatting
+        expect(logContent).toContain('='.repeat(80));
+        expect(logContent).toContain('<<< EMBEDDING RESPONSE <<<');
+        expect(logContent).toContain('Status: 200 OK');
+        expect(logContent).toContain('Dimensions: 3');
+        expect(logContent).toContain('Token Count: 5');
+        expect(logContent).toContain('--- HEADERS ---');
+        expect(logContent).toContain('--- BODY ---');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  test('logEmbeddingRequest and logEmbeddingResponse do nothing when file logging disabled', async () => {
+    await withTempCwd('logging-embedding-disabled', async (cwd) => {
+      const { module } = await setupLoggingTestHarness({ disableFileLogs: true });
+      const { AdapterLogger, LogLevel } = module;
+
+      const logger = new AdapterLogger(LogLevel.DEBUG);
+
+      logger.logEmbeddingRequest({
+        url: 'https://api.example.com/v1/embeddings',
+        method: 'POST',
+        headers: {},
+        body: {}
+      });
+
+      logger.logEmbeddingResponse({
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        body: {}
+      });
+
+      const embeddingLogsDir = path.join(cwd, 'logs', 'embedding');
+      expect(fs.existsSync(embeddingLogsDir)).toBe(false);
+    });
+  });
+
+  test('logVectorRequest writes beautifully formatted request to vector log file', async () => {
+    await withTempCwd('logging-vector-request', async (cwd) => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
+      try {
+        const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+        const { AdapterLogger, LogLevel } = module;
+
+        const logger = new AdapterLogger(LogLevel.DEBUG);
+
+        const requestData = {
+          operation: 'query',
+          store: 'qdrant-cloud',
+          collection: 'documents',
+          params: {
+            vectorDimensions: 1536,
+            topK: 5,
+            filter: { topic: 'geography' }
+          }
+        };
+
+        logger.logVectorRequest(requestData);
+
+        const vectorLogsDir = path.join(cwd, 'logs', 'vector');
+        expect(fs.existsSync(vectorLogsDir)).toBe(true);
+
+        const logFiles = fs.readdirSync(vectorLogsDir);
+        expect(logFiles.length).toBe(1);
+        expect(logFiles[0]).toBe('vector-2025-10-18T10-00-00-000Z.log');
+
+        const logContent = fs.readFileSync(path.join(vectorLogsDir, logFiles[0]), 'utf-8');
+
+        // Verify the beautiful formatting
+        expect(logContent).toContain('='.repeat(80));
+        expect(logContent).toContain('>>> VECTOR OPERATION: query >>>');
+        expect(logContent).toContain('Store: qdrant-cloud');
+        expect(logContent).toContain('Collection: documents');
+        expect(logContent).toContain('--- PARAMS ---');
+        expect(logContent).toContain('"vectorDimensions": 1536');
+        expect(logContent).toContain('"topK": 5');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  test('logVectorResponse writes beautifully formatted response to vector log file', async () => {
+    await withTempCwd('logging-vector-response', async (cwd) => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
+      try {
+        const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+        const { AdapterLogger, LogLevel } = module;
+
+        const logger = new AdapterLogger(LogLevel.DEBUG);
+
+        const responseData = {
+          operation: 'query',
+          store: 'qdrant-cloud',
+          collection: 'documents',
+          result: {
+            count: 3,
+            topScore: 0.92,
+            ids: ['fact-1', 'fact-4', 'fact-2']
+          },
+          duration: 45
+        };
+
+        logger.logVectorResponse(responseData);
+
+        const vectorLogsDir = path.join(cwd, 'logs', 'vector');
+        expect(fs.existsSync(vectorLogsDir)).toBe(true);
+
+        const logFiles = fs.readdirSync(vectorLogsDir);
+        expect(logFiles.length).toBe(1);
+
+        const logContent = fs.readFileSync(path.join(vectorLogsDir, logFiles[0]), 'utf-8');
+
+        // Verify the beautiful formatting
+        expect(logContent).toContain('='.repeat(80));
+        expect(logContent).toContain('<<< VECTOR RESULT: query <<<');
+        expect(logContent).toContain('Store: qdrant-cloud');
+        expect(logContent).toContain('Collection: documents');
+        expect(logContent).toContain('Duration: 45ms');
+        expect(logContent).toContain('--- RESULT ---');
+        expect(logContent).toContain('"count": 3');
+        expect(logContent).toContain('"topScore": 0.92');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  test('logVectorRequest and logVectorResponse do nothing when file logging disabled', async () => {
+    await withTempCwd('logging-vector-disabled', async (cwd) => {
+      const { module } = await setupLoggingTestHarness({ disableFileLogs: true });
+      const { AdapterLogger, LogLevel } = module;
+
+      const logger = new AdapterLogger(LogLevel.DEBUG);
+
+      logger.logVectorRequest({
+        operation: 'query',
+        store: 'test-store',
+        params: {}
+      });
+
+      logger.logVectorResponse({
+        operation: 'query',
+        store: 'test-store',
+        result: {}
+      });
+
+      const vectorLogsDir = path.join(cwd, 'logs', 'vector');
+      expect(fs.existsSync(vectorLogsDir)).toBe(false);
+    });
+  });
+
+  test('logVectorRequest without collection omits collection field', async () => {
+    await withTempCwd('logging-vector-no-collection', async (cwd) => {
+      const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+      const { AdapterLogger, LogLevel } = module;
+
+      const logger = new AdapterLogger(LogLevel.DEBUG);
+
+      logger.logVectorRequest({
+        operation: 'connect',
+        store: 'test-store',
+        params: { url: 'http://localhost:6333' }
+      });
+
+      const vectorLogsDir = path.join(cwd, 'logs', 'vector');
+      const logFiles = fs.readdirSync(vectorLogsDir);
+      const logContent = fs.readFileSync(path.join(vectorLogsDir, logFiles[0]), 'utf-8');
+
+      expect(logContent).toContain('Store: test-store');
+      expect(logContent).not.toContain('Collection:');
+    });
+  });
+
+  test('logVectorResponse without duration omits duration field', async () => {
+    await withTempCwd('logging-vector-no-duration', async (cwd) => {
+      const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+      const { AdapterLogger, LogLevel } = module;
+
+      const logger = new AdapterLogger(LogLevel.DEBUG);
+
+      logger.logVectorResponse({
+        operation: 'upsert',
+        store: 'test-store',
+        result: { success: true }
+      });
+
+      const vectorLogsDir = path.join(cwd, 'logs', 'vector');
+      const logFiles = fs.readdirSync(vectorLogsDir);
+      const logContent = fs.readFileSync(path.join(vectorLogsDir, logFiles[0]), 'utf-8');
+
+      expect(logContent).not.toContain('Duration:');
+    });
+  });
+
+  test('logEmbeddingRequest without provider/model omits those fields', async () => {
+    await withTempCwd('logging-embedding-minimal', async (cwd) => {
+      const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+      const { AdapterLogger, LogLevel } = module;
+
+      const logger = new AdapterLogger(LogLevel.DEBUG);
+
+      logger.logEmbeddingRequest({
+        url: 'https://api.example.com/v1/embeddings',
+        method: 'POST',
+        headers: {},
+        body: { input: ['test'] }
+      });
+
+      const embeddingLogsDir = path.join(cwd, 'logs', 'embedding');
+      const logFiles = fs.readdirSync(embeddingLogsDir);
+      const logContent = fs.readFileSync(path.join(embeddingLogsDir, logFiles[0]), 'utf-8');
+
+      expect(logContent).not.toContain('Provider:');
+      expect(logContent).not.toContain('Model:');
+    });
+  });
+
+  test('logEmbeddingResponse without dimensions/tokenCount omits those fields', async () => {
+    await withTempCwd('logging-embedding-no-meta', async (cwd) => {
+      const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+      const { AdapterLogger, LogLevel } = module;
+
+      const logger = new AdapterLogger(LogLevel.DEBUG);
+
+      logger.logEmbeddingResponse({
+        status: 200,
+        headers: {},
+        body: {}
+      });
+
+      const embeddingLogsDir = path.join(cwd, 'logs', 'embedding');
+      const logFiles = fs.readdirSync(embeddingLogsDir);
+      const logContent = fs.readFileSync(path.join(embeddingLogsDir, logFiles[0]), 'utf-8');
+
+      expect(logContent).not.toContain('Dimensions:');
+      expect(logContent).not.toContain('Token Count:');
+    });
+  });
+
+  test('batch id routes embedding logs to single batch-named file', async () => {
+    await withTempCwd('logging-embedding-batch', async (cwd) => {
+      process.env.LLM_ADAPTER_BATCH_ID = 'batch_embed_123';
+      const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+      const { AdapterLogger, LogLevel } = module;
+
+      const logger = new AdapterLogger(LogLevel.DEBUG);
+      logger.logEmbeddingRequest({ url: 'http://ex', method: 'POST', headers: {}, body: { ok: true } });
+
+      const embeddingLogsDir = path.join(cwd, 'logs', 'embedding');
+      const files = fs.readdirSync(embeddingLogsDir);
+      expect(files).toEqual(['embedding-batch-batch_embed_123.log']);
+
+      delete process.env.LLM_ADAPTER_BATCH_ID;
+    });
+  });
+
+  test('batch id routes vector logs to single batch-named file', async () => {
+    await withTempCwd('logging-vector-batch', async (cwd) => {
+      process.env.LLM_ADAPTER_BATCH_ID = 'batch_vector_123';
+      const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+      const { AdapterLogger, LogLevel } = module;
+
+      const logger = new AdapterLogger(LogLevel.DEBUG);
+      logger.logVectorRequest({ operation: 'query', store: 'test', params: {} });
+
+      const vectorLogsDir = path.join(cwd, 'logs', 'vector');
+      const files = fs.readdirSync(vectorLogsDir);
+      expect(files).toEqual(['vector-batch-batch_vector_123.log']);
+
+      delete process.env.LLM_ADAPTER_BATCH_ID;
+    });
+  });
+
+  test('batch dir mode writes embedding logs under logs/embedding/batch-<id>/embedding.log', async () => {
+    await withTempCwd('logging-embedding-batchdir', async (cwd) => {
+      process.env.LLM_ADAPTER_BATCH_ID = 'embeddircase';
+      process.env.LLM_ADAPTER_BATCH_DIR = '1';
+      const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+      const { AdapterLogger, LogLevel } = module;
+
+      const logger = new AdapterLogger(LogLevel.DEBUG);
+      logger.logEmbeddingResponse({ status: 200, headers: {}, body: { ok: true } });
+
+      const dir = path.join(cwd, 'logs', 'embedding', 'batch-embeddircase');
+      const files = fs.readdirSync(dir);
+      expect(files).toContain('embedding.log');
+
+      delete process.env.LLM_ADAPTER_BATCH_ID;
+      delete process.env.LLM_ADAPTER_BATCH_DIR;
+    });
+  });
+
+  test('batch dir mode writes vector logs under logs/vector/batch-<id>/vector.log', async () => {
+    await withTempCwd('logging-vector-batchdir', async (cwd) => {
+      process.env.LLM_ADAPTER_BATCH_ID = 'vecdircase';
+      process.env.LLM_ADAPTER_BATCH_DIR = '1';
+      const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+      const { AdapterLogger, LogLevel } = module;
+
+      const logger = new AdapterLogger(LogLevel.DEBUG);
+      logger.logVectorResponse({ operation: 'upsert', store: 'test', result: { ok: true } });
+
+      const dir = path.join(cwd, 'logs', 'vector', 'batch-vecdircase');
+      const files = fs.readdirSync(dir);
+      expect(files).toContain('vector.log');
+
+      delete process.env.LLM_ADAPTER_BATCH_ID;
+      delete process.env.LLM_ADAPTER_BATCH_DIR;
+    });
+  });
+
+  test('retention match callback runs for pre-existing embedding timestamped logs', async () => {
+    await withTempCwd('logging-embedding-retention', async (cwd) => {
+      // Create logs/embedding directory with pre-existing log files
+      const embeddingLogsDir = path.join(cwd, 'logs', 'embedding');
+      fs.mkdirSync(embeddingLogsDir, { recursive: true });
+
+      // Create pre-existing log files that match the retention pattern
+      fs.writeFileSync(path.join(embeddingLogsDir, 'embedding-2025-01-01T00-00-00-000Z.log'), 'old log');
+      fs.writeFileSync(path.join(embeddingLogsDir, 'embedding-2025-01-02T00-00-00-000Z.log'), 'older log');
+      fs.writeFileSync(path.join(embeddingLogsDir, 'unrelated-file.txt'), 'not a log');
+
+      const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+      const { AdapterLogger, LogLevel } = module;
+
+      // Creating the logger should trigger retention with the match callback
+      const logger = new AdapterLogger(LogLevel.DEBUG);
+
+      // Verify old files are still there (retention doesn't delete when under limit)
+      expect(fs.existsSync(path.join(embeddingLogsDir, 'embedding-2025-01-01T00-00-00-000Z.log'))).toBe(true);
+      expect(fs.existsSync(path.join(embeddingLogsDir, 'unrelated-file.txt'))).toBe(true);
+
+      // Write something to verify logger works
+      logger.logEmbeddingRequest({ url: 'http://test', method: 'POST', headers: {}, body: {} });
+    });
+  });
+
+  test('retention match callback runs for pre-existing vector timestamped logs', async () => {
+    await withTempCwd('logging-vector-retention', async (cwd) => {
+      // Create logs/vector directory with pre-existing log files
+      const vectorLogsDir = path.join(cwd, 'logs', 'vector');
+      fs.mkdirSync(vectorLogsDir, { recursive: true });
+
+      // Create pre-existing log files that match the retention pattern
+      fs.writeFileSync(path.join(vectorLogsDir, 'vector-2025-01-01T00-00-00-000Z.log'), 'old log');
+      fs.writeFileSync(path.join(vectorLogsDir, 'vector-2025-01-02T00-00-00-000Z.log'), 'older log');
+      fs.writeFileSync(path.join(vectorLogsDir, 'unrelated-file.txt'), 'not a log');
+
+      const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+      const { AdapterLogger, LogLevel } = module;
+
+      // Creating the logger should trigger retention with the match callback
+      const logger = new AdapterLogger(LogLevel.DEBUG);
+
+      // Verify old files are still there (retention doesn't delete when under limit)
+      expect(fs.existsSync(path.join(vectorLogsDir, 'vector-2025-01-01T00-00-00-000Z.log'))).toBe(true);
+      expect(fs.existsSync(path.join(vectorLogsDir, 'unrelated-file.txt'))).toBe(true);
+
+      // Write something to verify logger works
+      logger.logVectorRequest({ operation: 'query', store: 'test', params: {} });
+    });
+  });
+
+  test('retention match callback runs for pre-existing embedding batch logs', async () => {
+    await withTempCwd('logging-embedding-batch-retention', async (cwd) => {
+      // Create logs/embedding directory with pre-existing batch log files
+      const embeddingLogsDir = path.join(cwd, 'logs', 'embedding');
+      fs.mkdirSync(embeddingLogsDir, { recursive: true });
+
+      // Create pre-existing batch log files that match the retention pattern
+      fs.writeFileSync(path.join(embeddingLogsDir, 'embedding-batch-old1.log'), 'old batch log');
+      fs.writeFileSync(path.join(embeddingLogsDir, 'embedding-batch-old2.log'), 'older batch log');
+      fs.writeFileSync(path.join(embeddingLogsDir, 'embedding-2025-01-01.log'), 'timestamped log');
+
+      process.env.LLM_ADAPTER_BATCH_ID = 'newbatch';
+      const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+      const { AdapterLogger, LogLevel } = module;
+
+      // Creating the logger should trigger retention with the match callback for batch files
+      const logger = new AdapterLogger(LogLevel.DEBUG);
+
+      // Verify old batch files are still there (retention doesn't delete when under limit)
+      expect(fs.existsSync(path.join(embeddingLogsDir, 'embedding-batch-old1.log'))).toBe(true);
+
+      logger.logEmbeddingRequest({ url: 'http://test', method: 'POST', headers: {}, body: {} });
+
+      delete process.env.LLM_ADAPTER_BATCH_ID;
+    });
+  });
+
+  test('retention match callback runs for pre-existing vector batch logs', async () => {
+    await withTempCwd('logging-vector-batch-retention', async (cwd) => {
+      // Create logs/vector directory with pre-existing batch log files
+      const vectorLogsDir = path.join(cwd, 'logs', 'vector');
+      fs.mkdirSync(vectorLogsDir, { recursive: true });
+
+      // Create pre-existing batch log files that match the retention pattern
+      fs.writeFileSync(path.join(vectorLogsDir, 'vector-batch-old1.log'), 'old batch log');
+      fs.writeFileSync(path.join(vectorLogsDir, 'vector-batch-old2.log'), 'older batch log');
+      fs.writeFileSync(path.join(vectorLogsDir, 'vector-2025-01-01.log'), 'timestamped log');
+
+      process.env.LLM_ADAPTER_BATCH_ID = 'newbatch';
+      const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+      const { AdapterLogger, LogLevel } = module;
+
+      // Creating the logger should trigger retention with the match callback for batch files
+      const logger = new AdapterLogger(LogLevel.DEBUG);
+
+      // Verify old batch files are still there (retention doesn't delete when under limit)
+      expect(fs.existsSync(path.join(vectorLogsDir, 'vector-batch-old1.log'))).toBe(true);
+
+      logger.logVectorRequest({ operation: 'query', store: 'test', params: {} });
+
+      delete process.env.LLM_ADAPTER_BATCH_ID;
+    });
+  });
+
+  test('embedding retention only applies once on multiple logs', async () => {
+    await withTempCwd('logging-embedding-once', async (cwd) => {
+      const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+      const { AdapterLogger, LogLevel } = module;
+
+      const logger = new AdapterLogger(LogLevel.DEBUG);
+
+      // Log multiple times - retention should only be applied once (second call hits early return)
+      logger.logEmbeddingRequest({ url: 'http://test', method: 'POST', headers: {}, body: {} });
+      logger.logEmbeddingRequest({ url: 'http://test2', method: 'POST', headers: {}, body: {} });
+      logger.logEmbeddingResponse({ status: 200, headers: {}, body: {} });
+
+      const embeddingLogsDir = path.join(cwd, 'logs', 'embedding');
+      const files = fs.readdirSync(embeddingLogsDir);
+      expect(files.length).toBe(1);
+    });
+  });
+
+  test('vector retention only applies once on multiple logs', async () => {
+    await withTempCwd('logging-vector-once', async (cwd) => {
+      const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+      const { AdapterLogger, LogLevel } = module;
+
+      const logger = new AdapterLogger(LogLevel.DEBUG);
+
+      // Log multiple times - retention should only be applied once (second call hits early return)
+      logger.logVectorRequest({ operation: 'query', store: 'test', params: {} });
+      logger.logVectorRequest({ operation: 'upsert', store: 'test', params: {} });
+      logger.logVectorResponse({ operation: 'query', store: 'test', result: {} });
+
+      const vectorLogsDir = path.join(cwd, 'logs', 'vector');
+      const files = fs.readdirSync(vectorLogsDir);
+      expect(files.length).toBe(1);
+    });
+  });
 });

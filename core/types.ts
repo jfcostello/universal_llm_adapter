@@ -444,6 +444,45 @@ export interface VectorQueryOptions {
 // ============================================================
 
 /**
+ * Logger interface for embedding/vector compats.
+ * Matches the AdapterLogger methods used for logging.
+ */
+export interface IOperationLogger {
+  logEmbeddingRequest(data: {
+    url: string;
+    method: string;
+    headers: Record<string, any>;
+    body: any;
+    provider?: string;
+    model?: string;
+  }): void;
+
+  logEmbeddingResponse(data: {
+    status: number;
+    statusText?: string;
+    headers: Record<string, any>;
+    body: any;
+    dimensions?: number;
+    tokenCount?: number;
+  }): void;
+
+  logVectorRequest(data: {
+    operation: string;
+    store: string;
+    collection?: string;
+    params: Record<string, any>;
+  }): void;
+
+  logVectorResponse(data: {
+    operation: string;
+    store: string;
+    collection?: string;
+    result: any;
+    duration?: number;
+  }): void;
+}
+
+/**
  * Interface for embedding compat modules.
  * Implemented by: plugins/embedding-compat/openrouter.ts, etc.
  */
@@ -451,7 +490,8 @@ export interface IEmbeddingCompat {
   embed(
     input: string | string[],
     config: EmbeddingProviderConfig,
-    model?: string
+    model?: string,
+    logger?: IOperationLogger
   ): Promise<EmbeddingResult>;
 
   getDimensions(config: EmbeddingProviderConfig, model?: string): number;
@@ -464,6 +504,9 @@ export interface IEmbeddingCompat {
  * Implemented by: plugins/vector-compat/qdrant.ts, etc.
  */
 export interface IVectorStoreCompat {
+  /** Optional method to inject a logger for operation logging */
+  setLogger?(logger: IOperationLogger): void;
+
   connect(config: VectorStoreConfig): Promise<void>;
 
   close(): Promise<void>;

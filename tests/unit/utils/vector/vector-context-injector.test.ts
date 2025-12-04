@@ -120,7 +120,8 @@ describe('utils/vector/vector-context-injector', () => {
       expect(embeddingCompat.embed).toHaveBeenCalledWith(
         'What is machine learning?',
         expect.anything(),
-        undefined
+        undefined,
+        expect.anything() // logger parameter
       );
     });
 
@@ -332,7 +333,8 @@ describe('utils/vector/vector-context-injector', () => {
       expect(embeddingCompat.embed).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
-        'custom-model'
+        'custom-model',
+        expect.anything() // logger parameter
       );
     });
 
@@ -592,7 +594,8 @@ describe('utils/vector/vector-context-injector', () => {
       expect(embeddingCompat.embed).toHaveBeenCalledWith(
         'Third question',
         expect.anything(),
-        undefined
+        undefined,
+        expect.anything() // logger parameter
       );
     });
 
@@ -889,6 +892,30 @@ describe('utils/vector/vector-context-injector', () => {
 
       // Should return empty string for null value
       expect(result.resultsInjected).toBe(1);
+    });
+
+    test('calls setLogger on vector compat when available', async () => {
+      const setLoggerMock = jest.fn();
+      const vectorCompat = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([
+          { id: 'doc1', score: 0.9, payload: { text: 'Result' } }
+        ]),
+        setLogger: setLoggerMock
+      };
+      const registry = createMockRegistry({ vectorCompat });
+
+      const injector = new VectorContextInjector({ registry });
+      const messages = createMessages(['Query']);
+
+      await injector.injectContext(messages, {
+        stores: ['test-store'],
+        mode: 'auto'
+      });
+
+      // setLogger should be called on the compat
+      expect(setLoggerMock).toHaveBeenCalled();
     });
   });
 });

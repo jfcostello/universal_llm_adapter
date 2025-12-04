@@ -630,4 +630,50 @@ describe('managers/llm-manager', () => {
       expect(error.isRateLimit).toBe(true);
     }
   });
+
+  test('streamProvider handles provider with no headers or streamingHeaders', async () => {
+    const providerNoHeaders = {
+      id: 'test-no-headers',
+      compat: 'openai',
+      endpoint: {
+        urlTemplate: 'http://service/{model}',
+        method: 'POST'
+        // No headers or streamingHeaders
+      }
+    } as any;
+
+    const compat = {
+      buildPayload: jest.fn(() => ({ base: true })),
+      getStreamingFlags: jest.fn(() => ({ stream: true }))
+    } as any;
+    const registry = { getCompatModule: jest.fn(() => compat) } as any;
+    const manager = new LLMManager(registry);
+
+    const httpClient = {
+      request: jest.fn().mockResolvedValue({
+        data: {
+          async *[Symbol.asyncIterator]() {
+            yield Buffer.from('data: {"id":99}\n');
+            yield Buffer.from('data: [DONE]\n');
+          }
+        }
+      })
+    };
+    (manager as any).httpClient = httpClient;
+
+    const chunks: any[] = [];
+    for await (const chunk of manager.streamProvider(providerNoHeaders, 'model-x', {} as any, [], [])) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual([{ id: 99 }]);
+    // Verify that empty headers object is passed when provider has no headers
+    expect(httpClient.request).toHaveBeenCalledWith({
+      method: 'POST',
+      url: 'http://service/model-x',
+      headers: {},
+      data: expect.objectContaining({ base: true, stream: true }),
+      responseType: 'stream'
+    });
+  });
 });

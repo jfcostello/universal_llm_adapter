@@ -330,4 +330,133 @@ describe('plugins/embedding-compat/openrouter', () => {
       }
     });
   });
+
+  describe('logging', () => {
+    test('logs successful request and response when logger provided', async () => {
+      const mockHttpClient = createMockHttpClient({
+        status: 200,
+        statusText: 'OK',
+        headers: { 'content-type': 'application/json' },
+        data: {
+          object: 'list',
+          data: [{ index: 0, embedding: [0.1, 0.2, 0.3] }],
+          model: 'test-model',
+          usage: { prompt_tokens: 5, total_tokens: 5 }
+        }
+      });
+
+      const mockLogger = {
+        logEmbeddingRequest: jest.fn(),
+        logEmbeddingResponse: jest.fn(),
+        logVectorRequest: jest.fn(),
+        logVectorResponse: jest.fn()
+      };
+
+      const compat = new OpenRouterEmbeddingCompat(mockHttpClient as any);
+      await compat.embed('test', createConfig(), undefined, mockLogger);
+
+      expect(mockLogger.logEmbeddingRequest).toHaveBeenCalledWith({
+        url: 'https://openrouter.ai/api/v1/embeddings',
+        method: 'POST',
+        headers: expect.any(Object),
+        body: expect.objectContaining({ model: 'openai/text-embedding-3-small', input: 'test' }),
+        provider: 'openrouter',
+        model: 'openai/text-embedding-3-small'
+      });
+
+      expect(mockLogger.logEmbeddingResponse).toHaveBeenCalledWith({
+        status: 200,
+        statusText: 'OK',
+        headers: { 'content-type': 'application/json' },
+        body: expect.any(Object),
+        dimensions: 3,
+        tokenCount: 5
+      });
+    });
+
+    test('logs error response when HTTP error occurs', async () => {
+      const mockHttpClient = createMockHttpClient({
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { 'x-error': 'true' },
+        data: { error: { message: 'Invalid input' } }
+      });
+
+      const mockLogger = {
+        logEmbeddingRequest: jest.fn(),
+        logEmbeddingResponse: jest.fn(),
+        logVectorRequest: jest.fn(),
+        logVectorResponse: jest.fn()
+      };
+
+      const compat = new OpenRouterEmbeddingCompat(mockHttpClient as any);
+
+      await expect(compat.embed('test', createConfig(), undefined, mockLogger)).rejects.toThrow();
+
+      expect(mockLogger.logEmbeddingRequest).toHaveBeenCalled();
+      expect(mockLogger.logEmbeddingResponse).toHaveBeenCalledWith({
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { 'x-error': 'true' },
+        body: { error: { message: 'Invalid input' } }
+      });
+    });
+
+    test('handles missing response headers gracefully', async () => {
+      const mockHttpClient = createMockHttpClient({
+        status: 200,
+        statusText: 'OK',
+        // headers is undefined
+        data: {
+          object: 'list',
+          data: [{ index: 0, embedding: [0.1] }],
+          model: 'test'
+        }
+      });
+
+      const mockLogger = {
+        logEmbeddingRequest: jest.fn(),
+        logEmbeddingResponse: jest.fn(),
+        logVectorRequest: jest.fn(),
+        logVectorResponse: jest.fn()
+      };
+
+      const compat = new OpenRouterEmbeddingCompat(mockHttpClient as any);
+      await compat.embed('test', createConfig(), undefined, mockLogger);
+
+      // Should use empty object for missing headers
+      expect(mockLogger.logEmbeddingResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          headers: {}
+        })
+      );
+    });
+
+    test('handles missing response headers on error', async () => {
+      const mockHttpClient = createMockHttpClient({
+        status: 500,
+        statusText: 'Internal Server Error',
+        // headers is undefined
+        data: 'Server error'
+      });
+
+      const mockLogger = {
+        logEmbeddingRequest: jest.fn(),
+        logEmbeddingResponse: jest.fn(),
+        logVectorRequest: jest.fn(),
+        logVectorResponse: jest.fn()
+      };
+
+      const compat = new OpenRouterEmbeddingCompat(mockHttpClient as any);
+
+      await expect(compat.embed('test', createConfig(), undefined, mockLogger)).rejects.toThrow();
+
+      // Should use empty object for missing headers
+      expect(mockLogger.logEmbeddingResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          headers: {}
+        })
+      );
+    });
+  });
 });

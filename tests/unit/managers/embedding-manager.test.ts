@@ -182,7 +182,8 @@ describe('managers/embedding-manager', () => {
       expect(compat.embed).toHaveBeenCalledWith(
         'test',
         expect.anything(),
-        'custom-model'
+        'custom-model',
+        undefined // no logger passed to manager
       );
     });
 
@@ -314,7 +315,37 @@ describe('managers/embedding-manager', () => {
       const result = await manager.validate('test-provider');
 
       expect(result).toBe(true);
-      expect(compat.embed).toHaveBeenCalledWith('test', expect.anything());
+      expect(compat.embed).toHaveBeenCalledWith('test', expect.anything(), undefined, undefined);
+    });
+  });
+
+  describe('setLogger', () => {
+    test('sets the logger for the manager', async () => {
+      const compat = {
+        embed: jest.fn().mockResolvedValue({ vectors: [[1]], model: 'm', dimensions: 1 }),
+        getDimensions: jest.fn()
+      };
+      const registry = createMockRegistry({ compat });
+      const manager = new EmbeddingManager(registry);
+
+      const mockLogger = {
+        logEmbeddingRequest: jest.fn(),
+        logEmbeddingResponse: jest.fn(),
+        logVectorRequest: jest.fn(),
+        logVectorResponse: jest.fn()
+      };
+
+      manager.setLogger(mockLogger);
+
+      // Embed should now receive the logger
+      await manager.embed('test', [{ provider: 'test' }]);
+
+      expect(compat.embed).toHaveBeenCalledWith(
+        'test',
+        expect.anything(),
+        undefined,
+        mockLogger
+      );
     });
   });
 });

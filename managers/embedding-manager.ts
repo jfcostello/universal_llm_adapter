@@ -2,7 +2,8 @@ import {
   EmbeddingProviderConfig,
   EmbeddingPriorityItem,
   EmbeddingResult,
-  IEmbeddingCompat
+  IEmbeddingCompat,
+  IOperationLogger
 } from '../core/types.js';
 import { EmbeddingError, EmbeddingProviderError } from '../core/errors.js';
 import { EmbedderFn } from './vector-store-manager.js';
@@ -16,7 +17,11 @@ import { EmbedderFn } from './vector-store-manager.js';
  * All provider-specific logic is delegated to compat modules in plugins/embedding-compat/
  */
 export class EmbeddingManager {
-  constructor(private registry: any) {}
+  private logger?: IOperationLogger;
+
+  constructor(private registry: any, logger?: IOperationLogger) {
+    this.logger = logger;
+  }
 
   /**
    * Embed text using priority-based providers with fallback
@@ -41,7 +46,8 @@ export class EmbeddingManager {
         const config = await this.registry.getEmbeddingProvider(item.provider);
         const compat = await this.registry.getEmbeddingCompat(config.kind);
 
-        const result = await compat.embed(input, config, item.model);
+        // Pass logger to compat for HTTP logging
+        const result = await compat.embed(input, config, item.model, this.logger);
         return result;
       } catch (error: any) {
         errors.push(error);
@@ -121,10 +127,17 @@ export class EmbeddingManager {
       }
 
       // If no validate method, try a minimal embed
-      await compat.embed('test', config);
+      await compat.embed('test', config, undefined, this.logger);
       return true;
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Set the logger for this manager
+   */
+  setLogger(logger: IOperationLogger): void {
+    this.logger = logger;
   }
 }

@@ -374,4 +374,340 @@ describe('plugins/vector-compat/qdrant', () => {
       }
     });
   });
+
+  describe('logging', () => {
+    const createMockLogger = () => ({
+      logEmbeddingRequest: jest.fn(),
+      logEmbeddingResponse: jest.fn(),
+      logVectorRequest: jest.fn(),
+      logVectorResponse: jest.fn()
+    });
+
+    test('setLogger stores logger for later use', async () => {
+      const mockLogger = createMockLogger();
+
+      compat.setLogger(mockLogger);
+      await compat.connect(createConfig());
+
+      // Logger should be called during connect
+      expect(mockLogger.logVectorRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: 'connect',
+          store: 'test-qdrant'
+        })
+      );
+      expect(mockLogger.logVectorResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: 'connect',
+          store: 'test-qdrant'
+        })
+      );
+    });
+
+    test('logs query operations with results', async () => {
+      const mockLogger = createMockLogger();
+      mockClient.search.mockResolvedValue([
+        { id: '1', score: 0.95, payload: { text: 'hello' } }
+      ]);
+
+      compat.setLogger(mockLogger);
+      await compat.connect(createConfig());
+      mockLogger.logVectorRequest.mockClear();
+      mockLogger.logVectorResponse.mockClear();
+
+      await compat.query('test-collection', [0.1, 0.2], 5);
+
+      expect(mockLogger.logVectorRequest).toHaveBeenCalledWith({
+        operation: 'query',
+        store: 'test-qdrant',
+        collection: 'test-collection',
+        params: expect.objectContaining({
+          vectorDimensions: 2,
+          topK: 5
+        })
+      });
+
+      expect(mockLogger.logVectorResponse).toHaveBeenCalledWith({
+        operation: 'query',
+        store: 'test-qdrant',
+        collection: 'test-collection',
+        result: expect.objectContaining({
+          count: 1,
+          topScore: 0.95,
+          ids: ['1']
+        }),
+        duration: expect.any(Number)
+      });
+    });
+
+    test('logs query failure', async () => {
+      const mockLogger = createMockLogger();
+      mockClient.search.mockRejectedValue(new Error('Search failed'));
+
+      compat.setLogger(mockLogger);
+      await compat.connect(createConfig());
+      mockLogger.logVectorRequest.mockClear();
+      mockLogger.logVectorResponse.mockClear();
+
+      await expect(compat.query('test', [1], 1)).rejects.toThrow();
+
+      expect(mockLogger.logVectorResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: 'query',
+          result: expect.objectContaining({
+            error: 'Search failed'
+          })
+        })
+      );
+    });
+
+    test('logs upsert operations', async () => {
+      const mockLogger = createMockLogger();
+      mockClient.upsert.mockResolvedValue({});
+
+      compat.setLogger(mockLogger);
+      await compat.connect(createConfig());
+      mockLogger.logVectorRequest.mockClear();
+      mockLogger.logVectorResponse.mockClear();
+
+      await compat.upsert('test-collection', [
+        { id: 'p1', vector: [0.1, 0.2], payload: { text: 'hello' } }
+      ]);
+
+      expect(mockLogger.logVectorRequest).toHaveBeenCalledWith({
+        operation: 'upsert',
+        store: 'test-qdrant',
+        collection: 'test-collection',
+        params: expect.objectContaining({
+          pointCount: 1,
+          ids: ['p1'],
+          vectorDimensions: 2
+        })
+      });
+
+      expect(mockLogger.logVectorResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: 'upsert',
+          result: expect.objectContaining({ success: true })
+        })
+      );
+    });
+
+    test('logs upsert failure', async () => {
+      const mockLogger = createMockLogger();
+      mockClient.upsert.mockRejectedValue(new Error('Upsert failed'));
+
+      compat.setLogger(mockLogger);
+      await compat.connect(createConfig());
+      mockLogger.logVectorRequest.mockClear();
+      mockLogger.logVectorResponse.mockClear();
+
+      await expect(compat.upsert('test', [{ id: '1', vector: [1] }])).rejects.toThrow();
+
+      expect(mockLogger.logVectorResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: 'upsert',
+          result: expect.objectContaining({
+            error: 'Upsert failed'
+          })
+        })
+      );
+    });
+
+    test('logs delete operations', async () => {
+      const mockLogger = createMockLogger();
+      mockClient.delete.mockResolvedValue({});
+
+      compat.setLogger(mockLogger);
+      await compat.connect(createConfig());
+      mockLogger.logVectorRequest.mockClear();
+      mockLogger.logVectorResponse.mockClear();
+
+      await compat.deleteByIds('test-collection', ['id1', 'id2']);
+
+      expect(mockLogger.logVectorRequest).toHaveBeenCalledWith({
+        operation: 'delete',
+        store: 'test-qdrant',
+        collection: 'test-collection',
+        params: { ids: ['id1', 'id2'], idCount: 2 }
+      });
+
+      expect(mockLogger.logVectorResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: 'delete',
+          result: expect.objectContaining({ success: true })
+        })
+      );
+    });
+
+    test('logs delete failure', async () => {
+      const mockLogger = createMockLogger();
+      mockClient.delete.mockRejectedValue(new Error('Delete failed'));
+
+      compat.setLogger(mockLogger);
+      await compat.connect(createConfig());
+      mockLogger.logVectorRequest.mockClear();
+      mockLogger.logVectorResponse.mockClear();
+
+      await expect(compat.deleteByIds('test', ['1'])).rejects.toThrow();
+
+      expect(mockLogger.logVectorResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: 'delete',
+          result: expect.objectContaining({
+            error: 'Delete failed'
+          })
+        })
+      );
+    });
+
+    test('logs createCollection operations', async () => {
+      const mockLogger = createMockLogger();
+      mockClient.createCollection.mockResolvedValue({});
+
+      compat.setLogger(mockLogger);
+      await compat.connect(createConfig());
+      mockLogger.logVectorRequest.mockClear();
+      mockLogger.logVectorResponse.mockClear();
+
+      await compat.createCollection('new-collection', 128);
+
+      expect(mockLogger.logVectorRequest).toHaveBeenCalledWith({
+        operation: 'createCollection',
+        store: 'test-qdrant',
+        collection: 'new-collection',
+        params: { dimensions: 128, distance: 'Cosine' }
+      });
+
+      expect(mockLogger.logVectorResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: 'createCollection',
+          result: expect.objectContaining({ success: true })
+        })
+      );
+    });
+
+    test('logs createCollection failure', async () => {
+      const mockLogger = createMockLogger();
+      mockClient.createCollection.mockRejectedValue(new Error('Create failed'));
+
+      compat.setLogger(mockLogger);
+      await compat.connect(createConfig());
+      mockLogger.logVectorRequest.mockClear();
+      mockLogger.logVectorResponse.mockClear();
+
+      await expect(compat.createCollection('test', 128)).rejects.toThrow();
+
+      expect(mockLogger.logVectorResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: 'createCollection',
+          result: expect.objectContaining({
+            error: 'Create failed'
+          })
+        })
+      );
+    });
+
+    test('logs connect failure', async () => {
+      const mockLogger = createMockLogger();
+      mockClient.getCollections.mockRejectedValue(new Error('Connection refused'));
+
+      const newCompat = new QdrantCompat(mockClientFactory);
+      newCompat.setLogger(mockLogger);
+
+      await expect(newCompat.connect(createConfig())).rejects.toThrow();
+
+      expect(mockLogger.logVectorResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: 'connect',
+          result: expect.objectContaining({
+            error: 'Connection refused'
+          })
+        })
+      );
+    });
+
+    test('logs connect with cloud URL config', async () => {
+      const mockLogger = createMockLogger();
+
+      compat.setLogger(mockLogger);
+      await compat.connect(createConfig({
+        host: undefined,
+        port: undefined,
+        url: 'https://cloud.qdrant.io',
+        apiKey: 'secret-key'
+      }));
+
+      expect(mockLogger.logVectorRequest).toHaveBeenCalledWith({
+        operation: 'connect',
+        store: 'test-qdrant',
+        params: expect.objectContaining({
+          url: 'https://cloud.qdrant.io',
+          hasApiKey: true
+        })
+      });
+    });
+
+    test('logs connect with URL containing credentials (redacted)', async () => {
+      const mockLogger = createMockLogger();
+
+      compat.setLogger(mockLogger);
+      await compat.connect(createConfig({
+        host: undefined,
+        port: undefined,
+        url: 'https://user:password@cloud.qdrant.io'
+      }));
+
+      // The URL with credentials should be redacted
+      expect(mockLogger.logVectorRequest).toHaveBeenCalledWith({
+        operation: 'connect',
+        store: 'test-qdrant',
+        params: expect.objectContaining({
+          url: 'https://***:***@cloud.qdrant.io'
+        })
+      });
+    });
+
+    test('logs query with filter when logger present', async () => {
+      const mockLogger = createMockLogger();
+      mockClient.search.mockResolvedValue([]);
+
+      compat.setLogger(mockLogger);
+      await compat.connect(createConfig());
+      mockLogger.logVectorRequest.mockClear();
+
+      await compat.query('test', [0.1], 5, { filter: { status: 'active' } });
+
+      expect(mockLogger.logVectorRequest).toHaveBeenCalledWith({
+        operation: 'query',
+        store: 'test-qdrant',
+        collection: 'test',
+        params: expect.objectContaining({
+          filter: { status: 'active' }
+        })
+      });
+    });
+
+    test('logs query without results correctly', async () => {
+      const mockLogger = createMockLogger();
+      mockClient.search.mockResolvedValue([]);
+
+      compat.setLogger(mockLogger);
+      await compat.connect(createConfig());
+      mockLogger.logVectorRequest.mockClear();
+      mockLogger.logVectorResponse.mockClear();
+
+      await compat.query('test', [0.1], 5);
+
+      expect(mockLogger.logVectorResponse).toHaveBeenCalledWith({
+        operation: 'query',
+        store: 'test-qdrant',
+        collection: 'test',
+        result: expect.objectContaining({
+          count: 0
+        }),
+        duration: expect.any(Number)
+      });
+    });
+  });
 });

@@ -60,7 +60,6 @@ export async function collectTools({
       } catch (error) {
         // Swallow vector lookup errors - tool discovery should continue with other sources
         // eslint-disable-next-line no-console
-        /* istanbul ignore next */
         console.warn('Vector tool discovery failed', { error: (error as Error).message });
       }
     }
@@ -114,7 +113,6 @@ function resolveVectorQuery(spec: LLMCallSpec): string | undefined {
   return undefined;
 }
 
-/* istanbul ignore next */
 function normalizeVectorResult(result: unknown): UnifiedTool | undefined {
   if (!result || typeof result !== 'object') {
     return undefined;
