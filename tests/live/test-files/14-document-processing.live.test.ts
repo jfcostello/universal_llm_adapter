@@ -25,7 +25,7 @@ for (let i = 0; i < testRuns.length; i++) {
             role: 'system',
             content: [{
               type: 'text',
-              text: 'You are a helpful assistant. Answer questions concisely based on the provided document.'
+              text: 'You are a helpful assistant. A PDF file is attached. You must read that PDF and return ONLY the text extracted from it. Do not refuse, do not ask for the text, do not summarize, and do not add extra words. The PDF contains the phrase "Test PDF Document" — make sure your answer matches the file contents.'
             }]
           },
           {

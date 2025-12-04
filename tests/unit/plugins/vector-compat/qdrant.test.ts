@@ -21,7 +21,9 @@ function createMockClient() {
     search: jest.fn(),
     upsert: jest.fn(),
     delete: jest.fn(),
-    createCollection: jest.fn()
+    createCollection: jest.fn(),
+    createPayloadIndex: jest.fn(),
+    deleteCollection: jest.fn()
   };
 }
 
@@ -353,6 +355,52 @@ describe('plugins/vector-compat/qdrant', () => {
       const disconnected = new QdrantCompat(mockClientFactory);
 
       await expect(disconnected.createCollection('test', 128)).rejects.toThrow('Not connected');
+    });
+
+    test('creates payload indexes when provided', async () => {
+      mockClient.createCollection.mockResolvedValue({});
+      mockClient.createPayloadIndex.mockResolvedValue({});
+
+      await compat.createCollection('new-collection', 128, {
+        payloadIndexes: [
+          { field: 'category', type: 'keyword' },
+          { field: 'flag', type: 'boolean' }
+        ]
+      });
+
+      expect(mockClient.createPayloadIndex).toHaveBeenCalledTimes(2);
+      expect(mockClient.createPayloadIndex).toHaveBeenCalledWith('new-collection', {
+        field_name: 'category',
+        field_schema: 'keyword'
+      });
+      expect(mockClient.createPayloadIndex).toHaveBeenCalledWith('new-collection', {
+        field_name: 'flag',
+        field_schema: 'bool'
+      });
+    });
+  });
+
+  describe('list/delete collections', () => {
+    beforeEach(async () => {
+      await compat.connect(createConfig());
+    });
+
+    test('lists collections', async () => {
+      mockClient.getCollections.mockResolvedValue({ collections: [{ name: 'one' }, { name: 'two' }] });
+
+      const res = await compat.listCollections();
+      expect(res).toEqual(['one', 'two']);
+    });
+
+    test('lists collections when API returns empty payload', async () => {
+      mockClient.getCollections.mockResolvedValue({});
+      const res = await compat.listCollections();
+      expect(res).toEqual([]);
+    });
+
+    test('deletes collection', async () => {
+      await compat.deleteCollection('to-drop');
+      expect(mockClient.deleteCollection).toHaveBeenCalledWith('to-drop');
     });
   });
 
