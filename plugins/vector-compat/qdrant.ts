@@ -6,7 +6,7 @@ import {
   VectorQueryResult,
   VectorQueryOptions,
   JsonObject,
-  IOperationLogger
+  IVectorOperationLogger
 } from '../../core/types.js';
 import { VectorStoreConnectionError, VectorStoreError } from '../../core/errors.js';
 
@@ -23,13 +23,13 @@ export default class QdrantCompat implements IVectorStoreCompat {
   private client: QdrantClient | null = null;
   private config: VectorStoreConfig | null = null;
   private clientFactory: QdrantClientFactory;
-  private logger?: IOperationLogger;
+  private logger?: IVectorOperationLogger;
 
   constructor(clientFactory?: QdrantClientFactory) {
     this.clientFactory = clientFactory || ((opts) => new QdrantClient(opts));
   }
 
-  setLogger(logger: IOperationLogger): void {
+  setLogger(logger: IVectorOperationLogger): void {
     this.logger = logger;
   }
 

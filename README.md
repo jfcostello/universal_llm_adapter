@@ -782,6 +782,17 @@ Coverage report:
 npm test -- --coverage
 ```
 
+## Logging
+
+- Use factory helpers from `core/logging.ts`:
+  - `getLLMLogger()` (also available via `getLogger()`) for LLM HTTP + console logs
+  - `getEmbeddingLogger()` for embedding requests/responses
+  - `getVectorLogger()` for vector store operations
+- Each logger lazily creates its own log directory (`logs/llm`, `logs/embedding`, `logs/vector`) the first time you write a log entry, reducing startup I/O for workers that only use one call type.
+- `closeLogger()` now shuts down all logger singletons and waits up to 2s to flush transports; call this when switching batch IDs or shutting down long-running workers.
+- Batch env vars (`LLM_ADAPTER_BATCH_ID`, `LLM_ADAPTER_BATCH_DIR`) continue to apply per logger and are enforced during the first write via retention policies.
+- Retention runs safely even before the first log file is created, so batch pruning can be triggered up front without creating placeholder files.
+
 ### Live Tests
 
 Live tests make real API calls to test actual integrations. They require API keys and external services.

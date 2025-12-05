@@ -14,7 +14,12 @@ import {
 import { PluginRegistry } from '../../core/registry.js';
 import { EmbeddingManager } from '../../managers/embedding-manager.js';
 import { VectorStoreManager } from '../../managers/vector-store-manager.js';
-import { getLogger, AdapterLogger } from '../../core/logging.js';
+import {
+  getLogger,
+  AdapterLogger,
+  getEmbeddingLogger,
+  getVectorLogger
+} from '../../core/logging.js';
 
 export interface VectorContextInjectorOptions {
   registry: PluginRegistry;
@@ -38,6 +43,8 @@ export class VectorContextInjector {
   private embeddingManager?: EmbeddingManager;
   private vectorManager?: VectorStoreManager;
   private logger: AdapterLogger;
+  private embeddingLogger = getEmbeddingLogger();
+  private vectorLogger = getVectorLogger();
   private initializedStores: Set<string> = new Set();
 
   constructor(options: VectorContextInjectorOptions) {
@@ -312,7 +319,7 @@ export class VectorContextInjector {
   private async ensureManagers(embeddingPriority?: EmbeddingPriorityItem[]): Promise<void> {
     if (!this.embeddingManager) {
       // Pass logger to embedding manager for HTTP request logging
-      this.embeddingManager = new EmbeddingManager(this.registry, this.logger);
+      this.embeddingManager = new EmbeddingManager(this.registry, this.embeddingLogger);
     }
     if (!this.vectorManager) {
       // Pass logger to vector manager for operation logging
@@ -321,7 +328,7 @@ export class VectorContextInjector {
         new Map(),  // adapters - will be created via compat
         undefined,  // embedder - not needed, we use EmbeddingManager directly
         this.registry,
-        this.logger  // logger for vector operations
+        this.vectorLogger  // logger for vector operations
       );
     }
   }
@@ -339,7 +346,7 @@ export class VectorContextInjector {
 
     // Inject logger for operation logging
     if (typeof compat.setLogger === 'function') {
-      compat.setLogger(this.logger);
+    compat.setLogger(this.vectorLogger);
     }
 
     await compat.connect(storeConfig);

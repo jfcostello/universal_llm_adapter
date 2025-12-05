@@ -5,7 +5,7 @@ import {
   VectorQueryResult,
   VectorQueryOptions,
   JsonObject,
-  IOperationLogger
+  IVectorOperationLogger
 } from '../../core/types.js';
 import { VectorStoreError } from '../../core/errors.js';
 
@@ -20,9 +20,9 @@ export default class MemoryCompat implements IVectorStoreCompat {
   private connected = false;
   private config: VectorStoreConfig | null = null;
   // Logger is optional for in-memory operations (no HTTP to log)
-  private logger?: IOperationLogger;
+  private logger?: IVectorOperationLogger;
 
-  setLogger(logger: IOperationLogger): void {
+  setLogger(logger: IVectorOperationLogger): void {
     this.logger = logger;
   }
 

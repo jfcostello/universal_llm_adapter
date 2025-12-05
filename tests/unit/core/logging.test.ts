@@ -179,6 +179,46 @@ describe('core/logging', () => {
     expect(mocks.logger.info).toHaveBeenCalledWith('message', {});
   });
 
+  test('getEmbeddingLogger/getVectorLogger return correlated instances and closeLogger closes all singletons', async () => {
+    const { module } = await setupLoggingTestHarness({ disableFileLogs: true });
+    const { getLLMLogger, getEmbeddingLogger, getVectorLogger, closeLogger } = module;
+
+    const llm = getLLMLogger();
+    const llmCorr = getLLMLogger('corr-llm');
+    expect(llmCorr).not.toBe(llm);
+
+    const emb = getEmbeddingLogger();
+    const embCorr = getEmbeddingLogger('corr-emb');
+    expect(embCorr).not.toBe(emb);
+
+    const vec = getVectorLogger();
+    const vecCorr = getVectorLogger('corr-vec');
+    expect(vecCorr).not.toBe(vec);
+
+    const llmClose = jest.spyOn(llm, 'close').mockResolvedValue();
+    const embClose = jest.spyOn(emb, 'close').mockResolvedValue();
+    const vecClose = jest.spyOn(vec, 'close').mockResolvedValue();
+
+    await closeLogger();
+
+    expect(llmClose).toHaveBeenCalledTimes(1);
+    expect(embClose).toHaveBeenCalledTimes(1);
+    expect(vecClose).toHaveBeenCalledTimes(1);
+  });
+
+  test('AdapterLogger skips console transport when console logging disabled', async () => {
+    await withTempCwd('logging-console-disabled', async () => {
+      process.env.LLM_ADAPTER_DISABLE_CONSOLE_LOGS = '1';
+      process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';
+      jest.resetModules();
+      const logging = await import('@/core/logging.ts');
+      const logger = new logging.AdapterLogger(logging.LogLevel.INFO);
+      expect((logger as any).logger.transports.length).toBe(0);
+      delete process.env.LLM_ADAPTER_DISABLE_CONSOLE_LOGS;
+      delete process.env.LLM_ADAPTER_DISABLE_FILE_LOGS;
+    });
+  });
+
   test('AdapterLogger defaults to info level and omits correlation metadata', async () => {
     const { module, mocks } = await setupLoggingTestHarness({ disableFileLogs: true });
     const { AdapterLogger } = module;
@@ -320,15 +360,36 @@ describe('core/logging', () => {
       // Don't trigger finish events - let timeout handle it
     });
 
-    // This should timeout after 250ms and resolve anyway (covering line 217)
-    const startTime = Date.now();
-    await logger.close();
-    const elapsed = Date.now() - startTime;
+    jest.useFakeTimers();
+    const closePromise = logger.close();
+    jest.advanceTimersByTime(2000);
+    await closePromise;
+    jest.useRealTimers();
 
-    // Should have completed via timeout
-    expect(elapsed).toBeGreaterThanOrEqual(200);
-    expect(elapsed).toBeLessThan(350);
     expect(mocks.logger.close).toHaveBeenCalledTimes(1);
+  });
+
+  test('LLM, embedding, and vector log directories are created lazily', async () => {
+    await withTempCwd('logging-lazy-init', async (cwd) => {
+      const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+      const { LLMLogger, EmbeddingLogger, VectorLogger, LogLevel } = module;
+
+      const llmLogger = new LLMLogger(LogLevel.DEBUG);
+      const embeddingLogger = new EmbeddingLogger(LogLevel.DEBUG);
+      const vectorLogger = new VectorLogger(LogLevel.DEBUG);
+
+      expect(fs.existsSync(path.join(cwd, 'logs', 'llm'))).toBe(false);
+      expect(fs.existsSync(path.join(cwd, 'logs', 'embedding'))).toBe(false);
+      expect(fs.existsSync(path.join(cwd, 'logs', 'vector'))).toBe(false);
+
+      llmLogger.logLLMRequest({ url: 'http://lazy.llm', method: 'POST', headers: {}, body: {} });
+      embeddingLogger.logEmbeddingRequest({ url: 'http://lazy.embed', method: 'POST', headers: {}, body: {} });
+      vectorLogger.logVectorRequest({ operation: 'connect', store: 'lazy', params: {} });
+
+      expect(fs.existsSync(path.join(cwd, 'logs', 'llm'))).toBe(true);
+      expect(fs.existsSync(path.join(cwd, 'logs', 'embedding'))).toBe(true);
+      expect(fs.existsSync(path.join(cwd, 'logs', 'vector'))).toBe(true);
+    });
   });
 
   test('logLLMRequest writes beautifully formatted request to LLM log file', async () => {
@@ -336,9 +397,9 @@ describe('core/logging', () => {
       jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
       try {
         const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-        const { AdapterLogger, LogLevel } = module;
+        const { LLMLogger, LogLevel } = module;
 
-        const logger = new AdapterLogger(LogLevel.DEBUG);
+        const logger = new LLMLogger(LogLevel.DEBUG);
 
         const requestData = {
           url: 'https://api.example.com/v1/chat',
@@ -394,9 +455,9 @@ describe('core/logging', () => {
       jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
       try {
         const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-        const { AdapterLogger, LogLevel } = module;
+        const { LLMLogger, LogLevel } = module;
 
-        const logger = new AdapterLogger(LogLevel.DEBUG);
+        const logger = new LLMLogger(LogLevel.DEBUG);
 
         const responseData = {
           status: 200,
@@ -449,9 +510,9 @@ describe('core/logging', () => {
   test('logLLMRequest and logLLMResponse do nothing when file logging disabled', async () => {
     await withTempCwd('logging-llm-disabled', async (cwd) => {
       const { module } = await setupLoggingTestHarness({ disableFileLogs: true });
-      const { AdapterLogger, LogLevel } = module;
+      const { LLMLogger, LogLevel } = module;
 
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new LLMLogger(LogLevel.DEBUG);
 
       logger.logLLMRequest({
         url: 'https://api.example.com/v1/chat',
@@ -476,9 +537,9 @@ describe('core/logging', () => {
   test('logLLMResponse handles missing statusText', async () => {
     await withTempCwd('logging-llm-no-status', async (cwd) => {
       const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-      const { AdapterLogger, LogLevel } = module;
+      const { LLMLogger, LogLevel } = module;
 
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new LLMLogger(LogLevel.DEBUG);
 
       const responseData = {
         status: 204,
@@ -498,12 +559,53 @@ describe('core/logging', () => {
     });
   });
 
+  test('logLLMRequest/Response include provider, model, and duration when provided', async () => {
+    await withTempCwd('logging-llm-with-provider', async (cwd) => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
+      try {
+        const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+        const { LLMLogger, LogLevel } = module;
+
+        const logger = new LLMLogger(LogLevel.DEBUG);
+
+        logger.logLLMRequest({
+          url: 'http://api.example.com',
+          method: 'POST',
+          headers: {},
+          body: {},
+          provider: 'unit-provider',
+          model: 'unit-model'
+        });
+
+        logger.logLLMResponse({
+          status: 201,
+          statusText: 'Created',
+          headers: {},
+          body: { ok: true },
+          duration: 123,
+          provider: 'unit-provider',
+          model: 'unit-model'
+        });
+
+        const llmLogsDir = path.join(cwd, 'logs', 'llm');
+        const logFiles = fs.readdirSync(llmLogsDir);
+        const logContent = fs.readFileSync(path.join(llmLogsDir, logFiles[0]), 'utf-8');
+
+        expect(logContent).toContain('Provider: unit-provider');
+        expect(logContent).toContain('Model: unit-model');
+        expect(logContent).toContain('Duration: 123ms');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
   test('logLLMRequest appends multiple requests to same log file', async () => {
     await withTempCwd('logging-llm-multiple', async (cwd) => {
       const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-      const { AdapterLogger, LogLevel } = module;
+      const { LLMLogger, LogLevel } = module;
 
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new LLMLogger(LogLevel.DEBUG);
 
       logger.logLLMRequest({
         url: 'https://api.example.com/v1/chat',
@@ -539,9 +641,9 @@ describe('core/logging', () => {
     await withTempCwd('logging-llm-batch', async (cwd) => {
       process.env.LLM_ADAPTER_BATCH_ID = 'batch_demo_123';
       const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-      const { AdapterLogger, LogLevel } = module;
+      const { LLMLogger, LogLevel } = module;
 
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new LLMLogger(LogLevel.DEBUG);
       logger.logLLMRequest({ url: 'http://ex', method: 'POST', headers: {}, body: { ok: true } });
 
       const llmLogsDir = path.join(cwd, 'logs', 'llm');
@@ -583,9 +685,9 @@ describe('core/logging', () => {
       process.env.LLM_ADAPTER_BATCH_ID = 'dircase';
       process.env.LLM_ADAPTER_BATCH_DIR = '1';
       const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-      const { AdapterLogger, LogLevel } = module;
+      const { LLMLogger, LogLevel } = module;
 
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new LLMLogger(LogLevel.DEBUG);
       logger.logLLMResponse({ status: 200, headers: {}, body: { ok: true } });
 
       const dir = path.join(cwd, 'logs', 'llm', 'batch-dircase');
@@ -664,9 +766,9 @@ describe('core/logging', () => {
       jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
       try {
         const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-        const { AdapterLogger, LogLevel } = module;
+        const { EmbeddingLogger, LogLevel } = module;
 
-        const logger = new AdapterLogger(LogLevel.DEBUG);
+        const logger = new EmbeddingLogger(LogLevel.DEBUG);
 
         const requestData = {
           url: 'https://api.openrouter.ai/v1/embeddings',
@@ -721,9 +823,9 @@ describe('core/logging', () => {
       jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
       try {
         const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-        const { AdapterLogger, LogLevel } = module;
+        const { EmbeddingLogger, LogLevel } = module;
 
-        const logger = new AdapterLogger(LogLevel.DEBUG);
+        const logger = new EmbeddingLogger(LogLevel.DEBUG);
 
         const responseData = {
           status: 200,
@@ -767,9 +869,9 @@ describe('core/logging', () => {
   test('logEmbeddingRequest and logEmbeddingResponse do nothing when file logging disabled', async () => {
     await withTempCwd('logging-embedding-disabled', async (cwd) => {
       const { module } = await setupLoggingTestHarness({ disableFileLogs: true });
-      const { AdapterLogger, LogLevel } = module;
+      const { EmbeddingLogger, LogLevel } = module;
 
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new EmbeddingLogger(LogLevel.DEBUG);
 
       logger.logEmbeddingRequest({
         url: 'https://api.example.com/v1/embeddings',
@@ -795,9 +897,9 @@ describe('core/logging', () => {
       jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
       try {
         const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-        const { AdapterLogger, LogLevel } = module;
+        const { VectorLogger, LogLevel } = module;
 
-        const logger = new AdapterLogger(LogLevel.DEBUG);
+        const logger = new VectorLogger(LogLevel.DEBUG);
 
         const requestData = {
           operation: 'query',
@@ -840,9 +942,9 @@ describe('core/logging', () => {
       jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
       try {
         const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-        const { AdapterLogger, LogLevel } = module;
+        const { VectorLogger, LogLevel } = module;
 
-        const logger = new AdapterLogger(LogLevel.DEBUG);
+        const logger = new VectorLogger(LogLevel.DEBUG);
 
         const responseData = {
           operation: 'query',
@@ -884,9 +986,9 @@ describe('core/logging', () => {
   test('logVectorRequest and logVectorResponse do nothing when file logging disabled', async () => {
     await withTempCwd('logging-vector-disabled', async (cwd) => {
       const { module } = await setupLoggingTestHarness({ disableFileLogs: true });
-      const { AdapterLogger, LogLevel } = module;
+      const { VectorLogger, LogLevel } = module;
 
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new VectorLogger(LogLevel.DEBUG);
 
       logger.logVectorRequest({
         operation: 'query',
@@ -908,9 +1010,9 @@ describe('core/logging', () => {
   test('logVectorRequest without collection omits collection field', async () => {
     await withTempCwd('logging-vector-no-collection', async (cwd) => {
       const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-      const { AdapterLogger, LogLevel } = module;
+      const { VectorLogger, LogLevel } = module;
 
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new VectorLogger(LogLevel.DEBUG);
 
       logger.logVectorRequest({
         operation: 'connect',
@@ -930,9 +1032,9 @@ describe('core/logging', () => {
   test('logVectorResponse without duration omits duration field', async () => {
     await withTempCwd('logging-vector-no-duration', async (cwd) => {
       const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-      const { AdapterLogger, LogLevel } = module;
+      const { VectorLogger, LogLevel } = module;
 
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new VectorLogger(LogLevel.DEBUG);
 
       logger.logVectorResponse({
         operation: 'upsert',
@@ -948,12 +1050,36 @@ describe('core/logging', () => {
     });
   });
 
+  test('retention helpers handle missing log files without exclude entries', async () => {
+    await withTempCwd('logging-retention-missing-file', async () => {
+      const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+      const { LLMLogger, EmbeddingLogger, VectorLogger, LogLevel } = module;
+
+      const llmLogger = new LLMLogger(LogLevel.DEBUG);
+      const embeddingLogger = new EmbeddingLogger(LogLevel.DEBUG);
+      const vectorLogger = new VectorLogger(LogLevel.DEBUG);
+
+      // Simulate missing log files and re-run retention to cover fallback branch
+      (llmLogger as any).llmLogFile = undefined;
+      (llmLogger as any).llmRetentionApplied = false;
+      (llmLogger as any).applyLlmRetentionOnce();
+
+      (embeddingLogger as any).embeddingLogFile = undefined;
+      (embeddingLogger as any).embeddingRetentionApplied = false;
+      (embeddingLogger as any).applyEmbeddingRetentionOnce();
+
+      (vectorLogger as any).vectorLogFile = undefined;
+      (vectorLogger as any).vectorRetentionApplied = false;
+      (vectorLogger as any).applyVectorRetentionOnce();
+    });
+  });
+
   test('logEmbeddingRequest without provider/model omits those fields', async () => {
     await withTempCwd('logging-embedding-minimal', async (cwd) => {
       const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-      const { AdapterLogger, LogLevel } = module;
+      const { EmbeddingLogger, LogLevel } = module;
 
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new EmbeddingLogger(LogLevel.DEBUG);
 
       logger.logEmbeddingRequest({
         url: 'https://api.example.com/v1/embeddings',
@@ -974,9 +1100,9 @@ describe('core/logging', () => {
   test('logEmbeddingResponse without dimensions/tokenCount omits those fields', async () => {
     await withTempCwd('logging-embedding-no-meta', async (cwd) => {
       const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-      const { AdapterLogger, LogLevel } = module;
+      const { EmbeddingLogger, LogLevel } = module;
 
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new EmbeddingLogger(LogLevel.DEBUG);
 
       logger.logEmbeddingResponse({
         status: 200,
@@ -997,9 +1123,9 @@ describe('core/logging', () => {
     await withTempCwd('logging-embedding-batch', async (cwd) => {
       process.env.LLM_ADAPTER_BATCH_ID = 'batch_embed_123';
       const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-      const { AdapterLogger, LogLevel } = module;
+      const { EmbeddingLogger, LogLevel } = module;
 
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new EmbeddingLogger(LogLevel.DEBUG);
       logger.logEmbeddingRequest({ url: 'http://ex', method: 'POST', headers: {}, body: { ok: true } });
 
       const embeddingLogsDir = path.join(cwd, 'logs', 'embedding');
@@ -1014,9 +1140,9 @@ describe('core/logging', () => {
     await withTempCwd('logging-vector-batch', async (cwd) => {
       process.env.LLM_ADAPTER_BATCH_ID = 'batch_vector_123';
       const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-      const { AdapterLogger, LogLevel } = module;
+      const { VectorLogger, LogLevel } = module;
 
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new VectorLogger(LogLevel.DEBUG);
       logger.logVectorRequest({ operation: 'query', store: 'test', params: {} });
 
       const vectorLogsDir = path.join(cwd, 'logs', 'vector');
@@ -1032,9 +1158,9 @@ describe('core/logging', () => {
       process.env.LLM_ADAPTER_BATCH_ID = 'embeddircase';
       process.env.LLM_ADAPTER_BATCH_DIR = '1';
       const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-      const { AdapterLogger, LogLevel } = module;
+      const { EmbeddingLogger, LogLevel } = module;
 
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new EmbeddingLogger(LogLevel.DEBUG);
       logger.logEmbeddingResponse({ status: 200, headers: {}, body: { ok: true } });
 
       const dir = path.join(cwd, 'logs', 'embedding', 'batch-embeddircase');
@@ -1051,9 +1177,9 @@ describe('core/logging', () => {
       process.env.LLM_ADAPTER_BATCH_ID = 'vecdircase';
       process.env.LLM_ADAPTER_BATCH_DIR = '1';
       const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-      const { AdapterLogger, LogLevel } = module;
+      const { VectorLogger, LogLevel } = module;
 
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new VectorLogger(LogLevel.DEBUG);
       logger.logVectorResponse({ operation: 'upsert', store: 'test', result: { ok: true } });
 
       const dir = path.join(cwd, 'logs', 'vector', 'batch-vecdircase');
@@ -1077,10 +1203,9 @@ describe('core/logging', () => {
       fs.writeFileSync(path.join(embeddingLogsDir, 'unrelated-file.txt'), 'not a log');
 
       const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-      const { AdapterLogger, LogLevel } = module;
+      const { EmbeddingLogger, LogLevel } = module;
 
-      // Creating the logger should trigger retention with the match callback
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new EmbeddingLogger(LogLevel.DEBUG);
 
       // Verify old files are still there (retention doesn't delete when under limit)
       expect(fs.existsSync(path.join(embeddingLogsDir, 'embedding-2025-01-01T00-00-00-000Z.log'))).toBe(true);
@@ -1103,10 +1228,9 @@ describe('core/logging', () => {
       fs.writeFileSync(path.join(vectorLogsDir, 'unrelated-file.txt'), 'not a log');
 
       const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-      const { AdapterLogger, LogLevel } = module;
+      const { VectorLogger, LogLevel } = module;
 
-      // Creating the logger should trigger retention with the match callback
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new VectorLogger(LogLevel.DEBUG);
 
       // Verify old files are still there (retention doesn't delete when under limit)
       expect(fs.existsSync(path.join(vectorLogsDir, 'vector-2025-01-01T00-00-00-000Z.log'))).toBe(true);
@@ -1130,10 +1254,9 @@ describe('core/logging', () => {
 
       process.env.LLM_ADAPTER_BATCH_ID = 'newbatch';
       const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-      const { AdapterLogger, LogLevel } = module;
+      const { EmbeddingLogger, LogLevel } = module;
 
-      // Creating the logger should trigger retention with the match callback for batch files
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new EmbeddingLogger(LogLevel.DEBUG);
 
       // Verify old batch files are still there (retention doesn't delete when under limit)
       expect(fs.existsSync(path.join(embeddingLogsDir, 'embedding-batch-old1.log'))).toBe(true);
@@ -1157,10 +1280,9 @@ describe('core/logging', () => {
 
       process.env.LLM_ADAPTER_BATCH_ID = 'newbatch';
       const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-      const { AdapterLogger, LogLevel } = module;
+      const { VectorLogger, LogLevel } = module;
 
-      // Creating the logger should trigger retention with the match callback for batch files
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new VectorLogger(LogLevel.DEBUG);
 
       // Verify old batch files are still there (retention doesn't delete when under limit)
       expect(fs.existsSync(path.join(vectorLogsDir, 'vector-batch-old1.log'))).toBe(true);
@@ -1174,9 +1296,9 @@ describe('core/logging', () => {
   test('embedding retention only applies once on multiple logs', async () => {
     await withTempCwd('logging-embedding-once', async (cwd) => {
       const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-      const { AdapterLogger, LogLevel } = module;
+      const { EmbeddingLogger, LogLevel } = module;
 
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new EmbeddingLogger(LogLevel.DEBUG);
 
       // Log multiple times - retention should only be applied once (second call hits early return)
       logger.logEmbeddingRequest({ url: 'http://test', method: 'POST', headers: {}, body: {} });
@@ -1192,9 +1314,9 @@ describe('core/logging', () => {
   test('vector retention only applies once on multiple logs', async () => {
     await withTempCwd('logging-vector-once', async (cwd) => {
       const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
-      const { AdapterLogger, LogLevel } = module;
+      const { VectorLogger, LogLevel } = module;
 
-      const logger = new AdapterLogger(LogLevel.DEBUG);
+      const logger = new VectorLogger(LogLevel.DEBUG);
 
       // Log multiple times - retention should only be applied once (second call hits early return)
       logger.logVectorRequest({ operation: 'query', store: 'test', params: {} });

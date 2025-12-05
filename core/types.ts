@@ -444,10 +444,9 @@ export interface VectorQueryOptions {
 // ============================================================
 
 /**
- * Logger interface for embedding/vector compats.
- * Matches the AdapterLogger methods used for logging.
+ * Logger interface for embedding compats.
  */
-export interface IOperationLogger {
+export interface IEmbeddingOperationLogger {
   logEmbeddingRequest(data: {
     url: string;
     method: string;
@@ -465,7 +464,12 @@ export interface IOperationLogger {
     dimensions?: number;
     tokenCount?: number;
   }): void;
+}
 
+/**
+ * Logger interface for vector compats.
+ */
+export interface IVectorOperationLogger {
   logVectorRequest(data: {
     operation: string;
     store: string;
@@ -483,6 +487,11 @@ export interface IOperationLogger {
 }
 
 /**
+ * Backwards-compatible alias used by older code paths that expect a single logger.
+ */
+export type IOperationLogger = IEmbeddingOperationLogger & IVectorOperationLogger;
+
+/**
  * Interface for embedding compat modules.
  * Implemented by: plugins/embedding-compat/openrouter.ts, etc.
  */
@@ -491,7 +500,7 @@ export interface IEmbeddingCompat {
     input: string | string[],
     config: EmbeddingProviderConfig,
     model?: string,
-    logger?: IOperationLogger
+    logger?: IEmbeddingOperationLogger
   ): Promise<EmbeddingResult>;
 
   getDimensions(config: EmbeddingProviderConfig, model?: string): number;
@@ -505,7 +514,7 @@ export interface IEmbeddingCompat {
  */
 export interface IVectorStoreCompat {
   /** Optional method to inject a logger for operation logging */
-  setLogger?(logger: IOperationLogger): void;
+  setLogger?(logger: IVectorOperationLogger): void;
 
   connect(config: VectorStoreConfig): Promise<void>;
 

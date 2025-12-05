@@ -3,7 +3,7 @@ import {
   EmbeddingPriorityItem,
   EmbeddingResult,
   IEmbeddingCompat,
-  IOperationLogger
+  IEmbeddingOperationLogger
 } from '../core/types.js';
 import { EmbeddingError, EmbeddingProviderError } from '../core/errors.js';
 import { EmbedderFn } from './vector-store-manager.js';
@@ -17,9 +17,9 @@ import { EmbedderFn } from './vector-store-manager.js';
  * All provider-specific logic is delegated to compat modules in plugins/embedding-compat/
  */
 export class EmbeddingManager {
-  private logger?: IOperationLogger;
+  private logger?: IEmbeddingOperationLogger;
 
-  constructor(private registry: any, logger?: IOperationLogger) {
+  constructor(private registry: any, logger?: IEmbeddingOperationLogger) {
     this.logger = logger;
   }
 
@@ -137,7 +137,7 @@ export class EmbeddingManager {
   /**
    * Set the logger for this manager
    */
-  setLogger(logger: IOperationLogger): void {
+  setLogger(logger: IEmbeddingOperationLogger): void {
     this.logger = logger;
   }
 }

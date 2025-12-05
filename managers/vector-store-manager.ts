@@ -5,7 +5,7 @@ import {
   VectorPoint,
   VectorQueryResult,
   VectorQueryOptions,
-  IOperationLogger
+  IVectorOperationLogger
 } from '../core/types.js';
 import { VectorStoreError } from '../core/errors.js';
 
@@ -54,14 +54,14 @@ class CompatAdapterWrapper implements VectorStoreAdapter {
  */
 export class VectorStoreManager {
   private loadedCompats = new Map<string, IVectorStoreCompat>();
-  private logger?: IOperationLogger;
+  private logger?: IVectorOperationLogger;
 
   constructor(
     private configs: Map<string, VectorStoreConfig>,
     private adapters: Map<string, VectorStoreAdapter>,
     private embedder?: EmbedderFn,
     private registry?: any,
-    logger?: IOperationLogger
+    logger?: IVectorOperationLogger
   ) {
     this.logger = logger;
   }
@@ -177,7 +177,7 @@ export class VectorStoreManager {
   /**
    * Set the logger for this manager and all loaded compats
    */
-  setLogger(logger: IOperationLogger): void {
+  setLogger(logger: IVectorOperationLogger): void {
     this.logger = logger;
     // Update all already-loaded compats
     for (const compat of this.loadedCompats.values()) {

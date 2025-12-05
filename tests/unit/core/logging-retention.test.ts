@@ -146,4 +146,35 @@ describe('core/logging retention', () => {
       expect(files.sort()).toEqual(['llm-batch-f2.log', 'llm-batch-f3.log']);
     });
   });
+
+  test('retention skips exclude when no LLM log file exists for batch dir', async () => {
+    await withTempCwd('llm-retention-no-file', async (cwd) => {
+      process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '0';
+      process.env.LLM_ADAPTER_DISABLE_CONSOLE_LOGS = '1';
+      process.env.LLM_ADAPTER_BATCH_DIR = '1';
+      process.env.LLM_ADAPTER_BATCH_ID = 'missing';
+
+      jest.resetModules();
+      const { AdapterLogger, LogLevel } = await import('@/core/logging.ts');
+
+      const logger: any = new AdapterLogger(LogLevel.INFO);
+      // Call retention directly before any LLM log file is created to hit the undefined exclude path
+      expect(() => logger.applyLlmRetentionOnce()).not.toThrow();
+    });
+  });
+
+  test('vector retention skips exclude when no log file exists for batch dir', async () => {
+    await withTempCwd('vector-retention-no-file', async (cwd) => {
+      process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '0';
+      process.env.LLM_ADAPTER_DISABLE_CONSOLE_LOGS = '1';
+      process.env.LLM_ADAPTER_BATCH_DIR = '1';
+      process.env.LLM_ADAPTER_BATCH_ID = 'missing-vector';
+
+      jest.resetModules();
+      const { VectorLogger, LogLevel } = await import('@/core/logging.ts');
+
+      const logger: any = new VectorLogger(LogLevel.INFO);
+      expect(() => logger.applyVectorRetentionOnce()).not.toThrow();
+    });
+  });
 });

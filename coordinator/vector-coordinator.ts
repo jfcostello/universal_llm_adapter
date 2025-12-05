@@ -14,18 +14,21 @@ import {
   VectorStreamEvent,
   TextChunk
 } from '../core/vector-spec-types.js';
-import { getLogger, AdapterLogger } from '../core/logging.js';
+import {
+  getEmbeddingLogger,
+  getVectorLogger
+} from '../core/logging.js';
 
 export class VectorStoreCoordinator {
   private registry: PluginRegistry;
   private embeddingManager?: EmbeddingManager;
   private vectorManager?: VectorStoreManager;
-  private logger: AdapterLogger;
+  private embeddingLogger = getEmbeddingLogger();
+  private vectorLogger = getVectorLogger();
   private initializedStores: Set<string> = new Set();
 
   constructor(registry: PluginRegistry) {
     this.registry = registry;
-    this.logger = getLogger();
   }
 
   /**
@@ -494,7 +497,7 @@ export class VectorStoreCoordinator {
   private async ensureManagers(spec: VectorCallSpec): Promise<void> {
     if (!this.embeddingManager) {
       // Pass logger to embedding manager for HTTP request logging
-      this.embeddingManager = new EmbeddingManager(this.registry, this.logger);
+      this.embeddingManager = new EmbeddingManager(this.registry, this.embeddingLogger);
     }
     await this.ensureVectorManager(spec);
   }
@@ -507,7 +510,7 @@ export class VectorStoreCoordinator {
         new Map(),  // adapters - will be created via compat
         undefined,  // embedder - not needed, we use EmbeddingManager directly
         this.registry,
-        this.logger  // logger for vector operations
+        this.vectorLogger  // logger for vector operations
       );
     }
 
@@ -521,7 +524,7 @@ export class VectorStoreCoordinator {
 
       // Inject logger for operation logging
       if (typeof compat.setLogger === 'function') {
-        compat.setLogger(this.logger);
+        compat.setLogger(this.vectorLogger);
       }
 
       await compat.connect(storeConfig);

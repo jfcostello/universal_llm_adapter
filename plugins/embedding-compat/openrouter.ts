@@ -3,7 +3,7 @@ import {
   IEmbeddingCompat,
   EmbeddingProviderConfig,
   EmbeddingResult,
-  IOperationLogger
+  IEmbeddingOperationLogger
 } from '../../core/types.js';
 import { EmbeddingProviderError } from '../../core/errors.js';
 
@@ -47,7 +47,7 @@ export default class OpenRouterEmbeddingCompat implements IEmbeddingCompat {
     input: string | string[],
     config: EmbeddingProviderConfig,
     model?: string,
-    logger?: IOperationLogger
+    logger?: IEmbeddingOperationLogger
   ): Promise<EmbeddingResult> {
     const effectiveModel = model || config.model;
     const url = config.endpoint.urlTemplate;

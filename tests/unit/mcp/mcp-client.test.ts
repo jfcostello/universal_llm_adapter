@@ -12,7 +12,8 @@ describe('mcp/mcp-client', () => {
     const originalReadFileSync = await import('fs').then(m => m.readFileSync);
 
     // Mock fs.readFileSync to return package.json with missing name/version
-    const fsMock = {
+    const fsMock: any = {
+      __esModule: true,
       readFileSync: jest.fn((path: string, encoding: string) => {
         if (path.includes('package.json')) {
           // Return package.json with missing fields to trigger fallback
@@ -21,6 +22,8 @@ describe('mcp/mcp-client', () => {
         return originalReadFileSync(path, encoding as any);
       })
     };
+
+    fsMock.default = fsMock;
 
     (jest as any).unstable_mockModule('fs', () => fsMock);
 
