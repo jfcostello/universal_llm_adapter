@@ -1204,15 +1204,3 @@ This is useful for:
 | `18-vector-auto-inject.live.test.ts` | VectorContext RAG integration |
 | `19-vector-search-locks.live.test.ts` | Vector search parameter locking |
 | `00-14-*.live.test.ts` | LLM provider tests |
-
-## Contributing
-
-When adding new features:
-1. Write tests first (TDD approach)
-2. Implement the feature
-3. Verify 100% test coverage
-4. Update this README
-
-## License
-
-[Your License Here]

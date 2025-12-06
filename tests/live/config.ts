@@ -1,15 +1,3 @@
-/**
- * Live Integration Test Configuration
- *
- * Centralized configuration for all live integration tests.
- * Each test run uses a different provider/model combination.
- *
- * Provider Filtering:
- * Set LLM_TEST_PROVIDERS environment variable to run tests for specific providers only.
- * - Single provider: LLM_TEST_PROVIDERS=anthropic
- * - Multiple providers: LLM_TEST_PROVIDERS=anthropic,google
- * - Case insensitive: LLM_TEST_PROVIDERS=ANTHROPIC works the same as anthropic
- */
 
 export interface TestRun {
   name: string;
@@ -147,3 +135,6 @@ export const invalidPriorityEntry = {
 export const baseTestTimeout = 120000; // 120 seconds per provider
 export const timeoutMultiplier = filteredTestRuns.length;
 export const totalTestTimeout = baseTestTimeout * timeoutMultiplier;
+
+// Default Jest worker count for live runs (can be overridden via env/CLI)
+export const maxWorkersDefault = 5;
