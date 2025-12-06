@@ -1051,6 +1051,13 @@ Coverage report:
 npm test -- --coverage
 ```
 
+### Sandbox scenarios (manual)
+
+Ad-hoc CLI runner for scripted or interactive conversations that write transcripts + copied logs under `tests/sandbox/logs/`.
+
+- Scripted scenario: `npm run sandbox:cli -- --scenario tests/sandbox/scenarios/example.yml`
+- Interactive-only (no preset turns): `npm run sandbox:cli -- --scenario tests/sandbox/scenarios/interactive-empty.yml`
+
 ## Logging
 
 - Use factory helpers from `core/logging.ts`:
