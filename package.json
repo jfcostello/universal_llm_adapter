@@ -17,7 +17,8 @@
     "test:live:google": "LLM_LIVE=1 LLM_TEST_PROVIDERS=google node --experimental-vm-modules ./node_modules/jest/bin/jest.js --testPathPattern=live --runInBand --forceExit",
     "test:live:embeddings": "LLM_LIVE=1 node --experimental-vm-modules ./node_modules/jest/bin/jest.js --testPathPattern=15-embeddings --runInBand --forceExit",
     "test:live:vector": "LLM_LIVE=1 node --experimental-vm-modules ./node_modules/jest/bin/jest.js --testPathPattern=16-vector-store --runInBand --forceExit",
-    "start": "node dist/llm_coordinator.js"
+    "start": "node dist/llm_coordinator.js",
+    "sandbox:cli": "tsx tests/sandbox/index.ts"
   },
   "dependencies": {
     "@google/genai": "^1.27.0",
@@ -31,7 +32,8 @@
     "minimatch": "^9.0.3",
     "openai": "^6.7.0",
     "winston": "^3.11.0",
-    "winston-daily-rotate-file": "^4.7.1"
+    "winston-daily-rotate-file": "^4.7.1",
+    "yaml": "^2.8.2"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",

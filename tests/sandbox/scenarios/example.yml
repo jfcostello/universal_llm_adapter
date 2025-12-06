@@ -1,0 +1,151 @@
+run:
+  name: sandbox-exhaustive
+  mode: run           # or stream
+  pluginsPath: ./tests/fixtures/plugins/basic
+  batchId: sandbox-batch-id
+  copyLogs: true
+
+env:
+  # Example: point to a stub server if needed
+  # TEST_LLM_ENDPOINT: http://127.0.0.1:3000
+
+spec:
+  systemPrompt: |
+    You are a concise assistant. Demonstrate every coordinator option in one run.
+
+  llmPriority:
+    - provider: test-openai
+      model: stub-model-primary
+      settings:
+        temperature: 0.1
+        maxTokens: 256
+    - provider: test-openai
+      model: stub-model-fallback
+      settings:
+        temperature: 0.2
+        maxTokens: 128
+
+  settings:
+    temperature: 0.3
+    topP: 0.9
+    maxTokens: 300
+    stop: ["STOP_TOKEN"]
+    responseFormat: json_object
+    seed: 42
+    frequencyPenalty: 0.5
+    presencePenalty: 0.1
+    logitBias:
+      "0": -1
+    logprobs: true
+    topLogprobs: 2
+    reasoning:
+      enabled: true
+      budget: 64
+    reasoningBudget: 128
+    toolCountdownEnabled: true
+    toolFinalPromptEnabled: true
+    maxToolIterations: 3
+    preserveToolResults: all
+    preserveReasoning: all
+    parallelToolExecution: true
+    toolResultMaxChars: 200
+    batchId: sandbox-batch-id-settings
+    provider:
+      test-openai:
+        requestTag: "exhaustive-example"
+
+  functionToolNames:
+    - echo.text
+    - validate.tool
+
+  tools:
+    - name: inline_helper
+      description: Inline tool example with schema
+      parametersJsonSchema:
+        type: object
+        properties:
+          note:
+            type: string
+        required: [note]
+
+  toolChoice:
+    type: required
+    allowed:
+      - echo_text        # sanitized name of echo.text
+      - validate_tool    # sanitized name of validate.tool
+      - inline_helper
+
+  mcpServers:
+    - local
+
+  vectorStores: [memory]
+  vectorPriority: [memory]
+
+  vectorContext:
+    stores: [memory]
+    collection: demo
+    mode: both           # auto inject + tool
+    topK: 3
+    scoreThreshold: 0.15
+    filter:
+      topic: sandbox
+    embeddingPriority:
+      - provider: test-openai
+        model: embed-model
+    injectAs: system
+    injectTemplate: "Relevant context:\\n{{results}}"
+    maxContextTokens: 512
+    resultFormat: "- {{payload.text}} (score: {{score}})"
+    toolName: vector_search
+    toolDescription: Search stored snippets
+    locks:
+      store: memory
+      topK: 3
+      filter:
+        topic: sandbox
+
+  rateLimitRetryDelays: [1, 2, 5]
+
+  metadata:
+    correlationId: sandbox-correlation
+    vectorQuery: "sandbox vector query"
+
+initialMessages:
+  - role: assistant
+    content:
+      - type: text
+        text: "Seed assistant message to show history is preserved."
+  - role: tool
+    toolCallId: seed-call
+    content:
+      - type: text
+        text: "Seeded tool result"
+      - type: tool_result
+        toolName: inline_helper
+        result:
+          status: ok
+
+turns:
+  # Turn 1: text + image content
+  - role: user
+    content:
+      - type: text
+        text: "Turn 1: say hello and acknowledge the image."
+      - type: image
+        imageUrl: "https://example.com/image.png"
+        mimeType: "image/png"
+
+  # Turn 2: document content to exercise document loader path
+  - role: user
+    content:
+      - type: text
+        text: "Turn 2: summarize the attached document briefly."
+      - type: document
+        source:
+          type: filepath
+          path: "./tests/fixtures/sample-documents/sample.txt"
+        mimeType: "text/plain"
+        filename: "sample.txt"
+
+  # Turn 3: plain text prompt
+  - "Turn 3: run a vector search and keep it short."

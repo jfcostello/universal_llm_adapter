@@ -1,0 +1,21 @@
+run:
+  name: quick-demo
+  mode: run
+  pluginsPath: ./tests/fixtures/plugins/basic
+  copyLogs: true
+
+spec:
+  systemPrompt: "You are a concise assistant."
+  llmPriority:
+    - provider: test-openai
+      model: stub-model
+  settings:
+    temperature: 0
+    toolCountdownEnabled: true
+    toolFinalPromptEnabled: true
+    maxToolIterations: 1
+  functionToolNames:
+    - echo.text
+
+turns:
+  - "Say hello briefly."
