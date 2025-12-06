@@ -11,6 +11,8 @@ describe('mcp/mcp-client', () => {
 
     const originalReadFileSync = await import('fs').then(m => m.readFileSync);
 
+    const originalFs = await import('fs');
+
     // Mock fs.readFileSync to return package.json with missing name/version
     const fsMock: any = {
       __esModule: true,
@@ -20,7 +22,9 @@ describe('mcp/mcp-client', () => {
           return JSON.stringify({ description: 'test' });
         }
         return originalReadFileSync(path, encoding as any);
-      })
+      }),
+      // Pass through existsSync for defaults.ts
+      existsSync: originalFs.existsSync
     };
 
     fsMock.default = fsMock;

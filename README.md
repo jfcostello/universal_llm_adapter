@@ -764,6 +764,98 @@ interface EmbeddingResult {
 }
 ```
 
+## Configuration
+
+### Centralized Defaults
+
+All non-provider-specific defaults are centralized in `/plugins/configs/defaults.json`. This provides a single source of truth for configuration values and makes the codebase easier to maintain.
+
+```json
+{
+  "retry": {
+    "maxAttempts": 3,
+    "baseDelayMs": 250,
+    "multiplier": 2.0,
+    "rateLimitDelays": [1, 1, 5, 5, 5, 15, 15, 16, 30, 31, 61, 5, 5, 51]
+  },
+  "tools": {
+    "countdownEnabled": true,
+    "finalPromptEnabled": true,
+    "parallelExecution": false,
+    "preserveResults": 3,
+    "preserveReasoning": 3,
+    "maxIterations": 10,
+    "timeoutMs": 120000
+  },
+  "vector": {
+    "topK": 5,
+    "injectTemplate": "Relevant context:\n{{results}}",
+    "resultFormat": "- {{payload.text}} (score: {{score}})",
+    "batchSize": 10,
+    "includePayload": true,
+    "includeVector": false,
+    "defaultCollection": "default"
+  },
+  "chunking": {
+    "size": 500,
+    "overlap": 50
+  },
+  "tokenEstimation": {
+    "textDivisor": 4,
+    "imageEstimate": 768,
+    "toolResultDivisor": 6
+  },
+  "timeouts": {
+    "mcpRequest": 30000,
+    "llmHttp": 60000,
+    "embeddingHttp": 60000,
+    "loggerFlush": 2000
+  },
+  "paths": {
+    "plugins": "./plugins"
+  }
+}
+```
+
+#### Accessing Defaults in Code
+
+```typescript
+import { getDefaults } from './core/defaults';
+
+const defaults = getDefaults();
+console.log(defaults.retry.maxAttempts);  // 3
+console.log(defaults.tools.maxIterations); // 10
+```
+
+#### Provider-Specific Defaults
+
+Provider-specific defaults live in their respective JSON manifests under the `defaults` field:
+
+```json
+// plugins/providers/anthropic.json
+{
+  "id": "anthropic",
+  "defaults": {
+    "maxTokens": 8192,
+    "reasoningBudget": 51200
+  }
+}
+```
+
+#### Runtime Overrides
+
+All defaults can be overridden at runtime via the call spec:
+
+```typescript
+await coordinator.run({
+  messages: [...],
+  settings: {
+    maxTokens: 4096  // Overrides provider default
+  },
+  maxToolIterations: 5  // Overrides tools.maxIterations
+});
+```
+
 ## Testing
 
 The library maintains 100% test coverage. Run tests with:

@@ -5,6 +5,7 @@ import { ProcessRouteManifest } from '../../core/types.js';
 import { ToolExecutionError } from '../../core/errors.js';
 import { MCPClientPool } from '../../mcp/mcp-client.js';
 import { AdapterLogger } from '../../core/logging.js';
+import { getDefaults } from '../../core/defaults.js';
 
 interface ToolContext {
   toolName: string;
@@ -71,7 +72,7 @@ export class ToolCoordinator {
       context.logger.info('Routing tool call', logFields);
     }
     
-    const timeout = (route.timeoutMs || 120000) / 1000;
+    const timeout = (route.timeoutMs || getDefaults().tools.timeoutMs) / 1000;
     
     try {
       const result = await Promise.race([

@@ -6,6 +6,7 @@ import TransportStream from 'winston-transport';
 import type { TransformableInfo } from 'logform';
 import { genericRedactHeaders } from '../../utils/security/redaction.js';
 import { enforceRetention, readEnvFloat, readEnvInt } from '../../utils/logging/retention.js';
+import { getDefaults } from '../defaults.js';
 
 export const disableFileLogs = process.env.LLM_ADAPTER_DISABLE_FILE_LOGS === '1';
 export const disableConsoleLogs = process.env.LLM_ADAPTER_DISABLE_CONSOLE_LOGS === '1';
@@ -223,7 +224,7 @@ export class BaseAdapterLogger {
         resolve();
       };
 
-      const timeout = setTimeout(() => done(), 2000);
+      const timeout = setTimeout(() => done(), getDefaults().timeouts.loggerFlush);
       const transports = this.logger.transports;
 
       if (transports.length === 0) {

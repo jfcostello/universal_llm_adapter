@@ -88,6 +88,7 @@ plugins/tools/**
 !plugins/tools/test.random.json
 
 .claude
+claude.md
 agents*.md
 jest-summary.json
 .history/

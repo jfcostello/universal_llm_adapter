@@ -1,3 +1,5 @@
+import { getDefaults } from '../../core/defaults.js';
+
 export interface RetryPolicy {
   maxAttempts: number;
   baseDelayMs: number;
@@ -5,15 +7,26 @@ export interface RetryPolicy {
   rateLimitDelays?: number[];
 }
 
-export const DEFAULT_RATE_LIMIT_DELAYS = [
-  1, 1, 5, 5, 5, 15, 15, 16, 30, 31, 61, 5, 5, 51
-];
+/**
+ * Get the default rate limit delays from the config.
+ * Exported for backward compatibility.
+ */
+export function getDefaultRateLimitDelays(): number[] {
+  return getDefaults().retry.rateLimitDelays;
+}
+
+/**
+ * @deprecated Use getDefaultRateLimitDelays() for dynamic access.
+ * This constant is kept for backward compatibility but now loads from config.
+ */
+export const DEFAULT_RATE_LIMIT_DELAYS = getDefaults().retry.rateLimitDelays;
 
 export function createDefaultRetryPolicy(): RetryPolicy {
+  const { retry } = getDefaults();
   return {
-    maxAttempts: 3,
-    baseDelayMs: 250,
-    multiplier: 2.0,
-    rateLimitDelays: DEFAULT_RATE_LIMIT_DELAYS
+    maxAttempts: retry.maxAttempts,
+    baseDelayMs: retry.baseDelayMs,
+    multiplier: retry.multiplier,
+    rateLimitDelays: retry.rateLimitDelays
   };
 }

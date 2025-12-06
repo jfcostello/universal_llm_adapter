@@ -14,6 +14,7 @@ import {
 import { PluginRegistry } from '../../core/registry.js';
 import { EmbeddingManager } from '../../managers/embedding-manager.js';
 import { VectorStoreManager } from '../../managers/vector-store-manager.js';
+import { getDefaults } from '../../core/defaults.js';
 import {
   getLogger,
   AdapterLogger,
@@ -34,8 +35,20 @@ export interface InjectionResult {
   retrievedResults: any[];
 }
 
+// Get defaults from config (lazy loaded)
+const getVectorDefaults = () => getDefaults().vector;
+
+/**
+ * @deprecated Use getVectorDefaults().injectTemplate for dynamic access
+ */
 const DEFAULT_INJECT_TEMPLATE = 'Relevant context:\n{{results}}';
+/**
+ * @deprecated Use getVectorDefaults().resultFormat for dynamic access
+ */
 const DEFAULT_RESULT_FORMAT = '- {{payload.text}} (score: {{score}})';
+/**
+ * @deprecated Use getVectorDefaults().topK for dynamic access
+ */
 const DEFAULT_TOP_K = 5;
 
 export class VectorContextInjector {
@@ -110,7 +123,7 @@ export class VectorContextInjector {
           const storeResults = await compat.query(
             collection,
             queryVector,
-            config.topK ?? DEFAULT_TOP_K,
+            config.topK ?? getVectorDefaults().topK,
             {
               filter: config.filter,
               includePayload: true
@@ -136,7 +149,7 @@ export class VectorContextInjector {
       }
 
       // Limit to topK
-      results = results.slice(0, config.topK ?? DEFAULT_TOP_K);
+      results = results.slice(0, config.topK ?? getVectorDefaults().topK);
 
       // If no results, return original messages
       if (results.length === 0) {
@@ -209,7 +222,7 @@ export class VectorContextInjector {
    * Format results using the configured template.
    */
   private formatResults(results: any[], config: VectorContextConfig): string {
-    const format = config.resultFormat ?? DEFAULT_RESULT_FORMAT;
+    const format = config.resultFormat ?? getVectorDefaults().resultFormat;
 
     const formattedLines = results.map(result => {
       return this.interpolate(format, {
@@ -226,7 +239,7 @@ export class VectorContextInjector {
    * Apply the injection template.
    */
   private applyTemplate(content: string, config: VectorContextConfig): string {
-    const template = config.injectTemplate ?? DEFAULT_INJECT_TEMPLATE;
+    const template = config.injectTemplate ?? getVectorDefaults().injectTemplate;
     return template.replace('{{results}}', content);
   }
 

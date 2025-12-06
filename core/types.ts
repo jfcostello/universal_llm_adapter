@@ -349,6 +349,8 @@ export interface ProviderManifest {
   retryWords?: string[];
   metadata?: JsonObject;
   payloadExtensions?: ProviderPayloadExtension[];
+  /** Provider-specific default settings (e.g., maxTokens, reasoningBudget) */
+  defaults?: JsonObject;
 }
 
 export interface MCPServerConfig {
@@ -648,4 +650,92 @@ export interface ICompatModule {
     logger?: any,
     headers?: Record<string, string>
   ): AsyncGenerator<ParsedStreamChunk>;
+}
+
+// ============================================================
+// DEFAULT SETTINGS TYPES
+// ============================================================
+
+/**
+ * Retry and rate limiting default settings.
+ */
+export interface RetryDefaults {
+  maxAttempts: number;
+  baseDelayMs: number;
+  multiplier: number;
+  rateLimitDelays: number[];
+}
+
+/**
+ * Tool execution default settings.
+ */
+export interface ToolDefaults {
+  countdownEnabled: boolean;
+  finalPromptEnabled: boolean;
+  parallelExecution: boolean;
+  preserveResults: number;
+  preserveReasoning: number;
+  maxIterations: number;
+  timeoutMs: number;
+}
+
+/**
+ * Vector store and retrieval default settings.
+ */
+export interface VectorDefaults {
+  topK: number;
+  injectTemplate: string;
+  resultFormat: string;
+  batchSize: number;
+  includePayload: boolean;
+  includeVector: boolean;
+  defaultCollection: string;
+}
+
+/**
+ * Text chunking default settings.
+ */
+export interface ChunkingDefaults {
+  size: number;
+  overlap: number;
+}
+
+/**
+ * Token estimation default settings.
+ */
+export interface TokenEstimationDefaults {
+  textDivisor: number;
+  imageEstimate: number;
+  toolResultDivisor: number;
+}
+
+/**
+ * Timeout default settings (all values in milliseconds).
+ */
+export interface TimeoutDefaults {
+  mcpRequest: number;
+  llmHttp: number;
+  embeddingHttp: number;
+  loggerFlush: number;
+}
+
+/**
+ * Path default settings.
+ */
+export interface PathDefaults {
+  plugins: string;
+}
+
+/**
+ * Root interface containing all default settings categories.
+ * Loaded from plugins/configs/defaults.json
+ */
+export interface DefaultSettings {
+  retry: RetryDefaults;
+  tools: ToolDefaults;
+  vector: VectorDefaults;
+  chunking: ChunkingDefaults;
+  tokenEstimation: TokenEstimationDefaults;
+  timeouts: TimeoutDefaults;
+  paths: PathDefaults;
 }

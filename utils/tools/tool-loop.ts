@@ -24,6 +24,7 @@ import { appendAssistantToolCalls, appendToolResult } from '../messages/message-
 import { pruneReasoning, pruneToolResults } from '../context/context-manager.js';
 import { sanitizeToolName } from './tool-names.js';
 import { usageStatsToJson } from '../usage/usage-utils.js';
+import { getDefaults } from '../../core/defaults.js';
 
 interface BaseToolLoopOptions {
   llmManager: LLMManager;
@@ -98,15 +99,16 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
     metadata
   } = options;
 
-  const toolCountdownEnabled = normalizeFlag(runtime.toolCountdownEnabled, true);
-  const toolFinalPromptEnabled = normalizeFlag(runtime.toolFinalPromptEnabled, true);
-  const parallelExecution = normalizeFlag(runtime.parallelToolExecution, false);
+  const toolDefaults = getDefaults().tools;
+  const toolCountdownEnabled = normalizeFlag(runtime.toolCountdownEnabled, toolDefaults.countdownEnabled);
+  const toolFinalPromptEnabled = normalizeFlag(runtime.toolFinalPromptEnabled, toolDefaults.finalPromptEnabled);
+  const parallelExecution = normalizeFlag(runtime.parallelToolExecution, toolDefaults.parallelExecution);
   const maxResultLength = typeof runtime.toolResultMaxChars === 'number' && runtime.toolResultMaxChars > 0
     ? Math.floor(runtime.toolResultMaxChars)
     : null;
-  const maxToolIterations = parseMaxToolIterations(runtime.maxToolIterations);
-  const preserveToolResults = runtime.preserveToolResults ?? 3;
-  const preserveReasoning = runtime.preserveReasoning ?? 3;
+  const maxToolIterations = parseMaxToolIterations(runtime.maxToolIterations, toolDefaults.maxIterations);
+  const preserveToolResults = runtime.preserveToolResults ?? toolDefaults.preserveResults;
+  const preserveReasoning = runtime.preserveReasoning ?? toolDefaults.preserveReasoning;
 
   const toolBudget = new ToolCallBudget(maxToolIterations);
   const allToolResults: Array<{ tool: string; result: any }> = [];
@@ -642,13 +644,13 @@ function normalizeFlag(value: unknown, defaultValue: boolean): boolean {
   return Boolean(value);
 }
 
-function parseMaxToolIterations(value: unknown): number {
-  if (value === null || value === undefined) return 10;
+function parseMaxToolIterations(value: unknown, defaultValue: number = 10): number {
+  if (value === null || value === undefined) return defaultValue;
   if (typeof value === 'number') {
-    return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 10;
+    return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : defaultValue;
   }
   const parsed = parseInt(String(value), 10);
-  return Number.isFinite(parsed) ? Math.max(0, parsed) : 10;
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : defaultValue;
 }
 
 function createProgressFields(budget: ToolCallBudget): Record<string, any> | undefined {

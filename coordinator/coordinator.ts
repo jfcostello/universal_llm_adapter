@@ -216,11 +216,12 @@ export class LLMCoordinator {
       throw new Error('LLMCallSpec.llmPriority must include at least one provider');
     }
     
+    const { retry } = await import('../core/defaults.js').then(m => ({ retry: m.getDefaults().retry }));
     const retryPolicy = {
-      maxAttempts: 3,
-      baseDelayMs: 250,
-      multiplier: 2.0,
-      rateLimitDelays: executionSpec.rateLimitRetryDelays
+      maxAttempts: retry.maxAttempts,
+      baseDelayMs: retry.baseDelayMs,
+      multiplier: retry.multiplier,
+      rateLimitDelays: executionSpec.rateLimitRetryDelays || retry.rateLimitDelays
     };
     
     const response = await withRetries<LLMResponse>(sequence, retryPolicy, runLogger);
@@ -328,9 +329,10 @@ export class LLMCoordinator {
   ): AsyncGenerator<LLMStreamEvent, string | undefined> {
     logger.info('executeToolsAndContinueStreaming started', { toolCallCount: toolCalls.length });
 
-    // Extract preservation settings
-    const preserveToolResults = runtime.preserveToolResults ?? 3;
-    const preserveReasoning = runtime.preserveReasoning ?? 3;
+    // Extract preservation settings (lazy load defaults)
+    const { tools: toolDefaults } = await import('../core/defaults.js').then(m => ({ tools: m.getDefaults().tools }));
+    const preserveToolResults = runtime.preserveToolResults ?? toolDefaults.preserveResults;
+    const preserveReasoning = runtime.preserveReasoning ?? toolDefaults.preserveReasoning;
 
     // Add assistant message with tool calls (use sanitized names for API compatibility)
     appendAssistantToolCalls(

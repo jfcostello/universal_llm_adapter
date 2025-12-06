@@ -8,6 +8,7 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { JsonObject } from '../../core/types.js';
 import { TextChunk } from '../../core/vector-spec-types.js';
+import { getDefaults } from '../../core/defaults.js';
 
 export interface ChunkOptions {
   /**
@@ -36,7 +37,16 @@ export interface ChunkOptions {
   metadata?: JsonObject;
 }
 
+// Get defaults from config (lazy loaded)
+const getChunkingDefaults = () => getDefaults().chunking;
+
+/**
+ * @deprecated Use getChunkingDefaults().size for dynamic access
+ */
 const DEFAULT_CHUNK_SIZE = 500;
+/**
+ * @deprecated Use getChunkingDefaults().overlap for dynamic access
+ */
 const DEFAULT_CHUNK_OVERLAP = 50;
 
 /**
@@ -47,8 +57,9 @@ const DEFAULT_CHUNK_OVERLAP = 50;
  * @returns Array of text chunks with IDs and metadata
  */
 export function chunkText(text: string, options: ChunkOptions = {}): TextChunk[] {
-  const chunkSize = options.chunkSize ?? DEFAULT_CHUNK_SIZE;
-  const chunkOverlap = Math.min(options.chunkOverlap ?? DEFAULT_CHUNK_OVERLAP, chunkSize - 1);
+  const defaults = getChunkingDefaults();
+  const chunkSize = options.chunkSize ?? defaults.size;
+  const chunkOverlap = Math.min(options.chunkOverlap ?? defaults.overlap, chunkSize - 1);
 
   // Handle empty or whitespace-only text
   const trimmedText = text.trim();
@@ -142,7 +153,7 @@ function chunkByCharacters(
  */
 function chunkBySeparator(text: string, options: ChunkOptions): TextChunk[] {
   const separator = options.separator!;
-  const chunkSize = options.chunkSize ?? DEFAULT_CHUNK_SIZE;
+  const chunkSize = options.chunkSize ?? getChunkingDefaults().size;
   const parts = text.split(separator);
 
   const chunks: TextChunk[] = [];
@@ -189,7 +200,7 @@ function chunkBySeparator(text: string, options: ChunkOptions): TextChunk[] {
  * Chunk text while trying to preserve sentence boundaries.
  */
 function chunkBySentences(text: string, options: ChunkOptions): TextChunk[] {
-  const chunkSize = options.chunkSize ?? DEFAULT_CHUNK_SIZE;
+  const chunkSize = options.chunkSize ?? getChunkingDefaults().size;
 
   // Split on sentence endings
   const sentencePattern = /[.!?]+[\s]+/g;

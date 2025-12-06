@@ -18,5 +18,9 @@
     "Too Many Requests",
     "Service Unavailable"
   ],
+  "defaults": {
+    "maxTokens": 8192,
+    "reasoningBudget": 51200
+  },
   "payloadExtensions": []
 }

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { MCPServerConfig, UnifiedTool, JsonObject } from '../core/types.js';
 import { MCPConnectionError } from '../core/errors.js';
 import { getLogger } from '../core/logging.js';
+import { getDefaults } from '../core/defaults.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -102,7 +103,8 @@ export class JSONRPCSession extends EventEmitter {
     }
   }
 
-  async request(method: string, params?: any, timeoutMs = 30000): Promise<any> {
+  async request(method: string, params?: any, timeoutMs?: number): Promise<any> {
+    const effectiveTimeout = timeoutMs ?? getDefaults().timeouts.mcpRequest;
     const id = this.nextId++;
     
     const request: JSONRPCRequest = {
@@ -119,7 +121,7 @@ export class JSONRPCSession extends EventEmitter {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`Request timeout: ${method}`));
-      }, timeoutMs);
+      }, effectiveTimeout);
       entry.timer = timeout;
 
       this.output.write(JSON.stringify(request) + '\n', (error) => {
@@ -143,7 +145,7 @@ export class MCPConnection {
   private serverInfo?: JsonObject;
 
   constructor(private config: MCPServerConfig) {
-    this.requestTimeoutMs = config.requestTimeoutMs ?? 30000;
+    this.requestTimeoutMs = config.requestTimeoutMs ?? getDefaults().timeouts.mcpRequest;
   }
 
   async connect(): Promise<void> {

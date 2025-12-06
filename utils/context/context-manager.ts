@@ -1,4 +1,5 @@
 import { Message, Role, ToolResultContent, ContentPart, TextContent, ImageContent } from '../../core/types.js';
+import { getDefaults } from '../../core/defaults.js';
 
 export const TOOL_REDACTION_PLACEHOLDER =
   'This is a placeholder, not the original tool response; the tool output has been redacted to save context.';
@@ -252,21 +253,34 @@ export function pruneReasoning(
   }
 }
 
+// Get token estimation defaults from config (lazy loaded)
+const getTokenDefaults = () => getDefaults().tokenEstimation;
+
+/**
+ * @deprecated Use getTokenDefaults().textDivisor for dynamic access
+ */
 const TEXT_TOKEN_DIVISOR = 4;
+/**
+ * @deprecated Use getTokenDefaults().imageEstimate for dynamic access
+ */
 const IMAGE_TOKEN_ESTIMATE = 768;
+/**
+ * @deprecated Use getTokenDefaults().toolResultDivisor for dynamic access
+ */
 const TOOL_RESULT_TOKEN_DIVISOR = 6;
 
 function estimateContentTokens(content: ContentPart[]): number {
+  const tokenDefaults = getTokenDefaults();
   let total = 0;
 
   for (const part of content) {
     if (part.type === 'text') {
-      total += Math.max(1, Math.ceil((part.text ?? '').length / TEXT_TOKEN_DIVISOR));
+      total += Math.max(1, Math.ceil((part.text ?? '').length / tokenDefaults.textDivisor));
     } else if (part.type === 'image') {
-      total += IMAGE_TOKEN_ESTIMATE;
+      total += tokenDefaults.imageEstimate;
     } else if (part.type === 'tool_result') {
       const serialized = JSON.stringify(part.result ?? '');
-      total += Math.max(1, Math.ceil(serialized.length / TOOL_RESULT_TOKEN_DIVISOR));
+      total += Math.max(1, Math.ceil(serialized.length / tokenDefaults.toolResultDivisor));
     }
   }
 

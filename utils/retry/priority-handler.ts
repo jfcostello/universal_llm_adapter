@@ -1,6 +1,7 @@
-import { RetryPolicy, DEFAULT_RATE_LIMIT_DELAYS } from './retry-policy.js';
+import { RetryPolicy, createDefaultRetryPolicy } from './retry-policy.js';
 import { AdapterLogger } from '../../core/logging.js';
 import { ProviderExecutionError } from '../../core/errors.js';
+import { getDefaults } from '../../core/defaults.js';
 
 export interface RetrySequenceItem {
   provider: string;
@@ -13,12 +14,7 @@ export async function withRetries<T>(
   policy?: RetryPolicy,
   logger?: AdapterLogger
 ): Promise<T> {
-  const retryPolicy = policy || {
-    maxAttempts: 3,
-    baseDelayMs: 250,
-    multiplier: 2.0,
-    rateLimitDelays: DEFAULT_RATE_LIMIT_DELAYS
-  };
+  const retryPolicy = policy || createDefaultRetryPolicy();
   
   let lastError: Error | undefined;
   
@@ -27,7 +23,7 @@ export async function withRetries<T>(
     let totalAttempts = 0;
     let normalFailures = 0;
     let rateLimitAttempts = 0;
-    const rateLimitSchedule = retryPolicy.rateLimitDelays || DEFAULT_RATE_LIMIT_DELAYS;
+    const rateLimitSchedule = retryPolicy.rateLimitDelays || getDefaults().retry.rateLimitDelays;
     
     while (true) {
       totalAttempts++;

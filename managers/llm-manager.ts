@@ -11,13 +11,14 @@ import { ProviderExecutionError } from '../core/errors.js';
 import { AdapterLogger } from '../core/logging.js';
 import { buildFinalPayload } from '../utils/provider/payload-builder.js';
 import { normalizeToolCalls } from '../utils/tools/tool-call-normalizer.js';
+import { getDefaults } from '../core/defaults.js';
 
 export class LLMManager {
   private httpClient: AxiosInstance;
 
   constructor(private registry: any) {
     this.httpClient = axios.create({
-      timeout: 60000,
+      timeout: getDefaults().timeouts.llmHttp,
       validateStatus: () => true // Handle all status codes
     });
   }

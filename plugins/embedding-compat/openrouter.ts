@@ -6,6 +6,7 @@ import {
   IEmbeddingOperationLogger
 } from '../../core/types.js';
 import { EmbeddingProviderError } from '../../core/errors.js';
+import { getDefaults } from '../../core/defaults.js';
 
 /**
  * OpenRouter Embeddings API Response format
@@ -38,7 +39,7 @@ export default class OpenRouterEmbeddingCompat implements IEmbeddingCompat {
 
   constructor(httpClient?: AxiosInstance) {
     this.httpClient = httpClient || axios.create({
-      timeout: 60000,
+      timeout: getDefaults().timeouts.embeddingHttp,
       validateStatus: () => true
     });
   }
