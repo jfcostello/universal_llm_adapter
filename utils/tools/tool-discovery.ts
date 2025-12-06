@@ -140,31 +140,53 @@ export function shouldCreateVectorSearchTool(mode: string | undefined): boolean 
 
 /**
  * Create a vector_search tool for LLM-driven vector store queries.
+ * When locks are specified, locked parameters are omitted from the schema
+ * and enforced server-side.
  */
 export function createVectorSearchTool(config: VectorContextConfig): UnifiedTool {
   const toolName = config.toolName ?? 'vector_search';
-  const description = config.toolDescription ??
-    `Search the vector store for relevant information. Available stores: ${config.stores.join(', ')}`;
+  const locks = config.locks;
+
+  // Build description - if store is locked, mention it; otherwise list available stores
+  let description: string;
+  if (config.toolDescription) {
+    description = config.toolDescription;
+  } else if (locks?.store) {
+    description = `Search the vector store for relevant information. Searching: ${locks.store}`;
+  } else {
+    description = `Search the vector store for relevant information. Available stores: ${config.stores.join(', ')}`;
+  }
+
+  // Build properties dynamically based on locks
+  const properties: Record<string, any> = {
+    query: {
+      type: 'string',
+      description: 'The search query to find relevant context'
+    }
+  };
+
+  // Only add topK if not locked
+  if (locks?.topK === undefined) {
+    properties.topK = {
+      type: 'number',
+      description: `Number of results to return (default: ${config.topK ?? 5})`
+    };
+  }
+
+  // Only add store if not locked
+  if (locks?.store === undefined) {
+    properties.store = {
+      type: 'string',
+      description: `Which store to search (options: ${config.stores.join(', ')})`
+    };
+  }
 
   return {
     name: toolName,
     description,
     parametersJsonSchema: {
       type: 'object',
-      properties: {
-        query: {
-          type: 'string',
-          description: 'The search query to find relevant context'
-        },
-        topK: {
-          type: 'number',
-          description: `Number of results to return (default: ${config.topK ?? 5})`
-        },
-        store: {
-          type: 'string',
-          description: `Which store to search (options: ${config.stores.join(', ')})`
-        }
-      },
+      properties,
       required: ['query']
     }
   };

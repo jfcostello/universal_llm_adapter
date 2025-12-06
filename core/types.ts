@@ -190,6 +190,24 @@ export interface LLMPriorityItem {
 }
 
 /**
+ * Parameters that can be locked for vector search tool calls.
+ * Locked parameters are hidden from the LLM schema and enforced server-side.
+ * When a parameter is locked, the LLM cannot override it.
+ */
+export interface VectorSearchLocks {
+  /** Lock to a specific store - LLM cannot choose a different store */
+  store?: string;
+  /** Lock number of results - LLM cannot request more or fewer results */
+  topK?: number;
+  /** Lock metadata filter - LLM cannot modify filter criteria */
+  filter?: JsonObject;
+  /** Lock minimum score threshold - LLM cannot lower the quality bar */
+  scoreThreshold?: number;
+  /** Lock collection - LLM cannot query a different collection */
+  collection?: string;
+}
+
+/**
  * Configuration for vector-based context retrieval and injection.
  * Used in LLMCallSpec to enable RAG capabilities.
  */
@@ -280,6 +298,17 @@ export interface VectorContextConfig {
    * Default: "Search for relevant information in the knowledge base"
    */
   toolDescription?: string;
+
+  // ========================================
+  // Parameter locking configuration
+  // ========================================
+
+  /**
+   * Lock specific parameters so the LLM cannot override them.
+   * Locked parameters are hidden from the tool schema and enforced server-side.
+   * Use this to constrain LLM behavior for security or consistency.
+   */
+  locks?: VectorSearchLocks;
 }
 
 export interface LLMCallSpec {

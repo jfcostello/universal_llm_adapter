@@ -644,6 +644,7 @@ interface VectorContextConfig {
   topK?: number;                          // Default: 5
   scoreThreshold?: number;                // Minimum score (0-1)
   filter?: JsonObject;                    // Metadata filter
+  collection?: string;                    // Collection to query
   embeddingPriority?: EmbeddingPriorityItem[];
 
   // Auto-inject config
@@ -654,7 +655,102 @@ interface VectorContextConfig {
   // Tool mode config
   toolName?: string;                      // Default: 'vector_search'
   toolDescription?: string;
+
+  // Parameter locking (tool mode only)
+  locks?: VectorSearchLocks;              // Lock parameters from LLM override
 }
+
+interface VectorSearchLocks {
+  store?: string;                         // Lock which store to use
+  topK?: number;                          // Lock result count
+  filter?: JsonObject;                    // Lock metadata filter
+  scoreThreshold?: number;                // Lock minimum score
+  collection?: string;                    // Lock collection name
+}
+```
+
+#### Parameter Locking (Tool Mode)
+
+When using `tool` or `both` mode, the LLM can typically control parameters like `topK` and `store` through the tool schema. The `locks` feature allows you to enforce server-side parameter values that the LLM cannot override.
+
+**Why Lock Parameters?**
+
+- **Security**: Prevent LLM from accessing unauthorized stores or collections
+- **Cost Control**: Limit result count to avoid excessive token usage
+- **Quality**: Enforce minimum score thresholds for relevant results
+- **Data Isolation**: Lock to specific collections per user/tenant
+
+**How Locking Works**
+
+1. Locked parameters are **hidden from the tool schema** - the LLM doesn't know they exist
+2. Values are **enforced server-side** regardless of what the LLM attempts to pass
+3. Non-locked parameters remain available for LLM control
+
+```typescript
+// Without locks - LLM can set all parameters
+const response = await coordinator.run({
+  messages: [...],
+  vectorContext: {
+    stores: ['docs', 'faq', 'internal'],
+    mode: 'tool',
+    topK: 10
+  }
+});
+// Tool schema exposes: query, topK, store
+// LLM could request topK: 100, store: 'internal'
+
+// With locks - enforce restrictions
+const response = await coordinator.run({
+  messages: [...],
+  vectorContext: {
+    stores: ['docs', 'faq', 'internal'],
+    mode: 'tool',
+    topK: 10,
+    locks: {
+      store: 'docs',        // Only 'docs' store, hidden from LLM
+      topK: 5,              // Max 5 results, hidden from LLM
+      scoreThreshold: 0.7   // Minimum relevance, enforced server-side
+    }
+  }
+});
+// Tool schema exposes: query (only)
+// LLM can only provide the search query
+// store='docs', topK=5, scoreThreshold=0.7 are enforced
+```
+
+**Example: Multi-Tenant Data Isolation**
+
+```typescript
+// Lock collection per tenant to prevent cross-tenant access
+const response = await coordinator.run({
+  messages: [...],
+  vectorContext: {
+    stores: ['qdrant-cloud'],
+    mode: 'tool',
+    locks: {
+      collection: `tenant-${tenantId}`,  // Tenant-specific collection
+      filter: { tenantId: tenantId }     // Additional filter as backup
+    }
+  }
+});
+```
+
+**Example: Cost Control**
+
+```typescript
+// Limit results to control token usage
+const response = await coordinator.run({
+  messages: [...],
+  vectorContext: {
+    stores: ['knowledge-base'],
+    mode: 'tool',
+    topK: 20,           // Default for non-locked use
+    locks: {
+      topK: 3,          // But lock to max 3 for this call
+      scoreThreshold: 0.8  // Only highly relevant results
+    }
+  }
+});
 ```
 
 #### VectorContext vs VectorPriority
@@ -1025,6 +1121,7 @@ This is useful for:
 | `16-vector-store.live.test.ts` | Qdrant vector store operations |
 | `17-vector-cli.live.test.ts` | Vector Store CLI operations |
 | `18-vector-auto-inject.live.test.ts` | VectorContext RAG integration |
+| `19-vector-search-locks.live.test.ts` | Vector search parameter locking |
 | `00-14-*.live.test.ts` | LLM provider tests |
 
 ## Contributing

@@ -57,6 +57,8 @@ export class LLMCoordinator {
 
   private async ensureToolCoordinator(spec: LLMCallSpec): Promise<ToolCoordinator> {
     if (this.toolCoordinatorInitialized) {
+      // Update vector context for new spec (may have different locks)
+      this.toolCoordinator.setVectorContext(spec.vectorContext, this.registry);
       return this.toolCoordinator;
     }
 
@@ -72,7 +74,11 @@ export class LLMCoordinator {
     const processRoutes = await this.registry.getProcessRoutes();
     this.toolCoordinator = new ToolCoordinator(
       processRoutes,
-      this.mcpManager?.getPool()
+      this.mcpManager?.getPool(),
+      {
+        vectorContext: spec.vectorContext,
+        registry: this.registry
+      }
     );
 
     this.toolCoordinatorInitialized = true;

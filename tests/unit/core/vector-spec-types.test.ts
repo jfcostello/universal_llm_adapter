@@ -10,6 +10,11 @@ import type {
   TextChunk
 } from '@/core/vector-spec-types.ts';
 
+import type {
+  VectorSearchLocks,
+  VectorContextConfig
+} from '@/core/types.ts';
+
 describe('core/vector-spec-types', () => {
   describe('VectorCallSpec', () => {
     test('accepts valid embed operation spec', () => {
@@ -361,6 +366,120 @@ describe('core/vector-spec-types', () => {
 
       expect(chunk.metadata?.source).toBe('document.pdf');
       expect(chunk.metadata?.page).toBe(5);
+    });
+  });
+
+  describe('VectorSearchLocks', () => {
+    test('supports locking store parameter', () => {
+      const locks: VectorSearchLocks = {
+        store: 'docs'
+      };
+
+      expect(locks.store).toBe('docs');
+    });
+
+    test('supports locking topK parameter', () => {
+      const locks: VectorSearchLocks = {
+        topK: 5
+      };
+
+      expect(locks.topK).toBe(5);
+    });
+
+    test('supports locking collection parameter', () => {
+      const locks: VectorSearchLocks = {
+        collection: 'my-collection'
+      };
+
+      expect(locks.collection).toBe('my-collection');
+    });
+
+    test('supports locking scoreThreshold parameter', () => {
+      const locks: VectorSearchLocks = {
+        scoreThreshold: 0.8
+      };
+
+      expect(locks.scoreThreshold).toBe(0.8);
+    });
+
+    test('supports locking filter parameter', () => {
+      const locks: VectorSearchLocks = {
+        filter: { category: 'tech', status: 'published' }
+      };
+
+      expect(locks.filter).toEqual({ category: 'tech', status: 'published' });
+    });
+
+    test('supports locking multiple parameters', () => {
+      const locks: VectorSearchLocks = {
+        store: 'docs',
+        topK: 10,
+        scoreThreshold: 0.7,
+        collection: 'knowledge-base',
+        filter: { type: 'article' }
+      };
+
+      expect(locks.store).toBe('docs');
+      expect(locks.topK).toBe(10);
+      expect(locks.scoreThreshold).toBe(0.7);
+      expect(locks.collection).toBe('knowledge-base');
+      expect(locks.filter).toEqual({ type: 'article' });
+    });
+
+    test('all fields are optional', () => {
+      const emptyLocks: VectorSearchLocks = {};
+
+      expect(emptyLocks.store).toBeUndefined();
+      expect(emptyLocks.topK).toBeUndefined();
+      expect(emptyLocks.collection).toBeUndefined();
+      expect(emptyLocks.scoreThreshold).toBeUndefined();
+      expect(emptyLocks.filter).toBeUndefined();
+    });
+  });
+
+  describe('VectorContextConfig with locks', () => {
+    test('accepts locks field', () => {
+      const config: VectorContextConfig = {
+        stores: ['docs', 'faq'],
+        mode: 'tool',
+        locks: {
+          store: 'docs',
+          topK: 5
+        }
+      };
+
+      expect(config.locks?.store).toBe('docs');
+      expect(config.locks?.topK).toBe(5);
+    });
+
+    test('locks field is optional for backward compatibility', () => {
+      const config: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool'
+      };
+
+      expect(config.locks).toBeUndefined();
+    });
+
+    test('locks can be combined with other config options', () => {
+      const config: VectorContextConfig = {
+        stores: ['docs', 'faq', 'support'],
+        mode: 'tool',
+        topK: 10,
+        scoreThreshold: 0.7,
+        collection: 'default-collection',
+        toolName: 'search_knowledge',
+        toolDescription: 'Search the knowledge base',
+        locks: {
+          store: 'docs',
+          scoreThreshold: 0.8  // Override the config-level scoreThreshold
+        }
+      };
+
+      expect(config.stores).toHaveLength(3);
+      expect(config.topK).toBe(10);
+      expect(config.locks?.store).toBe('docs');
+      expect(config.locks?.scoreThreshold).toBe(0.8);
     });
   });
 });

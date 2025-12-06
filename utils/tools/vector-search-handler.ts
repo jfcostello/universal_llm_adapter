@@ -1,0 +1,216 @@
+/**
+ * Built-in handler for vector_search tool execution.
+ * Executes vector searches with server-side lock enforcement.
+ */
+
+import {
+  VectorContextConfig,
+  VectorQueryResult,
+  JsonObject
+} from '../../core/types.js';
+import { PluginRegistry } from '../../core/registry.js';
+import { EmbeddingManager } from '../../managers/embedding-manager.js';
+import { VectorStoreManager } from '../../managers/vector-store-manager.js';
+import { getDefaults } from '../../core/defaults.js';
+import {
+  AdapterLogger,
+  getLogger,
+  getEmbeddingLogger,
+  getVectorLogger
+} from '../../core/logging.js';
+
+/**
+ * Arguments provided by the LLM when calling vector_search tool.
+ */
+export interface VectorSearchArgs {
+  /** The search query (always required) */
+  query: string;
+  /** Number of results to return (optional if not locked) */
+  topK?: number;
+  /** Which store to search (optional if not locked) */
+  store?: string;
+}
+
+/**
+ * Context required for executing vector search.
+ */
+export interface VectorSearchHandlerContext {
+  /** Vector context configuration including locks */
+  vectorConfig: VectorContextConfig;
+  /** Plugin registry for accessing stores and compats */
+  registry: PluginRegistry;
+  /** Optional embedding manager (will be created if not provided) */
+  embeddingManager?: EmbeddingManager;
+  /** Optional vector store manager (will be created if not provided) */
+  vectorManager?: VectorStoreManager;
+  /** Optional logger for diagnostics */
+  logger?: AdapterLogger;
+}
+
+/**
+ * Result returned from vector search execution.
+ */
+export interface VectorSearchResult {
+  /** Whether the search succeeded */
+  success: boolean;
+  /** Search results (on success) */
+  results?: VectorQueryResult[];
+  /** Error message (on failure) */
+  error?: string;
+  /** The query that was executed */
+  query: string;
+  /** Effective parameters used (after lock enforcement) */
+  effectiveParams: {
+    store: string;
+    collection: string;
+    topK: number;
+    scoreThreshold?: number;
+    filter?: JsonObject;
+  };
+}
+
+/**
+ * Execute a vector search with server-side lock enforcement.
+ * Locks always take precedence over LLM-provided arguments.
+ */
+export async function executeVectorSearch(
+  args: VectorSearchArgs,
+  context: VectorSearchHandlerContext
+): Promise<VectorSearchResult> {
+  const { vectorConfig, registry } = context;
+  const locks = vectorConfig.locks;
+  const logger = context.logger ?? getLogger();
+
+  // Apply locks - locked values always take precedence
+  const effectiveStore = locks?.store ?? args.store ?? vectorConfig.stores[0];
+  const effectiveTopK = locks?.topK ?? args.topK ?? vectorConfig.topK ?? getDefaults().vector.topK;
+  const effectiveCollection = locks?.collection ?? vectorConfig.collection;
+  const effectiveScoreThreshold = locks?.scoreThreshold ?? vectorConfig.scoreThreshold;
+  const effectiveFilter = locks?.filter ?? vectorConfig.filter;
+
+  logger.info('Executing vector search', {
+    query: args.query,
+    effectiveStore,
+    effectiveTopK,
+    effectiveCollection,
+    hasScoreThreshold: effectiveScoreThreshold !== undefined,
+    hasFilter: effectiveFilter !== undefined,
+    lockedParams: Object.keys(locks ?? {})
+  });
+
+  try {
+    // Ensure managers are initialized
+    const embeddingLogger = getEmbeddingLogger();
+    const vectorLogger = getVectorLogger();
+
+    const embeddingManager = context.embeddingManager ??
+      new EmbeddingManager(registry, embeddingLogger);
+
+    const vectorManager = context.vectorManager ??
+      new VectorStoreManager(
+        new Map(),
+        new Map(),
+        undefined,
+        registry,
+        vectorLogger
+      );
+
+    // Embed the query
+    const embeddingPriority = vectorConfig.embeddingPriority ?? [{ provider: 'openrouter-embeddings' }];
+    const embeddingResult = await embeddingManager.embed(args.query, embeddingPriority);
+    const queryVector = embeddingResult.vectors[0];
+
+    // Get store config and compat
+    const storeConfig = await registry.getVectorStore(effectiveStore);
+    const compat = await registry.getVectorStoreCompat(storeConfig.kind);
+
+    // Inject logger if supported
+    if (typeof compat.setLogger === 'function') {
+      compat.setLogger(vectorLogger);
+    }
+
+    // Connect to store
+    await compat.connect(storeConfig);
+
+    // Determine collection
+    const collection = effectiveCollection ?? storeConfig.defaultCollection ?? 'default';
+
+    // Execute query
+    let results = await compat.query(
+      collection,
+      queryVector,
+      effectiveTopK,
+      {
+        filter: effectiveFilter,
+        includePayload: true
+      }
+    );
+
+    // Apply score threshold if set
+    if (effectiveScoreThreshold !== undefined) {
+      results = results.filter(r => r.score >= effectiveScoreThreshold);
+    }
+
+    logger.info('Vector search completed', {
+      query: args.query,
+      resultsCount: results.length,
+      effectiveStore,
+      collection
+    });
+
+    return {
+      success: true,
+      results,
+      query: args.query,
+      effectiveParams: {
+        store: effectiveStore,
+        collection,
+        topK: effectiveTopK,
+        scoreThreshold: effectiveScoreThreshold,
+        filter: effectiveFilter
+      }
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    logger.error('Vector search failed', {
+      query: args.query,
+      effectiveStore,
+      error: errorMessage
+    });
+
+    return {
+      success: false,
+      error: errorMessage,
+      query: args.query,
+      effectiveParams: {
+        store: effectiveStore,
+        collection: effectiveCollection ?? 'unknown',
+        topK: effectiveTopK,
+        scoreThreshold: effectiveScoreThreshold,
+        filter: effectiveFilter
+      }
+    };
+  }
+}
+
+/**
+ * Format vector search results for LLM consumption.
+ * Returns a string that can be used as tool result.
+ */
+export function formatVectorSearchResults(result: VectorSearchResult): string {
+  if (!result.success) {
+    return `Vector search failed: ${result.error}`;
+  }
+
+  if (!result.results || result.results.length === 0) {
+    return `No results found for query: "${result.query}"`;
+  }
+
+  const formatted = result.results.map((r, i) => {
+    const text = r.payload?.text ?? JSON.stringify(r.payload ?? {});
+    return `[${i + 1}] (score: ${r.score.toFixed(3)}) ${text}`;
+  });
+
+  return `Found ${result.results.length} results:\n${formatted.join('\n')}`;
+}

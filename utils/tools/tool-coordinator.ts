@@ -1,11 +1,12 @@
 import { spawn } from 'child_process';
 import axios from 'axios';
 import { minimatch } from 'minimatch';
-import { ProcessRouteManifest } from '../../core/types.js';
+import { ProcessRouteManifest, VectorContextConfig } from '../../core/types.js';
 import { ToolExecutionError } from '../../core/errors.js';
 import { MCPClientPool } from '../../mcp/mcp-client.js';
 import { AdapterLogger } from '../../core/logging.js';
 import { getDefaults } from '../../core/defaults.js';
+import { PluginRegistry } from '../../core/registry.js';
 
 interface ToolContext {
   toolName: string;
@@ -17,16 +18,48 @@ interface ToolContext {
   callProgress?: any;
 }
 
+export interface ToolCoordinatorOptions {
+  /** Vector context configuration for built-in vector_search handling */
+  vectorContext?: VectorContextConfig;
+  /** Plugin registry for vector search operations */
+  registry?: PluginRegistry;
+}
+
 export class ToolCoordinator {
   private mcpServerIds: string[] = [];
+  private vectorContext?: VectorContextConfig;
+  private registry?: PluginRegistry;
+  private vectorToolName: string = 'vector_search';
 
   constructor(
     private routes: ProcessRouteManifest[],
-    private mcpPool?: MCPClientPool
+    private mcpPool?: MCPClientPool,
+    options?: ToolCoordinatorOptions
   ) {
     // Extract MCP server IDs from the pool
     if (mcpPool) {
       this.mcpServerIds = (mcpPool as any).servers?.map((s: any) => s.id) || [];
+    }
+
+    // Store vector context for built-in handling
+    if (options?.vectorContext) {
+      this.vectorContext = options.vectorContext;
+      this.vectorToolName = options.vectorContext.toolName ?? 'vector_search';
+    }
+    this.registry = options?.registry;
+  }
+
+  /**
+   * Update vector context configuration.
+   * Called when a new LLM call has different vector settings.
+   */
+  setVectorContext(config: VectorContextConfig | undefined, registry?: PluginRegistry): void {
+    this.vectorContext = config;
+    if (config) {
+      this.vectorToolName = config.toolName ?? 'vector_search';
+    }
+    if (registry) {
+      this.registry = registry;
     }
   }
 
@@ -42,11 +75,16 @@ export class ToolCoordinator {
       callProgress?: any;
     }
   ): Promise<any> {
+    // Check for built-in vector_search handling first
+    if (this.isVectorSearchTool(toolName)) {
+      return this.invokeVectorSearch(toolName, callId, args, context);
+    }
+
     const route = this.selectRoute(toolName);
     if (!route) {
       throw new ToolExecutionError(`No matching process route for tool '${toolName}'`);
     }
-    
+
     const ctx: ToolContext = {
       toolName,
       callId,
@@ -56,7 +94,7 @@ export class ToolCoordinator {
       metadata: context.metadata || {},
       callProgress: context.callProgress
     };
-    
+
     if (context.logger) {
       const logFields: any = {
         toolName,
@@ -64,26 +102,88 @@ export class ToolCoordinator {
         routeId: route.id,
         invokeKind: route.invoke.kind
       };
-      
+
       if (context.callProgress) {
         Object.assign(logFields, context.callProgress);
       }
-      
+
       context.logger.info('Routing tool call', logFields);
     }
-    
+
     const timeout = (route.timeoutMs || getDefaults().tools.timeoutMs) / 1000;
-    
+
     try {
       const result = await Promise.race([
         this.invoke(route, ctx),
         this.createTimeout(timeout)
       ]);
-      
+
       return result;
     } catch (error: any) {
       throw new ToolExecutionError(`Process route '${route.id}' failed: ${error.message}`);
     }
+  }
+
+  /**
+   * Check if a tool name matches the vector_search tool.
+   */
+  private isVectorSearchTool(toolName: string): boolean {
+    if (!this.vectorContext) return false;
+
+    // Check if the mode creates a vector_search tool
+    const mode = this.vectorContext.mode;
+    if (mode !== 'tool' && mode !== 'both') return false;
+
+    // Match the configured tool name (default: 'vector_search')
+    return toolName === this.vectorToolName;
+  }
+
+  /**
+   * Invoke built-in vector search handler with lock enforcement.
+   */
+  private async invokeVectorSearch(
+    toolName: string,
+    callId: string,
+    args: any,
+    context: {
+      provider: string;
+      model: string;
+      metadata?: any;
+      logger?: AdapterLogger;
+      callProgress?: any;
+    }
+  ): Promise<any> {
+    if (!this.vectorContext || !this.registry) {
+      throw new ToolExecutionError('Vector search not configured');
+    }
+
+    context.logger?.info('Invoking built-in vector_search handler', {
+      toolName,
+      callId,
+      hasLocks: !!this.vectorContext.locks,
+      lockedParams: Object.keys(this.vectorContext.locks ?? {})
+    });
+
+    // Lazy-load the handler to avoid circular dependencies
+    const { executeVectorSearch, formatVectorSearchResults } = await import('./vector-search-handler.js');
+
+    const result = await executeVectorSearch(
+      {
+        query: args.query,
+        topK: args.topK,
+        store: args.store
+      },
+      {
+        vectorConfig: this.vectorContext,
+        registry: this.registry,
+        logger: context.logger
+      }
+    );
+
+    // Format result for LLM consumption
+    const formattedResult = formatVectorSearchResults(result);
+
+    return { result: formattedResult };
   }
 
   private selectRoute(toolName: string): ProcessRouteManifest | undefined {
