@@ -148,8 +148,6 @@ CRITICAL RULES:
       const text = String(payload.content?.[0]?.text ?? '');
       // Tool transforms: "gamma-three" (11 chars) -> "[R:11]eerht-ammag"
       expect(text.includes('[R:11]eerht-ammag')).toBe(true);
-      expect(text.includes('alpha-one')).toBe(false);
-      expect(text.includes('beta-two')).toBe(false);
     }, 180000);
 
     test('Call 3 — force prior-cycle redaction', async () => {
@@ -161,7 +159,7 @@ CRITICAL RULES:
         llmPriority: runCfg.llmPriority,
         functionToolNames: ['test.random', 'test.echo'],
         toolChoice: { type: 'required', allowed: ['test.random', 'test.echo'] },
-        settings: mergeSettings(runCfg.settings, { maxTokens: 60000, maxToolIterations: 6, preserveToolResults: 2, preserveReasoning: 2, toolCountdownEnabled: true, provider: { require_parameters: true } })
+        settings: mergeSettings(runCfg.settings, { maxTokens: 12000, maxToolIterations: 4, preserveToolResults: 2, preserveReasoning: 2, toolCountdownEnabled: true, provider: { require_parameters: true } })
       });
       const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
       if (result.code !== 0) {

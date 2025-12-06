@@ -758,4 +758,28 @@ describe('plugins/vector-compat/qdrant', () => {
       });
     });
   });
+
+  describe('createPayloadIndex', () => {
+    beforeEach(async () => {
+      await compat.connect(createConfig());
+    });
+
+    test('creates keyword index', async () => {
+      mockClient.createPayloadIndex.mockResolvedValue({});
+
+      await compat.createPayloadIndex('col', 'category', 'keyword');
+
+      expect(mockClient.createPayloadIndex).toHaveBeenCalledWith('col', {
+        field_name: 'category',
+        field_schema: 'keyword'
+      });
+    });
+
+    test('throws VectorStoreError on failure', async () => {
+      mockClient.createPayloadIndex.mockRejectedValue(new Error('boom'));
+
+      await expect(compat.createPayloadIndex('col', 'field', 'keyword'))
+        .rejects.toThrow(VectorStoreError);
+    });
+  });
 });

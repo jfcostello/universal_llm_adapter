@@ -75,6 +75,13 @@ const shouldRun = runLive && hasQdrantConfig;
       console.log(`Created collection: ${testCollection}`);
     }
 
+    // Ensure payload index for category filtering
+    try {
+      await qdrantCompat.createPayloadIndex(testCollection, 'category', 'keyword');
+    } catch (err: any) {
+      console.warn('createPayloadIndex warning:', err?.message || err);
+    }
+
     // Set up VectorStoreManager with embedding function
     const embedFn = embeddingManager.createEmbedderFn([{ provider: 'openrouter-embeddings' }]);
 
@@ -152,9 +159,7 @@ const shouldRun = runLive && hasQdrantConfig;
     expect(topIds).toContain('11111111-1111-1111-1111-111111111111');
   }, 60000);
 
-  // Note: Filtering requires creating a payload index first in Qdrant Cloud
-  // This is a known limitation - filtering works without indexes only on small collections
-  test.skip('queries with filter (requires payload index)', async () => {
+  test('queries with filter (category keyword index)', async () => {
     // Use Qdrant's native filter format directly
     const { results } = await vectorStoreManager.queryWithPriority(
       [config.id],

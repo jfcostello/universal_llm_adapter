@@ -235,6 +235,51 @@ export default class QdrantCompat implements IVectorStoreCompat {
     }
   }
 
+  async createPayloadIndex(
+    collection: string,
+    field: string,
+    schema: any
+  ): Promise<void> {
+    this.requireClient();
+    const storeId = this.config!.id;
+    const startTime = Date.now();
+
+    this.logger?.logVectorRequest({
+      operation: 'createPayloadIndex',
+      store: storeId,
+      collection,
+      params: { field, schema }
+    });
+
+    try {
+      await this.client!.createPayloadIndex(collection, {
+        field_name: field,
+        field_schema: schema
+      });
+
+      this.logger?.logVectorResponse({
+        operation: 'createPayloadIndex',
+        store: storeId,
+        collection,
+        result: 'success',
+        duration: Date.now() - startTime
+      });
+    } catch (error: any) {
+      this.logger?.logVectorResponse({
+        operation: 'createPayloadIndex',
+        store: storeId,
+        collection,
+        result: { error: error.message },
+        duration: Date.now() - startTime
+      });
+      throw new VectorStoreError(
+        `Create payload index failed: ${error.message}`,
+        storeId,
+        collection
+      );
+    }
+  }
+
   async deleteByIds(collection: string, ids: string[]): Promise<void> {
     this.requireClient();
     const storeId = this.config!.id;
