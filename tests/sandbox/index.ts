@@ -24,7 +24,10 @@ async function main(): Promise<void> {
   const { scenario, dryRun, interactive } = program.parse(process.argv).opts();
 
   const loaded = loadScenario(scenario);
-  loaded.run.interactive = interactive;
+  // CLI flag enables interactive; absence of flag leaves scenario setting intact
+  if (interactive) {
+    loaded.run.interactive = true;
+  }
 
   if (dryRun) {
     console.log(JSON.stringify({ type: 'scenario.valid', name: loaded.run.name ?? path.basename(scenario) }, null, 2));
@@ -301,7 +304,18 @@ async function runInteractiveLoop(options: {
     output: process.stdout
   });
 
-  const prompt = () => new Promise<string>(resolve => readline.question('You: ', resolve));
+  const prompt = () =>
+    new Promise<string | null>((resolve) => {
+      try {
+        readline.question('You: ', answer => resolve(answer));
+      } catch (err: any) {
+        if (err?.code === 'ERR_USE_AFTER_CLOSE') {
+          resolve(null);
+        } else {
+          throw err;
+        }
+      }
+    });
 
   console.log('--- Interactive mode: type your message, or Ctrl+C to exit ---');
 
@@ -309,6 +323,9 @@ async function runInteractiveLoop(options: {
 
   while (true) {
     const userInput = await prompt();
+    if (userInput === null) {
+      break;
+    }
     if (userInput.trim().toLowerCase() === 'exit') {
       break;
     }

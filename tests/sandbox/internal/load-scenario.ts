@@ -87,7 +87,8 @@ export function loadScenario(filePath: string): SandboxScenario {
     pluginsPath: parsed.run?.pluginsPath ?? './plugins',
     batchId: parsed.run?.batchId,
     copyLogs: parsed.run?.copyLogs ?? true,
-    transcriptPath: parsed.run?.transcriptPath
+    transcriptPath: parsed.run?.transcriptPath,
+    interactive: parsed.run?.interactive ?? false
   };
 
   if (run.mode !== 'run' && run.mode !== 'stream') {
