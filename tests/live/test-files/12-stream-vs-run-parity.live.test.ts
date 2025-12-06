@@ -1,6 +1,6 @@
 // 12 — Stream vs Run Parity
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns } from '../config.ts';
 import { withLiveEnv, makeSpec, parseStream, findDone, mergeSettings } from '@tests/helpers/live-v2.ts';
 
 const runLive = process.env.LLM_LIVE === '1';

@@ -3,6 +3,12 @@
  *
  * Centralized configuration for all live integration tests.
  * Each test run uses a different provider/model combination.
+ *
+ * Provider Filtering:
+ * Set LLM_TEST_PROVIDERS environment variable to run tests for specific providers only.
+ * - Single provider: LLM_TEST_PROVIDERS=anthropic
+ * - Multiple providers: LLM_TEST_PROVIDERS=anthropic,google
+ * - Case insensitive: LLM_TEST_PROVIDERS=ANTHROPIC works the same as anthropic
  */
 
 export interface TestRun {
@@ -19,8 +25,8 @@ export interface TestRun {
 }
 
 /**
- * Test runs - each run uses a different provider configuration.
- * All live tests will execute once per run.
+ * All available test runs - each run uses a different provider configuration.
+ * Use getFilteredTestRuns() or filteredTestRuns to respect LLM_TEST_PROVIDERS filtering.
  */
 export const testRuns: TestRun[] = [
   {
@@ -77,6 +83,48 @@ export const testRuns: TestRun[] = [
   }
 ];
 
+/**
+ * Filter test runs based on LLM_TEST_PROVIDERS environment variable.
+ * Allows running live tests for specific providers only.
+ *
+ * @example
+ * // Run only anthropic tests:
+ * LLM_TEST_PROVIDERS=anthropic npm run test:live
+ *
+ * @example
+ * // Run anthropic and google tests:
+ * LLM_TEST_PROVIDERS=anthropic,google npm run test:live
+ *
+ * @returns Filtered array of TestRun objects, or all testRuns if no filter specified
+ */
+export function getFilteredTestRuns(): TestRun[] {
+  const providerFilter = process.env.LLM_TEST_PROVIDERS;
+  if (!providerFilter || providerFilter.trim() === '') {
+    return testRuns;
+  }
+
+  const requestedProviders = providerFilter.split(',').map(p => p.trim().toLowerCase());
+  const filtered = testRuns.filter(run =>
+    requestedProviders.includes(run.name.toLowerCase())
+  );
+
+  if (filtered.length === 0) {
+    console.warn(
+      `Warning: No test runs matched providers: ${providerFilter}. ` +
+      `Available: ${testRuns.map(r => r.name).join(', ')}`
+    );
+    return testRuns;
+  }
+
+  return filtered;
+}
+
+/**
+ * Pre-computed filtered test runs based on LLM_TEST_PROVIDERS environment variable.
+ * Use this in test files instead of testRuns to respect provider filtering.
+ */
+export const filteredTestRuns = getFilteredTestRuns();
+
 // Backwards compatibility exports (use first run as default)
 export const llmPriority = testRuns[0].llmPriority;
 export const defaultSettings = testRuns[0].settings;
@@ -88,13 +136,14 @@ export const invalidPriorityEntry = {
 };
 
 /**
- * Timeout configuration - automatically scales with number of providers.
- * Base timeout is per-provider, total timeout is multiplied by provider count.
+ * Timeout configuration - automatically scales with number of filtered providers.
+ * Base timeout is per-provider, total timeout is multiplied by filtered provider count.
  *
  * Examples:
- * - 2 providers: 60s * 2 = 120s total timeout per test
- * - 3 providers: 600s * 3 = 180s total timeout per test
+ * - 1 provider (filtered): 120s * 1 = 120s total timeout per test
+ * - 2 providers (filtered): 120s * 2 = 240s total timeout per test
+ * - 4 providers (all): 120s * 4 = 480s total timeout per test
  */
 export const baseTestTimeout = 120000; // 120 seconds per provider
-export const timeoutMultiplier = testRuns.length;
+export const timeoutMultiplier = filteredTestRuns.length;
 export const totalTestTimeout = baseTestTimeout * timeoutMultiplier;

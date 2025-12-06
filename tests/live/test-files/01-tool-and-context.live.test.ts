@@ -1,6 +1,6 @@
 // 01 — Tool and Context: echo tool usage and context in args
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns } from '../config.ts';
 import { withLiveEnv, makeSpec, mergeSettings } from '@tests/helpers/live-v2.ts';
 
 const runLive = process.env.LLM_LIVE === '1';

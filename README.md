@@ -979,8 +979,14 @@ docker run -p 6333:6333 qdrant/qdrant
 # Run ALL tests (unit + integration + live) - for CI
 npm run test:all
 
-# Run only live tests
+# Run only live tests (all providers)
 npm run test:live
+
+# Run live tests for a specific LLM provider
+npm run test:live:anthropic    # Anthropic only
+npm run test:live:openai       # OpenAI only
+npm run test:live:openrouter   # OpenRouter only
+npm run test:live:google       # Google only
 
 # Run embedding live tests only
 npm run test:live:embeddings
@@ -988,6 +994,28 @@ npm run test:live:embeddings
 # Run vector store live tests (Qdrant Cloud)
 npm run test:live:vector
 ```
+
+#### Provider Filtering
+
+You can run live tests for specific providers using the `LLM_TEST_PROVIDERS` environment variable:
+
+```bash
+# Single provider
+LLM_TEST_PROVIDERS=anthropic npm run test:live
+
+# Multiple providers (comma-separated)
+LLM_TEST_PROVIDERS=anthropic,google npm run test:live
+
+# Case-insensitive
+LLM_TEST_PROVIDERS=ANTHROPIC npm run test:live
+```
+
+Available provider names: `anthropic`, `openai-responses`, `openrouter`, `google`
+
+This is useful for:
+- Faster iteration when debugging a specific provider
+- Running tests when you only have API keys for certain providers
+- Reducing API costs during development
 
 #### Available Live Test Suites
 

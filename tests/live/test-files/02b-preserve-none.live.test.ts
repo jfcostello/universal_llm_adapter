@@ -1,6 +1,6 @@
 // 02b — Preserve None
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns } from '../config.ts';
 import { withLiveEnv, makeSpec, buildLogPathFor, parseLogBodies, mergeSettings } from '@tests/helpers/live-v2.ts';
 import fs from 'fs';
 

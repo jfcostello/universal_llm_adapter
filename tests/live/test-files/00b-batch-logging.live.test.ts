@@ -2,7 +2,7 @@
 import fs from 'fs';
 import path from 'path';
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns } from '../config.ts';
 import { withLiveEnv, redactionFoundIn, mergeSettings } from '@tests/helpers/live-v2.ts';
 
 const runLive = process.env.LLM_LIVE === '1';

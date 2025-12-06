@@ -1,7 +1,7 @@
 // 00 — Foundation: exact phrase + fallback; deterministic math; header redaction
 import fs from 'fs';
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { testRuns, invalidPriorityEntry } from '../config.ts';
+import { filteredTestRuns as testRuns, invalidPriorityEntry } from '../config.ts';
 import { withLiveEnv, buildLogPathFor, redactionFoundIn, makeSpec, mergeSettings } from '@tests/helpers/live-v2.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
