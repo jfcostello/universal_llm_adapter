@@ -18,7 +18,7 @@ export class VectorLogger extends BaseAdapterLogger {
   private vectorRetentionApplied = false;
   private initialized = false;
 
-  constructor(level: LogLevel = LogLevel.INFO, correlationId?: string) {
+  constructor(level: LogLevel = LogLevel.INFO, correlationId?: string | string[]) {
     super(level, correlationId);
   }
 
@@ -31,12 +31,14 @@ export class VectorLogger extends BaseAdapterLogger {
     this.ensureInitialized();
     if (!this.vectorLogFile || disableFileLogs) return;
 
+    const correlationIdStr = this.formatCorrelationId();
     const separator = '\n' + '='.repeat(80) + '\n';
     const log = [
       separator,
       `>>> VECTOR OPERATION: ${data.operation} >>>`,
       separator,
       `Timestamp: ${createIsoTimestamp()}`,
+      correlationIdStr ? `CorrelationId: ${correlationIdStr}` : null,
       `Store: ${data.store}`,
       data.collection ? `Collection: ${data.collection}` : null,
       '',
@@ -60,12 +62,14 @@ export class VectorLogger extends BaseAdapterLogger {
     this.ensureInitialized();
     if (!this.vectorLogFile || disableFileLogs) return;
 
+    const correlationIdStr = this.formatCorrelationId();
     const separator = '\n' + '='.repeat(80) + '\n';
     const log = [
       separator,
       `<<< VECTOR RESULT: ${data.operation} <<<`,
       separator,
       `Timestamp: ${createIsoTimestamp()}`,
+      correlationIdStr ? `CorrelationId: ${correlationIdStr}` : null,
       `Store: ${data.store}`,
       data.collection ? `Collection: ${data.collection}` : null,
       data.duration !== undefined ? `Duration: ${data.duration}ms` : null,

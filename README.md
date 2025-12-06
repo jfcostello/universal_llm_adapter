@@ -885,6 +885,66 @@ npm test -- --coverage
 - Batch env vars (`LLM_ADAPTER_BATCH_ID`, `LLM_ADAPTER_BATCH_DIR`) continue to apply per logger and are enforced during the first write via retention policies.
 - Retention runs safely even before the first log file is created, so batch pruning can be triggered up front without creating placeholder files.
 
+### CorrelationId
+
+The `correlationId` field allows you to tag log entries with one or more identifiers to track requests across your system. Unlike batch IDs which control log file naming, correlation IDs appear inside individual log entries.
+
+#### Usage
+
+Pass `correlationId` via the `metadata` field in your `LLMCallSpec`:
+
+```typescript
+// Single correlationId
+const response = await coordinator.run({
+  messages: [...],
+  llmPriority: [...],
+  metadata: {
+    correlationId: 'request-123'
+  }
+});
+
+// Multiple correlationIds (e.g., request + user + session)
+const response = await coordinator.run({
+  messages: [...],
+  llmPriority: [...],
+  metadata: {
+    correlationId: ['req-123', 'user-456', 'session-789']
+  }
+});
+```
+
+#### Where CorrelationId Appears
+
+1. **Console/File Logs**: JSON output includes `correlationId` field
+   ```json
+   {"type":"log","timestamp":"...","level":"info","message":"Calling provider","correlationId":["req-123","user-456"]}
+   ```
+
+2. **Detail Logs**: LLM, Embedding, and Vector detail logs include `CorrelationId:` line
+   ```
+   >>> OUTGOING REQUEST >>>
+   Timestamp: 2025-12-06T07:30:00.000Z
+   CorrelationId: req-123, user-456
+   Provider: anthropic
+   ...
+   ```
+
+#### Direct Logger Usage
+
+You can also use correlationId directly with loggers:
+
+```typescript
+import { getLLMLogger } from './core/logging';
+
+// Create logger with correlationId
+const logger = getLLMLogger().withCorrelation('request-123');
+
+// Or with multiple IDs
+const logger = getLLMLogger().withCorrelation(['req-123', 'user-456']);
+
+logger.info('Processing request');
+```
+
 ### Live Tests
 
 Live tests make real API calls to test actual integrations. They require API keys and external services.

@@ -93,7 +93,13 @@ export enum LogLevel {
   ERROR = 'error'
 }
 
-function createAdapterFileFormat(correlationId?: string): winston.Logform.Format {
+function hasCorrelationId(correlationId?: string | string[]): boolean {
+  if (!correlationId) return false;
+  if (Array.isArray(correlationId)) return correlationId.length > 0;
+  return true;
+}
+
+function createAdapterFileFormat(correlationId?: string | string[]): winston.Logform.Format {
   return winston.format.printf((info: TransformableInfo) => {
     const { level, message, ...data } = info as TransformableInfo & {
       level: unknown;
@@ -104,7 +110,7 @@ function createAdapterFileFormat(correlationId?: string): winston.Logform.Format
     const resolvedMessage =
       typeof message === 'string' ? message : JSON.stringify(message ?? '');
     const logObj: Record<string, unknown> = { level: logLevel, message: resolvedMessage };
-    if (correlationId) logObj.correlationId = correlationId;
+    if (hasCorrelationId(correlationId)) logObj.correlationId = correlationId;
     if (Object.keys(data).length > 0) {
       Object.assign(logObj, data);
     }
@@ -141,11 +147,11 @@ function createAdapterFileTransport(options: {
 
 export class BaseAdapterLogger {
   protected logger: winston.Logger;
-  protected correlationId?: string;
+  protected correlationId?: string | string[];
   protected level: LogLevel;
 
   /* istanbul ignore next */
-  constructor(level: LogLevel = LogLevel.INFO, correlationId?: string) {
+  constructor(level: LogLevel = LogLevel.INFO, correlationId?: string | string[]) {
     this.level = level;
     this.correlationId = correlationId;
 
@@ -177,7 +183,7 @@ export class BaseAdapterLogger {
         format: winston.format.printf(({ level: lvl, message, ...data }) => {
           const timestamp = createIsoTimestamp();
           const logObj: any = { type: 'log', timestamp, level: lvl, message };
-          if (this.correlationId) logObj.correlationId = this.correlationId;
+          if (hasCorrelationId(this.correlationId)) logObj.correlationId = this.correlationId;
           if (Object.keys(data).length > 0) logObj.data = data;
           return JSON.stringify(logObj);
         })
@@ -189,9 +195,22 @@ export class BaseAdapterLogger {
     this.logger = winston.createLogger({ transports });
   }
 
-  withCorrelation(correlationId: string): this {
-    const ctor = this.constructor as new (level?: LogLevel, correlationId?: string) => this;
+  withCorrelation(correlationId: string | string[]): this {
+    const ctor = this.constructor as new (level?: LogLevel, correlationId?: string | string[]) => this;
     return new ctor(this.level, correlationId);
+  }
+
+  /**
+   * Format correlationId for human-readable display (e.g., in detail logs).
+   * Returns comma-separated string for arrays, or the string itself.
+   * Returns undefined if no correlationId is set or array is empty.
+   */
+  protected formatCorrelationId(): string | undefined {
+    if (!this.correlationId) return undefined;
+    if (Array.isArray(this.correlationId)) {
+      return this.correlationId.length > 0 ? this.correlationId.join(', ') : undefined;
+    }
+    return this.correlationId;
   }
 
   debug(message: string, data?: any): void {

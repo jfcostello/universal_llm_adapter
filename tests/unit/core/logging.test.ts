@@ -1328,4 +1328,359 @@ describe('core/logging', () => {
       expect(files.length).toBe(1);
     });
   });
+
+  // ============================================================================
+  // Array correlationId tests
+  // ============================================================================
+
+  test('supports array correlationId in file and console formatters', async () => {
+    await withTempCwd('logging-array-correlation', async () => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
+      try {
+        const { module, mocks } = await setupLoggingTestHarness({ disableFileLogs: false });
+        const { AdapterLogger, LogLevel } = module;
+
+        const logger = new AdapterLogger(LogLevel.DEBUG, ['session-abc', 'thread-123']);
+
+        const formatters = mocks.getAllPrintfFormatters();
+        expect(formatters).toHaveLength(2);
+
+        // File formatter should output array correlationId
+        const fileFormatter = formatters[0];
+        const fileFormatted = fileFormatter({
+          timestamp: '2025-10-18T10:00:00.000Z',
+          level: 'info',
+          message: 'test-message'
+        });
+
+        const fileJsonPart = fileFormatted.split(']: ')[1];
+        const fileParsed = JSON.parse(fileJsonPart);
+        expect(fileParsed.correlationId).toEqual(['session-abc', 'thread-123']);
+
+        // Console formatter should output array correlationId
+        const consoleFormatter = formatters[1];
+        const consoleFormatted = consoleFormatter({
+          timestamp: '2025-10-18T10:00:00.000Z',
+          level: 'info',
+          message: 'test-message'
+        });
+
+        const consoleParsed = JSON.parse(consoleFormatted);
+        expect(consoleParsed.correlationId).toEqual(['session-abc', 'thread-123']);
+
+        logger.info('test');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  test('withCorrelation supports array correlationId', async () => {
+    const { module, mocks } = await setupLoggingTestHarness({ disableFileLogs: true });
+    const { getLogger } = module;
+
+    const primary = getLogger();
+    const correlated = primary.withCorrelation(['session-abc', 'thread-123', 'request-456']);
+
+    expect(correlated).not.toBe(primary);
+
+    // Verify the formatter receives the array
+    const formatters = mocks.getAllPrintfFormatters();
+    const consoleFormatter = formatters[formatters.length - 1];
+    const formatted = consoleFormatter({
+      timestamp: '2025-10-18T10:00:00.000Z',
+      level: 'info',
+      message: 'test'
+    });
+
+    const parsed = JSON.parse(formatted);
+    expect(parsed.correlationId).toEqual(['session-abc', 'thread-123', 'request-456']);
+  });
+
+  test('empty array correlationId omits correlationId field', async () => {
+    await withTempCwd('logging-empty-array-correlation', async () => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
+      try {
+        const { module, mocks } = await setupLoggingTestHarness({ disableFileLogs: false });
+        const { AdapterLogger, LogLevel } = module;
+
+        const logger = new AdapterLogger(LogLevel.DEBUG, []);
+
+        const formatters = mocks.getAllPrintfFormatters();
+
+        // File formatter should NOT include correlationId for empty array
+        const fileFormatter = formatters[0];
+        const fileFormatted = fileFormatter({
+          timestamp: '2025-10-18T10:00:00.000Z',
+          level: 'info',
+          message: 'test-message'
+        });
+
+        const fileJsonPart = fileFormatted.split(']: ')[1];
+        const fileParsed = JSON.parse(fileJsonPart);
+        expect(fileParsed.correlationId).toBeUndefined();
+
+        // Console formatter should NOT include correlationId for empty array
+        const consoleFormatter = formatters[1];
+        const consoleFormatted = consoleFormatter({
+          timestamp: '2025-10-18T10:00:00.000Z',
+          level: 'info',
+          message: 'test-message'
+        });
+
+        const consoleParsed = JSON.parse(consoleFormatted);
+        expect(consoleParsed.correlationId).toBeUndefined();
+
+        logger.info('test');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  // ============================================================================
+  // CorrelationId in detail logs tests
+  // ============================================================================
+
+  test('logLLMRequest includes correlationId in detail log', async () => {
+    await withTempCwd('logging-llm-correlation', async (cwd) => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
+      try {
+        const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+        const { LLMLogger, LogLevel } = module;
+
+        const logger = new LLMLogger(LogLevel.DEBUG, 'single-corr-id');
+
+        logger.logLLMRequest({
+          url: 'https://api.example.com/v1/chat',
+          method: 'POST',
+          headers: {},
+          body: { model: 'test' }
+        });
+
+        const llmLogsDir = path.join(cwd, 'logs', 'llm');
+        const logFiles = fs.readdirSync(llmLogsDir);
+        const logContent = fs.readFileSync(path.join(llmLogsDir, logFiles[0]), 'utf-8');
+
+        expect(logContent).toContain('CorrelationId: single-corr-id');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  test('logLLMRequest includes array correlationId as comma-separated in detail log', async () => {
+    await withTempCwd('logging-llm-array-correlation', async (cwd) => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
+      try {
+        const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+        const { LLMLogger, LogLevel } = module;
+
+        const logger = new LLMLogger(LogLevel.DEBUG, ['session-abc', 'thread-123']);
+
+        logger.logLLMRequest({
+          url: 'https://api.example.com/v1/chat',
+          method: 'POST',
+          headers: {},
+          body: { model: 'test' }
+        });
+
+        const llmLogsDir = path.join(cwd, 'logs', 'llm');
+        const logFiles = fs.readdirSync(llmLogsDir);
+        const logContent = fs.readFileSync(path.join(llmLogsDir, logFiles[0]), 'utf-8');
+
+        expect(logContent).toContain('CorrelationId: session-abc, thread-123');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  test('logLLMResponse includes correlationId in detail log', async () => {
+    await withTempCwd('logging-llm-response-correlation', async (cwd) => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
+      try {
+        const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+        const { LLMLogger, LogLevel } = module;
+
+        const logger = new LLMLogger(LogLevel.DEBUG, ['session-abc', 'thread-123']);
+
+        logger.logLLMResponse({
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: { ok: true }
+        });
+
+        const llmLogsDir = path.join(cwd, 'logs', 'llm');
+        const logFiles = fs.readdirSync(llmLogsDir);
+        const logContent = fs.readFileSync(path.join(llmLogsDir, logFiles[0]), 'utf-8');
+
+        expect(logContent).toContain('CorrelationId: session-abc, thread-123');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  test('logLLMRequest omits correlationId line when not set', async () => {
+    await withTempCwd('logging-llm-no-correlation', async (cwd) => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
+      try {
+        const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+        const { LLMLogger, LogLevel } = module;
+
+        const logger = new LLMLogger(LogLevel.DEBUG);
+
+        logger.logLLMRequest({
+          url: 'https://api.example.com/v1/chat',
+          method: 'POST',
+          headers: {},
+          body: { model: 'test' }
+        });
+
+        const llmLogsDir = path.join(cwd, 'logs', 'llm');
+        const logFiles = fs.readdirSync(llmLogsDir);
+        const logContent = fs.readFileSync(path.join(llmLogsDir, logFiles[0]), 'utf-8');
+
+        expect(logContent).not.toContain('CorrelationId:');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  test('logLLMRequest omits correlationId line when empty array', async () => {
+    await withTempCwd('logging-llm-empty-array-correlation', async (cwd) => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
+      try {
+        const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+        const { LLMLogger, LogLevel } = module;
+
+        const logger = new LLMLogger(LogLevel.DEBUG, []);
+
+        logger.logLLMRequest({
+          url: 'https://api.example.com/v1/chat',
+          method: 'POST',
+          headers: {},
+          body: { model: 'test' }
+        });
+
+        const llmLogsDir = path.join(cwd, 'logs', 'llm');
+        const logFiles = fs.readdirSync(llmLogsDir);
+        const logContent = fs.readFileSync(path.join(llmLogsDir, logFiles[0]), 'utf-8');
+
+        expect(logContent).not.toContain('CorrelationId:');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  test('logEmbeddingRequest includes correlationId in detail log', async () => {
+    await withTempCwd('logging-embedding-correlation', async (cwd) => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
+      try {
+        const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+        const { EmbeddingLogger, LogLevel } = module;
+
+        const logger = new EmbeddingLogger(LogLevel.DEBUG, ['embed-session', 'embed-thread']);
+
+        logger.logEmbeddingRequest({
+          url: 'https://api.example.com/v1/embeddings',
+          method: 'POST',
+          headers: {},
+          body: { input: ['test'] }
+        });
+
+        const embeddingLogsDir = path.join(cwd, 'logs', 'embedding');
+        const logFiles = fs.readdirSync(embeddingLogsDir);
+        const logContent = fs.readFileSync(path.join(embeddingLogsDir, logFiles[0]), 'utf-8');
+
+        expect(logContent).toContain('CorrelationId: embed-session, embed-thread');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  test('logEmbeddingResponse includes correlationId in detail log', async () => {
+    await withTempCwd('logging-embedding-response-correlation', async (cwd) => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
+      try {
+        const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+        const { EmbeddingLogger, LogLevel } = module;
+
+        const logger = new EmbeddingLogger(LogLevel.DEBUG, 'single-embed-corr');
+
+        logger.logEmbeddingResponse({
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: { data: [] }
+        });
+
+        const embeddingLogsDir = path.join(cwd, 'logs', 'embedding');
+        const logFiles = fs.readdirSync(embeddingLogsDir);
+        const logContent = fs.readFileSync(path.join(embeddingLogsDir, logFiles[0]), 'utf-8');
+
+        expect(logContent).toContain('CorrelationId: single-embed-corr');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  test('logVectorRequest includes correlationId in detail log', async () => {
+    await withTempCwd('logging-vector-correlation', async (cwd) => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
+      try {
+        const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+        const { VectorLogger, LogLevel } = module;
+
+        const logger = new VectorLogger(LogLevel.DEBUG, ['vec-session', 'vec-thread']);
+
+        logger.logVectorRequest({
+          operation: 'query',
+          store: 'test-store',
+          collection: 'docs',
+          params: { topK: 5 }
+        });
+
+        const vectorLogsDir = path.join(cwd, 'logs', 'vector');
+        const logFiles = fs.readdirSync(vectorLogsDir);
+        const logContent = fs.readFileSync(path.join(vectorLogsDir, logFiles[0]), 'utf-8');
+
+        expect(logContent).toContain('CorrelationId: vec-session, vec-thread');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  test('logVectorResponse includes correlationId in detail log', async () => {
+    await withTempCwd('logging-vector-response-correlation', async (cwd) => {
+      jest.useFakeTimers().setSystemTime(new Date('2025-10-18T10:00:00.000Z'));
+      try {
+        const { module } = await setupLoggingTestHarness({ disableFileLogs: false });
+        const { VectorLogger, LogLevel } = module;
+
+        const logger = new VectorLogger(LogLevel.DEBUG, 'single-vec-corr');
+
+        logger.logVectorResponse({
+          operation: 'query',
+          store: 'test-store',
+          result: { count: 3 }
+        });
+
+        const vectorLogsDir = path.join(cwd, 'logs', 'vector');
+        const logFiles = fs.readdirSync(vectorLogsDir);
+        const logContent = fs.readFileSync(path.join(vectorLogsDir, logFiles[0]), 'utf-8');
+
+        expect(logContent).toContain('CorrelationId: single-vec-corr');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
 });
