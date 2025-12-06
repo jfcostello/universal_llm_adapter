@@ -860,6 +860,87 @@ interface EmbeddingResult {
 }
 ```
 
+## OpenRouter Usage Accounting
+
+OpenRouter provides detailed usage accounting including token counts, costs, and cache statistics. This is enabled by default for all OpenRouter requests.
+
+### Automatic Usage Tracking
+
+When using OpenRouter, the adapter automatically includes `usage: { include: true }` in all requests. This returns extended usage information in responses:
+
+```typescript
+const response = await coordinator.run({
+  messages: [...],
+  llmPriority: [
+    { provider: 'openrouter', model: 'openai/gpt-4o' }
+  ]
+});
+
+// response.usage contains extended fields:
+console.log(response.usage);
+// {
+//   promptTokens: 100,
+//   completionTokens: 50,
+//   totalTokens: 150,
+//   reasoningTokens: 25,        // If using reasoning models
+//   cost: 0.00125,              // Cost in credits
+//   cachedTokens: 75,           // Tokens read from cache
+//   audioTokens: 10             // Audio tokens (if applicable)
+// }
+```
+
+### Extended Usage Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `promptTokens` | number | Tokens in the input/prompt |
+| `completionTokens` | number | Tokens in the response |
+| `totalTokens` | number | Combined token count |
+| `reasoningTokens` | number | Tokens used for reasoning (supported models) |
+| `cost` | number | Total cost in credits |
+| `cachedTokens` | number | Tokens read from prompt cache |
+| `audioTokens` | number | Audio tokens (if using audio features) |
+
+### Disabling Usage Accounting
+
+If you need to disable usage accounting (e.g., to reduce latency), you can override the default:
+
+```typescript
+const response = await coordinator.run({
+  messages: [...],
+  llmPriority: [
+    { provider: 'openrouter', model: 'openai/gpt-4o' }
+  ],
+  extra: {
+    usage: { include: false }
+  }
+});
+```
+
+### Logging
+
+Extended usage stats are included in both console and file logs:
+
+```json
+{
+  "type": "log",
+  "level": "info",
+  "message": "Provider response processed",
+  "data": {
+    "provider": "openrouter",
+    "model": "openai/gpt-4o",
+    "usage": {
+      "promptTokens": 100,
+      "completionTokens": 50,
+      "reasoningTokens": null,
+      "cost": 0.00125,
+      "cachedTokens": 75,
+      "audioTokens": null
+    }
+  }
+}
+```
+
 ## Configuration
 
 ### Centralized Defaults

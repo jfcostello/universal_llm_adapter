@@ -334,6 +334,12 @@ export interface UsageStats {
   completionTokens?: number;
   totalTokens?: number;
   reasoningTokens?: number;
+  /** Cost in credits (OpenRouter usage accounting) */
+  cost?: number;
+  /** Tokens read from cache (OpenRouter/OpenAI prompt caching) */
+  cachedTokens?: number;
+  /** Audio tokens (OpenRouter/OpenAI) */
+  audioTokens?: number;
 }
 
 export interface LLMResponse {

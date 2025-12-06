@@ -187,7 +187,10 @@ export class LLMCoordinator {
             usage: response.usage ? {
               promptTokens: response.usage.promptTokens,
               completionTokens: response.usage.completionTokens,
-              reasoningTokens: response.usage.reasoningTokens
+              reasoningTokens: response.usage.reasoningTokens,
+              cost: response.usage.cost,
+              cachedTokens: response.usage.cachedTokens,
+              audioTokens: response.usage.audioTokens
             } : undefined
           });
 

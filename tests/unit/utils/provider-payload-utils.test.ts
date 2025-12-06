@@ -262,4 +262,49 @@ describe('utils/provider-payload-utils', () => {
     expect(result).toEqual(payload);
     expect(remaining).toEqual({});
   });
+
+  test('applies usage.include default for OpenRouter-style extensions', () => {
+    const provider = {
+      id: 'openrouter',
+      payloadExtensions: [
+        {
+          name: 'usageAccounting',
+          description: 'Enable usage accounting in responses',
+          settingsKey: 'usage',
+          targetPath: ['usage'],
+          valueType: 'object',
+          default: { include: true }
+        }
+      ]
+    };
+
+    const payload = { model: 'gpt-4', messages: [] };
+    const [result] = applyProviderPayloadExtensions(provider as any, payload, {});
+
+    expect(result.usage).toEqual({ include: true });
+    expect(result.model).toBe('gpt-4');
+    expect(result.messages).toEqual([]);
+  });
+
+  test('allows overriding usage default', () => {
+    const provider = {
+      id: 'openrouter',
+      payloadExtensions: [
+        {
+          name: 'usageAccounting',
+          settingsKey: 'usage',
+          targetPath: ['usage'],
+          valueType: 'object',
+          default: { include: true }
+        }
+      ]
+    };
+
+    const payload = { model: 'gpt-4' };
+    const [result] = applyProviderPayloadExtensions(provider as any, payload, {
+      usage: { include: false }
+    });
+
+    expect(result.usage).toEqual({ include: false });
+  });
 });

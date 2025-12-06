@@ -325,7 +325,10 @@ export default class OpenAICompat implements ICompatModule {
       promptTokens: usage.prompt_tokens,
       completionTokens: usage.completion_tokens,
       totalTokens: usage.total_tokens,
-      reasoningTokens: usage.completion_tokens_details?.reasoning_tokens
+      reasoningTokens: usage.completion_tokens_details?.reasoning_tokens,
+      cost: usage.cost,
+      cachedTokens: usage.prompt_tokens_details?.cached_tokens,
+      audioTokens: usage.prompt_tokens_details?.audio_tokens
     };
   }
 
@@ -493,7 +496,10 @@ export default class OpenAICompat implements ICompatModule {
       promptTokens: raw.prompt_tokens ?? raw.promptTokens,
       completionTokens: raw.completion_tokens ?? raw.completionTokens,
       totalTokens: raw.total_tokens ?? raw.totalTokens,
-      reasoningTokens: raw.completion_tokens_details?.reasoning_tokens ?? raw.reasoning_tokens
+      reasoningTokens: raw.completion_tokens_details?.reasoning_tokens ?? raw.reasoning_tokens,
+      cost: raw.cost,
+      cachedTokens: raw.prompt_tokens_details?.cached_tokens ?? raw.cachedTokens,
+      audioTokens: raw.prompt_tokens_details?.audio_tokens ?? raw.audioTokens
     };
   }
 

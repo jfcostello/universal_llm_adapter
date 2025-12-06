@@ -988,4 +988,145 @@ describe('compat/openai', () => {
       metadata: { provider: 'openai' }
     });
   });
+
+  // Extended usage stats tests for OpenRouter caching support
+  describe('extended usage stats (OpenRouter caching)', () => {
+    test('parseResponse extracts cost from usage', () => {
+      const raw = {
+        choices: [
+          {
+            message: { content: 'response' },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 50,
+          total_tokens: 150,
+          cost: 0.00125
+        }
+      };
+
+      const parsed = compat.parseResponse(raw, 'gpt-4o');
+      expect(parsed.usage?.cost).toBe(0.00125);
+    });
+
+    test('parseResponse extracts cached_tokens from prompt_tokens_details', () => {
+      const raw = {
+        choices: [
+          {
+            message: { content: 'response' },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 50,
+          total_tokens: 150,
+          prompt_tokens_details: {
+            cached_tokens: 75,
+            audio_tokens: 10
+          }
+        }
+      };
+
+      const parsed = compat.parseResponse(raw, 'gpt-4o');
+      expect(parsed.usage?.cachedTokens).toBe(75);
+      expect(parsed.usage?.audioTokens).toBe(10);
+    });
+
+    test('parseResponse handles all extended usage fields together', () => {
+      const raw = {
+        choices: [
+          {
+            message: { content: 'response' },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 50,
+          total_tokens: 150,
+          cost: 0.00125,
+          prompt_tokens_details: {
+            cached_tokens: 75,
+            audio_tokens: 10
+          },
+          completion_tokens_details: {
+            reasoning_tokens: 25
+          }
+        }
+      };
+
+      const parsed = compat.parseResponse(raw, 'gpt-4o');
+      expect(parsed.usage).toEqual({
+        promptTokens: 100,
+        completionTokens: 50,
+        totalTokens: 150,
+        reasoningTokens: 25,
+        cost: 0.00125,
+        cachedTokens: 75,
+        audioTokens: 10
+      });
+    });
+
+    test('parseResponse handles missing extended usage fields gracefully', () => {
+      const raw = {
+        choices: [
+          {
+            message: { content: 'response' },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 50,
+          total_tokens: 150
+        }
+      };
+
+      const parsed = compat.parseResponse(raw, 'gpt-4o');
+      expect(parsed.usage?.cost).toBeUndefined();
+      expect(parsed.usage?.cachedTokens).toBeUndefined();
+      expect(parsed.usage?.audioTokens).toBeUndefined();
+    });
+
+    test('normalizeUsageStats handles extended fields in streaming', () => {
+      const stats = (compat as any).normalizeUsageStats({
+        prompt_tokens: 100,
+        completion_tokens: 50,
+        total_tokens: 150,
+        cost: 0.001,
+        prompt_tokens_details: {
+          cached_tokens: 25,
+          audio_tokens: 5
+        }
+      });
+
+      expect(stats).toEqual({
+        promptTokens: 100,
+        completionTokens: 50,
+        totalTokens: 150,
+        reasoningTokens: undefined,
+        cost: 0.001,
+        cachedTokens: 25,
+        audioTokens: 5
+      });
+    });
+
+    test('normalizeUsageStats handles camelCase fallbacks for extended fields', () => {
+      const stats = (compat as any).normalizeUsageStats({
+        promptTokens: 100,
+        completionTokens: 50,
+        totalTokens: 150,
+        cost: 0.002,
+        cachedTokens: 30,
+        audioTokens: 8
+      });
+
+      expect(stats.cost).toBe(0.002);
+      expect(stats.cachedTokens).toBe(30);
+      expect(stats.audioTokens).toBe(8);
+    });
+  });
 });

@@ -21,6 +21,14 @@
   ],
   "payloadExtensions": [
     {
+      "name": "usageAccounting",
+      "description": "Enable usage accounting to get token counts, cost, and cache stats in responses",
+      "settingsKey": "usage",
+      "targetPath": ["usage"],
+      "valueType": "object",
+      "default": { "include": true }
+    },
+    {
       "name": "providerPreferences",
       "description": "OpenRouter provider routing controls",
       "settingsKey": "provider",

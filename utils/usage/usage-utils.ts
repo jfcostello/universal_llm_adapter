@@ -1,12 +1,13 @@
-import { UsageStats } from '../../core/types.js';
+import { UsageStats, JsonObject } from '../../core/types.js';
 
-export function usageStatsToJson(
-  usage: UsageStats
-): { promptTokens: number | null; completionTokens: number | null; totalTokens: number | null; reasoningTokens: number | null } {
+export function usageStatsToJson(usage: UsageStats): JsonObject {
   return {
     promptTokens: usage.promptTokens ?? null,
     completionTokens: usage.completionTokens ?? null,
     totalTokens: usage.totalTokens ?? null,
-    reasoningTokens: usage.reasoningTokens ?? null
+    reasoningTokens: usage.reasoningTokens ?? null,
+    cost: usage.cost ?? null,
+    cachedTokens: usage.cachedTokens ?? null,
+    audioTokens: usage.audioTokens ?? null
   };
 }
