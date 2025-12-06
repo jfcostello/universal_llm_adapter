@@ -93,6 +93,25 @@ export function findLatestRandomValue(bodies: any[]): string | null {
   return null;
 }
 
+export function collectRandomValues(bodies: any[]): string[] {
+  const values: string[] = [];
+  for (const body of bodies) {
+    const msgs = body?.messages || [];
+    for (const m of msgs) {
+      if (m.role !== 'tool' || !Array.isArray(m.content)) continue;
+      for (const part of m.content) {
+        if (part?.type === 'tool_result' && part?.toolName === 'test.random') {
+          const val = part?.result?.randomValue;
+          if (typeof val === 'number' || typeof val === 'string') {
+            values.push(String(val));
+          }
+        }
+      }
+    }
+  }
+  return values;
+}
+
 export function parseStream(stdout: string): any[] {
   const events: any[] = [];
   for (const line of stdout.split('\n')) {

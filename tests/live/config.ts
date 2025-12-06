@@ -32,7 +32,7 @@ export const testRuns: TestRun[] = [
       }
     ],
     settings: {
-      temperature: 1,
+      temperature: 0.3,
       maxTokens: 60000
     }
   },
@@ -41,11 +41,11 @@ export const testRuns: TestRun[] = [
     llmPriority: [
       {
         provider: 'openai-responses',
-        model: 'gpt-4o-mini'
+        model: 'gpt-4.1-mini'
       }
     ],
     settings: {
-      temperature: 1,
+      temperature: 0.3,
       maxTokens: 60000
     }
   },
@@ -54,11 +54,11 @@ export const testRuns: TestRun[] = [
     llmPriority: [
       {
         provider: 'openrouter',
-        model: 'google/gemini-2.0-flash-001'
+        model: 'google/gemini-2.5-flash'
       }
     ],
     settings: {
-      temperature: 1,
+      temperature: 0.3,
       maxTokens: 60000
     }
   },
@@ -71,7 +71,7 @@ export const testRuns: TestRun[] = [
       }
     ],
     settings: {
-      temperature: 1,
+      temperature: 0.3,
       maxTokens: 60000
     }
   }

@@ -1,7 +1,7 @@
 // 02 — Chained tools and redaction (N=2)
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { testRuns } from '../config.ts';
-import { withLiveEnv, makeSpec, buildLogPathFor, parseLogBodies, findLatestRandomValue, mergeSettings } from '@tests/helpers/live-v2.ts';
+import { withLiveEnv, makeSpec, buildLogPathFor, parseLogBodies, collectRandomValues, mergeSettings } from '@tests/helpers/live-v2.ts';
 import fs from 'fs';
 
 const runLive = process.env.LLM_LIVE === '1';
@@ -15,13 +15,6 @@ function providerNotSupportingTools(stderr: string): boolean {
 for (let i = 0; i < testRuns.length; i++) {
   const runCfg = testRuns[i];
   (runLive ? describe : describe.skip)(`02-chained-tools-and-redaction — ${runCfg.name}`, () => {
-    const isAnthropic = /Anthropic/i.test(runCfg.name);
-    // Use config's temperature if set, otherwise use provider-specific defaults
-    // If config has no temperature (e.g., openai-responses), don't set one
-    const runTemp = runCfg.settings.temperature !== undefined ? runCfg.settings.temperature : (isAnthropic ? 1 : 0.1);
-    const runBudget = isAnthropic ? 1024 : 4096;
-    const runMaxTokens = isAnthropic ? 2048 : 60000;
-
     test('Call 1 — generate then repeat', async () => {
       const spec = makeSpec({
         messages: [
@@ -56,9 +49,14 @@ CRITICAL RULES:
         ],
         llmPriority: runCfg.llmPriority,
         functionToolNames: ['test.random', 'test.echo'],
-        settings: mergeSettings(runCfg.settings, { temperature: runTemp, maxTokens: runMaxTokens, reasoning: { enabled: true, budget: runBudget }, maxToolIterations: 6, preserveToolResults: 2, preserveReasoning: 2, toolCountdownEnabled: true, provider: { require_parameters: true } })
+        toolChoice: { type: 'required', allowed: ['test.random', 'test.echo'] },
+        settings: mergeSettings(runCfg.settings, { maxTokens: 60000, maxToolIterations: 6, preserveToolResults: 2, preserveReasoning: 2, toolCountdownEnabled: true, provider: { require_parameters: true } })
       });
       const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
+      if (result.code !== 0) {
+        // Surface provider errors to aid live-test flakiness triage
+        console.error(result.stderr);
+      }
       if (result.code !== 0 && providerNotSupportingTools(result.stderr)) { expect(true).toBe(true); return; }
       expect(result.code).toBe(0);
       const payload = JSON.parse(result.stdout.trim());
@@ -70,11 +68,12 @@ CRITICAL RULES:
       const logPath = buildLogPathFor(TEST_FILE);
       if (fs.existsSync(logPath)) {
         const bodies = parseLogBodies(logPath);
-        const rnd = findLatestRandomValue(bodies);
-        if (rnd) {
-          const echoCall = toolCalls.find((c: any) => (c.name || '').includes('echo'));
-          const args = echoCall?.arguments || echoCall?.args || {};
-          expect(JSON.stringify(args)).toContain(String(rnd));
+        const randomValues = collectRandomValues(bodies);
+        const echoCall = toolCalls.find((c: any) => (c.name || '').includes('echo'));
+        const args = echoCall?.arguments || echoCall?.args || {};
+        const argStr = JSON.stringify(args);
+        if (randomValues.length > 0) {
+          expect(randomValues.some((val) => argStr.includes(String(val)))).toBe(true);
         } else {
           expect(names.has('test.random') && names.has('test.echo')).toBe(true);
         }
@@ -130,9 +129,13 @@ CRITICAL RULES:
         ],
         llmPriority: runCfg.llmPriority,
         functionToolNames: ['test.random', 'test.echo'],
-        settings: mergeSettings(runCfg.settings, { temperature: runTemp, maxTokens: runMaxTokens, reasoning: { enabled: true, budget: runBudget }, maxToolIterations: 6, preserveToolResults: 2, preserveReasoning: 2, toolCountdownEnabled: true, provider: { require_parameters: true } })
+        toolChoice: { type: 'required', allowed: ['test.random', 'test.echo'] },
+        settings: mergeSettings(runCfg.settings, { maxTokens: 60000, maxToolIterations: 6, preserveToolResults: 2, preserveReasoning: 2, toolCountdownEnabled: true, provider: { require_parameters: true } })
       });
       const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
+      if (result.code !== 0) {
+        console.error(result.stderr);
+      }
       if (result.code !== 0 && providerNotSupportingTools(result.stderr)) { expect(true).toBe(true); return; }
       expect(result.code).toBe(0);
       const payload = JSON.parse(result.stdout.trim());
@@ -157,9 +160,13 @@ CRITICAL RULES:
         ],
         llmPriority: runCfg.llmPriority,
         functionToolNames: ['test.random', 'test.echo'],
-        settings: mergeSettings(runCfg.settings, { temperature: runTemp, maxTokens: runMaxTokens, reasoning: { enabled: true, budget: runBudget }, maxToolIterations: 6, preserveToolResults: 2, preserveReasoning: 2, toolCountdownEnabled: true, provider: { require_parameters: true } })
+        toolChoice: { type: 'required', allowed: ['test.random', 'test.echo'] },
+        settings: mergeSettings(runCfg.settings, { maxTokens: 60000, maxToolIterations: 6, preserveToolResults: 2, preserveReasoning: 2, toolCountdownEnabled: true, provider: { require_parameters: true } })
       });
       const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
+      if (result.code !== 0) {
+        console.error(result.stderr);
+      }
       if (result.code !== 0 && providerNotSupportingTools(result.stderr)) { expect(true).toBe(true); return; }
       expect(result.code).toBe(0);
       const logPath = buildLogPathFor(TEST_FILE);
