@@ -11,6 +11,11 @@ Ad-hoc CLI runner for the LLM coordinator. It sends a multi-turn conversation de
 npm run sandbox:cli -- --scenario tests/sandbox/scenarios/example.yml
 ```
 
+Quick interactive-only start (no preset turns):
+```
+npm run sandbox:cli -- --scenario tests/sandbox/scenarios/interactive-empty.yml
+```
+
 Flags:
 - `--scenario <path>`: required YAML file.
 - `--dry-run`: validate and print scenario metadata without calling the coordinator.

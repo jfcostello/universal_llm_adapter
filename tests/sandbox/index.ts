@@ -18,11 +18,13 @@ async function main(): Promise<void> {
   const program = new Command();
   program
     .requiredOption('-s, --scenario <path>', 'Path to sandbox scenario YAML')
-    .option('--dry-run', 'Load and validate scenario only, do not call CLI', false);
+    .option('--dry-run', 'Load and validate scenario only, do not call CLI', false)
+    .option('--interactive', 'After scripted turns, continue in interactive chat until exit', false);
 
-  const { scenario, dryRun } = program.parse(process.argv).opts();
+  const { scenario, dryRun, interactive } = program.parse(process.argv).opts();
 
   const loaded = loadScenario(scenario);
+  loaded.run.interactive = interactive;
 
   if (dryRun) {
     console.log(JSON.stringify({ type: 'scenario.valid', name: loaded.run.name ?? path.basename(scenario) }, null, 2));
@@ -97,6 +99,18 @@ async function runScenario(scenario: SandboxScenario, scenarioPath: string): Pro
     conversation.push(turnResult.assistant);
   }
 
+  if (scenario.run.interactive) {
+    await runInteractiveLoop({
+      conversation,
+      baseSpec: scenario.baseSpec,
+      mode: turnMode,
+      pluginsPath,
+      env,
+      transcript,
+      runDir
+    });
+  }
+
   fs.writeFileSync(transcriptPath, transcript.join('\n'), 'utf-8');
   console.log(`Transcript saved to ${path.relative(ROOT_DIR, transcriptPath)}`);
 
@@ -124,6 +138,7 @@ function invokeCli(
     mode: 'run' | 'stream';
     pluginsPath: string;
     env: NodeJS.ProcessEnv;
+    transcript?: string[];
   }
 ): Promise<{ assistant: Message; raw?: LLMResponse }> {
   return new Promise((resolve, reject) => {
@@ -199,9 +214,11 @@ function invokeCli(
           if (typeof parsed.content === 'string') {
             streamingText += parsed.content;
             process.stdout.write(parsed.content);
+            options.transcript?.push(`Assistant(stream): ${parsed.content}`);
           } else if (typeof parsed.text === 'string') {
             streamingText += parsed.text;
             process.stdout.write(parsed.text);
+            options.transcript?.push(`Assistant(stream): ${parsed.text}`);
           }
           return;
         }
@@ -267,6 +284,66 @@ function assistantLabel(turn: number): string {
 function printDivider(turn: number, who: 'user' | 'assistant'): void {
   const label = who === 'user' ? `User -> Turn ${turn}` : `Assistant -> Turn ${turn}`;
   console.log(label);
+}
+
+async function runInteractiveLoop(options: {
+  conversation: Message[];
+  baseSpec: Omit<LLMCallSpec, 'messages'>;
+  mode: 'run' | 'stream';
+  pluginsPath: string;
+  env: NodeJS.ProcessEnv;
+  transcript: string[];
+  runDir: string;
+}): Promise<void> {
+  const rl = await import('readline');
+  const readline = rl.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  const prompt = () => new Promise<string>(resolve => readline.question('You: ', resolve));
+
+  console.log('--- Interactive mode: type your message, or Ctrl+C to exit ---');
+
+  let turn = options.conversation.filter(m => m.role === 'user').length + 1;
+
+  while (true) {
+    const userInput = await prompt();
+    if (userInput.trim().toLowerCase() === 'exit') {
+      break;
+    }
+
+    const userMessage: Message = {
+      role: 'user',
+      content: [{ type: 'text', text: userInput }]
+    };
+
+    options.conversation.push(userMessage);
+    options.transcript.push(headerLine(turn));
+    options.transcript.push(`User: ${userInput}`);
+    printDivider(turn, 'user');
+
+    const callSpec = buildCallSpec(options.baseSpec, options.conversation);
+    const turnResult = await invokeCli(callSpec, {
+      mode: options.mode,
+      pluginsPath: options.pluginsPath,
+      env: options.env,
+      transcript: options.transcript
+    });
+
+    const assistantText = contentToPlain(turnResult.assistant.content);
+    options.transcript.push(`Assistant: ${assistantText}`);
+    options.transcript.push('');
+
+    console.log(assistantLabel(turn));
+    console.log(assistantText || '[no text content]');
+    console.log('');
+
+    options.conversation.push(turnResult.assistant);
+    turn += 1;
+  }
+
+  readline.close();
 }
 
 async function copyLogs(destinationRoot: string): Promise<void> {

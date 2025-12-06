@@ -43,6 +43,7 @@ export interface SandboxRunConfig {
   batchId?: string;
   copyLogs?: boolean;
   transcriptPath?: string;
+  interactive?: boolean;
 }
 
 export interface SandboxScenario {
@@ -117,10 +118,6 @@ export function loadScenario(filePath: string): SandboxScenario {
   const turns = (parsed.turns ?? []).map((msg, idx) =>
     normalizeMessage(msg, `turns[${idx}]`, 'user')
   );
-
-  if (turns.length === 0) {
-    throw new Error('At least one turn is required under turns[]');
-  }
 
   return {
     run,
