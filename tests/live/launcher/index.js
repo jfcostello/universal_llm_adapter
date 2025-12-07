@@ -69,7 +69,13 @@ export function buildJestArgs({ maxWorkers, passthrough }) {
     args.push('--testPathPattern=live');
   }
 
-  args.push(`--maxWorkers=${maxWorkers}`, '--forceExit', '--coverage=false');
+  // Increase per-test timeout for live suites (default jest config is 120s)
+  args.push(
+    `--maxWorkers=${maxWorkers}`,
+    '--forceExit',
+    '--coverage=false',
+    '--testTimeout=300000'
+  );
 
   if (Array.isArray(passthrough) && passthrough.length) {
     args.push(...passthrough);

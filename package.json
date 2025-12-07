@@ -9,7 +9,7 @@
     "build": "tsc",
     "dev": "tsx watch llm_coordinator.ts",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand --forceExit",
-    "test:all": "LLM_LIVE=1 node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand --forceExit",
+    "test:all": "npm test && LLM_LIVE=1 tsx tests/live/run-live.ts",
     "test:live": "tsx tests/live/run-live.ts",
     "test:live:anthropic": "tsx tests/live/run-live.ts anthropic",
     "test:live:openai": "tsx tests/live/run-live.ts openai-responses",
