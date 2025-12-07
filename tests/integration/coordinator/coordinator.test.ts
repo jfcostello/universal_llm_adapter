@@ -451,4 +451,51 @@ describe('coordinator/coordinator integration', () => {
       await coordinator.close();
     });
   });
+
+  describe('vector context with schema overrides', () => {
+    test('passes alias map to tool coordinator when toolSchemaOverrides are configured', async () => {
+      const coordinator = await createCoordinator();
+      const mockResponse: LLMResponse = {
+        provider: 'test-openai',
+        model: 'stub-model',
+        role: Role.ASSISTANT,
+        finishReason: 'stop',
+        content: [{ type: 'text', text: 'response with vector tool' }]
+      };
+
+      jest
+        .spyOn(LLMManager.prototype, 'callProvider')
+        .mockResolvedValue(mockResponse);
+
+      const spec = {
+        messages: [
+          { role: Role.USER, content: [{ type: 'text', text: 'search for something' }] }
+        ],
+        llmPriority: [
+          {
+            provider: 'test-openai',
+            model: 'stub-model'
+          }
+        ],
+        settings: { temperature: 0 },
+        vectorContext: {
+          mode: 'tool' as const,
+          stores: ['test-store'],
+          embeddingPriority: [{ provider: 'openrouter', model: 'test-embed' }],
+          toolSchemaOverrides: {
+            params: {
+              topK: { name: 'maximum_results' }
+            }
+          }
+        }
+      };
+
+      const result = await coordinator.run(spec as any);
+
+      expect(result.finishReason).toBe('stop');
+      expect(result.content[0].text).toBe('response with vector tool');
+
+      await coordinator.close();
+    });
+  });
 });

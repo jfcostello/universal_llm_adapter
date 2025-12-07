@@ -425,7 +425,7 @@ describe('integration/vector/auto-inject', () => {
         toolDescription: 'Search documentation'
       };
 
-      const tool = createVectorSearchTool(config);
+      const { tool } = createVectorSearchTool(config);
 
       expect(tool.name).toBe('search_docs');
       expect(tool.description).toBe('Search documentation');
@@ -444,7 +444,7 @@ describe('integration/vector/auto-inject', () => {
         mode: 'tool'
       };
 
-      const tool = createVectorSearchTool(config);
+      const { tool } = createVectorSearchTool(config);
 
       expect(tool.name).toBe('vector_search');
       expect(tool.description).toContain('my-store');

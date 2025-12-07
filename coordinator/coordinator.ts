@@ -133,7 +133,12 @@ export class LLMCoordinator {
       await this.ensureToolCoordinator(executionSpec);
     }
 
-    const [tools, mcpServers, toolNameMap] = await this.collectTools(executionSpec);
+    const [tools, mcpServers, toolNameMap, vectorSearchAliasMap] = await this.collectTools(executionSpec);
+
+    // Update vector context with alias map after collectTools generates it
+    if (needsTools && vectorSearchAliasMap) {
+      this.toolCoordinator.setVectorContext(executionSpec.vectorContext, this.registry, vectorSearchAliasMap);
+    }
 
     // Sanitize toolChoice to match sanitized tool names
     executionSpec.toolChoice = sanitizeToolChoice(executionSpec.toolChoice);
@@ -285,7 +290,12 @@ export class LLMCoordinator {
       await this.ensureToolCoordinator(executionSpec);
     }
 
-    const [tools, mcpServers, toolNameMap] = await this.collectTools(executionSpec);
+    const [tools, mcpServers, toolNameMap, vectorSearchAliasMap] = await this.collectTools(executionSpec);
+
+    // Update vector context with alias map after collectTools generates it
+    if (needsTools && vectorSearchAliasMap) {
+      this.toolCoordinator.setVectorContext(executionSpec.vectorContext, this.registry, vectorSearchAliasMap);
+    }
 
     // Sanitize toolChoice to match sanitized tool names
     streamExecutionSpec.toolChoice = sanitizeToolChoice(streamExecutionSpec.toolChoice);
@@ -567,14 +577,14 @@ export class LLMCoordinator {
     }));
   }
 
-  private async collectTools(spec: LLMCallSpec): Promise<[UnifiedTool[], string[], Record<string, string>]> {
+  private async collectTools(spec: LLMCallSpec): Promise<[UnifiedTool[], string[], Record<string, string>, Record<string, string> | undefined]> {
     const result = await collectTools({
       spec,
       registry: this.registry,
       mcpManager: this.mcpManager,
       vectorManager: this.vectorManager
     });
-    return [result.tools, result.mcpServers, result.toolNameMap];
+    return [result.tools, result.mcpServers, result.toolNameMap, result.vectorSearchAliasMap];
   }
 
   private sanitizeToolName(name: string): string {

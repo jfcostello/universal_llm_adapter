@@ -208,6 +208,54 @@ export interface VectorSearchLocks {
 }
 
 /**
+ * Override configuration for a single tool parameter in the schema.
+ * Allows customizing name, description, and visibility of parameters.
+ */
+export interface ToolSchemaParamOverride {
+  /**
+   * Exposed name (what LLM sees in the schema).
+   * If omitted, uses the canonical parameter name.
+   */
+  name?: string;
+  /**
+   * Override the parameter description.
+   * If omitted, uses the default description.
+   */
+  description?: string;
+  /**
+   * Whether to expose this parameter in the schema.
+   * Defaults vary by parameter:
+   * - query, topK, store, filter: true (exposed by default)
+   * - collection, scoreThreshold: false (hidden by default)
+   * Note: Locked parameters are always hidden regardless of this setting.
+   */
+  expose?: boolean;
+}
+
+/**
+ * Schema overrides for the vector_search tool.
+ * Allows customizing parameter names, descriptions, and exposure.
+ * This enables domain-specific or user-friendly parameter labels
+ * while preserving the adapter's internal semantics.
+ */
+export interface ToolSchemaOverrides {
+  /** Override the tool description */
+  toolDescription?: string;
+  /**
+   * Per-parameter overrides, keyed by canonical parameter name.
+   * Supported parameters: query, topK, store, filter, collection, scoreThreshold
+   */
+  params?: {
+    query?: ToolSchemaParamOverride;
+    topK?: ToolSchemaParamOverride;
+    store?: ToolSchemaParamOverride;
+    filter?: ToolSchemaParamOverride;
+    collection?: ToolSchemaParamOverride;
+    scoreThreshold?: ToolSchemaParamOverride;
+  };
+}
+
+/**
  * Configuration for vector-based context retrieval and injection.
  * Used in LLMCallSpec to enable RAG capabilities.
  */
@@ -298,6 +346,13 @@ export interface VectorContextConfig {
    * Default: "Search for relevant information in the knowledge base"
    */
   toolDescription?: string;
+
+  /**
+   * Schema overrides for customizing parameter names, descriptions, and exposure.
+   * Use this to create domain-specific or user-friendly parameter labels.
+   * Example: Rename 'topK' to 'max_results' or expose 'collection' as 'category'.
+   */
+  toolSchemaOverrides?: ToolSchemaOverrides;
 
   // ========================================
   // Parameter locking configuration

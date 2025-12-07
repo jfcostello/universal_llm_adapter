@@ -766,6 +766,102 @@ const response = await coordinator.run({
 });
 ```
 
+#### Tool Schema Overrides (Tool Mode)
+
+When using `tool` or `both` mode, you can customize how parameters are exposed to the LLM using `toolSchemaOverrides`. This allows you to:
+
+- **Rename parameters** for domain-specific or user-friendly labels
+- **Override descriptions** to provide clearer guidance
+- **Expose normally-hidden parameters** like `collection` and `scoreThreshold`
+- **Hide normally-exposed parameters** without locking them
+
+```typescript
+interface ToolSchemaParamOverride {
+  name?: string;        // Exposed name (LLM sees this)
+  description?: string; // Custom description
+  expose?: boolean;     // Whether to show in schema
+}
+
+interface ToolSchemaOverrides {
+  toolDescription?: string;  // Override tool description
+  params?: {
+    query?: ToolSchemaParamOverride;
+    topK?: ToolSchemaParamOverride;
+    store?: ToolSchemaParamOverride;
+    filter?: ToolSchemaParamOverride;
+    collection?: ToolSchemaParamOverride;     // Hidden by default
+    scoreThreshold?: ToolSchemaParamOverride; // Hidden by default
+  };
+}
+```
+
+**Example: Domain-Specific Parameter Names**
+
+```typescript
+const response = await coordinator.run({
+  messages: [...],
+  vectorContext: {
+    stores: ['product-docs'],
+    mode: 'tool',
+    toolSchemaOverrides: {
+      toolDescription: 'Search our product documentation',
+      params: {
+        query: {
+          name: 'search_query',
+          description: 'Your search terms'
+        },
+        topK: {
+          name: 'max_results',
+          description: 'Maximum number of results (1-20)'
+        },
+        store: { expose: false },  // Hide store selection
+        collection: {
+          expose: true,
+          name: 'category',
+          description: 'Product category to search'
+        }
+      }
+    }
+  }
+});
+// Tool schema shows: search_query (required), max_results, category
+// LLM calls with: { search_query: "...", max_results: 5, category: "widgets" }
+// Adapter translates to: { query: "...", topK: 5, collection: "widgets" }
+```
+
+**Key Behaviors:**
+
+1. **Alias Translation**: The adapter automatically translates aliased parameter names back to canonical names when invoking the tool
+2. **Lock Precedence**: Locked parameters remain hidden even if `expose: true` is set in overrides
+3. **Required Fields**: The `query` parameter (or its alias) is always required
+4. **Default Exposure**: `query`, `topK`, `store`, `filter` are exposed by default; `collection` and `scoreThreshold` are hidden
+5. **Duplicate Detection**: Throws an error if two parameters would have the same exposed name
+
+**Combining with Locks:**
+
+You can use both locks and schema overrides together. Locks take precedence for visibility:
+
+```typescript
+const response = await coordinator.run({
+  messages: [...],
+  vectorContext: {
+    stores: ['docs'],
+    mode: 'tool',
+    locks: {
+      store: 'docs'  // Hidden from schema and enforced
+    },
+    toolSchemaOverrides: {
+      params: {
+        topK: { name: 'limit' },      // Renamed but not locked
+        store: { expose: true }        // Ignored - lock takes precedence
+      }
+    }
+  }
+});
+// Tool schema shows: query (required), limit
+// store is hidden because it's locked, not because of expose setting
+```
+
 #### VectorContext vs VectorPriority
 
 These serve different purposes and can coexist:

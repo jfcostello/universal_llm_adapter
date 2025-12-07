@@ -23,6 +23,8 @@ export interface ToolCoordinatorOptions {
   vectorContext?: VectorContextConfig;
   /** Plugin registry for vector search operations */
   registry?: PluginRegistry;
+  /** Maps exposed vector search param names -> canonical names for arg translation */
+  vectorSearchAliasMap?: Record<string, string>;
 }
 
 export class ToolCoordinator {
@@ -30,6 +32,7 @@ export class ToolCoordinator {
   private vectorContext?: VectorContextConfig;
   private registry?: PluginRegistry;
   private vectorToolName: string = 'vector_search';
+  private vectorSearchAliasMap?: Record<string, string>;
 
   constructor(
     private routes: ProcessRouteManifest[],
@@ -47,13 +50,18 @@ export class ToolCoordinator {
       this.vectorToolName = options.vectorContext.toolName ?? 'vector_search';
     }
     this.registry = options?.registry;
+    this.vectorSearchAliasMap = options?.vectorSearchAliasMap;
   }
 
   /**
    * Update vector context configuration.
    * Called when a new LLM call has different vector settings.
    */
-  setVectorContext(config: VectorContextConfig | undefined, registry?: PluginRegistry): void {
+  setVectorContext(
+    config: VectorContextConfig | undefined,
+    registry?: PluginRegistry,
+    aliasMap?: Record<string, string>
+  ): void {
     this.vectorContext = config;
     if (config) {
       this.vectorToolName = config.toolName ?? 'vector_search';
@@ -61,6 +69,7 @@ export class ToolCoordinator {
     if (registry) {
       this.registry = registry;
     }
+    this.vectorSearchAliasMap = aliasMap;
   }
 
   async routeAndInvoke(
@@ -139,6 +148,24 @@ export class ToolCoordinator {
   }
 
   /**
+   * Translate aliased argument names to canonical names.
+   * If no alias map is configured, returns args unchanged.
+   */
+  private translateVectorSearchArgs(args: Record<string, any>): Record<string, any> {
+    if (!this.vectorSearchAliasMap) {
+      return args;
+    }
+
+    const translated: Record<string, any> = {};
+    for (const [key, value] of Object.entries(args)) {
+      // Look up canonical name from alias map, or use the key as-is
+      const canonicalName = this.vectorSearchAliasMap[key] ?? key;
+      translated[canonicalName] = value;
+    }
+    return translated;
+  }
+
+  /**
    * Invoke built-in vector search handler with lock enforcement.
    */
   private async invokeVectorSearch(
@@ -157,11 +184,15 @@ export class ToolCoordinator {
       throw new ToolExecutionError('Vector search not configured');
     }
 
+    // Translate aliased arg names to canonical names
+    const translatedArgs = this.translateVectorSearchArgs(args);
+
     context.logger?.info('Invoking built-in vector_search handler', {
       toolName,
       callId,
       hasLocks: !!this.vectorContext.locks,
-      lockedParams: Object.keys(this.vectorContext.locks ?? {})
+      lockedParams: Object.keys(this.vectorContext.locks ?? {}),
+      hasAliasMap: !!this.vectorSearchAliasMap
     });
 
     // Lazy-load the handler to avoid circular dependencies
@@ -169,10 +200,12 @@ export class ToolCoordinator {
 
     const result = await executeVectorSearch(
       {
-        query: args.query,
-        topK: args.topK,
-        store: args.store,
-        filter: args.filter
+        query: translatedArgs.query,
+        topK: translatedArgs.topK,
+        store: translatedArgs.store,
+        filter: translatedArgs.filter,
+        collection: translatedArgs.collection,
+        scoreThreshold: translatedArgs.scoreThreshold
       },
       {
         vectorConfig: this.vectorContext,

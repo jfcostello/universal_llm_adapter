@@ -1,5 +1,5 @@
 import { PluginRegistry } from '../../core/registry.js';
-import { LLMCallSpec, UnifiedTool, VectorContextConfig } from '../../core/types.js';
+import { LLMCallSpec, UnifiedTool, VectorContextConfig, ToolSchemaParamOverride } from '../../core/types.js';
 import { MCPManager } from '../../managers/mcp-manager.js';
 import { VectorStoreManager } from '../../managers/vector-store-manager.js';
 import { sanitizeToolName } from './tool-names.js';
@@ -16,6 +16,8 @@ export interface ToolDiscoveryResult {
   tools: UnifiedTool[];
   mcpServers: string[];
   toolNameMap: Record<string, string>;
+  /** Maps exposed vector search param names -> canonical names for arg translation */
+  vectorSearchAliasMap?: Record<string, string>;
 }
 
 export async function collectTools({
@@ -66,9 +68,11 @@ export async function collectTools({
   }
 
   // Create vector_search tool if vectorContext mode is 'tool' or 'both'
+  let vectorSearchAliasMap: Record<string, string> | undefined;
   if (spec.vectorContext && shouldCreateVectorSearchTool(spec.vectorContext.mode)) {
-    const vectorSearchTool = createVectorSearchTool(spec.vectorContext);
-    toolMap.set(vectorSearchTool.name, vectorSearchTool);
+    const result = createVectorSearchTool(spec.vectorContext);
+    toolMap.set(result.tool.name, result.tool);
+    vectorSearchAliasMap = result.aliasMap;
   }
 
   const sanitize = sanitizeName ?? sanitizeToolName;
@@ -88,7 +92,8 @@ export async function collectTools({
   return {
     tools: sanitizedTools,
     mcpServers,
-    toolNameMap
+    toolNameMap,
+    vectorSearchAliasMap
   };
 }
 
@@ -139,17 +144,93 @@ export function shouldCreateVectorSearchTool(mode: string | undefined): boolean 
 }
 
 /**
+ * Result from creating a vector search tool, including the alias map for arg translation.
+ */
+export interface VectorSearchToolResult {
+  /** The generated tool definition */
+  tool: UnifiedTool;
+  /** Maps exposed parameter name -> canonical name for arg translation */
+  aliasMap: Record<string, string>;
+}
+
+/**
+ * Default parameter configurations for vector search tool.
+ */
+interface ParamConfig {
+  canonical: string;
+  type: string;
+  defaultDescription: (config: VectorContextConfig) => string;
+  /** Whether this param is exposed by default (without overrides) */
+  defaultExpose: boolean;
+  /** Property for lock check - if locked, param is always hidden */
+  lockKey?: keyof NonNullable<VectorContextConfig['locks']>;
+  /** Additional properties for the schema */
+  additionalProps?: Record<string, any>;
+}
+
+const PARAM_CONFIGS: ParamConfig[] = [
+  {
+    canonical: 'query',
+    type: 'string',
+    defaultDescription: () => 'The search query to find relevant context',
+    defaultExpose: true
+    // query is never locked
+  },
+  {
+    canonical: 'topK',
+    type: 'number',
+    defaultDescription: (config) => `Number of results to return (default: ${config.topK ?? 5})`,
+    defaultExpose: true,
+    lockKey: 'topK'
+  },
+  {
+    canonical: 'store',
+    type: 'string',
+    defaultDescription: (config) => `Which store to search (options: ${config.stores.join(', ')})`,
+    defaultExpose: true,
+    lockKey: 'store'
+  },
+  {
+    canonical: 'filter',
+    type: 'object',
+    defaultDescription: () => 'Metadata filter to constrain results (JSON object)',
+    defaultExpose: true,
+    lockKey: 'filter',
+    additionalProps: { additionalProperties: true }
+  },
+  {
+    canonical: 'collection',
+    type: 'string',
+    defaultDescription: (config) => `Collection to search within the store${config.collection ? ` (default: ${config.collection})` : ''}`,
+    defaultExpose: false, // Hidden by default
+    lockKey: 'collection'
+  },
+  {
+    canonical: 'scoreThreshold',
+    type: 'number',
+    defaultDescription: (config) => `Minimum similarity score (0-1)${config.scoreThreshold !== undefined ? ` (default: ${config.scoreThreshold})` : ''}`,
+    defaultExpose: false, // Hidden by default
+    lockKey: 'scoreThreshold'
+  }
+];
+
+/**
  * Create a vector_search tool for LLM-driven vector store queries.
  * When locks are specified, locked parameters are omitted from the schema
  * and enforced server-side.
+ *
+ * Supports schema overrides for customizing parameter names and descriptions.
  */
-export function createVectorSearchTool(config: VectorContextConfig): UnifiedTool {
+export function createVectorSearchTool(config: VectorContextConfig): VectorSearchToolResult {
   const toolName = config.toolName ?? 'vector_search';
   const locks = config.locks;
+  const overrides = config.toolSchemaOverrides;
 
-  // Build description - if store is locked, mention it; otherwise list available stores
+  // Build description - priority: overrides.toolDescription > config.toolDescription > auto-generated
   let description: string;
-  if (config.toolDescription) {
+  if (overrides?.toolDescription) {
+    description = overrides.toolDescription;
+  } else if (config.toolDescription) {
     description = config.toolDescription;
   } else if (locks?.store) {
     description = `Search the vector store for relevant information. Searching: ${locks.store}`;
@@ -157,46 +238,67 @@ export function createVectorSearchTool(config: VectorContextConfig): UnifiedTool
     description = `Search the vector store for relevant information. Available stores: ${config.stores.join(', ')}`;
   }
 
-  // Build properties dynamically based on locks
-  const properties: Record<string, any> = {
-    query: {
-      type: 'string',
-      description: 'The search query to find relevant context'
+  const properties: Record<string, any> = {};
+  const aliasMap: Record<string, string> = {};
+  const usedExposedNames = new Set<string>();
+
+  for (const paramConfig of PARAM_CONFIGS) {
+    const { canonical, type, defaultDescription, defaultExpose, lockKey, additionalProps } = paramConfig;
+
+    // Check if locked - locked params are always hidden
+    if (lockKey && locks?.[lockKey] !== undefined) {
+      continue;
     }
-  };
 
-  // Only add topK if not locked
-  if (locks?.topK === undefined) {
-    properties.topK = {
-      type: 'number',
-      description: `Number of results to return (default: ${config.topK ?? 5})`
+    // Get override for this param
+    const override: ToolSchemaParamOverride | undefined =
+      overrides?.params?.[canonical as keyof NonNullable<typeof overrides.params>];
+
+    // Determine if exposed
+    const shouldExpose = override?.expose ?? defaultExpose;
+    if (!shouldExpose) {
+      continue;
+    }
+
+    // Determine exposed name
+    const exposedName = override?.name ?? canonical;
+
+    // Check for duplicate exposed names
+    if (usedExposedNames.has(exposedName)) {
+      throw new Error(
+        `Duplicate exposed parameter name '${exposedName}' in toolSchemaOverrides. ` +
+        `Each parameter must have a unique exposed name.`
+      );
+    }
+    usedExposedNames.add(exposedName);
+
+    // Determine description
+    const paramDescription = override?.description ?? defaultDescription(config);
+
+    // Build property
+    properties[exposedName] = {
+      type,
+      description: paramDescription,
+      ...additionalProps
     };
+
+    // Add to alias map
+    aliasMap[exposedName] = canonical;
   }
 
-  // Only add store if not locked
-  if (locks?.store === undefined) {
-    properties.store = {
-      type: 'string',
-      description: `Which store to search (options: ${config.stores.join(', ')})`
-    };
-  }
+  // Determine required fields - query (or its alias) is always required
+  const queryAlias = overrides?.params?.query?.name ?? 'query';
+  const required = usedExposedNames.has(queryAlias) ? [queryAlias] : ['query'];
 
-  // Only add filter if not locked
-  if (locks?.filter === undefined) {
-    properties.filter = {
-      type: 'object',
-      description: 'Metadata filter to constrain results (JSON object)',
-      additionalProperties: true
-    };
-  }
-
-  return {
+  const tool: UnifiedTool = {
     name: toolName,
     description,
     parametersJsonSchema: {
       type: 'object',
       properties,
-      required: ['query']
+      required
     }
   };
+
+  return { tool, aliasMap };
 }

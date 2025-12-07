@@ -344,5 +344,257 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
         })
       );
     });
+
+    test('translates aliased args to canonical names', async () => {
+      mockExecuteVectorSearch.mockResolvedValue({
+        success: true,
+        results: [],
+        query: 'test',
+        effectiveParams: { store: 'docs', collection: 'test', topK: 10 }
+      });
+      mockFormatVectorSearchResults.mockReturnValue('No results found');
+
+      const config: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool'
+      };
+
+      // Alias map: max_results -> topK, search_query -> query
+      const aliasMap = {
+        search_query: 'query',
+        max_results: 'topK',
+        store: 'store',
+        filter: 'filter'
+      };
+
+      const coordinator = new ToolCoordinator([], undefined, {
+        vectorContext: config,
+        registry: mockRegistry,
+        vectorSearchAliasMap: aliasMap
+      });
+
+      await coordinator.routeAndInvoke(
+        'vector_search',
+        'call-alias',
+        { search_query: 'translated query', max_results: 10 }, // Using aliased names
+        { provider: 'openrouter', model: 'gpt-4' }
+      );
+
+      // Should receive canonical names
+      expect(mockExecuteVectorSearch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: 'translated query',
+          topK: 10
+        }),
+        expect.any(Object)
+      );
+    });
+
+    test('canonical names still work with alias map', async () => {
+      mockExecuteVectorSearch.mockResolvedValue({
+        success: true,
+        results: [],
+        query: 'test',
+        effectiveParams: { store: 'docs', collection: 'test', topK: 5 }
+      });
+      mockFormatVectorSearchResults.mockReturnValue('No results found');
+
+      const config: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool'
+      };
+
+      const aliasMap = {
+        search_query: 'query',
+        max_results: 'topK'
+      };
+
+      const coordinator = new ToolCoordinator([], undefined, {
+        vectorContext: config,
+        registry: mockRegistry,
+        vectorSearchAliasMap: aliasMap
+      });
+
+      // Using canonical name directly (not in alias map as key)
+      await coordinator.routeAndInvoke(
+        'vector_search',
+        'call-canonical',
+        { query: 'canonical query', store: 'docs' },
+        { provider: 'openrouter', model: 'gpt-4' }
+      );
+
+      // Should pass through unchanged
+      expect(mockExecuteVectorSearch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: 'canonical query',
+          store: 'docs'
+        }),
+        expect.any(Object)
+      );
+    });
+
+    test('mixed aliased and canonical args work together', async () => {
+      mockExecuteVectorSearch.mockResolvedValue({
+        success: true,
+        results: [],
+        query: 'test',
+        effectiveParams: { store: 'docs', collection: 'test', topK: 15 }
+      });
+      mockFormatVectorSearchResults.mockReturnValue('No results found');
+
+      const config: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool'
+      };
+
+      const aliasMap = {
+        search_query: 'query',
+        limit: 'topK',
+        store: 'store'
+      };
+
+      const coordinator = new ToolCoordinator([], undefined, {
+        vectorContext: config,
+        registry: mockRegistry,
+        vectorSearchAliasMap: aliasMap
+      });
+
+      await coordinator.routeAndInvoke(
+        'vector_search',
+        'call-mixed',
+        { search_query: 'mixed test', limit: 15, filter: { type: 'doc' } }, // mix of aliased and canonical
+        { provider: 'openrouter', model: 'gpt-4' }
+      );
+
+      expect(mockExecuteVectorSearch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: 'mixed test',
+          topK: 15,
+          filter: { type: 'doc' }
+        }),
+        expect.any(Object)
+      );
+    });
+
+    test('works without alias map (backwards compatible)', async () => {
+      mockExecuteVectorSearch.mockResolvedValue({
+        success: true,
+        results: [],
+        query: 'test',
+        effectiveParams: { store: 'docs', collection: 'test', topK: 5 }
+      });
+      mockFormatVectorSearchResults.mockReturnValue('No results found');
+
+      const config: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool'
+      };
+
+      const coordinator = new ToolCoordinator([], undefined, {
+        vectorContext: config,
+        registry: mockRegistry
+        // No aliasMap
+      });
+
+      await coordinator.routeAndInvoke(
+        'vector_search',
+        'call-no-alias',
+        { query: 'no alias', topK: 5 },
+        { provider: 'openrouter', model: 'gpt-4' }
+      );
+
+      expect(mockExecuteVectorSearch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: 'no alias',
+          topK: 5
+        }),
+        expect.any(Object)
+      );
+    });
+
+    test('setVectorContext updates alias map', async () => {
+      mockExecuteVectorSearch.mockResolvedValue({
+        success: true,
+        results: [],
+        query: 'test',
+        effectiveParams: { store: 'docs', collection: 'test', topK: 5 }
+      });
+      mockFormatVectorSearchResults.mockReturnValue('No results found');
+
+      const coordinator = new ToolCoordinator([], undefined, {
+        vectorContext: { stores: ['docs'], mode: 'tool' },
+        registry: mockRegistry
+      });
+
+      // Update with alias map
+      const newAliasMap = {
+        q: 'query',
+        results: 'topK'
+      };
+
+      coordinator.setVectorContext(
+        { stores: ['docs'], mode: 'tool' },
+        mockRegistry,
+        newAliasMap
+      );
+
+      await coordinator.routeAndInvoke(
+        'vector_search',
+        'call-updated',
+        { q: 'updated alias', results: 3 },
+        { provider: 'openrouter', model: 'gpt-4' }
+      );
+
+      expect(mockExecuteVectorSearch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: 'updated alias',
+          topK: 3
+        }),
+        expect.any(Object)
+      );
+    });
+
+    test('translates collection and scoreThreshold aliases', async () => {
+      mockExecuteVectorSearch.mockResolvedValue({
+        success: true,
+        results: [],
+        query: 'test',
+        effectiveParams: { store: 'docs', collection: 'products', topK: 5 }
+      });
+      mockFormatVectorSearchResults.mockReturnValue('No results found');
+
+      const config: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool'
+      };
+
+      const aliasMap = {
+        query: 'query',
+        category: 'collection',
+        min_score: 'scoreThreshold'
+      };
+
+      const coordinator = new ToolCoordinator([], undefined, {
+        vectorContext: config,
+        registry: mockRegistry,
+        vectorSearchAliasMap: aliasMap
+      });
+
+      await coordinator.routeAndInvoke(
+        'vector_search',
+        'call-new-params',
+        { query: 'test', category: 'products', min_score: 0.8 },
+        { provider: 'openrouter', model: 'gpt-4' }
+      );
+
+      expect(mockExecuteVectorSearch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: 'test',
+          collection: 'products',
+          scoreThreshold: 0.8
+        }),
+        expect.any(Object)
+      );
+    });
   });
 });

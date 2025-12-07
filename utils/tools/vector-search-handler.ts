@@ -31,6 +31,10 @@ export interface VectorSearchArgs {
   store?: string;
   /** Metadata filter to constrain results (optional if not locked) */
   filter?: JsonObject;
+  /** Collection to search (optional, usually hidden from schema unless explicitly exposed) */
+  collection?: string;
+  /** Minimum score threshold (optional, usually hidden from schema unless explicitly exposed) */
+  scoreThreshold?: number;
 }
 
 /**
@@ -83,11 +87,11 @@ export async function executeVectorSearch(
   const locks = vectorConfig.locks;
   const logger = context.logger ?? getLogger();
 
-  // Apply locks - locked values always take precedence
+  // Apply locks - locked values always take precedence, then args, then config defaults
   const effectiveStore = locks?.store ?? args.store ?? vectorConfig.stores[0];
   const effectiveTopK = locks?.topK ?? args.topK ?? vectorConfig.topK ?? getDefaults().vector.topK;
-  const effectiveCollection = locks?.collection ?? vectorConfig.collection;
-  const effectiveScoreThreshold = locks?.scoreThreshold ?? vectorConfig.scoreThreshold;
+  const effectiveCollection = locks?.collection ?? args.collection ?? vectorConfig.collection;
+  const effectiveScoreThreshold = locks?.scoreThreshold ?? args.scoreThreshold ?? vectorConfig.scoreThreshold;
   const effectiveFilter = locks?.filter ?? args.filter ?? vectorConfig.filter;
 
   logger.info('Executing vector search', {
