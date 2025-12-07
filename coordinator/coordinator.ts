@@ -640,9 +640,10 @@ export class LLMCoordinator {
         );
       }
 
-      // Lazy-load EmbeddingManager
+      // Lazy-load EmbeddingManager with logger for embedding request/response logging
       const { EmbeddingManager } = await import('../managers/embedding-manager.js');
-      const embeddingManager = new EmbeddingManager(this.registry);
+      const { getEmbeddingLogger } = await import('../core/logging.js');
+      const embeddingManager = new EmbeddingManager(this.registry, getEmbeddingLogger());
 
       // Lazy-load VectorContextInjector
       const { VectorContextInjector } = await import('../utils/vector/vector-context-injector.js');

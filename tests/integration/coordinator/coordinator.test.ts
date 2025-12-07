@@ -498,4 +498,108 @@ describe('coordinator/coordinator integration', () => {
       await coordinator.close();
     });
   });
+
+  describe('vector context auto mode logging', () => {
+    test('EmbeddingLogger.logEmbeddingRequest is called when using auto mode with embeddings', async () => {
+      // Import logging module to spy on the logger
+      const loggingModule = await import('@/core/logging.ts');
+      const { EmbeddingLogger } = loggingModule;
+
+      // Spy on logEmbeddingRequest method
+      const logEmbeddingRequestSpy = jest.spyOn(EmbeddingLogger.prototype, 'logEmbeddingRequest');
+
+      const coordinator = await createCoordinator();
+
+      // Mock embedding provider
+      const mockEmbeddingCompat = {
+        embed: jest.fn().mockImplementation(async (_input, _config, _model, logger) => {
+          // Call the logger if provided (this simulates what the real compat does)
+          if (logger) {
+            logger.logEmbeddingRequest({
+              url: 'http://test.com/embed',
+              method: 'POST',
+              headers: {},
+              body: { input: 'test' },
+              provider: 'test',
+              model: 'test-model'
+            });
+          }
+          return {
+            vectors: [[0.1, 0.2, 0.3]],
+            model: 'test-model',
+            dimensions: 3
+          };
+        }),
+        getDimensions: jest.fn().mockReturnValue(3)
+      };
+
+      // Mock vector store compat
+      const mockVectorStoreCompat = {
+        connect: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockResolvedValue([
+          { id: 'doc1', score: 0.9, payload: { text: 'test content' } }
+        ]),
+        setLogger: jest.fn()
+      };
+
+      // Spy on registry methods
+      const registrySpy = jest.spyOn((coordinator as any).registry, 'getVectorStore')
+        .mockResolvedValue({
+          id: 'test-store',
+          kind: 'memory',
+          defaultCollection: 'test'
+        });
+      const compatSpy = jest.spyOn((coordinator as any).registry, 'getVectorStoreCompat')
+        .mockResolvedValue(mockVectorStoreCompat);
+      const embeddingProviderSpy = jest.spyOn((coordinator as any).registry, 'getEmbeddingProvider')
+        .mockResolvedValue({
+          id: 'test-embeddings',
+          kind: 'openrouter',
+          endpoint: { urlTemplate: 'http://test.com' }
+        });
+      const embeddingCompatSpy = jest.spyOn((coordinator as any).registry, 'getEmbeddingCompat')
+        .mockResolvedValue(mockEmbeddingCompat);
+
+      const mockResponse: LLMResponse = {
+        provider: 'test-openai',
+        model: 'stub-model',
+        role: Role.ASSISTANT,
+        finishReason: 'stop',
+        content: [{ type: 'text', text: 'response after auto injection' }]
+      };
+
+      jest.spyOn(LLMManager.prototype, 'callProvider').mockResolvedValue(mockResponse);
+
+      const spec = {
+        messages: [
+          { role: Role.USER, content: [{ type: 'text', text: 'search for something' }] }
+        ],
+        llmPriority: [
+          {
+            provider: 'test-openai',
+            model: 'stub-model'
+          }
+        ],
+        settings: { temperature: 0 },
+        vectorContext: {
+          mode: 'auto' as const,
+          stores: ['test-store'],
+          embeddingPriority: [{ provider: 'test-embeddings' }]
+        }
+      };
+
+      await coordinator.run(spec as any);
+
+      // The embed mock checks if logger is passed and calls logEmbeddingRequest if so
+      // After the fix, this should be called because the logger is passed through
+      expect(logEmbeddingRequestSpy).toHaveBeenCalled();
+
+      logEmbeddingRequestSpy.mockRestore();
+      registrySpy.mockRestore();
+      compatSpy.mockRestore();
+      embeddingProviderSpy.mockRestore();
+      embeddingCompatSpy.mockRestore();
+      await coordinator.close();
+    });
+  });
 });
