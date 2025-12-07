@@ -171,7 +171,8 @@ export class ToolCoordinator {
       {
         query: args.query,
         topK: args.topK,
-        store: args.store
+        store: args.store,
+        filter: args.filter
       },
       {
         vectorConfig: this.vectorContext,

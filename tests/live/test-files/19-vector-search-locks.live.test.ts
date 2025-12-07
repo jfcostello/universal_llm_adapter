@@ -38,6 +38,28 @@ describeLive('live/vector-search-locks', () => {
   let llmCoordinator: LLMCoordinator;
   let vectorCoordinator: VectorStoreCoordinator;
 
+  const expectNoVectorErrors = (response: any) => {
+    const textParts = (response?.content ?? [])
+      .filter((c: any) => c?.type === 'text')
+      .map((c: any) => String(c.text || '').toLowerCase());
+
+    const errorHit = textParts.some(t =>
+      t.includes('vector search failed') || t.includes('query failed')
+    );
+
+    expect(errorHit).toBe(false);
+  };
+
+  const expectContains = (response: any, ...needles: string[]) => {
+    const textParts = (response?.content ?? [])
+      .filter((c: any) => c?.type === 'text')
+      .map((c: any) => String(c.text || '').toLowerCase());
+
+    const joined = textParts.join('\n');
+    const missing = needles.filter(n => !joined.includes(n.toLowerCase()));
+    expect(missing).toEqual([]);
+  };
+
   beforeAll(async () => {
     const required = ['QDRANT_CLOUD_URL', 'QDRANT_API_KEY', 'OPENROUTER_API_KEY'];
     const missing = required.filter(key => !process.env[key]);
@@ -174,6 +196,8 @@ describeLive('live/vector-search-locks', () => {
       // The locked topK=1 means only 1 result was returned
       const text = (textContent as any).text.toLowerCase();
       expect(text.length).toBeGreaterThan(0);
+
+      expectNoVectorErrors(response);
     }, 90000);
   });
 
@@ -207,6 +231,8 @@ describeLive('live/vector-search-locks', () => {
       // Without filter, should find the philosophy doc about 42
       const unfiltered = (textWithoutFilter as any).text.toLowerCase();
       expect(unfiltered.includes('42') || unfiltered.includes('ultimate') || unfiltered.includes('life')).toBe(true);
+      expectNoVectorErrors(responseWithoutFilter);
+      expectContains(responseWithoutFilter, 'ultimate question of life is 42');
 
       // Now test WITH locked filter - should only find technology results
       const specWithFilter: LLMCallSpec = {
@@ -223,7 +249,7 @@ describeLive('live/vector-search-locks', () => {
           mode: 'tool',
           topK: 5,
           locks: {
-            filter: { category: 'technology' } // Lock to only technology category
+            filter: { 'metadata.category': 'technology' } // Lock to only technology category
           },
           toolDescription: 'Search the knowledge base for information'
         },
@@ -242,6 +268,8 @@ describeLive('live/vector-search-locks', () => {
       // because 42 is in the philosophy category
       const foundPhilosophyContent = filtered.includes('42') && filtered.includes('ultimate');
       expect(foundPhilosophyContent).toBe(false);
+      expectNoVectorErrors(responseWithFilter);
+      expectContains(responseWithFilter, 'artificial intelligence will shape the future of humanity');
     }, 120000);
   });
 
@@ -321,6 +349,8 @@ describeLive('live/vector-search-locks', () => {
       const text = (textContent as any).text.toLowerCase();
       // The locked store ensures we query qdrant-cloud which has our data
       expect(text.includes('42') || text.includes('life') || text.includes('answer') || text.includes('question')).toBe(true);
+      expectNoVectorErrors(response);
+      expectContains(response, 'ultimate question of life is 42');
     }, 90000);
   });
 
@@ -367,6 +397,8 @@ describeLive('live/vector-search-locks', () => {
       const text = (textContent as any).text.toLowerCase();
       // Should mention content from our high-relevance documents
       expect(text.includes('42') || text.includes('life') || text.includes('artificial') || text.includes('ai') || text.includes('humanity')).toBe(true);
+      expectNoVectorErrors(response);
+      expectContains(response, 'ultimate question of life is 42', 'artificial intelligence will shape the future of humanity');
     }, 90000);
   });
 
@@ -411,6 +443,9 @@ describeLive('live/vector-search-locks', () => {
 
       const text = (textContent as any).text.toLowerCase();
       expect(text.includes('artificial') || text.includes('ai') || text.includes('intelligence') || text.includes('future')).toBe(true);
+
+      // Ensure vector search did not fail silently
+      expectNoVectorErrors(response);
     }, 90000);
   });
 });

@@ -185,12 +185,12 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
       const result = await coordinator.routeAndInvoke(
         'vector_search',
         'call-1',
-        { query: 'test query', topK: 5 },
+        { query: 'test query', topK: 5, filter: { topic: 'llm' } },
         { provider: 'openrouter', model: 'gpt-4' }
       );
 
       expect(mockExecuteVectorSearch).toHaveBeenCalledWith(
-        { query: 'test query', topK: 5, store: undefined },
+        { query: 'test query', topK: 5, store: undefined, filter: { topic: 'llm' } },
         expect.objectContaining({
           vectorConfig: config,
           registry: mockRegistry
@@ -225,7 +225,7 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
       await coordinator.routeAndInvoke(
         'vector_search',
         'call-2',
-        { query: 'test', store: 'faq', topK: 100 }, // LLM tries to override
+        { query: 'test', store: 'faq', topK: 100, filter: { should: 'ignore' } }, // LLM tries to override
         { provider: 'openrouter', model: 'gpt-4' }
       );
 

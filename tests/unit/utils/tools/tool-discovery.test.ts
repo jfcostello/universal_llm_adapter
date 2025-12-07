@@ -266,6 +266,7 @@ describe('utils/tools/tool-discovery', () => {
       expect(tool.name).toBe('vector_search');
       expect(tool.description).toContain('qdrant-cloud');
       expect(tool.parametersJsonSchema.properties.query).toBeDefined();
+      expect(tool.parametersJsonSchema.properties.filter).toBeDefined();
       expect(tool.parametersJsonSchema.required).toContain('query');
     });
 
@@ -305,6 +306,18 @@ describe('utils/tools/tool-discovery', () => {
       expect(tool.parametersJsonSchema.properties.topK.description).toContain('10');
     });
 
+    test('includes filter property when filter is not locked', () => {
+      const config: VectorContextConfig = {
+        stores: ['memory'],
+        mode: 'tool'
+      };
+
+      const tool = createVectorSearchTool(config);
+
+      expect(tool.parametersJsonSchema.properties.filter).toBeDefined();
+      expect(tool.parametersJsonSchema.properties.filter.type).toBe('object');
+    });
+
     test('lists all stores in description', () => {
       const config: VectorContextConfig = {
         stores: ['store1', 'store2', 'store3'],
@@ -331,10 +344,11 @@ describe('utils/tools/tool-discovery', () => {
 
         const tool = createVectorSearchTool(config);
 
-        expect(tool.parametersJsonSchema.properties.query).toBeDefined();
-        expect(tool.parametersJsonSchema.properties.store).toBeUndefined();
-        expect(tool.parametersJsonSchema.properties.topK).toBeDefined();
-      });
+      expect(tool.parametersJsonSchema.properties.query).toBeDefined();
+      expect(tool.parametersJsonSchema.properties.store).toBeUndefined();
+      expect(tool.parametersJsonSchema.properties.topK).toBeDefined();
+      expect(tool.parametersJsonSchema.properties.filter).toBeDefined();
+    });
 
       test('omits topK from schema when topK is locked', () => {
         const config: VectorContextConfig = {
@@ -347,10 +361,11 @@ describe('utils/tools/tool-discovery', () => {
 
         const tool = createVectorSearchTool(config);
 
-        expect(tool.parametersJsonSchema.properties.query).toBeDefined();
-        expect(tool.parametersJsonSchema.properties.topK).toBeUndefined();
-        expect(tool.parametersJsonSchema.properties.store).toBeDefined();
-      });
+      expect(tool.parametersJsonSchema.properties.query).toBeDefined();
+      expect(tool.parametersJsonSchema.properties.topK).toBeUndefined();
+      expect(tool.parametersJsonSchema.properties.store).toBeDefined();
+      expect(tool.parametersJsonSchema.properties.filter).toBeDefined();
+    });
 
       test('omits both store and topK when both are locked', () => {
         const config: VectorContextConfig = {
@@ -364,10 +379,11 @@ describe('utils/tools/tool-discovery', () => {
 
         const tool = createVectorSearchTool(config);
 
-        expect(tool.parametersJsonSchema.properties.query).toBeDefined();
-        expect(tool.parametersJsonSchema.properties.store).toBeUndefined();
-        expect(tool.parametersJsonSchema.properties.topK).toBeUndefined();
-      });
+      expect(tool.parametersJsonSchema.properties.query).toBeDefined();
+      expect(tool.parametersJsonSchema.properties.store).toBeUndefined();
+      expect(tool.parametersJsonSchema.properties.topK).toBeUndefined();
+      expect(tool.parametersJsonSchema.properties.filter).toBeDefined();
+    });
 
       test('query is always required and never removed by locks', () => {
         const config: VectorContextConfig = {
@@ -382,11 +398,12 @@ describe('utils/tools/tool-discovery', () => {
           }
         };
 
-        const tool = createVectorSearchTool(config);
+      const tool = createVectorSearchTool(config);
 
-        expect(tool.parametersJsonSchema.properties.query).toBeDefined();
-        expect(tool.parametersJsonSchema.required).toContain('query');
-      });
+      expect(tool.parametersJsonSchema.properties.query).toBeDefined();
+      expect(tool.parametersJsonSchema.required).toContain('query');
+      expect(tool.parametersJsonSchema.properties.filter).toBeUndefined();
+    });
 
       test('empty locks object does not affect schema', () => {
         const config: VectorContextConfig = {
@@ -397,10 +414,11 @@ describe('utils/tools/tool-discovery', () => {
 
         const tool = createVectorSearchTool(config);
 
-        expect(tool.parametersJsonSchema.properties.query).toBeDefined();
-        expect(tool.parametersJsonSchema.properties.store).toBeDefined();
-        expect(tool.parametersJsonSchema.properties.topK).toBeDefined();
-      });
+      expect(tool.parametersJsonSchema.properties.query).toBeDefined();
+      expect(tool.parametersJsonSchema.properties.store).toBeDefined();
+      expect(tool.parametersJsonSchema.properties.topK).toBeDefined();
+      expect(tool.parametersJsonSchema.properties.filter).toBeDefined();
+    });
 
       test('undefined locks does not affect schema', () => {
         const config: VectorContextConfig = {
@@ -411,10 +429,11 @@ describe('utils/tools/tool-discovery', () => {
 
         const tool = createVectorSearchTool(config);
 
-        expect(tool.parametersJsonSchema.properties.query).toBeDefined();
-        expect(tool.parametersJsonSchema.properties.store).toBeDefined();
-        expect(tool.parametersJsonSchema.properties.topK).toBeDefined();
-      });
+      expect(tool.parametersJsonSchema.properties.query).toBeDefined();
+      expect(tool.parametersJsonSchema.properties.store).toBeDefined();
+      expect(tool.parametersJsonSchema.properties.topK).toBeDefined();
+      expect(tool.parametersJsonSchema.properties.filter).toBeDefined();
+    });
 
       test('store description excludes locked store', () => {
         const config: VectorContextConfig = {
@@ -445,10 +464,11 @@ describe('utils/tools/tool-discovery', () => {
         const tool = createVectorSearchTool(config);
 
         // scoreThreshold is not in the schema anyway, so all params remain
-        expect(tool.parametersJsonSchema.properties.query).toBeDefined();
-        expect(tool.parametersJsonSchema.properties.store).toBeDefined();
-        expect(tool.parametersJsonSchema.properties.topK).toBeDefined();
-      });
+      expect(tool.parametersJsonSchema.properties.query).toBeDefined();
+      expect(tool.parametersJsonSchema.properties.store).toBeDefined();
+      expect(tool.parametersJsonSchema.properties.topK).toBeDefined();
+      expect(tool.parametersJsonSchema.properties.filter).toBeDefined();
+    });
 
       test('collection lock does not affect schema (not a schema param)', () => {
         const config: VectorContextConfig = {
@@ -478,10 +498,10 @@ describe('utils/tools/tool-discovery', () => {
 
         const tool = createVectorSearchTool(config);
 
-        // filter is not in the schema anyway
         expect(tool.parametersJsonSchema.properties.query).toBeDefined();
         expect(tool.parametersJsonSchema.properties.store).toBeDefined();
         expect(tool.parametersJsonSchema.properties.topK).toBeDefined();
+        expect(tool.parametersJsonSchema.properties.filter).toBeUndefined();
       });
     });
   });

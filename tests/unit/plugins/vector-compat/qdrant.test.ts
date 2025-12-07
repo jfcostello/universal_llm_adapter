@@ -162,6 +162,27 @@ describe('plugins/vector-compat/qdrant', () => {
       }));
     });
 
+    test('converts dot-notation filter to nested Qdrant format', async () => {
+      mockClient.search.mockResolvedValue([]);
+
+      await compat.query('test', [1], 1, { filter: { 'metadata.category': 'tech' } as any });
+
+      expect(mockClient.search).toHaveBeenCalledWith('test', expect.objectContaining({
+        filter: {
+          must: [
+            {
+              nested: {
+                path: 'metadata',
+                filter: {
+                  must: [{ key: 'metadata.category', match: { value: 'tech' } }]
+                }
+              }
+            }
+          ]
+        }
+      }));
+    });
+
     test('passes through Qdrant-native filter format', async () => {
       mockClient.search.mockResolvedValue([]);
       const nativeFilter = {

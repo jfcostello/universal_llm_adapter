@@ -440,10 +440,26 @@ export default class QdrantCompat implements IVectorStoreCompat {
     const must: any[] = [];
     for (const [key, value] of Object.entries(filter)) {
       if (value !== null && value !== undefined) {
-        must.push({
-          key,
-          match: { value }
-        });
+        // If key targets nested object (dot-notation), wrap in nested filter for better compatibility
+        if (key.includes('.')) {
+          const [path] = key.split('.');
+          must.push({
+            nested: {
+              path,
+              filter: {
+                must: [{
+                  key,
+                  match: { value }
+                }]
+              }
+            }
+          });
+        } else {
+          must.push({
+            key,
+            match: { value }
+          });
+        }
       }
     }
 

@@ -69,7 +69,7 @@ export function buildJestArgs({ maxWorkers, passthrough }) {
     args.push('--testPathPattern=live');
   }
 
-  args.push(`--maxWorkers=${maxWorkers}`, '--forceExit');
+  args.push(`--maxWorkers=${maxWorkers}`, '--forceExit', '--coverage=false');
 
   if (Array.isArray(passthrough) && passthrough.length) {
     args.push(...passthrough);

@@ -608,10 +608,23 @@ const response = await coordinator.run({
     mode: 'tool',
     toolName: 'search_knowledge_base',  // default: 'vector_search'
     toolDescription: 'Search the knowledge base for relevant information',
-    embeddingPriority: [{ provider: 'openrouter-embeddings' }]
+    embeddingPriority: [{ provider: 'openrouter-embeddings' }],
+    // Optional: allow the LLM to pass a metadata filter when not locked
+    // The tool schema will include `filter` when `locks.filter` is not set
+    locks: {
+      // filter: { doc_type: 'faq' } // uncomment to lock a filter
+    }
   }
 });
 ```
+
+When `locks.filter` is **not** set, the generated tool schema includes an optional `filter` (JSON object) so the LLM can constrain results (e.g., `{ "category": "tech", "year": 2024 }`). Filter precedence is:
+
+1. `locks.filter` (highest, always enforced)
+2. LLM-provided `filter` argument
+3. `vectorContext.filter` fallback
+
+Only `query` is required; `topK`, `store`, and `filter` are exposed only when their respective locks are unset.
 
 #### Both Mode (Hybrid)
 

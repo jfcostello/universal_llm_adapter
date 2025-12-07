@@ -181,6 +181,15 @@ export function createVectorSearchTool(config: VectorContextConfig): UnifiedTool
     };
   }
 
+  // Only add filter if not locked
+  if (locks?.filter === undefined) {
+    properties.filter = {
+      type: 'object',
+      description: 'Metadata filter to constrain results (JSON object)',
+      additionalProperties: true
+    };
+  }
+
   return {
     name: toolName,
     description,

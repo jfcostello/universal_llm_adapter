@@ -29,6 +29,8 @@ export interface VectorSearchArgs {
   topK?: number;
   /** Which store to search (optional if not locked) */
   store?: string;
+  /** Metadata filter to constrain results (optional if not locked) */
+  filter?: JsonObject;
 }
 
 /**
@@ -86,7 +88,7 @@ export async function executeVectorSearch(
   const effectiveTopK = locks?.topK ?? args.topK ?? vectorConfig.topK ?? getDefaults().vector.topK;
   const effectiveCollection = locks?.collection ?? vectorConfig.collection;
   const effectiveScoreThreshold = locks?.scoreThreshold ?? vectorConfig.scoreThreshold;
-  const effectiveFilter = locks?.filter ?? vectorConfig.filter;
+  const effectiveFilter = locks?.filter ?? args.filter ?? vectorConfig.filter;
 
   logger.info('Executing vector search', {
     query: args.query,

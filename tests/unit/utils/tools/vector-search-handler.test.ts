@@ -72,6 +72,34 @@ describe('utils/tools/vector-search-handler', () => {
       expect(result.results).toHaveLength(3);
     });
 
+    test('uses LLM-provided filter when unlocked and overrides config filter', async () => {
+      const args: VectorSearchArgs = {
+        query: 'test query',
+        filter: { category: 'llm' }
+      };
+
+      const config: VectorContextConfig = {
+        stores: ['default-store'],
+        mode: 'tool',
+        filter: { category: 'config' }
+      };
+
+      const registry = createMockRegistry();
+      const embeddingManager = createMockEmbeddingManager();
+
+      const context: VectorSearchHandlerContext = {
+        vectorConfig: config,
+        registry,
+        embeddingManager
+      };
+
+      const result = await executeVectorSearch(args, context);
+
+      expect(result.success).toBe(true);
+      expect(result.effectiveParams.filter).toEqual({ category: 'llm' });
+      expect(registry.getVectorStoreCompat).toHaveBeenCalled();
+    });
+
     test('enforces locked store over LLM args', async () => {
       const args: VectorSearchArgs = {
         query: 'test query',
@@ -212,7 +240,8 @@ describe('utils/tools/vector-search-handler', () => {
 
     test('enforces locked filter', async () => {
       const args: VectorSearchArgs = {
-        query: 'test query'
+        query: 'test query',
+        filter: { type: 'llm', category: 'should-not-apply' }
       };
 
       const config: VectorContextConfig = {
@@ -257,6 +286,54 @@ describe('utils/tools/vector-search-handler', () => {
         expect.any(Number),
         expect.objectContaining({
           filter: { type: 'locked', category: 'secure' }
+        })
+      );
+    });
+
+    test('falls back to config filter when LLM does not provide one and filter is unlocked', async () => {
+      const args: VectorSearchArgs = {
+        query: 'test query'
+      };
+
+      const config: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool',
+        filter: { topic: 'default' }
+      };
+
+      const mockCompat = {
+        connect: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockResolvedValue(mockQueryResults),
+        setLogger: jest.fn()
+      };
+
+      const registry = {
+        getVectorStore: jest.fn().mockResolvedValue({
+          id: 'docs',
+          kind: 'memory',
+          defaultCollection: 'test'
+        }),
+        getVectorStoreCompat: jest.fn().mockResolvedValue(mockCompat)
+      } as unknown as PluginRegistry;
+
+      const embeddingManager = createMockEmbeddingManager();
+
+      const context: VectorSearchHandlerContext = {
+        vectorConfig: config,
+        registry,
+        embeddingManager
+      };
+
+      const result = await executeVectorSearch(args, context);
+
+      expect(result.success).toBe(true);
+      expect(result.effectiveParams.filter).toEqual({ topic: 'default' });
+      expect(mockCompat.query).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Array),
+        expect.any(Number),
+        expect.objectContaining({
+          filter: { topic: 'default' }
         })
       );
     });
