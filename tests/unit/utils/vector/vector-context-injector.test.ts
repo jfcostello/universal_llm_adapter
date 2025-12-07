@@ -125,7 +125,7 @@ describe('utils/vector/vector-context-injector', () => {
       );
     });
 
-    test('returns original messages when no user message found', async () => {
+    test('returns original messages when no user message found and assistant messages excluded', async () => {
       const registry = createMockRegistry();
       const injector = new VectorContextInjector({ registry });
 
@@ -135,7 +135,11 @@ describe('utils/vector/vector-context-injector', () => {
 
       const config: VectorContextConfig = {
         stores: ['test-store'],
-        mode: 'auto'
+        mode: 'auto',
+        // Explicitly exclude assistant messages to test empty query scenario
+        queryConstruction: {
+          includeAssistantMessages: false
+        }
       };
 
       const result = await injector.injectContext(messages, config);
@@ -638,6 +642,440 @@ describe('utils/vector/vector-context-injector', () => {
     });
   });
 
+  describe('query construction settings', () => {
+    test('uses overrideEmbeddingQuery when provided', async () => {
+      const embeddingCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1, 0.2]],
+          model: 'test',
+          dimensions: 2
+        }),
+        getDimensions: jest.fn()
+      };
+      const vectorCompat = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([
+          { id: 'doc1', score: 0.9, payload: { text: 'Result' } }
+        ])
+      };
+      const registry = createMockRegistry({ embeddingCompat, vectorCompat });
+
+      const injector = new VectorContextInjector({ registry });
+      const messages = createMessages(['What is the weather today?']);
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        overrideEmbeddingQuery: 'custom search terms for embedding'
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      // Should use override, not the user message
+      expect(result.query).toBe('custom search terms for embedding');
+      expect(embeddingCompat.embed).toHaveBeenCalledWith(
+        'custom search terms for embedding',
+        expect.anything(),
+        undefined,
+        expect.anything()
+      );
+    });
+
+    test('includes multiple messages when messagesToInclude > 1', async () => {
+      const embeddingCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1]],
+          model: 'test',
+          dimensions: 1
+        }),
+        getDimensions: jest.fn()
+      };
+      const vectorCompat = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([])
+      };
+      const registry = createMockRegistry({ embeddingCompat, vectorCompat });
+
+      const injector = new VectorContextInjector({ registry });
+      const messages = createMessages([
+        'First question',
+        'First answer',
+        'Second question',
+        'Second answer',
+        'Third question'
+      ]);
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        queryConstruction: {
+          messagesToInclude: 3,
+          includeAssistantMessages: true,
+          includeSystemPrompt: 'never'
+        }
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      // Last 3 messages: "Second question", "Second answer", "Third question"
+      expect(result.query).toContain('Second question');
+      expect(result.query).toContain('Second answer');
+      expect(result.query).toContain('Third question');
+      expect(result.query).not.toContain('First question');
+    });
+
+    test('includes all messages when messagesToInclude is 0', async () => {
+      const embeddingCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1]],
+          model: 'test',
+          dimensions: 1
+        }),
+        getDimensions: jest.fn()
+      };
+      const vectorCompat = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([])
+      };
+      const registry = createMockRegistry({ embeddingCompat, vectorCompat });
+
+      const injector = new VectorContextInjector({ registry });
+      const messages = createMessages([
+        'First question',
+        'First answer',
+        'Second question'
+      ]);
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        queryConstruction: {
+          messagesToInclude: 0, // 0 means all
+          includeAssistantMessages: true,
+          includeSystemPrompt: 'never'
+        }
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      // All messages should be included
+      expect(result.query).toContain('First question');
+      expect(result.query).toContain('First answer');
+      expect(result.query).toContain('Second question');
+    });
+
+    test('excludes assistant messages when includeAssistantMessages is false', async () => {
+      const embeddingCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1]],
+          model: 'test',
+          dimensions: 1
+        }),
+        getDimensions: jest.fn()
+      };
+      const vectorCompat = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([])
+      };
+      const registry = createMockRegistry({ embeddingCompat, vectorCompat });
+
+      const injector = new VectorContextInjector({ registry });
+      const messages = createMessages([
+        'First question',
+        'First answer',
+        'Second question'
+      ]);
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        queryConstruction: {
+          messagesToInclude: 0, // all
+          includeAssistantMessages: false,
+          includeSystemPrompt: 'never'
+        }
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      // Only user messages should be included
+      expect(result.query).toContain('First question');
+      expect(result.query).not.toContain('First answer');
+      expect(result.query).toContain('Second question');
+    });
+
+    test('includes system prompt when includeSystemPrompt is always', async () => {
+      const embeddingCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1]],
+          model: 'test',
+          dimensions: 1
+        }),
+        getDimensions: jest.fn()
+      };
+      const vectorCompat = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([])
+      };
+      const registry = createMockRegistry({ embeddingCompat, vectorCompat });
+
+      const injector = new VectorContextInjector({ registry });
+      const messages: Message[] = [
+        { role: Role.SYSTEM, content: [{ type: 'text', text: 'You are a helpful assistant' }] },
+        { role: Role.USER, content: [{ type: 'text', text: 'User question' }] }
+      ];
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        queryConstruction: {
+          messagesToInclude: 1, // only last message
+          includeAssistantMessages: true,
+          includeSystemPrompt: 'always'
+        }
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      // System prompt should be included even though messagesToInclude is 1
+      expect(result.query).toContain('You are a helpful assistant');
+      expect(result.query).toContain('User question');
+    });
+
+    test('excludes system prompt when includeSystemPrompt is never', async () => {
+      const embeddingCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1]],
+          model: 'test',
+          dimensions: 1
+        }),
+        getDimensions: jest.fn()
+      };
+      const vectorCompat = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([])
+      };
+      const registry = createMockRegistry({ embeddingCompat, vectorCompat });
+
+      const injector = new VectorContextInjector({ registry });
+      const messages: Message[] = [
+        { role: Role.SYSTEM, content: [{ type: 'text', text: 'You are a helpful assistant' }] },
+        { role: Role.USER, content: [{ type: 'text', text: 'User question' }] }
+      ];
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        queryConstruction: {
+          messagesToInclude: 0, // all messages
+          includeAssistantMessages: true,
+          includeSystemPrompt: 'never'
+        }
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      // System prompt should NOT be included
+      expect(result.query).not.toContain('You are a helpful assistant');
+      expect(result.query).toContain('User question');
+    });
+
+    test('includes system prompt if-in-range when messagesToInclude covers it', async () => {
+      const embeddingCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1]],
+          model: 'test',
+          dimensions: 1
+        }),
+        getDimensions: jest.fn()
+      };
+      const vectorCompat = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([])
+      };
+      const registry = createMockRegistry({ embeddingCompat, vectorCompat });
+
+      const injector = new VectorContextInjector({ registry });
+      const messages: Message[] = [
+        { role: Role.SYSTEM, content: [{ type: 'text', text: 'System instructions' }] },
+        { role: Role.USER, content: [{ type: 'text', text: 'Only user message' }] }
+      ];
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        queryConstruction: {
+          messagesToInclude: 5, // More than total messages, so system is in range
+          includeAssistantMessages: true,
+          includeSystemPrompt: 'if-in-range'
+        }
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      // System prompt should be included because total messages (2) <= messagesToInclude (5)
+      expect(result.query).toContain('System instructions');
+      expect(result.query).toContain('Only user message');
+    });
+
+    test('excludes system prompt if-in-range when messagesToInclude does not cover it', async () => {
+      const embeddingCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1]],
+          model: 'test',
+          dimensions: 1
+        }),
+        getDimensions: jest.fn()
+      };
+      const vectorCompat = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([])
+      };
+      const registry = createMockRegistry({ embeddingCompat, vectorCompat });
+
+      const injector = new VectorContextInjector({ registry });
+      const messages: Message[] = [
+        { role: Role.SYSTEM, content: [{ type: 'text', text: 'System instructions' }] },
+        { role: Role.USER, content: [{ type: 'text', text: 'First question' }] },
+        { role: Role.ASSISTANT, content: [{ type: 'text', text: 'First answer' }] },
+        { role: Role.USER, content: [{ type: 'text', text: 'Second question' }] },
+        { role: Role.ASSISTANT, content: [{ type: 'text', text: 'Second answer' }] },
+        { role: Role.USER, content: [{ type: 'text', text: 'Third question' }] }
+      ];
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        queryConstruction: {
+          messagesToInclude: 2, // Only last 2 messages
+          includeAssistantMessages: true,
+          includeSystemPrompt: 'if-in-range'
+        }
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      // System prompt should NOT be included because total messages (6) > messagesToInclude (2)
+      expect(result.query).not.toContain('System instructions');
+      expect(result.query).toContain('Second answer');
+      expect(result.query).toContain('Third question');
+    });
+
+    test('uses default queryConstruction settings when not specified', async () => {
+      const embeddingCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1]],
+          model: 'test',
+          dimensions: 1
+        }),
+        getDimensions: jest.fn()
+      };
+      const vectorCompat = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([])
+      };
+      const registry = createMockRegistry({ embeddingCompat, vectorCompat });
+
+      const injector = new VectorContextInjector({ registry });
+      const messages = createMessages([
+        'First question',
+        'First answer',
+        'Second question'
+      ]);
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto'
+        // No queryConstruction - should use defaults (messagesToInclude: 1)
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      // Default is messagesToInclude: 1, so only last user message
+      expect(result.query).toBe('Second question');
+      expect(result.query).not.toContain('First');
+    });
+
+    test('handles empty overrideEmbeddingQuery by falling back to normal extraction', async () => {
+      const embeddingCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1]],
+          model: 'test',
+          dimensions: 1
+        }),
+        getDimensions: jest.fn()
+      };
+      const vectorCompat = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([])
+      };
+      const registry = createMockRegistry({ embeddingCompat, vectorCompat });
+
+      const injector = new VectorContextInjector({ registry });
+      const messages = createMessages(['User question']);
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        overrideEmbeddingQuery: '   ' // whitespace only
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      // Should fall back to normal extraction since override is empty/whitespace
+      expect(result.query).toBe('User question');
+    });
+
+    test('combines user and assistant messages with newlines', async () => {
+      const embeddingCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1]],
+          model: 'test',
+          dimensions: 1
+        }),
+        getDimensions: jest.fn()
+      };
+      const vectorCompat = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([])
+      };
+      const registry = createMockRegistry({ embeddingCompat, vectorCompat });
+
+      const injector = new VectorContextInjector({ registry });
+      const messages = createMessages([
+        'Question one',
+        'Answer one',
+        'Question two'
+      ]);
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        queryConstruction: {
+          messagesToInclude: 3,
+          includeAssistantMessages: true,
+          includeSystemPrompt: 'never'
+        }
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      // Messages should be joined with newlines
+      expect(result.query).toBe('Question one\nAnswer one\nQuestion two');
+    });
+  });
+
   describe('injection position edge cases', () => {
     test('appends to existing system message', async () => {
       const vectorCompat = {
@@ -671,10 +1109,10 @@ describe('utils/vector/vector-context-injector', () => {
       expect(systemText).toContain('Context result');
     });
 
-    test('injects context when only assistant messages exist (no user)', async () => {
-      // This tests line 277: result.push(contextMessage) when no user message exists
-      // But since extractQuery requires a user message, this path may not be reachable
-      // in normal usage. We verify the code handles empty messages gracefully.
+    test('handles empty query gracefully when assistant messages excluded and no user message exists', async () => {
+      // This tests the scenario where no extractable content exists.
+      // With includeAssistantMessages: false and no user messages, query extraction
+      // returns empty and we verify the code handles this gracefully.
       const vectorCompat = {
         connect: jest.fn(),
         close: jest.fn(),
@@ -693,12 +1131,16 @@ describe('utils/vector/vector-context-injector', () => {
       const config: VectorContextConfig = {
         stores: ['test-store'],
         mode: 'auto',
-        injectAs: 'user_context'
+        injectAs: 'user_context',
+        // Explicitly exclude assistant messages to test empty query scenario
+        queryConstruction: {
+          includeAssistantMessages: false
+        }
       };
 
       const result = await injector.injectContext(messages, config);
 
-      // Without a user message, query extraction returns empty, so no injection
+      // Without user messages and with assistant messages excluded, query extraction returns empty
       expect(result.resultsInjected).toBe(0);
       expect(result.query).toBe('');
     });

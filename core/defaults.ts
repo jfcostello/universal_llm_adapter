@@ -33,7 +33,12 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
     batchSize: 10,
     includePayload: true,
     includeVector: false,
-    defaultCollection: 'default'
+    defaultCollection: 'default',
+    queryConstruction: {
+      includeSystemPrompt: 'if-in-range',
+      includeAssistantMessages: true,
+      messagesToInclude: 1
+    }
   },
   chunking: {
     size: 500,

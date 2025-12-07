@@ -301,6 +301,58 @@ describeLive('live/vector-auto-inject', () => {
     }, 90000);
   });
 
+  describe('query construction settings', () => {
+    // Note: The queryConstruction and overrideEmbeddingQuery features are tested in unit tests
+    // (tests/unit/utils/vector/vector-context-injector.test.ts) where we can reliably mock
+    // the vector store responses. Live tests here depend on timing of vector indexing and
+    // embedding similarity thresholds which can be unreliable.
+
+    test('queryConstruction with multiple messages', async () => {
+      if (!llmCoordinator) return;
+
+      // Multi-turn conversation where we want context from previous messages
+      const spec: LLMCallSpec = {
+        systemPrompt: 'Answer based on the provided context.',
+        messages: [
+          {
+            role: 'user' as any,
+            content: [{ type: 'text', text: 'I want to learn about programming languages.' }]
+          },
+          {
+            role: 'assistant' as any,
+            content: [{ type: 'text', text: 'Sure! What programming language interests you?' }]
+          },
+          {
+            role: 'user' as any,
+            content: [{ type: 'text', text: 'Tell me about Python specifically.' }]
+          }
+        ],
+        vectorContext: {
+          stores: ['qdrant-cloud'],
+          collection: TEST_COLLECTION,
+          mode: 'auto',
+          topK: 2,
+          injectAs: 'system',
+          queryConstruction: {
+            messagesToInclude: 3, // Include all 3 messages
+            includeAssistantMessages: true,
+            includeSystemPrompt: 'never'
+          }
+        },
+        llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
+        settings: { temperature: 0, maxTokens: 200 }
+      };
+
+      const response = await llmCoordinator.run(spec);
+
+      const textContent = response.content.find(c => c.type === 'text');
+      const text = (textContent as any).text.toLowerCase();
+
+      // Should find Python info since the combined query mentions programming and Python
+      expect(text.includes('python') || text.includes('guido') || text.includes('1991')).toBe(true);
+    }, 60000);
+  });
+
   describe('streaming with vector context', () => {
     test('streams response with auto-injected context', async () => {
       if (!llmCoordinator) return;

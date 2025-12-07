@@ -671,6 +671,10 @@ interface VectorContextConfig {
   collection?: string;                    // Collection to query
   embeddingPriority?: EmbeddingPriorityItem[];
 
+  // Query construction (auto/both modes)
+  overrideEmbeddingQuery?: string;        // Use this exact query instead of extracting from messages
+  queryConstruction?: QueryConstructionSettings;  // Control how query is built from messages
+
   // Auto-inject config
   injectAs?: 'system' | 'user_context';   // Default: 'system'
   injectTemplate?: string;                // Default: "Relevant context:\n{{results}}"
@@ -684,6 +688,12 @@ interface VectorContextConfig {
   locks?: VectorSearchLocks;              // Lock parameters from LLM override
 }
 
+interface QueryConstructionSettings {
+  includeSystemPrompt?: 'always' | 'never' | 'if-in-range';  // Default: 'if-in-range'
+  includeAssistantMessages?: boolean;     // Default: true
+  messagesToInclude?: number;             // Default: 1 (0 = all messages)
+}
+
 interface VectorSearchLocks {
   store?: string;                         // Lock which store to use
   topK?: number;                          // Lock result count
@@ -691,6 +701,69 @@ interface VectorSearchLocks {
   scoreThreshold?: number;                // Lock minimum score
   collection?: string;                    // Lock collection name
 }
+```
+
+#### Query Construction (Auto/Both Modes)
+
+In `auto` and `both` modes, the adapter extracts a query from the conversation to embed and search the vector store. By default, it uses only the most recent user message. The `queryConstruction` settings give you control over this behavior.
+
+**Query Construction Settings**
+
+| Setting | Values | Default | Description |
+|---------|--------|---------|-------------|
+| `messagesToInclude` | number | `1` | How many recent messages to include. `0` = all messages |
+| `includeAssistantMessages` | boolean | `true` | Whether assistant responses are included in query extraction |
+| `includeSystemPrompt` | `'always'` \| `'never'` \| `'if-in-range'` | `'if-in-range'` | When to include system prompt in query |
+
+**System Prompt Inclusion Logic**
+
+- `'never'`: System prompt is never included in the query
+- `'always'`: System prompt is always included
+- `'if-in-range'`: Include if total messages (including system) ≤ `messagesToInclude`, or if `messagesToInclude` is 0 (all)
+
+**Examples**
+
+```typescript
+// Default behavior: Last user message only
+const response = await coordinator.run({
+  systemPrompt: 'You are a coding assistant.',
+  messages: [
+    { role: 'user', content: [{ type: 'text', text: 'How do promises work?' }] },
+    { role: 'assistant', content: [{ type: 'text', text: 'Promises are...' }] },
+    { role: 'user', content: [{ type: 'text', text: 'Can you show an example?' }] }
+  ],
+  vectorContext: {
+    stores: ['docs'],
+    mode: 'auto'
+    // Query will be: "Can you show an example?"
+  }
+});
+
+// Include conversation context
+const response = await coordinator.run({
+  messages: [...],
+  vectorContext: {
+    stores: ['docs'],
+    mode: 'auto',
+    queryConstruction: {
+      messagesToInclude: 3,              // Last 3 messages
+      includeAssistantMessages: true,    // Include assistant responses
+      includeSystemPrompt: 'never'       // Don't include system prompt
+    }
+    // Query will combine last 3 messages for richer context
+  }
+});
+
+// Override query extraction entirely
+const response = await coordinator.run({
+  messages: [...],
+  vectorContext: {
+    stores: ['docs'],
+    mode: 'auto',
+    overrideEmbeddingQuery: 'JavaScript async/await patterns'
+    // Ignores all messages, uses this exact query
+  }
+});
 ```
 
 #### Parameter Locking (Tool Mode)

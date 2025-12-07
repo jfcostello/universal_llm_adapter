@@ -364,6 +364,22 @@ export interface VectorContextConfig {
    * Use this to constrain LLM behavior for security or consistency.
    */
   locks?: VectorSearchLocks;
+
+  // ========================================
+  // Query construction configuration
+  // ========================================
+
+  /**
+   * Override the embedding query with a custom string.
+   * When provided, bypasses all message extraction logic and uses this string directly.
+   */
+  overrideEmbeddingQuery?: string;
+
+  /**
+   * Settings for constructing the embedding query from conversation messages.
+   * Only used when overrideEmbeddingQuery is not provided.
+   */
+  queryConstruction?: Partial<QueryConstructionSettings>;
 }
 
 export interface LLMCallSpec {
@@ -772,6 +788,30 @@ export interface ToolDefaults {
 /**
  * Vector store and retrieval default settings.
  */
+/**
+ * Settings for constructing the embedding query from conversation messages.
+ */
+export interface QueryConstructionSettings {
+  /**
+   * Whether to include the system prompt in the embedding query.
+   * - 'always': Always include system prompt
+   * - 'never': Never include system prompt
+   * - 'if-in-range': Include only if messagesToInclude covers the system message
+   */
+  includeSystemPrompt: 'always' | 'never' | 'if-in-range';
+
+  /**
+   * Whether to include assistant messages in the embedding query.
+   */
+  includeAssistantMessages: boolean;
+
+  /**
+   * Number of messages to include in the embedding query.
+   * 0 = all messages, 1 = most recent only, 2 = last 2 messages, etc.
+   */
+  messagesToInclude: number;
+}
+
 export interface VectorDefaults {
   topK: number;
   injectTemplate: string;
@@ -780,6 +820,7 @@ export interface VectorDefaults {
   includePayload: boolean;
   includeVector: boolean;
   defaultCollection: string;
+  queryConstruction: QueryConstructionSettings;
 }
 
 /**

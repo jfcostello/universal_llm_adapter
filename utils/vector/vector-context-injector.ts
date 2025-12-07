@@ -9,7 +9,8 @@ import {
   VectorContextConfig,
   EmbeddingPriorityItem,
   TextContent,
-  JsonObject
+  JsonObject,
+  QueryConstructionSettings
 } from '../../core/types.js';
 import { PluginRegistry } from '../../core/registry.js';
 import { EmbeddingManager } from '../../managers/embedding-manager.js';
@@ -86,8 +87,8 @@ export class VectorContextInjector {
       };
     }
 
-    // Extract query from last user message
-    const query = this.extractQuery(messages);
+    // Extract query from messages based on config
+    const query = this.extractQuery(messages, config);
     if (!query) {
       return {
         messages,
@@ -197,21 +198,97 @@ export class VectorContextInjector {
   }
 
   /**
-   * Extract the query from the last user message.
+   * Extract the query from messages based on configuration.
    */
-  private extractQuery(messages: Message[]): string {
-    // Find the last user message
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const message = messages[i];
-      if (message.role === Role.USER) {
-        // Find text content
-        for (const part of message.content) {
-          if (part.type === 'text') {
-            const text = (part as TextContent).text;
-            if (text && text.trim()) {
-              return text.trim();
-            }
-          }
+  private extractQuery(messages: Message[], config: VectorContextConfig): string {
+    // Check for override first
+    if (config.overrideEmbeddingQuery && config.overrideEmbeddingQuery.trim()) {
+      return config.overrideEmbeddingQuery.trim();
+    }
+
+    // Get query construction settings with defaults
+    const defaults = getVectorDefaults().queryConstruction;
+    const settings: QueryConstructionSettings = {
+      includeSystemPrompt: config.queryConstruction?.includeSystemPrompt ?? defaults.includeSystemPrompt,
+      includeAssistantMessages: config.queryConstruction?.includeAssistantMessages ?? defaults.includeAssistantMessages,
+      messagesToInclude: config.queryConstruction?.messagesToInclude ?? defaults.messagesToInclude
+    };
+
+    // Separate system message from other messages
+    let systemMessage: Message | null = null;
+    let nonSystemMessages: Message[] = [];
+
+    for (const msg of messages) {
+      if (msg.role === Role.SYSTEM) {
+        systemMessage = msg;
+      } else {
+        nonSystemMessages.push(msg);
+      }
+    }
+
+    // Determine which messages to include based on messagesToInclude
+    let messagesToProcess: Message[] = [];
+
+    if (settings.messagesToInclude === 0) {
+      // Include all non-system messages
+      messagesToProcess = nonSystemMessages;
+    } else {
+      // Include last N messages
+      messagesToProcess = nonSystemMessages.slice(-settings.messagesToInclude);
+    }
+
+    // Filter by role (always include user, optionally include assistant)
+    messagesToProcess = messagesToProcess.filter(msg => {
+      if (msg.role === Role.USER) return true;
+      if (msg.role === Role.ASSISTANT && settings.includeAssistantMessages) return true;
+      return false;
+    });
+
+    // Determine if system prompt should be included
+    let includeSystem = false;
+    if (systemMessage) {
+      if (settings.includeSystemPrompt === 'always') {
+        includeSystem = true;
+      } else if (settings.includeSystemPrompt === 'if-in-range') {
+        // Include if total messages (including system) <= messagesToInclude
+        // Or if messagesToInclude is 0 (all messages)
+        const totalMessages = messages.length;
+        includeSystem = settings.messagesToInclude === 0 || totalMessages <= settings.messagesToInclude;
+      }
+      // 'never' means includeSystem stays false
+    }
+
+    // Build the query text
+    const queryParts: string[] = [];
+
+    // Add system message first if included
+    if (includeSystem && systemMessage) {
+      const systemText = this.extractTextFromMessage(systemMessage);
+      if (systemText) {
+        queryParts.push(systemText);
+      }
+    }
+
+    // Add other messages in order
+    for (const msg of messagesToProcess) {
+      const text = this.extractTextFromMessage(msg);
+      if (text) {
+        queryParts.push(text);
+      }
+    }
+
+    return queryParts.join('\n').trim();
+  }
+
+  /**
+   * Extract text content from a message.
+   */
+  private extractTextFromMessage(message: Message): string {
+    for (const part of message.content) {
+      if (part.type === 'text') {
+        const text = (part as TextContent).text;
+        if (text && text.trim()) {
+          return text.trim();
         }
       }
     }
