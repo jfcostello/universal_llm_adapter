@@ -241,6 +241,188 @@ describe('coordinator/vector-coordinator', () => {
           expect.anything()
         );
       });
+
+      test('respects batchSize setting and processes in batches', async () => {
+        const embeddingCompat = {
+          embed: jest.fn()
+            .mockResolvedValueOnce({ vectors: [[0.1], [0.2]], model: 'test', dimensions: 1 })
+            .mockResolvedValueOnce({ vectors: [[0.3], [0.4]], model: 'test', dimensions: 1 })
+            .mockResolvedValueOnce({ vectors: [[0.5]], model: 'test', dimensions: 1 }),
+          getDimensions: jest.fn().mockReturnValue(1)
+        };
+        const vectorCompat = createMockVectorCompat();
+        const registry = createMockRegistry({ embeddingCompat, vectorCompat });
+
+        const coordinator = new VectorStoreCoordinator(registry);
+        const result = await coordinator.execute({
+          operation: 'embed',
+          store: 'test-store',
+          embeddingPriority: [{ provider: 'test-embeddings' }],
+          input: {
+            texts: ['text1', 'text2', 'text3', 'text4', 'text5']
+          },
+          settings: { batchSize: 2 }
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.embedded).toBe(5);
+        expect(result.upserted).toBe(5);
+        // Should have been called 3 times: batch of 2, batch of 2, batch of 1
+        expect(embeddingCompat.embed).toHaveBeenCalledTimes(3);
+        expect(embeddingCompat.embed).toHaveBeenNthCalledWith(
+          1,
+          ['text1', 'text2'],
+          expect.anything(),
+          undefined,
+          expect.anything()
+        );
+        expect(embeddingCompat.embed).toHaveBeenNthCalledWith(
+          2,
+          ['text3', 'text4'],
+          expect.anything(),
+          undefined,
+          expect.anything()
+        );
+        expect(embeddingCompat.embed).toHaveBeenNthCalledWith(
+          3,
+          ['text5'],
+          expect.anything(),
+          undefined,
+          expect.anything()
+        );
+      });
+
+      test('uses default batchSize of 10 when not specified', async () => {
+        // Create 15 texts to verify default batch size of 10
+        const texts = Array.from({ length: 15 }, (_, i) => `text${i + 1}`);
+        const embeddingCompat = {
+          embed: jest.fn()
+            .mockResolvedValueOnce({ vectors: texts.slice(0, 10).map(() => [0.1]), model: 'test', dimensions: 1 })
+            .mockResolvedValueOnce({ vectors: texts.slice(10, 15).map(() => [0.1]), model: 'test', dimensions: 1 }),
+          getDimensions: jest.fn().mockReturnValue(1)
+        };
+        const vectorCompat = createMockVectorCompat();
+        const registry = createMockRegistry({ embeddingCompat, vectorCompat });
+
+        const coordinator = new VectorStoreCoordinator(registry);
+        const result = await coordinator.execute({
+          operation: 'embed',
+          store: 'test-store',
+          embeddingPriority: [{ provider: 'test-embeddings' }],
+          input: { texts }
+          // No settings.batchSize - should default to 10
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.embedded).toBe(15);
+        // Should have been called twice: batch of 10, batch of 5
+        expect(embeddingCompat.embed).toHaveBeenCalledTimes(2);
+        expect(embeddingCompat.embed).toHaveBeenNthCalledWith(
+          1,
+          texts.slice(0, 10),
+          expect.anything(),
+          undefined,
+          expect.anything()
+        );
+        expect(embeddingCompat.embed).toHaveBeenNthCalledWith(
+          2,
+          texts.slice(10, 15),
+          expect.anything(),
+          undefined,
+          expect.anything()
+        );
+      });
+
+      test('handles single batch when texts.length <= batchSize', async () => {
+        const embeddingCompat = {
+          embed: jest.fn().mockResolvedValue({
+            vectors: [[0.1], [0.2], [0.3]],
+            model: 'test',
+            dimensions: 1
+          }),
+          getDimensions: jest.fn().mockReturnValue(1)
+        };
+        const vectorCompat = createMockVectorCompat();
+        const registry = createMockRegistry({ embeddingCompat, vectorCompat });
+
+        const coordinator = new VectorStoreCoordinator(registry);
+        const result = await coordinator.execute({
+          operation: 'embed',
+          store: 'test-store',
+          embeddingPriority: [{ provider: 'test-embeddings' }],
+          input: {
+            texts: ['a', 'b', 'c']
+          },
+          settings: { batchSize: 10 }
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.embedded).toBe(3);
+        // Should only be called once since 3 < 10
+        expect(embeddingCompat.embed).toHaveBeenCalledTimes(1);
+      });
+
+      test('preserves chunk IDs and metadata across batches', async () => {
+        const embeddingCompat = {
+          embed: jest.fn()
+            .mockResolvedValueOnce({ vectors: [[0.1], [0.2]], model: 'test', dimensions: 1 })
+            .mockResolvedValueOnce({ vectors: [[0.3]], model: 'test', dimensions: 1 }),
+          getDimensions: jest.fn().mockReturnValue(1)
+        };
+        const vectorCompat = createMockVectorCompat();
+        const registry = createMockRegistry({ embeddingCompat, vectorCompat });
+
+        const coordinator = new VectorStoreCoordinator(registry);
+        const result = await coordinator.execute({
+          operation: 'embed',
+          store: 'test-store',
+          embeddingPriority: [{ provider: 'test-embeddings' }],
+          input: {
+            chunks: [
+              { id: 'chunk-1', text: 'Content 1', metadata: { page: 1 } },
+              { id: 'chunk-2', text: 'Content 2', metadata: { page: 2 } },
+              { id: 'chunk-3', text: 'Content 3', metadata: { page: 3 } }
+            ]
+          },
+          settings: { batchSize: 2 }
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.embedded).toBe(3);
+        expect(vectorCompat.upsert).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.arrayContaining([
+            expect.objectContaining({ id: 'chunk-1', payload: expect.objectContaining({ page: 1 }) }),
+            expect.objectContaining({ id: 'chunk-2', payload: expect.objectContaining({ page: 2 }) }),
+            expect.objectContaining({ id: 'chunk-3', payload: expect.objectContaining({ page: 3 }) })
+          ])
+        );
+      });
+
+      test('handles error in middle of batch processing', async () => {
+        const embeddingCompat = {
+          embed: jest.fn()
+            .mockResolvedValueOnce({ vectors: [[0.1], [0.2]], model: 'test', dimensions: 1 })
+            .mockRejectedValueOnce(new Error('Rate limit exceeded')),
+          getDimensions: jest.fn().mockReturnValue(1)
+        };
+        const vectorCompat = createMockVectorCompat();
+        const registry = createMockRegistry({ embeddingCompat, vectorCompat });
+
+        const coordinator = new VectorStoreCoordinator(registry);
+        const result = await coordinator.execute({
+          operation: 'embed',
+          store: 'test-store',
+          embeddingPriority: [{ provider: 'test-embeddings' }],
+          input: {
+            texts: ['text1', 'text2', 'text3', 'text4']
+          },
+          settings: { batchSize: 2 }
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Rate limit exceeded');
+      });
     });
 
     describe('upsert operation', () => {

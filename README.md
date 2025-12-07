@@ -519,6 +519,17 @@ npx ts-node vector_store_coordinator.ts embed --spec '{
   "input": { "texts": ["Hello world", "Machine learning is..."] }
 }'
 
+# Embed with custom batch size (default: 10)
+# The batchSize setting controls how many texts are embedded per API call.
+# This applies to both streaming and non-streaming embed operations.
+npx ts-node vector_store_coordinator.ts embed --spec '{
+  "operation": "embed",
+  "store": "qdrant-local",
+  "embeddingPriority": [{ "provider": "openrouter-embeddings" }],
+  "input": { "texts": ["Text 1", "Text 2", "Text 3", "Text 4", "Text 5"] },
+  "settings": { "batchSize": 2 }
+}'
+
 # Query with a text query (auto-embedded)
 npx ts-node vector_store_coordinator.ts query --spec '{
   "operation": "query",

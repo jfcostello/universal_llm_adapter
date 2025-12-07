@@ -96,6 +96,8 @@ export class VectorStoreCoordinator {
   // ========================================
 
   private async executeEmbed(spec: VectorCallSpec): Promise<VectorOperationResult> {
+    const batchSize = spec.settings?.batchSize ?? 10;
+
     // Validate embedding priority
     if (!spec.embeddingPriority || spec.embeddingPriority.length === 0) {
       return {
@@ -119,32 +121,48 @@ export class VectorStoreCoordinator {
     // Ensure managers are ready
     await this.ensureManagers(spec);
 
-    // Embed texts
-    const embeddingResult = await this.embeddingManager!.embed(texts, spec.embeddingPriority);
+    // Process in batches to respect batchSize setting
+    const allPoints: VectorPoint[] = [];
+    let dimensions = 0;
 
-    // Build points for upsert
-    const points: VectorPoint[] = embeddingResult.vectors.map((vector, i) => {
-      const chunk = chunks[i];
-      return {
-        id: chunk.id || randomUUID(),
-        vector,
-        payload: {
-          text: chunk.text,
-          ...chunk.metadata
-        }
-      };
-    });
+    for (let i = 0; i < texts.length; i += batchSize) {
+      const batchEnd = Math.min(i + batchSize, texts.length);
+      const batchTexts = texts.slice(i, batchEnd);
+      const batchChunks = chunks.slice(i, batchEnd);
 
-    // Upsert to vector store
+      // Embed batch
+      const embeddingResult = await this.embeddingManager!.embed(
+        batchTexts,
+        spec.embeddingPriority
+      );
+      dimensions = embeddingResult.dimensions;
+
+      // Build points for this batch
+      const points: VectorPoint[] = embeddingResult.vectors.map((vector, j) => {
+        const chunk = batchChunks[j];
+        return {
+          id: chunk.id || randomUUID(),
+          vector,
+          payload: {
+            text: chunk.text,
+            ...chunk.metadata
+          }
+        };
+      });
+
+      allPoints.push(...points);
+    }
+
+    // Upsert all accumulated points to vector store
     const collection = await this.resolveCollection(spec);
-    await this.vectorManager!.upsert(spec.store, points, collection);
+    await this.vectorManager!.upsert(spec.store, allPoints, collection);
 
     return {
       operation: 'embed',
       success: true,
       embedded: texts.length,
-      upserted: points.length,
-      dimensions: embeddingResult.dimensions
+      upserted: allPoints.length,
+      dimensions
     };
   }
 
