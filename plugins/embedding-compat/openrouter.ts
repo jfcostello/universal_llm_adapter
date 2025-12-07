@@ -100,6 +100,18 @@ export default class OpenRouterEmbeddingCompat implements IEmbeddingCompat {
 
       const data = response.data as OpenRouterEmbeddingResponse;
 
+      // Validate response structure before processing
+      if (!data.data || !Array.isArray(data.data)) {
+        // Extract error message from response if available
+        const errorMsg = (data as any)?.error?.message ||
+          (typeof data === 'string' ? data : JSON.stringify(data));
+        throw new EmbeddingProviderError(
+          'openrouter',
+          `Invalid response structure: ${errorMsg}`,
+          response.status
+        );
+      }
+
       // Sort by index to ensure correct order
       const sortedData = [...data.data].sort((a, b) => a.index - b.index);
       const vectors = sortedData.map(item => item.embedding);

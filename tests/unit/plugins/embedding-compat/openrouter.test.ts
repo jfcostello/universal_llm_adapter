@@ -173,6 +173,110 @@ describe('plugins/embedding-compat/openrouter', () => {
       }
     });
 
+    test('throws meaningful error when response.data.data is undefined', async () => {
+      const mockHttpClient = createMockHttpClient({
+        status: 200,
+        data: {
+          object: 'error',
+          error: { message: 'Input exceeds maximum token limit' }
+          // data field is missing
+        }
+      });
+
+      const compat = new OpenRouterEmbeddingCompat(mockHttpClient as any);
+
+      try {
+        await compat.embed('test', createConfig());
+        fail('Should have thrown');
+      } catch (error: any) {
+        expect(error).toBeInstanceOf(EmbeddingProviderError);
+        expect(error.message).toContain('Invalid response structure');
+        expect(error.message).toContain('Input exceeds maximum token limit');
+      }
+    });
+
+    test('throws meaningful error when response.data.data is not an array', async () => {
+      const mockHttpClient = createMockHttpClient({
+        status: 200,
+        data: {
+          object: 'error',
+          data: 'not an array',
+          error: { message: 'Model not found' }
+        }
+      });
+
+      const compat = new OpenRouterEmbeddingCompat(mockHttpClient as any);
+
+      try {
+        await compat.embed('test', createConfig());
+        fail('Should have thrown');
+      } catch (error: any) {
+        expect(error).toBeInstanceOf(EmbeddingProviderError);
+        expect(error.message).toContain('Invalid response structure');
+        expect(error.message).toContain('Model not found');
+      }
+    });
+
+    test('throws meaningful error when response.data.data is null', async () => {
+      const mockHttpClient = createMockHttpClient({
+        status: 200,
+        data: {
+          object: 'list',
+          data: null,
+          model: 'test'
+        }
+      });
+
+      const compat = new OpenRouterEmbeddingCompat(mockHttpClient as any);
+
+      try {
+        await compat.embed('test', createConfig());
+        fail('Should have thrown');
+      } catch (error: any) {
+        expect(error).toBeInstanceOf(EmbeddingProviderError);
+        expect(error.message).toContain('Invalid response structure');
+      }
+    });
+
+    test('handles invalid response with string body when no error object', async () => {
+      const mockHttpClient = createMockHttpClient({
+        status: 200,
+        data: 'Unexpected string response'
+      });
+
+      const compat = new OpenRouterEmbeddingCompat(mockHttpClient as any);
+
+      try {
+        await compat.embed('test', createConfig());
+        fail('Should have thrown');
+      } catch (error: any) {
+        expect(error).toBeInstanceOf(EmbeddingProviderError);
+        expect(error.message).toContain('Invalid response structure');
+        expect(error.message).toContain('Unexpected string response');
+      }
+    });
+
+    test('stringifies response when no error message available', async () => {
+      const mockHttpClient = createMockHttpClient({
+        status: 200,
+        data: {
+          unexpected: 'structure',
+          without: 'error field'
+        }
+      });
+
+      const compat = new OpenRouterEmbeddingCompat(mockHttpClient as any);
+
+      try {
+        await compat.embed('test', createConfig());
+        fail('Should have thrown');
+      } catch (error: any) {
+        expect(error).toBeInstanceOf(EmbeddingProviderError);
+        expect(error.message).toContain('Invalid response structure');
+        expect(error.message).toContain('unexpected');
+      }
+    });
+
     test('uses dimensions from response when available', async () => {
       const mockHttpClient = createMockHttpClient({
         status: 200,
