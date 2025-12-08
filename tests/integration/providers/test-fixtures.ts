@@ -219,3 +219,34 @@ export const reasoningSettings = {
   temperature: 0.7,
   reasoning: { enabled: true, budget: 4096 }
 };
+
+// Reasoning settings - enabled only
+export const reasoningEnabledOnly = {
+  reasoning: { enabled: true }
+};
+
+// Reasoning settings - budget only
+export const reasoningBudgetOnly = {
+  reasoning: { budget: 2000 }
+};
+
+// Reasoning settings - effort only
+export const reasoningEffortOnly = {
+  reasoning: { effort: 'high' as const }
+};
+
+// Reasoning settings - exclude only
+export const reasoningExcludeOnly = {
+  reasoning: { exclude: true }
+};
+
+// Reasoning settings - combined
+export const reasoningCombined = {
+  reasoning: { enabled: true, effort: 'high' as const, exclude: false }
+};
+
+// Reasoning settings - with reasoningBudget fallback
+export const reasoningBudgetFallback = {
+  reasoning: { enabled: true },
+  reasoningBudget: 3000
+};

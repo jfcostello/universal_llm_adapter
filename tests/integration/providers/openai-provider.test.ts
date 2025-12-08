@@ -16,7 +16,13 @@ import {
   invalidNameMessages,
   allSettings,
   minimalSettings,
-  reasoningSettings
+  reasoningSettings,
+  reasoningEnabledOnly,
+  reasoningBudgetOnly,
+  reasoningEffortOnly,
+  reasoningExcludeOnly,
+  reasoningCombined,
+  reasoningBudgetFallback
 } from './test-fixtures.ts';
 
 describe('integration/providers/openai-provider', () => {
@@ -246,6 +252,65 @@ describe('integration/providers/openai-provider', () => {
 
         expect(payload.temperature).toBe(0);
         expect(payload.top_p).toBeUndefined();
+      });
+
+      describe('reasoning settings serialization', () => {
+        test('serializes reasoning with enabled only', () => {
+          const payload = compat.buildPayload('gpt-4', reasoningEnabledOnly, baseMessages, [], undefined);
+
+          expect(payload.reasoning).toEqual({ enabled: true });
+        });
+
+        test('serializes reasoning with budget (maps to max_tokens)', () => {
+          const payload = compat.buildPayload('gpt-4', reasoningBudgetOnly, baseMessages, [], undefined);
+
+          expect(payload.reasoning).toEqual({ max_tokens: 2000 });
+        });
+
+        test('serializes reasoning with effort', () => {
+          const payload = compat.buildPayload('gpt-4', reasoningEffortOnly, baseMessages, [], undefined);
+
+          expect(payload.reasoning).toEqual({ effort: 'high' });
+        });
+
+        test('serializes reasoning with exclude', () => {
+          const payload = compat.buildPayload('gpt-4', reasoningExcludeOnly, baseMessages, [], undefined);
+
+          expect(payload.reasoning).toEqual({ exclude: true });
+        });
+
+        test('serializes reasoning with combined options', () => {
+          const payload = compat.buildPayload('gpt-4', reasoningCombined, baseMessages, [], undefined);
+
+          expect(payload.reasoning).toEqual({ enabled: true, effort: 'high', exclude: false });
+        });
+
+        test('uses reasoningBudget fallback when budget not in reasoning object', () => {
+          const payload = compat.buildPayload('gpt-4', reasoningBudgetFallback, baseMessages, [], undefined);
+
+          expect(payload.reasoning).toEqual({ enabled: true, max_tokens: 3000 });
+        });
+
+        test('does not include reasoning when undefined', () => {
+          const payload = compat.buildPayload('gpt-4', {}, baseMessages, [], undefined);
+
+          expect(payload.reasoning).toBeUndefined();
+        });
+
+        test('prefers budget over reasoningBudget when both present', () => {
+          const settings = { reasoning: { enabled: true, budget: 1500 }, reasoningBudget: 3000 };
+          const payload = compat.buildPayload('gpt-4', settings, baseMessages, [], undefined);
+
+          expect(payload.reasoning).toEqual({ enabled: true, max_tokens: 1500 });
+        });
+
+        test('prefers effort over budget when both present', () => {
+          const settings = { reasoning: { effort: 'medium' as const, budget: 2000 } };
+          const payload = compat.buildPayload('gpt-4', settings, baseMessages, [], undefined);
+
+          // When effort is set, budget should not be converted to max_tokens
+          expect(payload.reasoning).toEqual({ effort: 'medium' });
+        });
       });
     });
 

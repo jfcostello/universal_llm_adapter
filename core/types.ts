@@ -136,8 +136,10 @@ export interface LLMCallSettings {
   logprobs?: boolean;
   topLogprobs?: number;
   reasoning?: {
-    enabled: boolean;
+    enabled?: boolean;
+    effort?: 'high' | 'medium' | 'low' | 'minimal' | 'none' | 'xhigh';
     budget?: number;
+    exclude?: boolean;
   };
   reasoningBudget?: number;
   toolCountdownEnabled?: boolean;

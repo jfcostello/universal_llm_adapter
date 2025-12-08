@@ -207,6 +207,36 @@ export default class OpenAICompat implements ICompatModule {
       result.top_logprobs = settings.topLogprobs;
     }
 
+    // Serialize reasoning settings for OpenRouter/OpenAI-compatible providers
+    // Maps our unified reasoning format to OpenRouter's format:
+    // - enabled -> enabled
+    // - effort -> effort (mutually exclusive with max_tokens)
+    // - budget -> max_tokens (only if effort not set)
+    // - exclude -> exclude
+    if (settings.reasoning) {
+      const reasoningPayload: any = {};
+
+      if (settings.reasoning.enabled !== undefined) {
+        reasoningPayload.enabled = settings.reasoning.enabled;
+      }
+
+      // effort and max_tokens are mutually exclusive - effort takes precedence
+      if (settings.reasoning.effort) {
+        reasoningPayload.effort = settings.reasoning.effort;
+      } else if (settings.reasoning.budget || settings.reasoningBudget) {
+        // Map our 'budget' to OpenRouter's 'max_tokens'
+        reasoningPayload.max_tokens = settings.reasoning.budget || settings.reasoningBudget;
+      }
+
+      if (settings.reasoning.exclude !== undefined) {
+        reasoningPayload.exclude = settings.reasoning.exclude;
+      }
+
+      if (Object.keys(reasoningPayload).length > 0) {
+        result.reasoning = reasoningPayload;
+      }
+    }
+
     return result;
   }
 
