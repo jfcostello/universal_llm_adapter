@@ -462,6 +462,85 @@ describe('integration/vector/auto-inject', () => {
     });
   });
 
+  describe('tool mode - resultFormat configuration', () => {
+    test('formatVectorSearchResults uses resultFormat from config', async () => {
+      const { formatVectorSearchResults } = await import('@/utils/tools/vector-search-handler.ts');
+
+      const result = {
+        success: true,
+        results: [
+          { id: 'doc1', score: 0.95, payload: { text: 'Simple text', full_specs: '[FULL] Detailed specs here' } },
+          { id: 'doc2', score: 0.87, payload: { text: 'Another text', full_specs: '[FULL] More details' } }
+        ],
+        query: 'test query',
+        effectiveParams: { store: 'docs', collection: 'test', topK: 5 }
+      };
+
+      // With custom resultFormat - should use full_specs instead of text
+      const configWithFormat: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool',
+        resultFormat: '{{payload.full_specs}}'
+      };
+
+      const formatted = formatVectorSearchResults(result, configWithFormat);
+
+      // Should contain full_specs content
+      expect(formatted).toContain('[FULL] Detailed specs here');
+      expect(formatted).toContain('[FULL] More details');
+      // Should NOT contain the default text field
+      expect(formatted).not.toContain('Simple text');
+      expect(formatted).not.toContain('Another text');
+    });
+
+    test('formatVectorSearchResults uses default behavior when no resultFormat', async () => {
+      const { formatVectorSearchResults } = await import('@/utils/tools/vector-search-handler.ts');
+
+      const result = {
+        success: true,
+        results: [
+          { id: 'doc1', score: 0.95, payload: { text: 'Default text content', other: 'ignored' } }
+        ],
+        query: 'test query',
+        effectiveParams: { store: 'docs', collection: 'test', topK: 5 }
+      };
+
+      // Without resultFormat - should use payload.text
+      const configNoFormat: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool'
+      };
+
+      const formatted = formatVectorSearchResults(result, configNoFormat);
+
+      // Should use payload.text by default
+      expect(formatted).toContain('Default text content');
+    });
+
+    test('formatVectorSearchResults with resultFormat using score and id', async () => {
+      const { formatVectorSearchResults } = await import('@/utils/tools/vector-search-handler.ts');
+
+      const result = {
+        success: true,
+        results: [
+          { id: 'vehicle-123', score: 0.99, payload: { name: 'Honda Civic', year: 2024 } }
+        ],
+        query: 'test',
+        effectiveParams: { store: 'docs', collection: 'test', topK: 5 }
+      };
+
+      const config: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool',
+        resultFormat: '[{{id}}] {{payload.name}} ({{payload.year}})'
+      };
+
+      const formatted = formatVectorSearchResults(result, config);
+
+      expect(formatted).toContain('[vehicle-123] Honda Civic (2024)');
+    });
+  });
+
   describe('backward compatibility', () => {
     test('vectorPriority and vectorContext are independent', async () => {
       if (!coordinator) return;

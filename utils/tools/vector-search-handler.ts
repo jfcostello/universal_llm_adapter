@@ -18,6 +18,7 @@ import {
   getEmbeddingLogger,
   getVectorLogger
 } from '../../core/logging.js';
+import { interpolate } from '../string/interpolate.js';
 
 /**
  * Arguments provided by the LLM when calling vector_search tool.
@@ -203,8 +204,15 @@ export async function executeVectorSearch(
 /**
  * Format vector search results for LLM consumption.
  * Returns a string that can be used as tool result.
+ *
+ * @param result - The vector search result to format
+ * @param config - Optional vector context config containing resultFormat template
+ * @returns Formatted string for LLM consumption
  */
-export function formatVectorSearchResults(result: VectorSearchResult): string {
+export function formatVectorSearchResults(
+  result: VectorSearchResult,
+  config?: VectorContextConfig
+): string {
   if (!result.success) {
     return `Vector search failed: ${result.error}`;
   }
@@ -213,9 +221,26 @@ export function formatVectorSearchResults(result: VectorSearchResult): string {
     return `No results found for query: "${result.query}"`;
   }
 
+  // Check if custom resultFormat is provided
+  const customFormat = config?.resultFormat;
+
   const formatted = result.results.map((r, i) => {
-    const text = r.payload?.text ?? JSON.stringify(r.payload ?? {});
-    return `[${i + 1}] (score: ${r.score.toFixed(3)}) ${text}`;
+    let content: string;
+
+    if (customFormat) {
+      // Use custom format with interpolation
+      content = interpolate(customFormat, {
+        id: r.id,
+        score: r.score,
+        payload: r.payload ?? {}
+      });
+    } else {
+      // Default behavior: use payload.text (as string) or JSON stringify
+      const textValue = r.payload?.text;
+      content = typeof textValue === 'string' ? textValue : JSON.stringify(r.payload ?? {});
+    }
+
+    return `[${i + 1}] (score: ${r.score.toFixed(3)}) ${content}`;
   });
 
   return `Found ${result.results.length} results:\n${formatted.join('\n')}`;

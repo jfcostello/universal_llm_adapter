@@ -634,6 +634,301 @@ describe('utils/tools/vector-search-handler', () => {
     });
   });
 
+  describe('formatVectorSearchResults with resultFormat config', () => {
+    test('uses custom resultFormat from config', () => {
+      const result: VectorSearchResult = {
+        success: true,
+        results: [
+          { id: 'doc1', score: 0.95, payload: { text: 'Default text', full_specs: 'Full specifications here' } },
+          { id: 'doc2', score: 0.87, payload: { text: 'Another text', full_specs: 'More specifications' } }
+        ],
+        query: 'test query',
+        effectiveParams: {
+          store: 'docs',
+          collection: 'test',
+          topK: 5
+        }
+      };
+
+      const config: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool',
+        resultFormat: '{{payload.full_specs}}'
+      };
+
+      const formatted = formatVectorSearchResults(result, config);
+
+      expect(formatted).toContain('Found 2 results');
+      expect(formatted).toContain('Full specifications here');
+      expect(formatted).toContain('More specifications');
+      // Should NOT contain the default text field
+      expect(formatted).not.toContain('Default text');
+      expect(formatted).not.toContain('Another text');
+    });
+
+    test('uses resultFormat with score and id placeholders', () => {
+      const result: VectorSearchResult = {
+        success: true,
+        results: [
+          { id: 'vehicle-123', score: 0.99, payload: { name: 'Honda Civic' } }
+        ],
+        query: 'test',
+        effectiveParams: {
+          store: 'docs',
+          collection: 'test',
+          topK: 5
+        }
+      };
+
+      const config: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool',
+        resultFormat: '[ID: {{id}}] {{payload.name}} (relevance: {{score}})'
+      };
+
+      const formatted = formatVectorSearchResults(result, config);
+
+      expect(formatted).toContain('ID: vehicle-123');
+      expect(formatted).toContain('Honda Civic');
+      expect(formatted).toContain('relevance: 0.99');
+    });
+
+    test('uses nested payload fields in resultFormat', () => {
+      const result: VectorSearchResult = {
+        success: true,
+        results: [
+          {
+            id: 'doc1',
+            score: 0.9,
+            payload: {
+              text: 'Simple text',
+              metadata: {
+                category: 'technology',
+                author: 'John Doe'
+              }
+            }
+          }
+        ],
+        query: 'test',
+        effectiveParams: {
+          store: 'docs',
+          collection: 'test',
+          topK: 5
+        }
+      };
+
+      const config: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool',
+        resultFormat: '{{payload.metadata.category}} by {{payload.metadata.author}}: {{payload.text}}'
+      };
+
+      const formatted = formatVectorSearchResults(result, config);
+
+      expect(formatted).toContain('technology by John Doe: Simple text');
+    });
+
+    test('falls back to default behavior when config has no resultFormat', () => {
+      const result: VectorSearchResult = {
+        success: true,
+        results: [
+          { id: 'doc1', score: 0.95, payload: { text: 'Default text content' } }
+        ],
+        query: 'test',
+        effectiveParams: {
+          store: 'docs',
+          collection: 'test',
+          topK: 5
+        }
+      };
+
+      const config: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool'
+        // No resultFormat specified - should use default behavior (payload.text)
+      };
+
+      const formatted = formatVectorSearchResults(result, config);
+
+      // Should use default behavior: payload.text with score
+      expect(formatted).toContain('Found 1 results');
+      expect(formatted).toContain('Default text content');
+      expect(formatted).toContain('0.950');
+    });
+
+    test('falls back to default format when no config provided', () => {
+      const result: VectorSearchResult = {
+        success: true,
+        results: [
+          { id: 'doc1', score: 0.95, payload: { text: 'Default text content' } }
+        ],
+        query: 'test',
+        effectiveParams: {
+          store: 'docs',
+          collection: 'test',
+          topK: 5
+        }
+      };
+
+      // No config provided - should use default behavior
+      const formatted = formatVectorSearchResults(result);
+
+      expect(formatted).toContain('Found 1 results');
+      expect(formatted).toContain('Default text content');
+      expect(formatted).toContain('0.950');
+    });
+
+    test('handles missing payload fields gracefully in resultFormat', () => {
+      const result: VectorSearchResult = {
+        success: true,
+        results: [
+          { id: 'doc1', score: 0.9, payload: { text: 'Some text' } }
+        ],
+        query: 'test',
+        effectiveParams: {
+          store: 'docs',
+          collection: 'test',
+          topK: 5
+        }
+      };
+
+      const config: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool',
+        resultFormat: '{{payload.nonexistent_field}} - {{payload.text}}'
+      };
+
+      const formatted = formatVectorSearchResults(result, config);
+
+      // Missing fields should render as empty string, not throw
+      expect(formatted).toContain('Found 1 results');
+      expect(formatted).toContain(' - Some text');
+    });
+
+    test('handles null/undefined values in nested payload paths', () => {
+      const result: VectorSearchResult = {
+        success: true,
+        results: [
+          { id: 'doc1', score: 0.9, payload: { metadata: null } as any }
+        ],
+        query: 'test',
+        effectiveParams: {
+          store: 'docs',
+          collection: 'test',
+          topK: 5
+        }
+      };
+
+      const config: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool',
+        resultFormat: '{{payload.metadata.category}}'
+      };
+
+      const formatted = formatVectorSearchResults(result, config);
+
+      // Should not throw, should render empty for null path
+      expect(formatted).toContain('Found 1 results');
+    });
+
+    test('preserves backward compatibility with JSON stringify fallback for missing text', () => {
+      const result: VectorSearchResult = {
+        success: true,
+        results: [
+          { id: 'doc1', score: 0.9, payload: { category: 'tech', author: 'jane' } }
+        ],
+        query: 'test',
+        effectiveParams: {
+          store: 'docs',
+          collection: 'test',
+          topK: 5
+        }
+      };
+
+      // No config - should use default behavior which JSON stringifies when no text field
+      const formatted = formatVectorSearchResults(result);
+
+      expect(formatted).toContain('Found 1 results');
+      // Without text field and no custom format, should JSON stringify the payload
+      expect(formatted).toContain('category');
+      expect(formatted).toContain('tech');
+    });
+
+    test('handles undefined payload with custom resultFormat', () => {
+      const result: VectorSearchResult = {
+        success: true,
+        results: [
+          { id: 'doc1', score: 0.9, payload: undefined }
+        ],
+        query: 'test',
+        effectiveParams: {
+          store: 'docs',
+          collection: 'test',
+          topK: 5
+        }
+      };
+
+      const config: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool',
+        resultFormat: '{{payload.text}} - {{id}}'
+      };
+
+      const formatted = formatVectorSearchResults(result, config);
+
+      // Should not throw, should render empty for missing payload fields
+      expect(formatted).toContain('Found 1 results');
+      expect(formatted).toContain(' - doc1');
+    });
+
+    test('uses resultFormat for complex vehicle specs scenario (issue reproduction)', () => {
+      const result: VectorSearchResult = {
+        success: true,
+        results: [
+          {
+            id: 'vehicle-2024-elantra',
+            score: 1.0,
+            payload: {
+              text: '2024 Hyundai Elantra Essential',
+              full_specs: '[VEHICLE] 2024 Hyundai Elantra Essential\n[INTERIOR]\nInterior Color: Black\nSeats: 5'
+            }
+          },
+          {
+            id: 'vehicle-2023-elantra',
+            score: 0.981,
+            payload: {
+              text: '2023 Hyundai Elantra Essential',
+              full_specs: '[VEHICLE] 2023 Hyundai Elantra Essential\n[INTERIOR]\nInterior Color: Grey\nSeats: 5'
+            }
+          }
+        ],
+        query: 'Hyundai Elantra specs',
+        effectiveParams: {
+          store: 'docs',
+          collection: 'vehicles',
+          topK: 5
+        }
+      };
+
+      const config: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool',
+        resultFormat: '{{payload.full_specs}}'
+      };
+
+      const formatted = formatVectorSearchResults(result, config);
+
+      expect(formatted).toContain('Found 2 results');
+      expect(formatted).toContain('[VEHICLE] 2024 Hyundai Elantra Essential');
+      expect(formatted).toContain('[INTERIOR]');
+      expect(formatted).toContain('Interior Color: Black');
+      expect(formatted).toContain('[VEHICLE] 2023 Hyundai Elantra Essential');
+      expect(formatted).toContain('Interior Color: Grey');
+      // Should NOT contain just the text field
+      expect(formatted).not.toMatch(/\[1\].*2024 Hyundai Elantra Essential\n\[2\]/);
+    });
+  });
+
   describe('branch coverage - edge cases', () => {
     test('uses default collection when store has no defaultCollection', async () => {
       const args: VectorSearchArgs = {

@@ -22,6 +22,7 @@ import {
   getEmbeddingLogger,
   getVectorLogger
 } from '../../core/logging.js';
+import { interpolate } from '../string/interpolate.js';
 
 export interface VectorContextInjectorOptions {
   registry: PluginRegistry;
@@ -302,7 +303,7 @@ export class VectorContextInjector {
     const format = config.resultFormat ?? getVectorDefaults().resultFormat;
 
     const formattedLines = results.map(result => {
-      return this.interpolate(format, {
+      return interpolate(format, {
         id: result.id,
         score: result.score,
         payload: result.payload ?? {}
@@ -378,23 +379,6 @@ export class VectorContextInjector {
     return result;
   }
 
-  /**
-   * Simple template interpolation.
-   * Supports {{key}} and {{nested.key}} patterns.
-   */
-  private interpolate(template: string, data: Record<string, any>): string {
-    return template.replace(/\{\{([^}]+)\}\}/g, (_, key) => {
-      const keys = key.trim().split('.');
-      let value: any = data;
-
-      for (const k of keys) {
-        if (value === undefined || value === null) return '';
-        value = value[k];
-      }
-
-      return value !== undefined && value !== null ? String(value) : '';
-    });
-  }
 
   /**
    * Get default embedding priority.

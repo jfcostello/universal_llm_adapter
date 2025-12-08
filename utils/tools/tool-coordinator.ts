@@ -214,8 +214,8 @@ export class ToolCoordinator {
       }
     );
 
-    // Format result for LLM consumption
-    const formattedResult = formatVectorSearchResults(result);
+    // Format result for LLM consumption, passing config for resultFormat
+    const formattedResult = formatVectorSearchResults(result, this.vectorContext);
 
     return { result: formattedResult };
   }
