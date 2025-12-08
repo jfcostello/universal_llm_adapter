@@ -103,6 +103,23 @@ const shouldRun = runLive && hasQdrantConfig;
 
   afterAll(async () => {
     try {
+      if (qdrantCompat) {
+        // Delete the test collection before closing
+        try {
+          await qdrantCompat.deleteCollection(testCollection);
+          console.log(`Deleted collection: ${testCollection}`);
+
+          // Verify deletion succeeded
+          const stillExists = await qdrantCompat.collectionExists(testCollection);
+          if (stillExists) {
+            console.error(`ERROR: Collection ${testCollection} still exists after deletion!`);
+          } else {
+            console.log(`Verified collection ${testCollection} no longer exists`);
+          }
+        } catch (deleteError: any) {
+          console.warn('Failed to delete test collection:', deleteError.message);
+        }
+      }
       if (vectorStoreManager) {
         await vectorStoreManager.closeAll();
         console.log('Closed Qdrant connection');
@@ -291,6 +308,21 @@ const shouldRun = runLive && hasQdrantConfig;
 
       console.log('Full RAG flow completed successfully!');
     } finally {
+      // Delete the RAG test collection before closing
+      try {
+        await qdrantCompat.deleteCollection(config.defaultCollection!);
+        console.log(`Deleted RAG test collection: ${config.defaultCollection}`);
+
+        // Verify deletion succeeded
+        const stillExists = await qdrantCompat.collectionExists(config.defaultCollection!);
+        if (stillExists) {
+          console.error(`ERROR: RAG collection ${config.defaultCollection} still exists after deletion!`);
+        } else {
+          console.log(`Verified RAG collection ${config.defaultCollection} no longer exists`);
+        }
+      } catch (deleteError: any) {
+        console.warn('Failed to delete RAG test collection:', deleteError.message);
+      }
       await qdrantCompat.close();
     }
   }, 120000);

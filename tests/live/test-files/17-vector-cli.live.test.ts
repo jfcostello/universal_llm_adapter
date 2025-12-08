@@ -96,6 +96,22 @@ describeLive('live/vector-cli', () => {
             collectionName: TEST_COLLECTION
           }
         });
+        console.log(`Deleted collection: ${TEST_COLLECTION}`);
+
+        // Verify deletion succeeded
+        const existsResult = await coordinator.execute({
+          operation: 'collections',
+          store: 'qdrant-cloud',
+          input: {
+            collectionOp: 'exists',
+            collectionName: TEST_COLLECTION
+          }
+        });
+        if (existsResult.exists) {
+          console.error(`ERROR: Collection ${TEST_COLLECTION} still exists after deletion!`);
+        } else {
+          console.log(`Verified collection ${TEST_COLLECTION} no longer exists`);
+        }
       } catch (error) {
         console.warn('Failed to delete test collection:', error);
       }

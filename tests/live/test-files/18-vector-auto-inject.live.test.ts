@@ -123,7 +123,25 @@ describeLive('live/vector-auto-inject', () => {
             collectionName: TEST_COLLECTION
           }
         });
-      } catch {}
+        console.log(`Deleted collection: ${TEST_COLLECTION}`);
+
+        // Verify deletion succeeded
+        const existsResult = await vectorCoordinator.execute({
+          operation: 'collections',
+          store: 'qdrant-cloud',
+          input: {
+            collectionOp: 'exists',
+            collectionName: TEST_COLLECTION
+          }
+        });
+        if (existsResult.exists) {
+          console.error(`ERROR: Collection ${TEST_COLLECTION} still exists after deletion!`);
+        } else {
+          console.log(`Verified collection ${TEST_COLLECTION} no longer exists`);
+        }
+      } catch (error) {
+        console.warn('Failed to delete test collection:', error);
+      }
       await vectorCoordinator.close();
     }
     await llmCoordinator?.close();
