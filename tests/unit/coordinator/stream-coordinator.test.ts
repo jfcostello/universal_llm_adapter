@@ -362,4 +362,135 @@ describe('StreamCoordinator', () => {
       expect.objectContaining({ provider: 'provider', model: 'model' })
     );
   });
+
+  test('coordinateStream preserves metadata (e.g., thoughtSignature) on tool calls', async () => {
+    const thoughtSignature = 'EpwCCpkCAXLI2nwMdJvMR...';
+    const streamResponses = [
+      (async function* () {
+        yield { choices: [{ delta: { content: 'pre-tool' } }] };
+      })(),
+      (async function* () {
+        yield { choices: [{ delta: { content: 'post-tool' } }] };
+      })()
+    ];
+
+    let parseCallCount = 0;
+    const { coordinator, toolCoordinator } = createCoordinator({
+      compatModule: {
+        parseStreamChunk: jest.fn((chunk: any) => {
+          parseCallCount++;
+          if (parseCallCount === 1) {
+            return {
+              text: chunk.choices?.[0]?.delta?.content,
+              toolEvents: [
+                { type: ToolCallEventType.TOOL_CALL_START, callId: 'meta-1', name: 'tool_with_sig', metadata: { thoughtSignature } },
+                { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: 'meta-1', argumentsDelta: '{"x":1}' },
+                { type: ToolCallEventType.TOOL_CALL_END, callId: 'meta-1', name: 'tool_with_sig', arguments: '{"x":1}' }
+              ]
+            };
+          }
+          return {
+            text: chunk.choices?.[0]?.delta?.content,
+            toolEvents: undefined
+          };
+        })
+      },
+      llmManager: {
+        streamProvider: jest.fn(() => streamResponses.shift()!)
+      },
+      toolCoordinator: {
+        routeAndInvoke: jest.fn().mockResolvedValue({ ok: true })
+      }
+    });
+
+    const spec: any = {
+      llmPriority: [{ provider: 'provider', model: 'model' }],
+      settings: { maxToolIterations: 2, toolCountdownEnabled: false },
+      metadata: {}
+    };
+
+    const context = createContext();
+    context.toolNameMap = new Map([['tool_with_sig', 'tool.withSignature']]);
+
+    const events: any[] = [];
+    for await (const event of coordinator.coordinateStream(spec, [], [{ name: 'tool.withSignature' }], context)) {
+      events.push(event);
+    }
+
+    // Find the tool_call events - they should have metadata preserved
+    const toolCallEvents = events.filter(e => e.type === 'tool_call');
+    expect(toolCallEvents.length).toBeGreaterThan(0);
+
+    // Check that metadata with thoughtSignature is preserved
+    const firstToolCall = toolCallEvents[0];
+    expect(firstToolCall.toolCall.metadata).toBeDefined();
+    expect(firstToolCall.toolCall.metadata.thoughtSignature).toBe(thoughtSignature);
+
+    // Also check the final DONE response has the metadata
+    const doneEvent = events.find(e => e.type === 'done');
+    expect(doneEvent.response.toolCalls).toBeDefined();
+    expect(doneEvent.response.toolCalls[0].metadata).toEqual({ thoughtSignature });
+  });
+
+  test('coordinateStream preserves metadata when finalizing pending state without TOOL_CALL_END', async () => {
+    const thoughtSignature = 'pending-state-signature...';
+    const streamResponses = [
+      (async function* () {
+        yield { choices: [{ delta: { content: 'partial' } }] };
+      })(),
+      (async function* () {
+        yield { choices: [{ delta: { content: 'follow-up' } }] };
+      })()
+    ];
+
+    let parseCallCount = 0;
+    const { coordinator, toolCoordinator } = createCoordinator({
+      compatModule: {
+        parseStreamChunk: jest.fn((chunk: any) => {
+          parseCallCount++;
+          if (parseCallCount === 1) {
+            return {
+              text: chunk.choices?.[0]?.delta?.content,
+              // Only TOOL_CALL_START with metadata, no TOOL_CALL_END
+              toolEvents: [
+                { type: ToolCallEventType.TOOL_CALL_START, callId: 'pending-1', name: 'pending_tool', metadata: { thoughtSignature } },
+                { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: 'pending-1', argumentsDelta: '{}' }
+              ],
+              // Signal that we finished with tool calls so the finalization path is triggered
+              finishedWithToolCalls: true
+            };
+          }
+          return {
+            text: chunk.choices?.[0]?.delta?.content,
+            toolEvents: undefined
+          };
+        })
+      },
+      llmManager: {
+        streamProvider: jest.fn(() => streamResponses.shift()!)
+      },
+      toolCoordinator: {
+        routeAndInvoke: jest.fn().mockResolvedValue({ ok: true })
+      }
+    });
+
+    const spec: any = {
+      llmPriority: [{ provider: 'provider', model: 'model' }],
+      settings: { maxToolIterations: 2, toolCountdownEnabled: false },
+      metadata: {}
+    };
+
+    const context = createContext();
+    context.toolNameMap = new Map([['pending_tool', 'pending.tool']]);
+
+    const events: any[] = [];
+    for await (const event of coordinator.coordinateStream(spec, [], [{ name: 'pending.tool' }], context)) {
+      events.push(event);
+    }
+
+    // The pending finalization path should have preserved metadata
+    const toolCallEvents = events.filter(e => e.type === 'tool_call');
+    expect(toolCallEvents.length).toBeGreaterThan(0);
+    expect(toolCallEvents[0].toolCall.metadata).toEqual({ thoughtSignature });
+  });
 });

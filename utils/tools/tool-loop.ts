@@ -423,11 +423,18 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
     ? Math.floor(runtime.toolResultMaxChars)
     : null;
 
-  const assistantToolCalls = initialToolCalls.map(call => ({
-    id: call.id,
-    name: sanitizeToolName(call.name ?? `tool_${call.id}`),
-    arguments: call.arguments
-  }));
+  const assistantToolCalls = initialToolCalls.map(call => {
+    const mapped: any = {
+      id: call.id,
+      name: sanitizeToolName(call.name ?? `tool_${call.id}`),
+      arguments: call.arguments
+    };
+    // Preserve provider-specific metadata (e.g., Google's thoughtSignature)
+    if (call.metadata) {
+      mapped.metadata = call.metadata;
+    }
+    return mapped;
+  });
 
   appendAssistantToolCalls(messages, assistantToolCalls, {
     sanitizeName: name => name,

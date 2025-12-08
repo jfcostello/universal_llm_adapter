@@ -76,17 +76,6 @@ export default class OpenAICompat implements ICompatModule {
         ser.tool_call_id = message.toolCallId;
       }
 
-      if (message.toolCalls) {
-        ser.tool_calls = message.toolCalls.map(call => ({
-          id: call.id,
-          type: "function",
-          function: {
-            name: call.name,
-            arguments: JSON.stringify(call.arguments)
-          }
-        }));
-      }
-
       if (message.name) {
         // Sanitize name to match OpenAI pattern: ^[a-zA-Z0-9_-]+$
         const sanitizedName = message.name.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -105,10 +94,48 @@ export default class OpenAICompat implements ICompatModule {
         ser.name = sanitizedName;
       }
 
-      // Add reasoning if present and not redacted
+      // Add reasoning if present and not redacted (MUST be processed before toolCalls)
       // If redacted, omit entirely (OpenAI behavior)
       if (message.reasoning && !message.reasoning.redacted) {
-        ser.reasoning = message.reasoning.text;
+        // If rawDetails is present (from OpenRouter), serialize the full array
+        // This is required for Gemini models that need reasoning_details preserved
+        if (message.reasoning.metadata?.rawDetails) {
+          ser.reasoning_details = message.reasoning.metadata.rawDetails;
+        } else {
+          ser.reasoning = message.reasoning.text;
+        }
+      }
+
+      // Process toolCalls AFTER reasoning so we can properly merge encrypted signatures
+      if (message.toolCalls) {
+        ser.tool_calls = message.toolCalls.map(call => ({
+          id: call.id,
+          type: "function",
+          function: {
+            name: call.name,
+            arguments: JSON.stringify(call.arguments)
+          }
+        }));
+
+        // Collect encrypted signatures from tool call metadata for reasoning_details
+        // This is required for OpenRouter/Gemini which needs encrypted signatures per tool call
+        const encryptedSignatures = message.toolCalls
+          .filter(call => call.metadata?.encryptedSignature)
+          .map(call => call.metadata!.encryptedSignature);
+
+        if (encryptedSignatures.length > 0) {
+          // If reasoning_details already exists from rawDetails, merge with it
+          // Otherwise create a new array with just the encrypted signatures
+          if (ser.reasoning_details) {
+            // Filter out any existing encrypted entries (they'll be replaced by our metadata)
+            const existingNonEncrypted = ser.reasoning_details.filter(
+              (d: any) => d.type !== 'reasoning.encrypted'
+            );
+            ser.reasoning_details = [...existingNonEncrypted, ...encryptedSignatures];
+          } else {
+            ser.reasoning_details = encryptedSignatures;
+          }
+        }
       }
 
       const contentParts = this.serializeContent(message.content);
@@ -300,7 +327,8 @@ export default class OpenAICompat implements ICompatModule {
     const message = choice.message || {};
 
     const content: ContentPart[] = this.parseContent(message.content);
-    const toolCalls = this.parseToolCalls(message.tool_calls);
+    // Pass reasoning_details to parseToolCalls so encrypted signatures can be associated with tool calls
+    const toolCalls = this.parseToolCalls(message.tool_calls, message.reasoning_details);
     const usage = this.parseUsage(raw.usage);
     const reasoning = this.parseReasoning(message);
 
@@ -336,16 +364,38 @@ export default class OpenAICompat implements ICompatModule {
     return [];
   }
 
-  private parseToolCalls(rawCalls: any): ToolCall[] | undefined {
+  private parseToolCalls(rawCalls: any, reasoningDetails?: any[]): ToolCall[] | undefined {
     if (!rawCalls || !Array.isArray(rawCalls)) {
       return undefined;
     }
-    
-    return rawCalls.map((call, index) => ({
-      id: call.id || `call_${index}`,
-      name: call.function?.name || '',
-      arguments: JSON.parse(call.function?.arguments || '{}')
-    }));
+
+    // Build a map of tool call ID -> encrypted signature data from reasoning_details
+    // This is required for OpenRouter/Gemini which returns encrypted signatures per tool call
+    const encryptedSignatureMap = new Map<string, any>();
+    if (reasoningDetails && Array.isArray(reasoningDetails)) {
+      for (const detail of reasoningDetails) {
+        if (detail.type === 'reasoning.encrypted' && detail.id) {
+          // Store the full encrypted entry for this tool call ID
+          encryptedSignatureMap.set(detail.id, detail);
+        }
+      }
+    }
+
+    return rawCalls.map((call, index) => {
+      const toolCall: ToolCall = {
+        id: call.id || `call_${index}`,
+        name: call.function?.name || '',
+        arguments: JSON.parse(call.function?.arguments || '{}')
+      };
+
+      // Attach encrypted signature metadata if available for this tool call
+      const encryptedData = call.id ? encryptedSignatureMap.get(call.id) : undefined;
+      if (encryptedData) {
+        toolCall.metadata = { encryptedSignature: encryptedData };
+      }
+
+      return toolCall;
+    });
   }
 
   private parseUsage(usage: any): UsageStats | undefined {
@@ -367,23 +417,39 @@ export default class OpenAICompat implements ICompatModule {
 
     // Extract reasoning text from message.reasoning or reasoning_details
     let reasoningText: string | undefined;
+    let metadata: Record<string, any> | undefined;
+
+    // Always capture reasoning_details if present (needed for Gemini encrypted signatures)
+    // This must be done even when message.reasoning exists, as OpenRouter returns both
+    if (message.reasoning_details) {
+      metadata = { rawDetails: message.reasoning_details };
+    }
 
     if (message.reasoning) {
       reasoningText = message.reasoning;
     } else if (message.reasoning_details) {
-      // Find the reasoning.summary entry in reasoning_details
-      const summaryDetail = message.reasoning_details.find(
-        (detail: any) => detail.type === 'reasoning.summary'
+      // Extract text from reasoning.text entries (OpenRouter/Gemini format)
+      const textDetails = message.reasoning_details.filter(
+        (detail: any) => detail.type === 'reasoning.text' && detail.text
       );
-      if (summaryDetail?.summary) {
-        reasoningText = summaryDetail.summary;
+      if (textDetails.length > 0) {
+        reasoningText = textDetails.map((d: any) => d.text).join('');
+      } else {
+        // Fall back to reasoning.summary if no text entries
+        const summaryDetail = message.reasoning_details.find(
+          (detail: any) => detail.type === 'reasoning.summary'
+        );
+        if (summaryDetail?.summary) {
+          reasoningText = summaryDetail.summary;
+        }
       }
     }
 
     if (!reasoningText) return undefined;
 
     return {
-      text: reasoningText
+      text: reasoningText,
+      ...(metadata && { metadata })
     };
   }
 
@@ -403,6 +469,17 @@ export default class OpenAICompat implements ICompatModule {
 
     // Track if we saw tool calls in this chunk
     this.sawToolCallsInCurrentChunk = false;
+
+    // Build a map of tool call ID -> encrypted signature from delta.reasoning_details
+    // This is required for OpenRouter/Gemini streaming which sends encrypted signatures per tool call
+    const encryptedSignatureMap = new Map<string, any>();
+    if (delta.reasoning_details && Array.isArray(delta.reasoning_details)) {
+      for (const detail of delta.reasoning_details) {
+        if (detail.type === 'reasoning.encrypted' && detail.id) {
+          encryptedSignatureMap.set(detail.id, detail);
+        }
+      }
+    }
 
     // Extract tool call events from delta
     if (delta.tool_calls) {
@@ -427,11 +504,19 @@ export default class OpenAICompat implements ICompatModule {
           state.name = toolCall.function.name;
           this.toolCallState.set(callId, state);
 
-          result.toolEvents.push({
+          const startEvent: any = {
             type: ToolCallEventType.TOOL_CALL_START,
             callId,
             name: state.name
-          });
+          };
+
+          // Attach encrypted signature if available for this tool call
+          const encryptedData = encryptedSignatureMap.get(callId);
+          if (encryptedData) {
+            startEvent.metadata = { encryptedSignature: encryptedData };
+          }
+
+          result.toolEvents.push(startEvent);
         }
 
         if (toolCall.function?.arguments) {

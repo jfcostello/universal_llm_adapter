@@ -18,7 +18,7 @@ for (let i = 0; i < testRuns.length; i++) {
         { role: 'user', content: [{ type: 'text', text: 'What is 5 + 7? If you show the result, reply concisely.' }]}
       ],
       llmPriority: runCfg.llmPriority,
-      settings: mergeSettings(runCfg.settings, { temperature: 0, maxTokens: 200 })
+      settings: mergeSettings(runCfg.settings, { temperature: 0, maxTokens: 1000 })
     });
     const runRes = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
     expect(runRes.code).toBe(0);

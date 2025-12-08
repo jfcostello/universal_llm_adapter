@@ -1285,4 +1285,186 @@ describe('unit/compat/google', () => {
       { type: 'text', text: '' }
     ]);
   });
+
+  // Issue #78: thoughtSignature preservation for Google Gemini reasoning
+  describe('thoughtSignature preservation (Issue #78)', () => {
+    test('extractToolCalls captures thoughtSignature in metadata', () => {
+      const compat: any = new GoogleCompat();
+      const parts = [
+        {
+          functionCall: { name: 'get_weather', args: { city: 'NYC' } },
+          thoughtSignature: 'EpwCCpkCAXLI2nwMdJvMR...'
+        }
+      ];
+
+      const result = compat.extractToolCalls(parts);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('get_weather');
+      expect(result[0].arguments).toEqual({ city: 'NYC' });
+      expect(result[0].metadata).toBeDefined();
+      expect(result[0].metadata.thoughtSignature).toBe('EpwCCpkCAXLI2nwMdJvMR...');
+    });
+
+    test('extractToolCalls handles multiple tool calls with different signatures', () => {
+      const compat: any = new GoogleCompat();
+      const parts = [
+        {
+          functionCall: { name: 'tool1', args: { a: 1 } },
+          thoughtSignature: 'signature_1...'
+        },
+        {
+          functionCall: { name: 'tool2', args: { b: 2 } },
+          thoughtSignature: 'signature_2...'
+        }
+      ];
+
+      const result = compat.extractToolCalls(parts);
+
+      expect(result).toHaveLength(2);
+      expect(result[0].metadata.thoughtSignature).toBe('signature_1...');
+      expect(result[1].metadata.thoughtSignature).toBe('signature_2...');
+    });
+
+    test('extractToolCalls handles tool call without thoughtSignature', () => {
+      const compat: any = new GoogleCompat();
+      const parts = [
+        { functionCall: { name: 'basic_tool', args: { x: 'y' } } }
+      ];
+
+      const result = compat.extractToolCalls(parts);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('basic_tool');
+      expect(result[0].metadata).toBeUndefined();
+    });
+
+    test('serializeMessages includes thoughtSignature when present in tool call metadata', () => {
+      const compat: any = new GoogleCompat();
+      const messages = [
+        {
+          role: 'assistant',
+          content: [],
+          toolCalls: [
+            {
+              id: 'call_0',
+              name: 'get_weather',
+              arguments: { city: 'NYC' },
+              metadata: { thoughtSignature: 'EpwCCpkCAXLI2nwMdJvMR...' }
+            }
+          ]
+        }
+      ];
+
+      const result = compat.serializeMessages(messages);
+
+      expect(result.contents[0].parts[0]).toEqual({
+        functionCall: { name: 'get_weather', args: { city: 'NYC' } },
+        thoughtSignature: 'EpwCCpkCAXLI2nwMdJvMR...'
+      });
+    });
+
+    test('serializeMessages handles tool call without metadata', () => {
+      const compat: any = new GoogleCompat();
+      const messages = [
+        {
+          role: 'assistant',
+          content: [],
+          toolCalls: [
+            { id: 'call_0', name: 'simple_tool', arguments: { a: 1 } }
+          ]
+        }
+      ];
+
+      const result = compat.serializeMessages(messages);
+
+      expect(result.contents[0].parts[0]).toEqual({
+        functionCall: { name: 'simple_tool', args: { a: 1 } }
+      });
+      expect(result.contents[0].parts[0].thoughtSignature).toBeUndefined();
+    });
+
+    test('parseSDKResponse preserves thoughtSignature in tool calls', () => {
+      const compat: any = new GoogleCompat();
+      const response = {
+        candidates: [{
+          content: {
+            parts: [
+              {
+                functionCall: { name: 'test_tool', args: { param: 'value' } },
+                thoughtSignature: 'crypto_signature_here...'
+              }
+            ]
+          },
+          finishReason: 'STOP'
+        }],
+        usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5, totalTokenCount: 15 }
+      };
+
+      const result = compat.parseSDKResponse(response, 'gemini-3-pro-preview');
+
+      expect(result.toolCalls).toHaveLength(1);
+      expect(result.toolCalls[0].metadata).toBeDefined();
+      expect(result.toolCalls[0].metadata.thoughtSignature).toBe('crypto_signature_here...');
+    });
+
+    test('parseSDKChunk preserves thoughtSignature in streaming tool calls', () => {
+      const compat: any = new GoogleCompat();
+      const chunk = {
+        candidates: [{
+          content: {
+            parts: [
+              {
+                functionCall: { name: 'stream_tool', args: { key: 'val' } },
+                thoughtSignature: 'stream_signature...'
+              }
+            ]
+          },
+          finishReason: 'STOP'
+        }]
+      };
+
+      const result = compat.parseSDKChunk(chunk);
+
+      // Tool events should include metadata with thoughtSignature
+      expect(result.toolEvents).toBeDefined();
+      const startEvent = result.toolEvents?.find((e: any) => e.type === 'tool_call_start');
+      expect(startEvent?.metadata?.thoughtSignature).toBe('stream_signature...');
+    });
+
+    test('full round-trip: response -> message -> serialization preserves thoughtSignature', () => {
+      const compat: any = new GoogleCompat();
+
+      // Step 1: Parse response with thoughtSignature
+      const response = {
+        candidates: [{
+          content: {
+            parts: [
+              {
+                functionCall: { name: 'round_trip_tool', args: { data: 'test' } },
+                thoughtSignature: 'round_trip_signature...'
+              }
+            ]
+          },
+          finishReason: 'STOP'
+        }],
+        usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 3, totalTokenCount: 8 }
+      };
+
+      const parsed = compat.parseSDKResponse(response, 'gemini-3-pro-preview');
+
+      // Step 2: Create message with parsed tool calls (simulating what tool loop does)
+      const assistantMessage = {
+        role: 'assistant',
+        content: [],
+        toolCalls: parsed.toolCalls
+      };
+
+      // Step 3: Serialize back for next request
+      const serialized = compat.serializeMessages([assistantMessage]);
+
+      // Step 4: Verify thoughtSignature is preserved
+      expect(serialized.contents[0].parts[0].thoughtSignature).toBe('round_trip_signature...');
+    });
+  });
 });

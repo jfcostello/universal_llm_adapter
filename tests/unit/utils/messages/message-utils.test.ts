@@ -462,4 +462,107 @@ describe('utils/messages/message-utils', () => {
     expect(messages[0].reasoning).toEqual(reasoning);
     expect(messages[0].reasoning.redacted).toBe(true);
   });
+
+  // Issue #78: Tool call metadata preservation (for thoughtSignature)
+  test('appendAssistantToolCalls preserves metadata on tool calls', () => {
+    const messages: any[] = [];
+
+    appendAssistantToolCalls(
+      messages,
+      [
+        {
+          id: 'call-with-metadata',
+          name: 'tool_with_signature',
+          arguments: { param: 'value' },
+          metadata: { thoughtSignature: 'EpwCCpkCAXLI2nwMdJvMR...' }
+        }
+      ],
+      {
+        content: []
+      }
+    );
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].toolCalls[0].metadata).toBeDefined();
+    expect(messages[0].toolCalls[0].metadata.thoughtSignature).toBe('EpwCCpkCAXLI2nwMdJvMR...');
+  });
+
+  test('appendAssistantToolCalls preserves metadata on multiple tool calls', () => {
+    const messages: any[] = [];
+
+    appendAssistantToolCalls(
+      messages,
+      [
+        {
+          id: 'call-1',
+          name: 'tool1',
+          arguments: { a: 1 },
+          metadata: { thoughtSignature: 'signature_1...' }
+        },
+        {
+          id: 'call-2',
+          name: 'tool2',
+          arguments: { b: 2 },
+          metadata: { thoughtSignature: 'signature_2...' }
+        }
+      ],
+      {
+        content: []
+      }
+    );
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].toolCalls).toHaveLength(2);
+    expect(messages[0].toolCalls[0].metadata.thoughtSignature).toBe('signature_1...');
+    expect(messages[0].toolCalls[1].metadata.thoughtSignature).toBe('signature_2...');
+  });
+
+  test('appendAssistantToolCalls handles tool calls without metadata', () => {
+    const messages: any[] = [];
+
+    appendAssistantToolCalls(
+      messages,
+      [
+        {
+          id: 'call-no-metadata',
+          name: 'simple_tool',
+          arguments: {}
+        }
+      ],
+      {
+        content: []
+      }
+    );
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].toolCalls[0].metadata).toBeUndefined();
+  });
+
+  test('appendAssistantToolCalls preserves metadata alongside reasoning', () => {
+    const messages: any[] = [];
+    const reasoning = {
+      text: 'My reasoning...',
+      metadata: { rawDetails: [{ type: 'reasoning.encrypted', data: 'encrypted...' }] }
+    };
+
+    appendAssistantToolCalls(
+      messages,
+      [
+        {
+          id: 'call-both',
+          name: 'tool_both',
+          arguments: { x: 1 },
+          metadata: { thoughtSignature: 'tool_signature...' }
+        }
+      ],
+      {
+        content: [],
+        reasoning
+      }
+    );
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].reasoning).toEqual(reasoning);
+    expect(messages[0].toolCalls[0].metadata.thoughtSignature).toBe('tool_signature...');
+  });
 });

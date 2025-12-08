@@ -236,12 +236,18 @@ export default class GoogleCompat implements ICompatModule {
       // Assistant tool calls -> functionCall parts
       if (m.role === Role.ASSISTANT && m.toolCalls && m.toolCalls.length) {
         for (const call of m.toolCalls) {
-          parts.push({
+          const part: any = {
             functionCall: {
               name: call.name,
               args: call.arguments ?? {}
             }
-          });
+          };
+          // Preserve thoughtSignature if present in metadata
+          // This is required for Gemini models with reasoning enabled
+          if (call.metadata?.thoughtSignature) {
+            part.thoughtSignature = call.metadata.thoughtSignature;
+          }
+          parts.push(part);
         }
       }
 
@@ -492,8 +498,14 @@ export default class GoogleCompat implements ICompatModule {
       const argsObj = fc.functionCall.args || {};
       const argsStr = JSON.stringify(argsObj);
 
+      // Include metadata with thoughtSignature if present
+      const startEvent: any = { type: ToolCallEventType.TOOL_CALL_START, callId: 'call-0', name };
+      if (fc.thoughtSignature) {
+        startEvent.metadata = { thoughtSignature: fc.thoughtSignature };
+      }
+
       result.toolEvents = [
-        { type: ToolCallEventType.TOOL_CALL_START, callId: 'call-0', name } as ToolCallEvent,
+        startEvent as ToolCallEvent,
         { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: 'call-0', argumentsDelta: argsStr } as ToolCallEvent,
         { type: ToolCallEventType.TOOL_CALL_END, callId: 'call-0', name, arguments: argsStr } as ToolCallEvent
       ];
@@ -528,11 +540,16 @@ export default class GoogleCompat implements ICompatModule {
 
     for (const p of parts) {
       if (p && p.functionCall) {
-        calls.push({
+        const call: ToolCall = {
           id: `call_${idx++}`,
           name: p.functionCall.name || '',
           arguments: p.functionCall.args || {}
-        });
+        };
+        // Capture thoughtSignature if present (required for Gemini reasoning)
+        if (p.thoughtSignature) {
+          call.metadata = { thoughtSignature: p.thoughtSignature };
+        }
+        calls.push(call);
       }
     }
 

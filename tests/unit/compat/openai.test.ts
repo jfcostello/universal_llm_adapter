@@ -507,6 +507,128 @@ describe('compat/openai', () => {
     expect(compat.parseStreamChunk(chunk)).toEqual({ finishedWithToolCalls: true, toolEvents: [] });
   });
 
+  test('parseStreamChunk extracts encrypted signatures from reasoning_details and attaches to tool call events', () => {
+    // Create a fresh compat instance to reset state
+    const freshCompat = new OpenAICompat();
+
+    // OpenRouter/Gemini streaming sends encrypted signatures in delta.reasoning_details
+    const chunk = {
+      choices: [
+        {
+          delta: {
+            tool_calls: [
+              {
+                id: 'tool_echo_ABC123',
+                index: 0,
+                function: {
+                  name: 'test_echo',
+                  arguments: '{"msg":"hello"}'
+                }
+              }
+            ],
+            reasoning_details: [
+              {
+                id: 'tool_echo_ABC123',
+                type: 'reasoning.encrypted',
+                data: 'encrypted_data_here',
+                format: 'google-gemini-v1'
+              }
+            ]
+          }
+        }
+      ]
+    };
+
+    const result = freshCompat.parseStreamChunk(chunk);
+
+    // The TOOL_CALL_START event should have metadata with the encrypted signature
+    expect(result.toolEvents).toBeDefined();
+    const startEvent = result.toolEvents!.find((e: any) => e.type === ToolCallEventType.TOOL_CALL_START);
+    expect(startEvent).toBeDefined();
+    expect(startEvent!.metadata?.encryptedSignature).toEqual({
+      id: 'tool_echo_ABC123',
+      type: 'reasoning.encrypted',
+      data: 'encrypted_data_here',
+      format: 'google-gemini-v1'
+    });
+  });
+
+  test('parseStreamChunk handles reasoning_details without matching tool call IDs', () => {
+    // Create a fresh compat instance to reset state
+    const freshCompat = new OpenAICompat();
+
+    // If reasoning_details has encrypted entries but no matching tool call, no metadata is attached
+    const chunk = {
+      choices: [
+        {
+          delta: {
+            tool_calls: [
+              {
+                id: 'tool_echo_ABC',
+                index: 0,
+                function: {
+                  name: 'test_echo',
+                  arguments: '{"msg":"hello"}'
+                }
+              }
+            ],
+            reasoning_details: [
+              {
+                id: 'tool_echo_XYZ',
+                type: 'reasoning.encrypted',
+                data: 'encrypted_data'
+              }
+            ]
+          }
+        }
+      ]
+    };
+
+    const result = freshCompat.parseStreamChunk(chunk);
+
+    // The start event should not have metadata since IDs don't match
+    const startEvent = result.toolEvents!.find((e: any) => e.type === ToolCallEventType.TOOL_CALL_START);
+    expect(startEvent).toBeDefined();
+    expect(startEvent!.metadata).toBeUndefined();
+  });
+
+  test('parseStreamChunk ignores non-encrypted entries in reasoning_details', () => {
+    // Create a fresh compat instance to reset state
+    const freshCompat = new OpenAICompat();
+
+    const chunk = {
+      choices: [
+        {
+          delta: {
+            tool_calls: [
+              {
+                id: 'tool_echo_DEF',
+                index: 0,
+                function: {
+                  name: 'test_echo',
+                  arguments: '{}'
+                }
+              }
+            ],
+            reasoning_details: [
+              {
+                type: 'reasoning.text',
+                text: 'Some reasoning text'
+              }
+            ]
+          }
+        }
+      ]
+    };
+
+    const result = freshCompat.parseStreamChunk(chunk);
+
+    // Only reasoning.encrypted entries with IDs should be captured
+    const startEvent = result.toolEvents!.find((e: any) => e.type === ToolCallEventType.TOOL_CALL_START);
+    expect(startEvent).toBeDefined();
+    expect(startEvent!.metadata).toBeUndefined();
+  });
+
   test('parseStreamChunk clears state on stop finish reason', () => {
     // First, add some state by parsing a tool call chunk
     compat.parseStreamChunk({
@@ -783,7 +905,15 @@ describe('compat/openai', () => {
 
     const parsed = compat.parseResponse(raw, 'gpt-4o');
     expect(parsed.reasoning).toEqual({
-      text: 'Detailed reasoning from array...'
+      text: 'Detailed reasoning from array...',
+      metadata: {
+        rawDetails: [
+          {
+            type: 'reasoning.summary',
+            summary: 'Detailed reasoning from array...'
+          }
+        ]
+      }
     });
   });
 
@@ -1127,6 +1257,316 @@ describe('compat/openai', () => {
       expect(stats.cost).toBe(0.002);
       expect(stats.cachedTokens).toBe(30);
       expect(stats.audioTokens).toBe(8);
+    });
+  });
+
+  // Issue #78: reasoning_details preservation for OpenRouter/Gemini
+  describe('reasoning_details preservation (Issue #78)', () => {
+    test('parseResponse captures full reasoning_details array in metadata', () => {
+      const raw = {
+        choices: [
+          {
+            message: {
+              content: 'response',
+              reasoning_details: [
+                { type: 'reasoning.text', format: 'google-gemini-v1', text: 'My thinking...' },
+                { type: 'reasoning.encrypted', format: 'google-gemini-v1', data: 'Es8DCswDAXLI2nw...' }
+              ]
+            },
+            finish_reason: 'stop'
+          }
+        ]
+      };
+
+      const parsed = compat.parseResponse(raw, 'google/gemini-3-pro-preview');
+
+      expect(parsed.reasoning).toBeDefined();
+      expect(parsed.reasoning?.metadata?.rawDetails).toEqual([
+        { type: 'reasoning.text', format: 'google-gemini-v1', text: 'My thinking...' },
+        { type: 'reasoning.encrypted', format: 'google-gemini-v1', data: 'Es8DCswDAXLI2nw...' }
+      ]);
+    });
+
+    test('parseResponse extracts reasoning text from reasoning.text entries', () => {
+      const raw = {
+        choices: [
+          {
+            message: {
+              content: 'response',
+              reasoning_details: [
+                { type: 'reasoning.text', text: 'First thought' },
+                { type: 'reasoning.encrypted', data: 'encrypted...' },
+                { type: 'reasoning.text', text: ' and second thought' }
+              ]
+            },
+            finish_reason: 'stop'
+          }
+        ]
+      };
+
+      const parsed = compat.parseResponse(raw, 'model');
+
+      expect(parsed.reasoning?.text).toBe('First thought and second thought');
+    });
+
+    test('buildPayload serializes reasoning_details from metadata when present', () => {
+      const payload = compat.buildPayload(
+        'google/gemini-3-pro-preview',
+        { temperature: 0 },
+        [
+          {
+            role: Role.ASSISTANT,
+            content: [{ type: 'text', text: 'response' }],
+            reasoning: {
+              text: 'My thinking...',
+              metadata: {
+                rawDetails: [
+                  { type: 'reasoning.text', format: 'google-gemini-v1', text: 'My thinking...' },
+                  { type: 'reasoning.encrypted', format: 'google-gemini-v1', data: 'Es8DCswDAXLI2nw...' }
+                ]
+              }
+            }
+          }
+        ],
+        []
+      );
+
+      expect(payload.messages[0].reasoning_details).toEqual([
+        { type: 'reasoning.text', format: 'google-gemini-v1', text: 'My thinking...' },
+        { type: 'reasoning.encrypted', format: 'google-gemini-v1', data: 'Es8DCswDAXLI2nw...' }
+      ]);
+    });
+
+    test('buildPayload falls back to reasoning text when rawDetails not present', () => {
+      const payload = compat.buildPayload(
+        'gpt-4o',
+        { temperature: 0 },
+        [
+          {
+            role: Role.ASSISTANT,
+            content: [{ type: 'text', text: 'response' }],
+            reasoning: {
+              text: 'Simple reasoning text'
+            }
+          }
+        ],
+        []
+      );
+
+      expect(payload.messages[0].reasoning).toBe('Simple reasoning text');
+      expect(payload.messages[0].reasoning_details).toBeUndefined();
+    });
+
+    test('buildPayload omits reasoning_details when reasoning is redacted', () => {
+      const payload = compat.buildPayload(
+        'google/gemini-3-pro-preview',
+        { temperature: 0 },
+        [
+          {
+            role: Role.ASSISTANT,
+            content: [{ type: 'text', text: 'response' }],
+            reasoning: {
+              text: 'My thinking...',
+              redacted: true,
+              metadata: {
+                rawDetails: [
+                  { type: 'reasoning.text', text: 'My thinking...' },
+                  { type: 'reasoning.encrypted', data: 'Es8DCswDAXLI2nw...' }
+                ]
+              }
+            }
+          }
+        ],
+        []
+      );
+
+      expect(payload.messages[0].reasoning).toBeUndefined();
+      expect(payload.messages[0].reasoning_details).toBeUndefined();
+    });
+
+    test('parseResponse preserves reasoning_details through tool call cycle', () => {
+      // Simulate first response with tool call and reasoning
+      const firstResponse = {
+        choices: [
+          {
+            message: {
+              content: '',
+              tool_calls: [
+                { id: 'call_1', function: { name: 'get_weather', arguments: '{"city":"NYC"}' } }
+              ],
+              reasoning_details: [
+                { type: 'reasoning.text', text: 'I need to check the weather...' },
+                { type: 'reasoning.encrypted', data: 'encrypted_signature...' }
+              ]
+            },
+            finish_reason: 'tool_calls'
+          }
+        ]
+      };
+
+      const parsed = compat.parseResponse(firstResponse, 'google/gemini-3-pro-preview');
+
+      expect(parsed.toolCalls).toHaveLength(1);
+      expect(parsed.reasoning?.metadata?.rawDetails).toHaveLength(2);
+      expect(parsed.reasoning?.metadata?.rawDetails[1].type).toBe('reasoning.encrypted');
+    });
+
+    test('parseResponse extracts encrypted signatures from reasoning_details and attaches to tool calls', () => {
+      // OpenRouter/Gemini returns encrypted signatures per tool call in reasoning_details
+      const response = {
+        choices: [
+          {
+            message: {
+              content: '',
+              reasoning: 'Planning tool calls...',
+              tool_calls: [
+                { id: 'tool_echo_ABC123', function: { name: 'echo', arguments: '{"msg":"hello"}' } },
+                { id: 'tool_echo_DEF456', function: { name: 'echo', arguments: '{"msg":"world"}' } }
+              ],
+              reasoning_details: [
+                { type: 'reasoning.text', text: 'Planning tool calls...' },
+                { id: 'tool_echo_ABC123', type: 'reasoning.encrypted', data: 'encrypted_ABC123_data' },
+                { id: 'tool_echo_DEF456', type: 'reasoning.encrypted', data: 'encrypted_DEF456_data' }
+              ]
+            },
+            finish_reason: 'tool_calls'
+          }
+        ]
+      };
+
+      const parsed = compat.parseResponse(response, 'google/gemini-3-pro-preview');
+
+      // Verify tool calls have metadata with their respective encrypted signatures
+      expect(parsed.toolCalls).toHaveLength(2);
+      expect(parsed.toolCalls![0].metadata?.encryptedSignature).toEqual({
+        id: 'tool_echo_ABC123',
+        type: 'reasoning.encrypted',
+        data: 'encrypted_ABC123_data'
+      });
+      expect(parsed.toolCalls![1].metadata?.encryptedSignature).toEqual({
+        id: 'tool_echo_DEF456',
+        type: 'reasoning.encrypted',
+        data: 'encrypted_DEF456_data'
+      });
+    });
+
+    test('buildPayload includes encrypted signatures from tool call metadata in reasoning_details', () => {
+      const payload = compat.buildPayload(
+        'google/gemini-3-pro-preview',
+        { temperature: 0 },
+        [
+          {
+            role: Role.ASSISTANT,
+            content: [],
+            toolCalls: [
+              {
+                id: 'tool_echo_ABC123',
+                name: 'echo',
+                arguments: { msg: 'hello' },
+                metadata: {
+                  encryptedSignature: {
+                    id: 'tool_echo_ABC123',
+                    type: 'reasoning.encrypted',
+                    data: 'encrypted_ABC123_data'
+                  }
+                }
+              },
+              {
+                id: 'tool_echo_DEF456',
+                name: 'echo',
+                arguments: { msg: 'world' },
+                metadata: {
+                  encryptedSignature: {
+                    id: 'tool_echo_DEF456',
+                    type: 'reasoning.encrypted',
+                    data: 'encrypted_DEF456_data'
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        []
+      );
+
+      // The reasoning_details should contain the encrypted signatures
+      expect(payload.messages[0].reasoning_details).toEqual([
+        { id: 'tool_echo_ABC123', type: 'reasoning.encrypted', data: 'encrypted_ABC123_data' },
+        { id: 'tool_echo_DEF456', type: 'reasoning.encrypted', data: 'encrypted_DEF456_data' }
+      ]);
+    });
+
+    test('buildPayload merges tool call encrypted signatures with existing reasoning_details', () => {
+      // When message has both reasoning with rawDetails AND tool calls with encrypted signatures
+      const payload = compat.buildPayload(
+        'google/gemini-3-pro-preview',
+        { temperature: 0 },
+        [
+          {
+            role: Role.ASSISTANT,
+            content: [],
+            reasoning: {
+              text: 'Planning...',
+              metadata: {
+                rawDetails: [
+                  { type: 'reasoning.text', text: 'Planning...' },
+                  // Old encrypted entry that should be replaced
+                  { id: 'tool_echo_ABC123', type: 'reasoning.encrypted', data: 'old_data' }
+                ]
+              }
+            },
+            toolCalls: [
+              {
+                id: 'tool_echo_ABC123',
+                name: 'echo',
+                arguments: { msg: 'hello' },
+                metadata: {
+                  encryptedSignature: {
+                    id: 'tool_echo_ABC123',
+                    type: 'reasoning.encrypted',
+                    data: 'new_encrypted_data'
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        []
+      );
+
+      // Should have the text entry plus the new encrypted entry
+      expect(payload.messages[0].reasoning_details).toEqual([
+        { type: 'reasoning.text', text: 'Planning...' },
+        { id: 'tool_echo_ABC123', type: 'reasoning.encrypted', data: 'new_encrypted_data' }
+      ]);
+    });
+
+    test('parseResponse captures reasoning_details even when message.reasoning exists', () => {
+      // OpenRouter returns BOTH reasoning (text) AND reasoning_details (with encrypted signatures)
+      const response = {
+        choices: [
+          {
+            message: {
+              content: '',
+              reasoning: 'This is the text reasoning',
+              reasoning_details: [
+                { type: 'reasoning.text', text: 'This is the text reasoning' },
+                { id: 'call_1', type: 'reasoning.encrypted', data: 'encrypted_data' }
+              ]
+            },
+            finish_reason: 'stop'
+          }
+        ]
+      };
+
+      const parsed = compat.parseResponse(response, 'model');
+
+      // Should capture both the text and the rawDetails metadata
+      expect(parsed.reasoning?.text).toBe('This is the text reasoning');
+      expect(parsed.reasoning?.metadata?.rawDetails).toEqual([
+        { type: 'reasoning.text', text: 'This is the text reasoning' },
+        { id: 'call_1', type: 'reasoning.encrypted', data: 'encrypted_data' }
+      ]);
     });
   });
 });

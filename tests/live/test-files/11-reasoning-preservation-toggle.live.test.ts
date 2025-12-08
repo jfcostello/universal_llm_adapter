@@ -19,21 +19,29 @@ const TEST_FILE = '11-reasoning-preservation-toggle';
 /**
  * Check if a request body contains reasoning configuration.
  * Different providers use different formats:
- * - OpenRouter/OpenAI: { reasoning: { ... } }
- * - Anthropic: { thinking: { ... } }
- * - Google: { thinkingConfig: { ... } } (via SDK, not HTTP)
+ * - OpenRouter/OpenAI: { reasoning: { ... } } (HTTP payload)
+ * - Anthropic: { thinking: { ... } } (HTTP payload)
+ * - Google: { thinkingConfig: { ... } } (SDK) OR { settings.reasoning } (logged internal format)
+ *
+ * Note: SDK-based providers (like Google) log the internal spec format, not the
+ * serialized SDK payload. So we also check settings.reasoning for SDK calls.
  */
 function requestHasReasoningConfig(body: any): boolean {
-  // OpenRouter/OpenAI format
+  // OpenRouter/OpenAI format (HTTP payload)
   if (body.reasoning && typeof body.reasoning === 'object') {
     return true;
   }
-  // Anthropic format
+  // Anthropic format (HTTP payload)
   if (body.thinking && typeof body.thinking === 'object') {
     return true;
   }
   // Google SDK format (if present in logs)
   if (body.generationConfig?.thinkingConfig) {
+    return true;
+  }
+  // SDK-based providers log the internal spec format which has settings.reasoning
+  // This is the format we log for Google since we can't intercept the SDK's actual HTTP call
+  if (body.settings?.reasoning?.enabled === true && body.settings?.reasoning?.budget !== undefined) {
     return true;
   }
   return false;

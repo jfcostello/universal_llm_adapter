@@ -107,6 +107,12 @@ export interface ToolCall {
    * Always mirrors the value of `arguments`.
    */
   args?: JsonObject;
+  /**
+   * Provider-specific metadata for this tool call.
+   * Used to preserve cryptographic signatures (e.g., Google's thoughtSignature)
+   * that must be sent back in subsequent requests.
+   */
+  metadata?: Record<string, any>;
 }
 
 export type ToolChoiceAuto = "auto" | "none";
@@ -693,6 +699,12 @@ export interface ToolCallEvent {
   name?: string;
   argumentsDelta?: string;
   arguments?: string;
+  /**
+   * Provider-specific metadata for this tool call event.
+   * Used to preserve encrypted signatures (e.g., OpenRouter/Gemini reasoning.encrypted)
+   * that must be sent back in subsequent requests for multi-turn tool conversations.
+   */
+  metadata?: Record<string, any>;
 }
 
 export enum StreamEventType {

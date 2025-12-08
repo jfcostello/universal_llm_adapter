@@ -85,6 +85,12 @@ export interface AssistantToolCallInput {
   id: string;
   name: string;
   arguments: Record<string, any>;
+  /**
+   * Provider-specific metadata for this tool call.
+   * Used to preserve cryptographic signatures (e.g., Google's thoughtSignature)
+   * that must be sent back in subsequent requests.
+   */
+  metadata?: Record<string, any>;
 }
 
 export interface AppendAssistantToolCallsOptions {
@@ -129,11 +135,22 @@ export function appendAssistantToolCalls(
   const sanitize = options.sanitizeName ?? sanitizeToolName;
   const content = sanitizeAssistantContent(options.content);
 
-  const sanitizedToolCalls = toolCalls.map(call => ({
-    id: call.id,
-    name: sanitize(call.name),
-    arguments: call.arguments
-  }));
+  const sanitizedToolCalls = toolCalls.map(call => {
+    const sanitized: {
+      id: string;
+      name: string;
+      arguments: Record<string, any>;
+      metadata?: Record<string, any>;
+    } = {
+      id: call.id,
+      name: sanitize(call.name),
+      arguments: call.arguments
+    };
+    if (call.metadata) {
+      sanitized.metadata = call.metadata;
+    }
+    return sanitized;
+  });
 
   const lastMessage = messages[messages.length - 1];
   if (

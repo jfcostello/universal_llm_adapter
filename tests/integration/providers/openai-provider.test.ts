@@ -563,7 +563,14 @@ describe('integration/providers/openai-provider', () => {
         };
         const unified = compat.parseResponse(raw, 'gpt-4');
 
-        expect(unified.reasoning).toEqual({ text: 'deep thought' });
+        expect(unified.reasoning).toEqual({
+          text: 'deep thought',
+          metadata: {
+            rawDetails: [
+              { type: 'reasoning.summary', summary: 'deep thought' }
+            ]
+          }
+        });
       });
 
       test('handles missing reasoning', () => {

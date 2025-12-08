@@ -59,6 +59,7 @@ export class StreamCoordinator {
     const pendingToolCalls = new Map<string, {
       name?: string;
       arguments: string;
+      metadata?: Record<string, any>;
     }>();
     let finishedWithToolCalls = false;
 
@@ -101,7 +102,8 @@ export class StreamCoordinator {
           if (event.type === ToolCallEventType.TOOL_CALL_START) {
             pendingToolCalls.set(event.callId, {
               name: event.name,
-              arguments: ''
+              arguments: '',
+              metadata: event.metadata
             });
           } else if (event.type === ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA) {
             const state = pendingToolCalls.get(event.callId);
@@ -117,22 +119,30 @@ export class StreamCoordinator {
             const state = pendingToolCalls.get(event.callId);
             context.logger.info('[STREAM-COORD] State retrieved', { hasState: !!state, state });
             if (state) {
-              const toolCall = {
+              const toolCall: any = {
                 id: event.callId,
                 name: state.name || event.name,
                 arguments: state.arguments || event.arguments
               };
+              // Preserve provider-specific metadata (e.g., Google's thoughtSignature)
+              if (state.metadata) {
+                toolCall.metadata = state.metadata;
+              }
               detectedCalls.push(toolCall);
 
               // Track for final response (map name back to original and parse args)
               const toolName = toolCall.name || 'unknown';
               const originalName = context.toolNameMap.get(toolName) || toolName;
-              const finalToolCall = {
+              const finalToolCall: any = {
                 id: toolCall.id,
                 name: originalName,
                 arguments: JSON.parse(toolCall.arguments || '{}'),
                 args: JSON.parse(toolCall.arguments || '{}') // Alias for tests
               };
+              // Preserve provider-specific metadata (e.g., Google's thoughtSignature)
+              if (state.metadata) {
+                finalToolCall.metadata = state.metadata;
+              }
               allToolCalls.push(finalToolCall);
 
               // Emit tool_call event for tests
@@ -191,11 +201,16 @@ export class StreamCoordinator {
       // If we didn't receive TOOL_CALL_END events, finalize using pending state
       if (pendingToolCalls.size > 0) {
         for (const [callId, state] of pendingToolCalls.entries()) {
-          detectedCalls.push({
+          const pendingCall: any = {
             id: callId,
             name: state.name,
             arguments: state.arguments
-          });
+          };
+          // Preserve provider-specific metadata (e.g., Google's thoughtSignature)
+          if (state.metadata) {
+            pendingCall.metadata = state.metadata;
+          }
+          detectedCalls.push(pendingCall);
         }
         pendingToolCalls.clear();
       }
@@ -208,12 +223,16 @@ export class StreamCoordinator {
       for (const call of detectedCalls) {
         const originalName = context.toolNameMap.get(call.name || '') || call.name || 'unknown';
         const parsedArgs = call.arguments ? JSON.parse(call.arguments) : {};
-        const finalToolCall = {
+        const finalToolCall: any = {
           id: call.id,
           name: originalName,
           arguments: parsedArgs,
           args: parsedArgs
         };
+        // Preserve provider-specific metadata (e.g., Google's thoughtSignature)
+        if (call.metadata) {
+          finalToolCall.metadata = call.metadata;
+        }
         allToolCalls.push(finalToolCall);
         yield {
           type: 'tool_call' as any,
@@ -221,11 +240,18 @@ export class StreamCoordinator {
         };
       }
 
-      const preparedToolCalls = detectedCalls.map(call => ({
-        id: call.id,
-        name: call.name,
-        arguments: JSON.parse(call.arguments || '{}')
-      }));
+      const preparedToolCalls = detectedCalls.map(call => {
+        const prepared: any = {
+          id: call.id,
+          name: call.name,
+          arguments: JSON.parse(call.arguments || '{}')
+        };
+        // Preserve provider-specific metadata (e.g., Google's thoughtSignature)
+        if (call.metadata) {
+          prepared.metadata = call.metadata;
+        }
+        return prepared;
+      });
 
       const toolNameMap = Object.fromEntries(context.toolNameMap.entries());
 

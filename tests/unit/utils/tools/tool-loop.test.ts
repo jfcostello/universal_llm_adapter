@@ -897,6 +897,60 @@ describe('utils/tools/runToolLoop', () => {
     expect(assistantMessage.reasoning).toEqual(reasoning);
   });
 
+  test('stream loop preserves metadata on tool calls (e.g., thoughtSignature)', async () => {
+    const llmManager: any = {
+      streamProvider: jest.fn(async function* () {
+        yield { choices: [{ delta: { content: 'follow-up' } }] };
+      })
+    };
+
+    const messages: any[] = [{ role: Role.USER, content: [] }];
+    const toolCallMetadata = { thoughtSignature: 'abc123...' };
+
+    const iterator = runToolLoop({
+      mode: 'stream',
+      llmManager,
+      registry: {
+        getCompatModule: () => ({
+          parseStreamChunk: (chunk: any) => ({ text: chunk.choices?.[0]?.delta?.content })
+        })
+      } as any,
+      messages,
+      tools: [{ name: 'demo-tool' }],
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: {
+        toolCountdownEnabled: false,
+        maxToolIterations: 1,
+        preserveToolResults: 1
+      } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      toolNameMap: { demo_tool: 'demo-tool' },
+      metadata: {},
+      initialToolCalls: [
+        {
+          id: 'call-meta',
+          name: 'demo_tool',
+          arguments: { x: 1 },
+          metadata: toolCallMetadata
+        }
+      ],
+      invokeTool: jest.fn().mockResolvedValue({ result: 'ok' })
+    });
+
+    for await (const _ of iterator) {
+      // Consume all events
+    }
+
+    // Verify that the assistant message with tool calls has metadata preserved
+    const assistantMessage = messages.find(msg => msg.role === Role.ASSISTANT && msg.toolCalls);
+    expect(assistantMessage).toBeDefined();
+    expect(assistantMessage.toolCalls[0].metadata).toEqual(toolCallMetadata);
+  });
+
   test('non-stream loop handles response without reasoning gracefully', async () => {
     const callProvider = jest.fn().mockResolvedValue({
       provider: 'provider',
