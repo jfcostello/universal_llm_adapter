@@ -2,6 +2,9 @@
  * Unit tests for live test configuration filtering
  * Tests the getFilteredTestRuns() function which filters providers based on
  * LLM_TEST_PROVIDERS environment variable.
+ *
+ * NOTE: These tests focus on the BEHAVIOR of filtering, not specific config values.
+ * This allows the config to be modified without breaking tests.
  */
 import { jest } from '@jest/globals';
 
@@ -24,7 +27,7 @@ describe('tests/live/config', () => {
 
       const result = getFilteredTestRuns();
       expect(result).toEqual(testRuns);
-      expect(result.length).toBe(4);
+      expect(result.length).toBe(testRuns.length);
     });
 
     test('returns all test runs when LLM_TEST_PROVIDERS is empty string', async () => {
@@ -36,42 +39,80 @@ describe('tests/live/config', () => {
     });
 
     test('filters to single provider when specified', async () => {
-      process.env.LLM_TEST_PROVIDERS = 'anthropic';
+      delete process.env.LLM_TEST_PROVIDERS;
+      const { testRuns } = await import('@tests/live/config.ts');
+      const firstProviderName = testRuns[0].name;
+
+      jest.resetModules();
+      process.env.LLM_TEST_PROVIDERS = firstProviderName;
       const { getFilteredTestRuns } = await import('@tests/live/config.ts');
 
       const result = getFilteredTestRuns();
       expect(result.length).toBe(1);
-      expect(result[0].name).toBe('anthropic');
+      expect(result[0].name).toBe(firstProviderName);
     });
 
     test('filters to multiple providers when comma-separated', async () => {
-      process.env.LLM_TEST_PROVIDERS = 'anthropic,google';
+      delete process.env.LLM_TEST_PROVIDERS;
+      const { testRuns } = await import('@tests/live/config.ts');
+
+      if (testRuns.length < 2) {
+        return; // Skip if not enough providers configured
+      }
+
+      const provider1 = testRuns[0].name;
+      const provider2 = testRuns[1].name;
+
+      jest.resetModules();
+      process.env.LLM_TEST_PROVIDERS = `${provider1},${provider2}`;
       const { getFilteredTestRuns } = await import('@tests/live/config.ts');
 
       const result = getFilteredTestRuns();
       expect(result.length).toBe(2);
-      expect(result.map(r => r.name)).toContain('anthropic');
-      expect(result.map(r => r.name)).toContain('google');
+      expect(result.map(r => r.name)).toContain(provider1);
+      expect(result.map(r => r.name)).toContain(provider2);
     });
 
     test('handles whitespace in comma-separated list', async () => {
-      process.env.LLM_TEST_PROVIDERS = ' anthropic , google ';
+      delete process.env.LLM_TEST_PROVIDERS;
+      const { testRuns } = await import('@tests/live/config.ts');
+
+      if (testRuns.length < 2) {
+        return; // Skip if not enough providers configured
+      }
+
+      const provider1 = testRuns[0].name;
+      const provider2 = testRuns[1].name;
+
+      jest.resetModules();
+      process.env.LLM_TEST_PROVIDERS = ` ${provider1} , ${provider2} `;
       const { getFilteredTestRuns } = await import('@tests/live/config.ts');
 
       const result = getFilteredTestRuns();
       expect(result.length).toBe(2);
-      expect(result.map(r => r.name)).toContain('anthropic');
-      expect(result.map(r => r.name)).toContain('google');
+      expect(result.map(r => r.name)).toContain(provider1);
+      expect(result.map(r => r.name)).toContain(provider2);
     });
 
     test('is case-insensitive for provider names', async () => {
-      process.env.LLM_TEST_PROVIDERS = 'ANTHROPIC,Google';
+      delete process.env.LLM_TEST_PROVIDERS;
+      const { testRuns } = await import('@tests/live/config.ts');
+
+      if (testRuns.length < 2) {
+        return; // Skip if not enough providers configured
+      }
+
+      const provider1 = testRuns[0].name;
+      const provider2 = testRuns[1].name;
+
+      jest.resetModules();
+      process.env.LLM_TEST_PROVIDERS = `${provider1.toUpperCase()},${provider2.charAt(0).toUpperCase() + provider2.slice(1)}`;
       const { getFilteredTestRuns } = await import('@tests/live/config.ts');
 
       const result = getFilteredTestRuns();
       expect(result.length).toBe(2);
-      expect(result.map(r => r.name)).toContain('anthropic');
-      expect(result.map(r => r.name)).toContain('google');
+      expect(result.map(r => r.name)).toContain(provider1);
+      expect(result.map(r => r.name)).toContain(provider2);
     });
 
     test('returns all test runs with warning when no providers match', async () => {
@@ -92,45 +133,64 @@ describe('tests/live/config', () => {
       warnSpy.mockRestore();
     });
 
-    test('handles openai-responses provider name correctly', async () => {
-      process.env.LLM_TEST_PROVIDERS = 'openai-responses';
-      const { getFilteredTestRuns } = await import('@tests/live/config.ts');
+    test('filters correctly for any provider in testRuns', async () => {
+      delete process.env.LLM_TEST_PROVIDERS;
+      const { testRuns } = await import('@tests/live/config.ts');
 
-      const result = getFilteredTestRuns();
-      expect(result.length).toBe(1);
-      expect(result[0].name).toBe('openai-responses');
-    });
+      // Test filtering works for each configured provider
+      for (const run of testRuns) {
+        jest.resetModules();
+        process.env.LLM_TEST_PROVIDERS = run.name;
+        const { getFilteredTestRuns } = await import('@tests/live/config.ts');
 
-    test('handles openrouter provider name correctly', async () => {
-      process.env.LLM_TEST_PROVIDERS = 'openrouter';
-      const { getFilteredTestRuns } = await import('@tests/live/config.ts');
-
-      const result = getFilteredTestRuns();
-      expect(result.length).toBe(1);
-      expect(result[0].name).toBe('openrouter');
+        const result = getFilteredTestRuns();
+        expect(result.length).toBe(1);
+        expect(result[0].name).toBe(run.name);
+      }
     });
   });
 
   describe('filteredTestRuns export', () => {
-    test('is pre-computed at module load time', async () => {
-      process.env.LLM_TEST_PROVIDERS = 'anthropic';
+    test('is pre-computed at module load time based on env var', async () => {
+      delete process.env.LLM_TEST_PROVIDERS;
+      const { testRuns } = await import('@tests/live/config.ts');
+      const firstProviderName = testRuns[0].name;
+
+      jest.resetModules();
+      process.env.LLM_TEST_PROVIDERS = firstProviderName;
       const { filteredTestRuns } = await import('@tests/live/config.ts');
 
       expect(filteredTestRuns.length).toBe(1);
-      expect(filteredTestRuns[0].name).toBe('anthropic');
+      expect(filteredTestRuns[0].name).toBe(firstProviderName);
     });
   });
 
   describe('timeout configuration', () => {
     test('timeout multiplier reflects filtered provider count', async () => {
-      process.env.LLM_TEST_PROVIDERS = 'anthropic';
+      delete process.env.LLM_TEST_PROVIDERS;
+      const { testRuns } = await import('@tests/live/config.ts');
+      const firstProviderName = testRuns[0].name;
+
+      jest.resetModules();
+      process.env.LLM_TEST_PROVIDERS = firstProviderName;
       const { timeoutMultiplier } = await import('@tests/live/config.ts');
 
       expect(timeoutMultiplier).toBe(1);
     });
 
     test('total timeout scales with filtered provider count', async () => {
-      process.env.LLM_TEST_PROVIDERS = 'anthropic,google';
+      delete process.env.LLM_TEST_PROVIDERS;
+      const { testRuns } = await import('@tests/live/config.ts');
+
+      if (testRuns.length < 2) {
+        return; // Skip if not enough providers configured
+      }
+
+      const provider1 = testRuns[0].name;
+      const provider2 = testRuns[1].name;
+
+      jest.resetModules();
+      process.env.LLM_TEST_PROVIDERS = `${provider1},${provider2}`;
       const { totalTestTimeout, baseTestTimeout } = await import('@tests/live/config.ts');
 
       expect(totalTestTimeout).toBe(baseTestTimeout * 2);
@@ -138,28 +198,27 @@ describe('tests/live/config', () => {
   });
 
   describe('backwards compatibility exports', () => {
-    test('llmPriority still exports from first testRun', async () => {
+    test('llmPriority exports from first testRun', async () => {
       delete process.env.LLM_TEST_PROVIDERS;
-      const { llmPriority } = await import('@tests/live/config.ts');
+      const { llmPriority, testRuns } = await import('@tests/live/config.ts');
 
       expect(llmPriority).toBeDefined();
-      expect(llmPriority[0].provider).toBe('anthropic');
+      expect(llmPriority).toEqual(testRuns[0].llmPriority);
     });
 
-    test('defaultSettings still exports from first testRun', async () => {
+    test('defaultSettings exports from first testRun', async () => {
       delete process.env.LLM_TEST_PROVIDERS;
-      const { defaultSettings } = await import('@tests/live/config.ts');
+      const { defaultSettings, testRuns } = await import('@tests/live/config.ts');
 
       expect(defaultSettings).toBeDefined();
-      expect(defaultSettings.temperature).toBe(0.3);
-      expect(defaultSettings.maxTokens).toBe(60000);
+      expect(defaultSettings).toEqual(testRuns[0].settings);
     });
 
-    test('primaryProvider still exports from first testRun', async () => {
+    test('primaryProvider exports from first testRun', async () => {
       delete process.env.LLM_TEST_PROVIDERS;
-      const { primaryProvider } = await import('@tests/live/config.ts');
+      const { primaryProvider, testRuns } = await import('@tests/live/config.ts');
 
-      expect(primaryProvider).toBe('anthropic');
+      expect(primaryProvider).toBe(testRuns[0].llmPriority[0]?.provider ?? '');
     });
   });
 });
