@@ -2,6 +2,7 @@ import {
   ContentPart,
   LLMCallSpec,
   Message,
+  ReasoningData,
   Role,
   TextContent,
   ToolResultContent
@@ -89,6 +90,7 @@ export interface AssistantToolCallInput {
 export interface AppendAssistantToolCallsOptions {
   sanitizeName?: (name: string) => string;
   content?: ContentPart[];
+  reasoning?: ReasoningData;
 }
 
 function sanitizeAssistantContent(parts: ContentPart[] | undefined): ContentPart[] {
@@ -152,14 +154,25 @@ export function appendAssistantToolCalls(
     if (content.length > 0) {
       lastMessage.content = content;
     }
+    // Update reasoning if provided (preserve existing if not provided)
+    if (options.reasoning) {
+      lastMessage.reasoning = options.reasoning;
+    }
     return;
   }
 
-  messages.push({
+  const message: Message = {
     role: Role.ASSISTANT,
     content,
     toolCalls: sanitizedToolCalls
-  });
+  };
+
+  // Add reasoning if provided
+  if (options.reasoning) {
+    message.reasoning = options.reasoning;
+  }
+
+  messages.push(message);
 }
 
 export interface ToolResultPayload {

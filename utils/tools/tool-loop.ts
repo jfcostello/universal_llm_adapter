@@ -52,6 +52,7 @@ interface NonStreamToolLoopOptions extends BaseToolLoopOptions {
 interface StreamToolLoopOptions extends BaseToolLoopOptions {
   mode: 'stream';
   initialToolCalls: ToolCall[];
+  initialReasoning?: ReasoningData;
   invokeTool: InvokeToolFn;
 }
 
@@ -135,7 +136,8 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
       response.toolCalls,
       {
         sanitizeName: name => name,
-        content: response.content
+        content: response.content,
+        reasoning: response.reasoning
       }
     );
 
@@ -407,6 +409,7 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
     toolNameMap,
     invokeTool,
     initialToolCalls,
+    initialReasoning,
     metadata
   } = options;
 
@@ -427,7 +430,8 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
   }));
 
   appendAssistantToolCalls(messages, assistantToolCalls, {
-    sanitizeName: name => name
+    sanitizeName: name => name,
+    reasoning: initialReasoning
   });
 
   for (const toolCall of initialToolCalls) {

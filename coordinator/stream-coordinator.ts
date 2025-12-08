@@ -245,6 +245,7 @@ export class StreamCoordinator {
         toolNameMap,
         metadata: executionSpec.metadata,
         initialToolCalls: preparedToolCalls,
+        initialReasoning: reasoningAggregate,
         invokeTool: async (toolName, call) => {
           return this.toolCoordinator.routeAndInvoke(
             toolName,

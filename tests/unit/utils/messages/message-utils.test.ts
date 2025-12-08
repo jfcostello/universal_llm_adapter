@@ -319,4 +319,147 @@ describe('utils/messages/message-utils', () => {
       { type: 'tool_result', toolName: 'echo', result: 'plain-text' }
     ]);
   });
+
+  test('appendAssistantToolCalls stores reasoning on new message when provided', () => {
+    const messages: any[] = [];
+    const reasoning = { text: 'I need to call this tool because...', metadata: { provider: 'openrouter' } };
+
+    appendAssistantToolCalls(
+      messages,
+      [
+        {
+          id: 'call-reason-1',
+          name: 'search_tool',
+          arguments: { query: 'test' }
+        }
+      ],
+      {
+        content: [{ type: 'text', text: 'Searching...' }],
+        reasoning
+      }
+    );
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].reasoning).toEqual(reasoning);
+    expect(messages[0].role).toBe(Role.ASSISTANT);
+    expect(messages[0].toolCalls).toHaveLength(1);
+  });
+
+  test('appendAssistantToolCalls does not add reasoning field when undefined', () => {
+    const messages: any[] = [];
+
+    appendAssistantToolCalls(
+      messages,
+      [
+        {
+          id: 'call-no-reason',
+          name: 'simple_tool',
+          arguments: {}
+        }
+      ],
+      {
+        content: []
+      }
+    );
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).not.toHaveProperty('reasoning');
+  });
+
+  test('appendAssistantToolCalls updates reasoning on existing duplicate message', () => {
+    const existingReasoning = { text: 'original reasoning' };
+    const messages: any[] = [
+      {
+        role: Role.ASSISTANT,
+        content: [],
+        toolCalls: [
+          {
+            id: 'call-dup',
+            name: 'dup_tool',
+            arguments: { x: 1 }
+          }
+        ],
+        reasoning: existingReasoning
+      }
+    ];
+
+    const newReasoning = { text: 'updated reasoning', metadata: { updated: true } };
+
+    appendAssistantToolCalls(
+      messages,
+      [
+        {
+          id: 'call-dup',
+          name: 'dup_tool',
+          arguments: { x: 1 }
+        }
+      ],
+      {
+        content: [{ type: 'text', text: 'new content' }],
+        reasoning: newReasoning
+      }
+    );
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].reasoning).toEqual(newReasoning);
+    expect(messages[0].content).toEqual([{ type: 'text', text: 'new content' }]);
+  });
+
+  test('appendAssistantToolCalls preserves existing reasoning when new reasoning is undefined', () => {
+    const existingReasoning = { text: 'should be preserved' };
+    const messages: any[] = [
+      {
+        role: Role.ASSISTANT,
+        content: [],
+        toolCalls: [
+          {
+            id: 'call-preserve',
+            name: 'preserve_tool',
+            arguments: {}
+          }
+        ],
+        reasoning: existingReasoning
+      }
+    ];
+
+    appendAssistantToolCalls(
+      messages,
+      [
+        {
+          id: 'call-preserve',
+          name: 'preserve_tool',
+          arguments: {}
+        }
+      ],
+      {
+        content: [{ type: 'text', text: 'updated content' }]
+      }
+    );
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].reasoning).toEqual(existingReasoning);
+  });
+
+  test('appendAssistantToolCalls handles reasoning with redacted flag', () => {
+    const messages: any[] = [];
+    const reasoning = { text: '[redacted]', redacted: true };
+
+    appendAssistantToolCalls(
+      messages,
+      [
+        {
+          id: 'call-redact',
+          name: 'redact_tool',
+          arguments: {}
+        }
+      ],
+      {
+        reasoning
+      }
+    );
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].reasoning).toEqual(reasoning);
+    expect(messages[0].reasoning.redacted).toBe(true);
+  });
 });

@@ -838,4 +838,119 @@ describe('utils/tools/runToolLoop', () => {
       tool: 'error_tool'
     });
   });
+
+  test('non-stream loop preserves reasoning from initial response in messages', async () => {
+    const callProvider = jest.fn().mockResolvedValue({
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [{ type: 'text', text: 'done' }]
+    });
+
+    const llmManager: any = {
+      callProvider,
+      streamProvider: jest.fn()
+    };
+
+    const messages: any[] = [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }];
+    const reasoning = { text: 'Let me think about this...', metadata: { provider: 'openrouter' } };
+
+    await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages,
+      tools: [{ name: 'reason_tool' }],
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: {
+        toolCountdownEnabled: false,
+        maxToolIterations: 1,
+        preserveToolResults: 1
+      } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: {},
+      toolNameMap: { reason_tool: 'reason_tool' },
+      metadata: {},
+      initialResponse: {
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: [{ type: 'text', text: 'Calling tool...' }],
+        toolCalls: [
+          {
+            id: 'call-reason',
+            name: 'reason_tool',
+            arguments: {}
+          }
+        ],
+        reasoning
+      } as any,
+      invokeTool: jest.fn().mockResolvedValue({ result: 'ok' })
+    });
+
+    const assistantMessage = messages.find(msg => msg.role === Role.ASSISTANT);
+    expect(assistantMessage).toBeDefined();
+    expect(assistantMessage.reasoning).toEqual(reasoning);
+  });
+
+  test('non-stream loop handles response without reasoning gracefully', async () => {
+    const callProvider = jest.fn().mockResolvedValue({
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [{ type: 'text', text: 'done' }]
+    });
+
+    const llmManager: any = {
+      callProvider,
+      streamProvider: jest.fn()
+    };
+
+    const messages: any[] = [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }];
+
+    await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages,
+      tools: [{ name: 'no_reason_tool' }],
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: {
+        toolCountdownEnabled: false,
+        maxToolIterations: 1,
+        preserveToolResults: 1
+      } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: {},
+      toolNameMap: { no_reason_tool: 'no_reason_tool' },
+      metadata: {},
+      initialResponse: {
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: [],
+        toolCalls: [
+          {
+            id: 'call-no-reason',
+            name: 'no_reason_tool',
+            arguments: {}
+          }
+        ]
+        // No reasoning field
+      } as any,
+      invokeTool: jest.fn().mockResolvedValue({ result: 'ok' })
+    });
+
+    const assistantMessage = messages.find(msg => msg.role === Role.ASSISTANT);
+    expect(assistantMessage).toBeDefined();
+    expect(assistantMessage).not.toHaveProperty('reasoning');
+  });
 });

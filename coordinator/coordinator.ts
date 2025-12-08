@@ -3,6 +3,7 @@ import {
   LLMResponse,
   LLMStreamEvent,
   Message,
+  ReasoningData,
   Role,
   TextContent,
   UnifiedTool,
@@ -344,7 +345,8 @@ export class LLMCoordinator {
     toolNameMap: Record<string, string>,
     providerExtras: Record<string, any>,
     logger: AdapterLogger,
-    toolChoice: any
+    toolChoice: any,
+    reasoning?: ReasoningData
   ): AsyncGenerator<LLMStreamEvent, string | undefined> {
     logger.info('executeToolsAndContinueStreaming started', { toolCallCount: toolCalls.length });
 
@@ -361,7 +363,7 @@ export class LLMCoordinator {
         name: tc.name,
         arguments: tc.arguments
       })),
-      { sanitizeName: sanitizeToolName, content: [] }
+      { sanitizeName: sanitizeToolName, content: [], reasoning }
     );
 
     // Execute each tool and add results to messages
