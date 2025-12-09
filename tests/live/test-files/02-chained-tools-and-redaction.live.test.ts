@@ -108,29 +108,29 @@ STEP 3: Call test.echo with "gamma-three"
 - Call the test.echo function
 - Pass "gamma-three" as the message parameter
 - Wait for the tool result
-- You will receive a transformed result (it will be reversed with a length prefix)
+- The tool will transform your input in an unpredictable way - you cannot guess what it will return
 - DO NOT proceed until you receive the result
 
 STEP 4: Provide final confirmation
-- Write a short confirmation message
-- In your message, you MUST include the EXACT tool result from step 3 (the gamma-three result)
-- The tool result will look like [R:11]eerht-ammag (this is "gamma-three" reversed)
-- Copy the EXACT tool result into your confirmation - do not retype the original input
-- DO NOT mention "alpha-one" or "beta-two" in your final message
-- ONLY mention the actual tool result from the gamma-three call
+- Your final message MUST contain the EXACT, VERBATIM, CHARACTER-FOR-CHARACTER tool result from step 3
+- Copy and paste the tool result EXACTLY as it was returned - every character, every bracket, every symbol
+- DO NOT paraphrase, summarize, describe, or explain the result
+- DO NOT say things like "the result was..." or "I received..." - just include the raw result string itself
+- DO NOT retype or reconstruct the result from memory - copy it EXACTLY
+- The tool output is unpredictable - you MUST use what was actually returned, not what you expect
 
 CRITICAL RULES:
 - Process items ONE AT A TIME in order
 - DO NOT call multiple functions in parallel
 - DO NOT skip any item
-- In your final message, use the ACTUAL TOOL RESULT from gamma-three, not the original input
-- The tool transforms inputs - you must use what the tool returned, not what you sent` }]},
-          { role: 'user', content: [{ type: 'text', text: 'Follow all steps exactly. Process each item one by one, then provide your final confirmation with the gamma-three tool result.' }]}
+- Your final message will be validated - it MUST contain the EXACT tool output string from step 3
+- If your final message does not contain the verbatim tool result, the test FAILS` }]},
+          { role: 'user', content: [{ type: 'text', text: 'Follow all steps exactly. Process each item one by one. Your final message MUST include the EXACT verbatim tool result from the gamma-three call - copy it character for character.' }]}
         ],
         llmPriority: runCfg.llmPriority,
         functionToolNames: ['test.random', 'test.echo'],
         toolChoice: { type: 'required', allowed: ['test.random', 'test.echo'] },
-        settings: mergeSettings(runCfg.settings, { maxTokens: 60000, maxToolIterations: 6, preserveToolResults: 2, preserveReasoning: 2, toolCountdownEnabled: true, provider: { require_parameters: true } })
+        settings: mergeSettings(runCfg.settings, { maxTokens: 60000, maxToolIterations: 6, preserveToolResults: 2, preserveReasoning: 2, toolCountdownEnabled: true, reasoning: { enabled: true, budget: 10000 }, provider: { require_parameters: true } })
       });
       const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
       if (result.code !== 0) {

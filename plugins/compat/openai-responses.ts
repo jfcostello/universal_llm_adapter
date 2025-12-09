@@ -358,6 +358,18 @@ export default class OpenAIResponsesCompat implements ICompatModule {
       result.top_p = settings.topP;
     }
 
+    // Add reasoning support for OpenAI Responses API
+    // OpenAI Responses API uses { reasoning: { effort: 'high' | 'medium' | 'low' | 'minimal' } }
+    // Note: Unlike Chat Completions, Responses API only supports effort, not max_tokens/budget
+    if (settings.reasoning) {
+      const validEfforts = ['high', 'medium', 'low', 'minimal'];
+      if (settings.reasoning.effort && validEfforts.includes(settings.reasoning.effort)) {
+        result.reasoning = {
+          effort: settings.reasoning.effort
+        };
+      }
+    }
+
     return result;
   }
 

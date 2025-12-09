@@ -79,12 +79,101 @@ describe('integration/plugins/compat/reasoning-serialization', () => {
 
   describe('OpenAI Responses Compat - reasoning serialization', () => {
     // OpenAI Responses compat is SDK-only (buildPayload throws).
-    // Reasoning support for this compat is tracked in GitHub issue #79.
+    // Reasoning is serialized via the private serializeSettings() method.
+    // OpenAI Responses API uses { reasoning: { effort: 'high' | 'medium' | 'low' | 'minimal' } }
+
+    let compat: OpenAIResponsesCompat;
+
+    beforeEach(() => {
+      compat = new OpenAIResponsesCompat();
+    });
 
     test('buildPayload throws error (OpenAI Responses uses SDK methods)', () => {
-      const compat = new OpenAIResponsesCompat();
       expect(() => compat.buildPayload('o1', {}, baseMessages, [], undefined))
         .toThrow('OpenAI Responses compat is SDK-only');
+    });
+
+    test('serializes reasoning.effort: "high" to { reasoning: { effort: "high" } }', () => {
+      const settings = { reasoning: { effort: 'high' as const } };
+      const result = (compat as any).serializeSettings(settings);
+
+      expect(result.reasoning).toBeDefined();
+      expect(result.reasoning.effort).toBe('high');
+    });
+
+    test('serializes reasoning.effort: "medium" to { reasoning: { effort: "medium" } }', () => {
+      const settings = { reasoning: { effort: 'medium' as const } };
+      const result = (compat as any).serializeSettings(settings);
+
+      expect(result.reasoning).toBeDefined();
+      expect(result.reasoning.effort).toBe('medium');
+    });
+
+    test('serializes reasoning.effort: "low" to { reasoning: { effort: "low" } }', () => {
+      const settings = { reasoning: { effort: 'low' as const } };
+      const result = (compat as any).serializeSettings(settings);
+
+      expect(result.reasoning).toBeDefined();
+      expect(result.reasoning.effort).toBe('low');
+    });
+
+    test('serializes reasoning.effort: "minimal" to { reasoning: { effort: "minimal" } }', () => {
+      const settings = { reasoning: { effort: 'minimal' as const } };
+      const result = (compat as any).serializeSettings(settings);
+
+      expect(result.reasoning).toBeDefined();
+      expect(result.reasoning.effort).toBe('minimal');
+    });
+
+    test('does NOT serialize unsupported effort value "none"', () => {
+      const settings = { reasoning: { effort: 'none' as const } };
+      const result = (compat as any).serializeSettings(settings);
+
+      expect(result.reasoning).toBeUndefined();
+    });
+
+    test('does NOT serialize unsupported effort value "xhigh"', () => {
+      const settings = { reasoning: { effort: 'xhigh' as const } };
+      const result = (compat as any).serializeSettings(settings);
+
+      expect(result.reasoning).toBeUndefined();
+    });
+
+    test('does NOT include reasoning when settings.reasoning is undefined', () => {
+      const result = (compat as any).serializeSettings({});
+
+      expect(result.reasoning).toBeUndefined();
+    });
+
+    test('does NOT include reasoning when only reasoning.enabled is set (no effort)', () => {
+      const settings = { reasoning: { enabled: true } };
+      const result = (compat as any).serializeSettings(settings);
+
+      // OpenAI Responses API only uses effort, not enabled flag
+      expect(result.reasoning).toBeUndefined();
+    });
+
+    test('does NOT include reasoning when only reasoning.budget is set (no effort)', () => {
+      const settings = { reasoning: { budget: 2048 } };
+      const result = (compat as any).serializeSettings(settings);
+
+      // OpenAI Responses API uses effort, not budget/max_tokens
+      expect(result.reasoning).toBeUndefined();
+    });
+
+    test('preserves other settings alongside reasoning', () => {
+      const settings = {
+        maxTokens: 1000,
+        temperature: 0.7,
+        topP: 0.9,
+        reasoning: { effort: 'high' as const }
+      };
+      const result = (compat as any).serializeSettings(settings);
+
+      expect(result.max_output_tokens).toBe(1000);
+      expect(result.temperature).toBe(0.7);
+      expect(result.top_p).toBe(0.9);
+      expect(result.reasoning.effort).toBe('high');
     });
   });
 
