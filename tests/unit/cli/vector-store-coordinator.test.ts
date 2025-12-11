@@ -1,6 +1,5 @@
 import path from 'path';
 import { jest } from '@jest/globals';
-import { PassThrough } from 'stream';
 import { Command } from 'commander';
 
 // These will be created in implementation
@@ -8,8 +7,6 @@ import type { CliDependencies } from '@/vector_store_coordinator.ts';
 
 // Mock the module - will be replaced when implementation exists
 const mockCreateProgram = jest.fn();
-const mockLoadSpec = jest.fn();
-const mockRunCli = jest.fn();
 
 // Import ROOT_DIR from test helpers
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
@@ -49,18 +46,15 @@ describe('vector_store_coordinator CLI', () => {
   // This is TDD - tests first, then implementation
 
   let createProgram: typeof mockCreateProgram;
-  let loadSpec: typeof mockLoadSpec;
 
   beforeAll(async () => {
     // Will import from actual module when it exists
     try {
       const module = await import('@/vector_store_coordinator.ts');
       createProgram = module.createProgram;
-      loadSpec = module.loadSpec;
     } catch {
       // Module doesn't exist yet - use mocks for type checking
       createProgram = mockCreateProgram;
-      loadSpec = mockLoadSpec;
     }
   });
 
@@ -332,36 +326,6 @@ describe('vector_store_coordinator CLI', () => {
     });
   });
 
-  describe('loadSpec', () => {
-    test('loads spec from file', async () => {
-      // Will need a fixture file
-      const specPath = path.join(ROOT_DIR, 'tests', 'fixtures', 'specs', 'vector-embed.json');
-
-      // This test documents expected behavior - file may not exist yet
-      try {
-        const spec = await loadSpec({ file: specPath });
-        expect(spec).toHaveProperty('operation');
-      } catch {
-        // File doesn't exist yet - that's okay for TDD
-        expect(true).toBe(true);
-      }
-    });
-
-    test('parses inline spec', async () => {
-      const spec = await loadSpec({ spec: '{"operation":"embed","store":"test"}' });
-      expect(spec).toEqual({ operation: 'embed', store: 'test' });
-    });
-
-    test('reads from stdin', async () => {
-      const stdin = new PassThrough();
-      const stdinPromise = loadSpec({}, stdin as unknown as NodeJS.ReadableStream);
-      stdin.write('{"operation":"query","store":"qdrant"}');
-      stdin.end();
-      const spec = await stdinPromise;
-      expect(spec).toEqual({ operation: 'query', store: 'qdrant' });
-    });
-  });
-
   describe('streaming operations', () => {
     test('streams progress for embed operation', async () => {
       const { deps, coordinator } = createDeps();
@@ -440,25 +404,6 @@ describe('vector_store_coordinator CLI', () => {
         expect(typeof module.__isEntryPoint).toBe('boolean');
       } catch {
         expect(true).toBe(true);
-      }
-    });
-  });
-
-  describe('loadSpec with file', () => {
-    test('reads spec from JSON file', async () => {
-      const fs = await import('fs');
-      const tempFile = path.join(ROOT_DIR, 'tests', 'fixtures', 'temp-vector-spec.json');
-
-      // Create temp file
-      fs.writeFileSync(tempFile, JSON.stringify({ operation: 'query', store: 'test' }));
-
-      try {
-        const spec = await loadSpec({ file: tempFile });
-        expect(spec.operation).toBe('query');
-        expect(spec.store).toBe('test');
-      } finally {
-        // Cleanup
-        fs.unlinkSync(tempFile);
       }
     });
   });

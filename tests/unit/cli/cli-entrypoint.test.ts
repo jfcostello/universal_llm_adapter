@@ -1,6 +1,5 @@
-import { Readable } from 'stream';
 import { jest } from '@jest/globals';
-import { loadSpec, createProgram } from '@/llm_coordinator.ts';
+import { createProgram } from '@/llm_coordinator.ts';
 import { createCliTestHarness } from '@tests/helpers/cli-harness.ts';
 import { withTempCwd, writeJson } from '@tests/helpers/temp-files.ts';
 
@@ -39,12 +38,6 @@ describe('llm_coordinator CLI entrypoint', () => {
       expect(harness.coordinator.run).toHaveBeenCalledWith({ via: 'file' });
       expect(harness.exitCodes).toEqual([0]);
     });
-  });
-
-  test('run command falls back to stdin when file/spec missing', async () => {
-    const stdin = Readable.from(['{"path":"stdin"}']);
-    const result = await loadSpec({}, stdin);
-    expect(result).toEqual({ path: 'stdin' });
   });
 
   test('run command surfaces JSON parse error', async () => {

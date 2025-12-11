@@ -6,13 +6,13 @@
  */
 
 import { Command } from 'commander';
-import * as fs from 'fs';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 import { PluginRegistry } from './core/registry.js';
 import { VectorStoreCoordinator } from './coordinator/vector-coordinator.js';
 import { VectorCallSpec, VectorStreamEvent } from './core/vector-spec-types.js';
 import { closeLogger } from './core/logging.js';
+import { loadSpec, writeJsonToStdout } from './utils/cli/index.js';
 
 export interface CliDependencies {
   createRegistry: (pluginsPath: string) => PromiseLike<PluginRegistryLike> | PluginRegistryLike;
@@ -73,21 +73,7 @@ export function createProgram(partialDeps: Partial<CliDependencies> = {}): Comma
       } else {
         const result = await coordinator.execute(spec);
         const wrappedResponse = { type: 'response', data: result };
-        const output = options.pretty
-          ? JSON.stringify(wrappedResponse, null, 2)
-          : JSON.stringify(wrappedResponse);
-
-        // Force write completion before exit
-        const writeComplete = new Promise<void>((resolve) => {
-          process.stdout.write(output + '\n', () => {
-            resolve();
-          });
-        });
-
-        await Promise.race([
-          writeComplete,
-          new Promise<void>(resolve => setTimeout(resolve, 100))
-        ]);
+        await writeJsonToStdout(wrappedResponse, { pretty: options.pretty });
       }
 
       await coordinator.close();
@@ -171,32 +157,6 @@ export function createProgram(partialDeps: Partial<CliDependencies> = {}): Comma
 export async function runCli(argv: string[] = process.argv): Promise<void> {
   const program = createProgram();
   await program.parseAsync(argv);
-}
-
-export async function loadSpec(
-  options: any,
-  stdin: NodeJS.ReadableStream = process.stdin
-): Promise<VectorCallSpec> {
-  let specData: any;
-
-  if (options.file) {
-    const content = fs.readFileSync(options.file, 'utf-8');
-    specData = JSON.parse(content);
-  } else if (options.spec) {
-    specData = JSON.parse(options.spec);
-  } else {
-    // Read from stdin
-    let input = '';
-    stdin.setEncoding('utf-8');
-
-    for await (const chunk of stdin) {
-      input += chunk;
-    }
-
-    specData = JSON.parse(input);
-  }
-
-  return specData as VectorCallSpec;
 }
 
 const isEntryPoint = Boolean(

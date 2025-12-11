@@ -1,11 +1,10 @@
 import path from 'path';
 import { jest } from '@jest/globals';
-import { PassThrough } from 'stream';
 import { Command } from 'commander';
 import * as CliModule from '@/llm_coordinator.ts';
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
 
-const { createProgram, loadSpec, runCli, __isEntryPoint } = CliModule;
+const { createProgram, runCli, __isEntryPoint } = CliModule;
 
 function createDeps(overrides: Partial<CliModule.CliDependencies> = {}) {
   const registry = { loadAll: jest.fn().mockResolvedValue(undefined) };
@@ -171,22 +170,6 @@ describe('llm_coordinator CLI', () => {
 
     expect(deps.error).toHaveBeenCalledWith(JSON.stringify({ error: 'broken stream' }));
     expect(deps.exit).toHaveBeenCalledWith(1);
-  });
-
-  test('loadSpec supports file, inline spec, and stdin fallback', async () => {
-    const specPath = path.join(ROOT_DIR, 'tests', 'fixtures', 'specs', 'simple.json');
-    const fromFile = await loadSpec({ file: specPath });
-    expect(fromFile).toHaveProperty('messages');
-
-    const inline = await loadSpec({ spec: '{"inline":true}' });
-    expect(inline).toEqual({ inline: true });
-
-    const stdin = new PassThrough();
-    const stdinPromise = loadSpec({}, stdin as unknown as NodeJS.ReadableStream);
-    stdin.write('{"stdin":true}');
-    stdin.end();
-    const fromStdin = await stdinPromise;
-    expect(fromStdin).toEqual({ stdin: true });
   });
 
   test('runCli uses process.argv when invoked without override', async () => {

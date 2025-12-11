@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import * as fs from 'fs';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 import { PluginRegistry } from './core/registry.js';
 import { LLMCoordinator } from './coordinator/coordinator.js';
 import { LLMCallSpec, LLMStreamEvent } from './core/types.js';
 import { closeLogger } from './core/logging.js';
+import { loadSpec, writeJsonToStdout } from './utils/cli/index.js';
 
 export interface CliDependencies {
   createRegistry: (pluginsPath: string) => PromiseLike<PluginRegistryLike> | PluginRegistryLike;
@@ -71,23 +71,7 @@ export function createProgram(partialDeps: Partial<CliDependencies> = {}): Comma
         await closeLogger();
 
         const wrappedResponse = { type: 'response', data: response };
-        const output = options.pretty
-          ? JSON.stringify(wrappedResponse, null, 2)
-          : JSON.stringify(wrappedResponse);
-
-        // Force write completion before exit to avoid race condition with large responses
-        // console.log is async when stdout is piped, causing 240KB+ responses to be truncated
-        const writeComplete = new Promise<void>((resolve) => {
-          process.stdout.write(output + '\n', () => {
-            resolve();
-          });
-        });
-
-        // Race with timeout for test environments where callback may not fire
-        await Promise.race([
-          writeComplete,
-          new Promise<void>(resolve => setTimeout(resolve, 100))
-        ]);
+        await writeJsonToStdout(wrappedResponse, { pretty: options.pretty });
 
         deps.exit(0);
       } catch (error: any) {
@@ -133,29 +117,6 @@ export function createProgram(partialDeps: Partial<CliDependencies> = {}): Comma
 export async function runCli(argv: string[] = process.argv): Promise<void> {
   const program = createProgram();
   await program.parseAsync(argv);
-}
-
-export async function loadSpec(options: any, stdin: NodeJS.ReadableStream = process.stdin): Promise<LLMCallSpec> {
-  let specData: any;
-  
-  if (options.file) {
-    const content = fs.readFileSync(options.file, 'utf-8');
-    specData = JSON.parse(content);
-  } else if (options.spec) {
-    specData = JSON.parse(options.spec);
-  } else {
-    // Read from stdin
-    let input = '';
-    stdin.setEncoding('utf-8');
-    
-    for await (const chunk of stdin) {
-      input += chunk;
-    }
-    
-    specData = JSON.parse(input);
-  }
-  
-  return specData as LLMCallSpec;
 }
 
 const isEntryPoint = Boolean(
