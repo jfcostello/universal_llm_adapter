@@ -45,7 +45,12 @@ describe('utils/server default dependency wiring', () => {
       LLMCoordinator: LLMCoordinatorMock
     }));
     (jest as any).unstable_mockModule('@/core/logging.ts', () => ({
-      closeLogger: jest.fn().mockResolvedValue(undefined)
+      closeLogger: jest.fn().mockResolvedValue(undefined),
+      getLogger: jest.fn().mockReturnValue({
+        info: jest.fn(),
+        warning: jest.fn(),
+        error: jest.fn()
+      })
     }));
     (jest as any).unstable_mockModule('http', () => ({
       __esModule: true,
@@ -60,7 +65,7 @@ describe('utils/server default dependency wiring', () => {
 
     const req = new Readable({
       read() {
-        this.push(JSON.stringify({ messages: [], llmPriority: [], settings: {} }));
+        this.push(JSON.stringify({ messages: [], llmPriority: [{ provider: 'p', model: 'm' }], settings: {} }));
         this.push(null);
       }
     }) as any;
@@ -112,7 +117,12 @@ describe('utils/server default dependency wiring', () => {
       }))
     }));
     (jest as any).unstable_mockModule('@/core/logging.ts', () => ({
-      closeLogger: jest.fn().mockResolvedValue(undefined)
+      closeLogger: jest.fn().mockResolvedValue(undefined),
+      getLogger: jest.fn().mockReturnValue({
+        info: jest.fn(),
+        warning: jest.fn(),
+        error: jest.fn()
+      })
     }));
     (jest as any).unstable_mockModule('http', () => ({
       __esModule: true,

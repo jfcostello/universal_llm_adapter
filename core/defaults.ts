@@ -55,6 +55,16 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
     embeddingHttp: 60000,
     loggerFlush: 2000
   },
+  server: {
+    maxRequestBytes: 25 * 1024 * 1024,
+    bodyReadTimeoutMs: 10000,
+    requestTimeoutMs: 0,
+    streamIdleTimeoutMs: 60000,
+    maxConcurrentRequests: 128,
+    maxConcurrentStreams: 32,
+    maxQueueSize: 1000,
+    queueTimeoutMs: 30000
+  },
   paths: {
     plugins: './plugins'
   }

@@ -3,6 +3,7 @@ import { AddressInfo } from 'net';
 import { PluginRegistry } from '../../core/registry.js';
 import { LLMCoordinator } from '../../coordinator/coordinator.js';
 import { closeLogger } from '../../core/logging.js';
+import { getDefaults } from '../../core/defaults.js';
 import type { LLMCallSpec, LLMStreamEvent } from '../../core/types.js';
 import type {
   CoordinatorLifecycleDeps,
@@ -22,6 +23,14 @@ export interface ServerOptions {
   pluginsPath?: string;
   batchId?: string;
   closeLoggerAfterRequest?: boolean;
+  maxRequestBytes?: number;
+  bodyReadTimeoutMs?: number;
+  requestTimeoutMs?: number;
+  streamIdleTimeoutMs?: number;
+  maxConcurrentRequests?: number;
+  maxConcurrentStreams?: number;
+  maxQueueSize?: number;
+  queueTimeoutMs?: number;
   deps?: Partial<ServerDependencies>;
   registry?: PluginRegistryLike;
 }
@@ -46,17 +55,29 @@ export function createServerHandlerWithDefaults(
   if (!options.registry) {
     throw new Error('registry must be provided to createServerHandlerWithDefaults');
   }
+  const serverDefaults = getDefaults().server;
   return createServerHandler({
     registry: options.registry,
     pluginsPath: options.pluginsPath ?? './plugins',
     batchId: options.batchId,
     closeLoggerAfterRequest: options.closeLoggerAfterRequest ?? false,
-    deps
+    deps,
+    config: {
+      maxRequestBytes: options.maxRequestBytes ?? serverDefaults.maxRequestBytes,
+      bodyReadTimeoutMs: options.bodyReadTimeoutMs ?? serverDefaults.bodyReadTimeoutMs,
+      requestTimeoutMs: options.requestTimeoutMs ?? serverDefaults.requestTimeoutMs,
+      streamIdleTimeoutMs: options.streamIdleTimeoutMs ?? serverDefaults.streamIdleTimeoutMs,
+      maxConcurrentRequests: options.maxConcurrentRequests ?? serverDefaults.maxConcurrentRequests,
+      maxConcurrentStreams: options.maxConcurrentStreams ?? serverDefaults.maxConcurrentStreams,
+      maxQueueSize: options.maxQueueSize ?? serverDefaults.maxQueueSize,
+      queueTimeoutMs: options.queueTimeoutMs ?? serverDefaults.queueTimeoutMs
+    }
   });
 }
 
 export async function createServer(options: ServerOptions = {}): Promise<RunningServer> {
   const deps: ServerDependencies = { ...defaultDependencies, ...options.deps };
+  const serverDefaults = getDefaults().server;
   const host = options.host ?? '127.0.0.1';
   const port = options.port ?? 0;
   const pluginsPath = options.pluginsPath ?? './plugins';
@@ -72,7 +93,17 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
     pluginsPath,
     batchId: options.batchId,
     closeLoggerAfterRequest: options.closeLoggerAfterRequest ?? false,
-    deps
+    deps,
+    config: {
+      maxRequestBytes: options.maxRequestBytes ?? serverDefaults.maxRequestBytes,
+      bodyReadTimeoutMs: options.bodyReadTimeoutMs ?? serverDefaults.bodyReadTimeoutMs,
+      requestTimeoutMs: options.requestTimeoutMs ?? serverDefaults.requestTimeoutMs,
+      streamIdleTimeoutMs: options.streamIdleTimeoutMs ?? serverDefaults.streamIdleTimeoutMs,
+      maxConcurrentRequests: options.maxConcurrentRequests ?? serverDefaults.maxConcurrentRequests,
+      maxConcurrentStreams: options.maxConcurrentStreams ?? serverDefaults.maxConcurrentStreams,
+      maxQueueSize: options.maxQueueSize ?? serverDefaults.maxQueueSize,
+      queueTimeoutMs: options.queueTimeoutMs ?? serverDefaults.queueTimeoutMs
+    }
   });
 
   const server = http.createServer(handler);
@@ -102,4 +133,3 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
 }
 
 export type { LLMCallSpec, LLMStreamEvent };
-

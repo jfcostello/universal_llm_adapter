@@ -38,6 +38,44 @@ function postJsonStream(url: string, path: string, payload: any): Promise<{ stat
   return postJson(url, path, payload);
 }
 
+function postRaw(
+  url: string,
+  path: string,
+  body: string,
+  headers: Record<string, string>
+): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
+  return new Promise((resolve, reject) => {
+    const target = new URL(path, url);
+    const req = http.request(
+      {
+        method: 'POST',
+        hostname: target.hostname,
+        port: target.port,
+        path: target.pathname,
+        headers
+      },
+      (res) => {
+        let responseBody = '';
+        res.on('data', chunk => (responseBody += chunk.toString()));
+        res.on('end', () =>
+          resolve({
+            status: res.statusCode ?? 0,
+            headers: res.headers,
+            body: responseBody
+          })
+        );
+      }
+    );
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+function delay(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 let networkAvailable = true;
 
 beforeAll(async () => {
@@ -182,5 +220,170 @@ describe('utils/server createServer', () => {
     expect(parsed.type).toBe('error');
     expect(parsed.error.message).toContain('Invalid JSON');
   });
-});
 
+  test('invalid spec returns 400 validation error', async () => {
+    if (!networkAvailable) return;
+
+    const server = await createServer({
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn().mockResolvedValue({ run: jest.fn(), runStream: jest.fn(), close: jest.fn() }),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    });
+
+    const res = await postJson(server.url, '/run', { messages: [], settings: {} });
+    await server.close();
+
+    expect(res.status).toBe(400);
+    const parsed = JSON.parse(res.body);
+    expect(parsed.error.code).toBe('validation_error');
+  });
+
+  test('unsupported content-type returns 415', async () => {
+    if (!networkAvailable) return;
+
+    const server = await createServer({
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn().mockResolvedValue({ run: jest.fn(), runStream: jest.fn(), close: jest.fn() }),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    });
+
+    const res = await postRaw(
+      server.url,
+      '/run',
+      JSON.stringify(baseSpec),
+      { 'Content-Type': 'text/plain' }
+    );
+    await server.close();
+
+    expect(res.status).toBe(415);
+    expect(JSON.parse(res.body).error.code).toBe('unsupported_media_type');
+  });
+
+  test('too-large body returns 413', async () => {
+    if (!networkAvailable) return;
+
+    const server = await createServer({
+      maxRequestBytes: 50,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn().mockResolvedValue({ run: jest.fn(), runStream: jest.fn(), close: jest.fn() }),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    const large = { ...baseSpec, metadata: { big: 'x'.repeat(100) } };
+    const res = await postJson(server.url, '/run', large);
+    await server.close();
+
+    expect(res.status).toBe(413);
+    expect(JSON.parse(res.body).error.code).toBe('payload_too_large');
+  });
+
+  test('queues requests when saturated', async () => {
+    if (!networkAvailable) return;
+
+    let releaseFirst: (() => void) | undefined;
+    const firstGate = new Promise<void>(resolve => {
+      releaseFirst = resolve;
+    });
+
+    const server = await createServer({
+      maxConcurrentRequests: 1,
+      maxQueueSize: 1,
+      queueTimeoutMs: 1000,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn().mockImplementation(() => ({
+          run: jest.fn().mockImplementation(async () => {
+            await firstGate;
+            return { ok: true };
+          }),
+          runStream: jest.fn(),
+          close: jest.fn().mockResolvedValue(undefined)
+        })),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    const firstPromise = postJson(server.url, '/run', baseSpec);
+    await delay(10);
+    const secondPromise = postJson(server.url, '/run', baseSpec);
+
+    const raced = await Promise.race([secondPromise.then(() => 'done'), delay(20).then(() => 'pending')]);
+    expect(raced).toBe('pending');
+
+    releaseFirst?.();
+    const [firstRes, secondRes] = await Promise.all([firstPromise, secondPromise]);
+    await server.close();
+
+    expect(firstRes.status).toBe(200);
+    expect(secondRes.status).toBe(200);
+  });
+
+  test('queue full rejects with 503', async () => {
+    if (!networkAvailable) return;
+
+    let releaseFirst: (() => void) | undefined;
+    const firstGate = new Promise<void>(resolve => {
+      releaseFirst = resolve;
+    });
+
+    const server = await createServer({
+      maxConcurrentRequests: 1,
+      maxQueueSize: 0,
+      queueTimeoutMs: 1000,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn().mockImplementation(() => ({
+          run: jest.fn().mockImplementation(async () => {
+            await firstGate;
+            return { ok: true };
+          }),
+          runStream: jest.fn(),
+          close: jest.fn().mockResolvedValue(undefined)
+        })),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    const firstPromise = postJson(server.url, '/run', baseSpec);
+    await delay(10);
+    const secondRes = await postJson(server.url, '/run', baseSpec);
+
+    releaseFirst?.();
+    await firstPromise;
+    await server.close();
+
+    expect(secondRes.status).toBe(503);
+    expect(JSON.parse(secondRes.body).error.code).toBe('server_busy');
+  });
+
+  test('stream idle timeout closes SSE with error', async () => {
+    if (!networkAvailable) return;
+
+    const server = await createServer({
+      streamIdleTimeoutMs: 10,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn().mockImplementation(() => ({
+          run: jest.fn(),
+          runStream: async function* () {
+            await new Promise(() => {});
+          },
+          close: jest.fn().mockResolvedValue(undefined)
+        })),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    const res = await postJsonStream(server.url, '/stream', baseSpec);
+    await server.close();
+
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('stream_idle_timeout');
+  });
+});

@@ -21,6 +21,7 @@ describe('core/defaults', () => {
       expect(defaults).toHaveProperty('chunking');
       expect(defaults).toHaveProperty('tokenEstimation');
       expect(defaults).toHaveProperty('timeouts');
+      expect(defaults).toHaveProperty('server');
       expect(defaults).toHaveProperty('paths');
     });
 
@@ -85,6 +86,20 @@ describe('core/defaults', () => {
       expect(timeouts.llmHttp).toBe(60000);
       expect(timeouts.embeddingHttp).toBe(60000);
       expect(timeouts.loggerFlush).toBe(2000);
+    });
+
+    test('returns correct server defaults', async () => {
+      const { getDefaults } = await import('@/core/defaults.ts');
+      const { server } = getDefaults();
+
+      expect(server.maxRequestBytes).toBe(25 * 1024 * 1024);
+      expect(server.bodyReadTimeoutMs).toBe(10000);
+      expect(server.requestTimeoutMs).toBe(0);
+      expect(server.streamIdleTimeoutMs).toBe(60000);
+      expect(server.maxConcurrentRequests).toBe(128);
+      expect(server.maxConcurrentStreams).toBe(32);
+      expect(server.maxQueueSize).toBe(1000);
+      expect(server.queueTimeoutMs).toBe(30000);
     });
 
     test('returns correct paths defaults', async () => {
@@ -208,7 +223,7 @@ describe('core/defaults', () => {
 
       // TypeScript would catch missing properties at compile time,
       // but we verify runtime structure here
-      const requiredKeys = ['retry', 'tools', 'vector', 'chunking', 'tokenEstimation', 'timeouts', 'paths'];
+      const requiredKeys = ['retry', 'tools', 'vector', 'chunking', 'tokenEstimation', 'timeouts', 'server', 'paths'];
       for (const key of requiredKeys) {
         expect(defaults).toHaveProperty(key);
         expect(defaults[key as keyof typeof defaults]).toBeDefined();

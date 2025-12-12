@@ -27,4 +27,29 @@ describe('utils/server readJsonBody', () => {
     const req = makeReq('');
     await expect(readJsonBody(req)).resolves.toEqual({});
   });
+
+  test('throws 413 when body exceeds maxBytes', async () => {
+    const req = makeReq(JSON.stringify({ text: 'this is too large' }));
+    await expect(readJsonBody(req, { maxBytes: 5 })).rejects.toMatchObject({
+      message: expect.stringContaining('Request body too large'),
+      statusCode: 413
+    });
+  });
+
+  test('throws on read timeout', async () => {
+    const req = new Readable({
+      read() {
+        setTimeout(() => {
+          this.push(JSON.stringify({ ok: true }));
+          this.push(null);
+        }, 30);
+      }
+    }) as any;
+    req.headers = { 'content-type': 'application/json' };
+
+    await expect(readJsonBody(req, { timeoutMs: 5 })).rejects.toMatchObject({
+      message: expect.stringContaining('Request body read timed out'),
+      statusCode: 408
+    });
+  });
 });

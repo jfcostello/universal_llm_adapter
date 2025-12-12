@@ -865,6 +865,20 @@ export interface TimeoutDefaults {
 }
 
 /**
+ * Server (HTTP/SSE) default settings.
+ */
+export interface ServerDefaults {
+  maxRequestBytes: number;
+  bodyReadTimeoutMs: number;
+  requestTimeoutMs: number;
+  streamIdleTimeoutMs: number;
+  maxConcurrentRequests: number;
+  maxConcurrentStreams: number;
+  maxQueueSize: number;
+  queueTimeoutMs: number;
+}
+
+/**
  * Path default settings.
  */
 export interface PathDefaults {
@@ -882,5 +896,6 @@ export interface DefaultSettings {
   chunking: ChunkingDefaults;
   tokenEstimation: TokenEstimationDefaults;
   timeouts: TimeoutDefaults;
+  server: ServerDefaults;
   paths: PathDefaults;
 }
