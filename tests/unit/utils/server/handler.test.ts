@@ -22,6 +22,9 @@ function makeRes() {
 
   const res: any = {
     headersSent: false,
+    setHeader: (key: string, value: any) => {
+      headers[key.toLowerCase()] = value;
+    },
     writeHead: (code: number, h: any) => {
       status = code;
       headers = h;
@@ -51,7 +54,11 @@ describe('utils/server createServerHandler', () => {
     maxConcurrentRequests: 10,
     maxConcurrentStreams: 10,
     maxQueueSize: 10,
-    queueTimeoutMs: 1000
+    queueTimeoutMs: 1000,
+    auth: { enabled: false },
+    rateLimit: { enabled: false },
+    cors: { enabled: false },
+    securityHeadersEnabled: true
   };
 
   test('returns 405 for non-POST methods', async () => {
@@ -199,6 +206,170 @@ describe('utils/server createServerHandler', () => {
     expect(out.status).toBe(200);
   });
 
+  test('handles missing optional security/auth/rateLimit/cors config', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn().mockResolvedValue({
+          run: jest.fn().mockResolvedValue({ ok: true }),
+          runStream: jest.fn(),
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      },
+      config: {
+        maxRequestBytes: 1024,
+        bodyReadTimeoutMs: 1000,
+        requestTimeoutMs: 0,
+        streamIdleTimeoutMs: 0,
+        maxConcurrentRequests: 10,
+        maxConcurrentStreams: 10,
+        maxQueueSize: 10,
+        queueTimeoutMs: 1000
+      } as any
+    });
+
+    const req = makeReq(
+      'POST',
+      '/run',
+      JSON.stringify({ messages: [], llmPriority: [{ provider: 'p', model: 'm' }], settings: {} })
+    );
+    const out = makeRes();
+    await handler(req, out.res);
+    expect(out.status).toBe(200);
+  });
+
+  test('handles /stream when auth config is omitted', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn().mockResolvedValue({
+          runStream: async function* () {
+            yield { type: 'response', data: { ok: true } } as any;
+          },
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      },
+      config: {
+        ...config,
+        auth: undefined,
+        rateLimit: undefined
+      } as any
+    });
+
+    const req = makeReq(
+      'POST',
+      '/stream',
+      JSON.stringify({ messages: [], llmPriority: [{ provider: 'p', model: 'm' }], settings: {} })
+    );
+    const out = makeRes();
+    await handler(req, out.res);
+    expect(out.status).toBe(200);
+  });
+
+  test('uses auth identity as rate limit key when enabled', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn().mockResolvedValue({
+          run: jest.fn().mockResolvedValue({ ok: true }),
+          runStream: jest.fn(),
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      },
+      config: {
+        ...config,
+        auth: { enabled: true, apiKeys: ['k1'] },
+        rateLimit: { enabled: true, requestsPerMinute: 60, burst: 1, trustProxyHeaders: false }
+      } as any
+    });
+
+    const req = makeReq(
+      'POST',
+      '/run',
+      JSON.stringify({ messages: [], llmPriority: [{ provider: 'p', model: 'm' }], settings: {} })
+    );
+    req.headers.authorization = 'Bearer k1';
+    req.socket = { remoteAddress: '127.0.0.1' } as any;
+    const out = makeRes();
+    await handler(req, out.res);
+    expect(out.status).toBe(200);
+  });
+
+  test('uses client IP as rate limit key when no auth identity', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn().mockResolvedValue({
+          run: jest.fn().mockResolvedValue({ ok: true }),
+          runStream: jest.fn(),
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      },
+      config: {
+        ...config,
+        auth: { enabled: false },
+        rateLimit: { enabled: true, requestsPerMinute: 60, burst: 1, trustProxyHeaders: false }
+      } as any
+    });
+
+    const req = makeReq(
+      'POST',
+      '/run',
+      JSON.stringify({ messages: [], llmPriority: [{ provider: 'p', model: 'm' }], settings: {} })
+    );
+    req.socket = { remoteAddress: '127.0.0.1' } as any;
+    const out = makeRes();
+    await handler(req, out.res);
+    expect(out.status).toBe(200);
+  });
+
+  test('falls back to unknown rate limit key when no auth or IP', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn().mockResolvedValue({
+          run: jest.fn().mockResolvedValue({ ok: true }),
+          runStream: jest.fn(),
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      },
+      config: {
+        ...config,
+        auth: { enabled: false },
+        rateLimit: { enabled: true, requestsPerMinute: 60, burst: 1, trustProxyHeaders: false }
+      } as any
+    });
+
+    const req = makeReq(
+      'POST',
+      '/run',
+      JSON.stringify({ messages: [], llmPriority: [{ provider: 'p', model: 'm' }], settings: {} })
+    );
+    const out = makeRes();
+    await handler(req, out.res);
+    expect(out.status).toBe(200);
+  });
+
   test('defaults missing url to "/" and returns 404', async () => {
     const handler = createServerHandler({
       registry,
@@ -336,6 +507,103 @@ describe('utils/server createServerHandler', () => {
     expect(out.status).toBe(200);
     expect(out.body).toContain('data:');
     expect(out.body).toContain('"type":"response"');
+  });
+
+  test('applies rate limiting for /stream when enabled', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn().mockResolvedValue({
+          runStream: async function* () {
+            yield { type: 'response', data: { ok: true } } as any;
+          },
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      },
+      config: {
+        ...config,
+        rateLimit: { enabled: true, requestsPerMinute: 60, burst: 1, trustProxyHeaders: false }
+      } as any
+    });
+
+    const req = makeReq(
+      'POST',
+      '/stream',
+      JSON.stringify({ messages: [], llmPriority: [{ provider: 'p', model: 'm' }], settings: {} })
+    );
+    req.socket = { remoteAddress: '127.0.0.1' } as any;
+    const out = makeRes();
+    await handler(req, out.res);
+    expect(out.status).toBe(200);
+  });
+
+  test('uses auth identity for /stream rate limiting when enabled', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn().mockResolvedValue({
+          runStream: async function* () {
+            yield { type: 'response', data: { ok: true } } as any;
+          },
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      },
+      config: {
+        ...config,
+        auth: { enabled: true, apiKeys: ['k1'] },
+        rateLimit: { enabled: true, requestsPerMinute: 60, burst: 1, trustProxyHeaders: false }
+      } as any
+    });
+
+    const req = makeReq(
+      'POST',
+      '/stream',
+      JSON.stringify({ messages: [], llmPriority: [{ provider: 'p', model: 'm' }], settings: {} })
+    );
+    req.headers.authorization = 'Bearer k1';
+    const out = makeRes();
+    await handler(req, out.res);
+    expect(out.status).toBe(200);
+  });
+
+  test('falls back to unknown key for /stream rate limiting when no auth or IP', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn().mockResolvedValue({
+          runStream: async function* () {
+            yield { type: 'response', data: { ok: true } } as any;
+          },
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      },
+      config: {
+        ...config,
+        auth: { enabled: false },
+        rateLimit: { enabled: true, requestsPerMinute: 60, burst: 1, trustProxyHeaders: false }
+      } as any
+    });
+
+    const req = makeReq(
+      'POST',
+      '/stream',
+      JSON.stringify({ messages: [], llmPriority: [{ provider: 'p', model: 'm' }], settings: {} })
+    );
+    const out = makeRes();
+    await handler(req, out.res);
+    expect(out.status).toBe(200);
   });
 
   test('times out /run when requestTimeoutMs exceeded', async () => {

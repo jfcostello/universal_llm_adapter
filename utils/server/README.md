@@ -36,6 +36,26 @@ Options:
 - `maxConcurrentStreams` (number, default `32`) — concurrent `/stream` executions.
 - `maxQueueSize` (number, default `1000`) — queued requests per limiter when saturated.
 - `queueTimeoutMs` (number, default `30000`) — max time a request may wait in the queue.
+- `auth` (object, default disabled) — optional request auth.
+  - `enabled` (boolean)
+  - `allowBearer` (boolean, default `true`) — accept `Authorization: Bearer <token>`.
+  - `allowApiKeyHeader` (boolean, default `true`) — accept API key header.
+  - `headerName` (string, default `"x-api-key"`)
+  - `apiKeys` (string[] or comma‑separated string, **env only**) — active raw keys for rotation.
+  - `hashedKeys` (string[] or comma‑separated string) — optional `sha256:<hex>` digests.
+  - `realm` (string, default `"llm-adapter"`) — realm for 401 challenges.
+- `rateLimit` (object, default disabled) — in‑memory token‑bucket limiter per client.
+  - `enabled` (boolean)
+  - `requestsPerMinute` (number, default `120`)
+  - `burst` (number, default `30`)
+  - `trustProxyHeaders` (boolean, default `false`) — if true, use `x-forwarded-for` for IP.
+- `cors` (object, default disabled) — CORS handling and preflight.
+  - `enabled` (boolean)
+  - `allowedOrigins` (string[] or `"*"`)
+  - `allowedHeaders` (string[], default `["content-type","authorization","x-api-key"]`)
+  - `allowCredentials` (boolean, default `false`)
+- `securityHeadersEnabled` (boolean, default `true`) — adds safe browser/proxy hardening headers.
+- `authorize` (function, optional) — pluggable auth hook; returning false rejects with 403.
 - `deps` (partial `ServerDependencies`) — dependency injection for tests/embedding.
 - `registry` (`PluginRegistryLike`) — optional pre-built registry.
 
@@ -75,6 +95,21 @@ Accepts the same options and defaults as `createServer`.
 - **Concurrency & queueing**: `/run` and `/stream` each have independent limiters.
   When saturated, requests enter a bounded FIFO queue up to `maxQueueSize`.
   Queue waits longer than `queueTimeoutMs` return `503` with `error.code="queue_timeout"`.
+
+## Auth & Security Controls
+
+- **Auth (opt‑in):** when `auth.enabled=true`, requests must include either:
+  - `Authorization: Bearer <key>` or
+  - `<headerName>: <key>` (default `x-api-key`).
+  Multiple active keys are supported for rotation.
+- **Hashed keys (optional):** if `auth.hashedKeys` is provided, the server will also accept
+  keys whose SHA‑256 digest matches an entry (values may be prefixed with `sha256:`).
+- **Rate limiting (opt‑in):** when `rateLimit.enabled=true`, requests are token‑bucket limited
+  per client key (auth identity when present, otherwise IP). Exceeding the bucket returns `429`.
+- **CORS (opt‑in):** when `cors.enabled=true`, the server sets standard CORS headers on responses
+  and handles OPTIONS preflight with `204`.
+- **Security headers:** when `securityHeadersEnabled=true`, responses include safe defaults like
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and `Referrer-Policy: no-referrer`.
 
 ### Errors
 - Error shape (HTTP and SSE): `{ type: "error", error: { message, code, details? } }`.

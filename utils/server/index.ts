@@ -17,6 +17,30 @@ export interface ServerDependencies
   closeLogger: () => Promise<void>;
 }
 
+export interface ServerAuthOptions {
+  enabled?: boolean;
+  allowBearer?: boolean;
+  allowApiKeyHeader?: boolean;
+  headerName?: string;
+  apiKeys?: string[] | string;
+  hashedKeys?: string[] | string;
+  realm?: string;
+}
+
+export interface ServerRateLimitOptions {
+  enabled?: boolean;
+  requestsPerMinute?: number;
+  burst?: number;
+  trustProxyHeaders?: boolean;
+}
+
+export interface ServerCorsOptions {
+  enabled?: boolean;
+  allowedOrigins?: string[] | '*';
+  allowedHeaders?: string[];
+  allowCredentials?: boolean;
+}
+
 export interface ServerOptions {
   host?: string;
   port?: number;
@@ -31,6 +55,11 @@ export interface ServerOptions {
   maxConcurrentStreams?: number;
   maxQueueSize?: number;
   queueTimeoutMs?: number;
+  auth?: ServerAuthOptions;
+  rateLimit?: ServerRateLimitOptions;
+  cors?: ServerCorsOptions;
+  securityHeadersEnabled?: boolean;
+  authorize?: (req: http.IncomingMessage) => boolean | Promise<boolean>;
   deps?: Partial<ServerDependencies>;
   registry?: PluginRegistryLike;
 }
@@ -56,12 +85,16 @@ export function createServerHandlerWithDefaults(
     throw new Error('registry must be provided to createServerHandlerWithDefaults');
   }
   const serverDefaults = getDefaults().server;
+  const authDefaults = serverDefaults.auth ?? {};
+  const rateLimitDefaults = serverDefaults.rateLimit ?? {};
+  const corsDefaults = serverDefaults.cors ?? {};
   return createServerHandler({
     registry: options.registry,
     pluginsPath: options.pluginsPath ?? './plugins',
     batchId: options.batchId,
     closeLoggerAfterRequest: options.closeLoggerAfterRequest ?? false,
     deps,
+    authorize: options.authorize,
     config: {
       maxRequestBytes: options.maxRequestBytes ?? serverDefaults.maxRequestBytes,
       bodyReadTimeoutMs: options.bodyReadTimeoutMs ?? serverDefaults.bodyReadTimeoutMs,
@@ -70,7 +103,12 @@ export function createServerHandlerWithDefaults(
       maxConcurrentRequests: options.maxConcurrentRequests ?? serverDefaults.maxConcurrentRequests,
       maxConcurrentStreams: options.maxConcurrentStreams ?? serverDefaults.maxConcurrentStreams,
       maxQueueSize: options.maxQueueSize ?? serverDefaults.maxQueueSize,
-      queueTimeoutMs: options.queueTimeoutMs ?? serverDefaults.queueTimeoutMs
+      queueTimeoutMs: options.queueTimeoutMs ?? serverDefaults.queueTimeoutMs,
+      auth: { ...authDefaults, ...options.auth },
+      rateLimit: { ...rateLimitDefaults, ...options.rateLimit },
+      cors: { ...corsDefaults, ...options.cors },
+      securityHeadersEnabled:
+        options.securityHeadersEnabled ?? serverDefaults.securityHeadersEnabled ?? true
     }
   });
 }
@@ -78,6 +116,9 @@ export function createServerHandlerWithDefaults(
 export async function createServer(options: ServerOptions = {}): Promise<RunningServer> {
   const deps: ServerDependencies = { ...defaultDependencies, ...options.deps };
   const serverDefaults = getDefaults().server;
+  const authDefaults = serverDefaults.auth ?? {};
+  const rateLimitDefaults = serverDefaults.rateLimit ?? {};
+  const corsDefaults = serverDefaults.cors ?? {};
   const host = options.host ?? '127.0.0.1';
   const port = options.port ?? 0;
   const pluginsPath = options.pluginsPath ?? './plugins';
@@ -94,6 +135,7 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
     batchId: options.batchId,
     closeLoggerAfterRequest: options.closeLoggerAfterRequest ?? false,
     deps,
+    authorize: options.authorize,
     config: {
       maxRequestBytes: options.maxRequestBytes ?? serverDefaults.maxRequestBytes,
       bodyReadTimeoutMs: options.bodyReadTimeoutMs ?? serverDefaults.bodyReadTimeoutMs,
@@ -102,7 +144,12 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
       maxConcurrentRequests: options.maxConcurrentRequests ?? serverDefaults.maxConcurrentRequests,
       maxConcurrentStreams: options.maxConcurrentStreams ?? serverDefaults.maxConcurrentStreams,
       maxQueueSize: options.maxQueueSize ?? serverDefaults.maxQueueSize,
-      queueTimeoutMs: options.queueTimeoutMs ?? serverDefaults.queueTimeoutMs
+      queueTimeoutMs: options.queueTimeoutMs ?? serverDefaults.queueTimeoutMs,
+      auth: { ...authDefaults, ...options.auth },
+      rateLimit: { ...rateLimitDefaults, ...options.rateLimit },
+      cors: { ...corsDefaults, ...options.cors },
+      securityHeadersEnabled:
+        options.securityHeadersEnabled ?? serverDefaults.securityHeadersEnabled ?? true
     }
   });
 

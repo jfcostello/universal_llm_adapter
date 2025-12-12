@@ -867,6 +867,30 @@ export interface TimeoutDefaults {
 /**
  * Server (HTTP/SSE) default settings.
  */
+export interface ServerAuthDefaults {
+  enabled: boolean;
+  allowBearer: boolean;
+  allowApiKeyHeader: boolean;
+  headerName: string;
+  apiKeys: string[] | string;
+  hashedKeys: string[] | string;
+  realm?: string;
+}
+
+export interface ServerRateLimitDefaults {
+  enabled: boolean;
+  requestsPerMinute: number;
+  burst: number;
+  trustProxyHeaders: boolean;
+}
+
+export interface ServerCorsDefaults {
+  enabled: boolean;
+  allowedOrigins: string[] | '*';
+  allowedHeaders: string[];
+  allowCredentials: boolean;
+}
+
 export interface ServerDefaults {
   maxRequestBytes: number;
   bodyReadTimeoutMs: number;
@@ -876,6 +900,10 @@ export interface ServerDefaults {
   maxConcurrentStreams: number;
   maxQueueSize: number;
   queueTimeoutMs: number;
+  auth: ServerAuthDefaults;
+  rateLimit: ServerRateLimitDefaults;
+  cors: ServerCorsDefaults;
+  securityHeadersEnabled: boolean;
 }
 
 /**

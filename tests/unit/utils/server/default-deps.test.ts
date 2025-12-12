@@ -73,13 +73,14 @@ describe('utils/server default dependency wiring', () => {
     req.url = '/run';
     req.headers = { 'content-type': 'application/json' };
 
-    let body = '';
-    const res: any = {
-      headersSent: false,
-      writeHead: jest.fn(() => {
-        res.headersSent = true;
-      }),
-      end: jest.fn((chunk?: any) => {
+	    let body = '';
+	    const res: any = {
+	      headersSent: false,
+	      setHeader: jest.fn(),
+	      writeHead: jest.fn(() => {
+	        res.headersSent = true;
+	      }),
+	      end: jest.fn((chunk?: any) => {
         if (chunk) body += chunk.toString();
         res.headersSent = true;
       })

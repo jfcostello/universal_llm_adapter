@@ -3,7 +3,12 @@ import http from 'http';
 import { createServer } from '@/utils/server/index.ts';
 import type { LLMCallSpec } from '@/core/types.ts';
 
-function postJson(url: string, path: string, payload: any): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
+function postJson(
+  url: string,
+  path: string,
+  payload: any,
+  headers: Record<string, string> = { 'Content-Type': 'application/json' }
+): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
   return new Promise((resolve, reject) => {
     const target = new URL(path, url);
     const req = http.request(
@@ -12,7 +17,7 @@ function postJson(url: string, path: string, payload: any): Promise<{ status: nu
         hostname: target.hostname,
         port: target.port,
         path: target.pathname,
-        headers: { 'Content-Type': 'application/json' }
+        headers
       },
       (res) => {
         let body = '';
@@ -34,8 +39,13 @@ function postJson(url: string, path: string, payload: any): Promise<{ status: nu
   });
 }
 
-function postJsonStream(url: string, path: string, payload: any): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
-  return postJson(url, path, payload);
+function postJsonStream(
+  url: string,
+  path: string,
+  payload: any,
+  headers: Record<string, string> = { 'Content-Type': 'application/json' }
+): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
+  return postJson(url, path, payload, headers);
 }
 
 function postRaw(
@@ -385,5 +395,141 @@ describe('utils/server createServer', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toContain('stream_idle_timeout');
+  });
+
+  test('auth enabled rejects missing key', async () => {
+    if (!networkAvailable) return;
+
+    const server = await createServer({
+      auth: { enabled: true, apiKeys: ['k1'] },
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn().mockResolvedValue({ run: jest.fn(), runStream: jest.fn(), close: jest.fn() }),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    const res = await postJson(server.url, '/run', baseSpec);
+    await server.close();
+    expect(res.status).toBe(401);
+    expect(JSON.parse(res.body).error.code).toBe('unauthorized');
+  });
+
+  test('auth enabled allows bearer token', async () => {
+    if (!networkAvailable) return;
+
+    const server = await createServer({
+      auth: { enabled: true, apiKeys: ['k1'] },
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn().mockResolvedValue({
+          run: jest.fn().mockResolvedValue({ ok: true }),
+          runStream: jest.fn(),
+          close: jest.fn()
+        }),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    const res = await postJson(server.url, '/run', baseSpec, {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer k1'
+    });
+    await server.close();
+    expect(res.status).toBe(200);
+  });
+
+  test('auth enabled allows x-api-key', async () => {
+    if (!networkAvailable) return;
+
+    const server = await createServer({
+      auth: { enabled: true, apiKeys: ['k2'] },
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn().mockResolvedValue({
+          run: jest.fn().mockResolvedValue({ ok: true }),
+          runStream: jest.fn(),
+          close: jest.fn()
+        }),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    const res = await postJson(server.url, '/run', baseSpec, {
+      'Content-Type': 'application/json',
+      'x-api-key': 'k2'
+    });
+    await server.close();
+    expect(res.status).toBe(200);
+  });
+
+  test('rate limiting returns 429 when exceeded', async () => {
+    if (!networkAvailable) return;
+
+    const server = await createServer({
+      rateLimit: { enabled: true, requestsPerMinute: 60, burst: 1 },
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn().mockResolvedValue({
+          run: jest.fn().mockResolvedValue({ ok: true }),
+          runStream: jest.fn(),
+          close: jest.fn()
+        }),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    const first = await postJson(server.url, '/run', baseSpec);
+    const second = await postJson(server.url, '/run', baseSpec);
+    await server.close();
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(429);
+    expect(JSON.parse(second.body).error.code).toBe('rate_limited');
+  });
+
+  test('CORS preflight handled when enabled', async () => {
+    if (!networkAvailable) return;
+
+    const server = await createServer({
+      cors: {
+        enabled: true,
+        allowedOrigins: ['https://example.com'],
+        allowedHeaders: ['content-type'],
+        allowCredentials: false
+      },
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn().mockResolvedValue({ run: jest.fn(), runStream: jest.fn(), close: jest.fn() }),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    const target = new URL('/run', server.url);
+    const res = await new Promise<{ status: number; headers: http.IncomingHttpHeaders }>((resolve, reject) => {
+      const req = http.request(
+        {
+          method: 'OPTIONS',
+          hostname: target.hostname,
+          port: target.port,
+          path: target.pathname,
+          headers: {
+            Origin: 'https://example.com',
+            'Access-Control-Request-Method': 'POST',
+            'Access-Control-Request-Headers': 'content-type'
+          }
+        },
+        (response) => {
+          response.resume();
+          response.on('end', () => resolve({ status: response.statusCode ?? 0, headers: response.headers }));
+        }
+      );
+      req.on('error', reject);
+      req.end();
+    });
+
+    await server.close();
+    expect(res.status).toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBe('https://example.com');
   });
 });

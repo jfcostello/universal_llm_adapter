@@ -4,6 +4,10 @@ import { writeSseEvent, writeSseEventWithBackpressure } from './sse.js';
 import { assertValidSpec } from './spec-validator.js';
 import { createLimiter } from './limiter.js';
 import { mapErrorToHttp } from './error-mapper.js';
+import { applyCors } from './cors.js';
+import { applySecurityHeaders } from './security-headers.js';
+import { assertAuthorized } from './auth.js';
+import { createRateLimiter, getClientIp } from './rate-limiter.js';
 import {
   runWithCoordinatorLifecycle,
   streamWithCoordinatorLifecycle
@@ -28,7 +32,12 @@ interface HandlerOptions {
     maxConcurrentStreams: number;
     maxQueueSize: number;
     queueTimeoutMs: number;
+    auth: any;
+    rateLimit: any;
+    cors: any;
+    securityHeadersEnabled: boolean;
   };
+  authorize?: (req: http.IncomingMessage) => boolean | Promise<boolean>;
 }
 
 function writeJson(res: http.ServerResponse, status: number, payload: any): void {
@@ -37,7 +46,7 @@ function writeJson(res: http.ServerResponse, status: number, payload: any): void
 }
 
 export function createServerHandler(options: HandlerOptions): http.RequestListener {
-  const { registry, pluginsPath, batchId, closeLoggerAfterRequest, deps, config } = options;
+  const { registry, pluginsPath, batchId, closeLoggerAfterRequest, deps, config, authorize } = options;
 
   const runLimiter = createLimiter({
     maxConcurrent: config.maxConcurrentRequests,
@@ -51,6 +60,8 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
     queueTimeoutMs: config.queueTimeoutMs
   });
 
+  const rateLimiter = createRateLimiter(config.rateLimit ?? { enabled: false });
+
   function assertJsonContentType(req: http.IncomingMessage) {
     const contentType = req.headers['content-type'];
     if (contentType && !String(contentType).includes('application/json')) {
@@ -62,6 +73,11 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
   }
 
   return async (req, res) => {
+    applySecurityHeaders(res, config.securityHeadersEnabled ?? true);
+    if (applyCors(req, res, config.cors)) {
+      return;
+    }
+
     const method = req.method ?? 'GET';
     const url = req.url ?? '/';
 
@@ -72,6 +88,15 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
 
     try {
       if (url === '/run') {
+        const authIdentity = await assertAuthorized(req, config.auth ?? { enabled: false }, authorize);
+        if (config.rateLimit?.enabled) {
+          const key =
+            authIdentity ??
+            getClientIp(req, Boolean(config.rateLimit?.trustProxyHeaders)) ??
+            'unknown';
+          rateLimiter.check(key);
+        }
+
         assertJsonContentType(req);
 
         const abortController = new AbortController();
@@ -159,6 +184,15 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
       }
 
       if (url === '/stream') {
+        const authIdentity = await assertAuthorized(req, config.auth ?? { enabled: false }, authorize);
+        if (config.rateLimit?.enabled) {
+          const key =
+            authIdentity ??
+            getClientIp(req, Boolean(config.rateLimit?.trustProxyHeaders)) ??
+            'unknown';
+          rateLimiter.check(key);
+        }
+
         assertJsonContentType(req);
 
         const abortController = new AbortController();

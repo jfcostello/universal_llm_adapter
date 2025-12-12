@@ -63,7 +63,29 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
     maxConcurrentRequests: 128,
     maxConcurrentStreams: 32,
     maxQueueSize: 1000,
-    queueTimeoutMs: 30000
+    queueTimeoutMs: 30000,
+    auth: {
+      enabled: false,
+      allowBearer: true,
+      allowApiKeyHeader: true,
+      headerName: 'x-api-key',
+      apiKeys: [],
+      hashedKeys: [],
+      realm: 'llm-adapter'
+    },
+    rateLimit: {
+      enabled: false,
+      requestsPerMinute: 120,
+      burst: 30,
+      trustProxyHeaders: false
+    },
+    cors: {
+      enabled: false,
+      allowedOrigins: [],
+      allowedHeaders: ['content-type', 'authorization', 'x-api-key'],
+      allowCredentials: false
+    },
+    securityHeadersEnabled: true
   },
   paths: {
     plugins: './plugins'

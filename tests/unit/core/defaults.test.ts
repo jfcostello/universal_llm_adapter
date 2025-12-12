@@ -88,19 +88,25 @@ describe('core/defaults', () => {
       expect(timeouts.loggerFlush).toBe(2000);
     });
 
-    test('returns correct server defaults', async () => {
-      const { getDefaults } = await import('@/core/defaults.ts');
-      const { server } = getDefaults();
-
-      expect(server.maxRequestBytes).toBe(25 * 1024 * 1024);
-      expect(server.bodyReadTimeoutMs).toBe(10000);
-      expect(server.requestTimeoutMs).toBe(0);
-      expect(server.streamIdleTimeoutMs).toBe(60000);
-      expect(server.maxConcurrentRequests).toBe(128);
-      expect(server.maxConcurrentStreams).toBe(32);
-      expect(server.maxQueueSize).toBe(1000);
-      expect(server.queueTimeoutMs).toBe(30000);
-    });
+	    test('returns correct server defaults', async () => {
+	      const { getDefaults } = await import('@/core/defaults.ts');
+	      const { server } = getDefaults();
+	
+	      expect(server.maxRequestBytes).toBe(25 * 1024 * 1024);
+	      expect(server.bodyReadTimeoutMs).toBe(10000);
+	      expect(server.requestTimeoutMs).toBe(0);
+	      expect(server.streamIdleTimeoutMs).toBe(60000);
+	      expect(server.maxConcurrentRequests).toBe(128);
+	      expect(server.maxConcurrentStreams).toBe(32);
+	      expect(server.maxQueueSize).toBe(1000);
+	      expect(server.queueTimeoutMs).toBe(30000);
+	      expect(server.auth.enabled).toBe(false);
+	      expect(server.auth.allowBearer).toBe(true);
+	      expect(server.auth.allowApiKeyHeader).toBe(true);
+	      expect(server.rateLimit.enabled).toBe(false);
+	      expect(server.cors.enabled).toBe(false);
+	      expect(server.securityHeadersEnabled).toBe(true);
+	    });
 
     test('returns correct paths defaults', async () => {
       const { getDefaults } = await import('@/core/defaults.ts');
