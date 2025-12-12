@@ -6,6 +6,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { getLiveTestContext } from '../../utils/testing/live-test-context.js';
 
 // Find project root (where package.json is) and use tests/live/logs from there
 const currentFile = fileURLToPath(import.meta.url);
@@ -26,28 +27,48 @@ if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
 
-// Generate log file name with date and test file name (no time to consolidate tests in same file)
-const now = new Date();
-const dateOnly = now.toISOString().split('T')[0]; // YYYY-MM-DD format
-const testFileName = process.env.TEST_FILE || 'unknown-test';
-const testName = process.env.LLM_TEST_NAME || 'unknown-test-name';
-const logFile = path.join(logsDir, `${dateOnly}-${testFileName}.log`);
+function resolveLogTarget(): { logFile: string; testFileName: string; testName: string } {
+  const ctx = getLiveTestContext();
+  const testFileName = String(ctx?.testFile || process.env.TEST_FILE || 'unknown-test');
+  const testName = String(ctx?.testName || process.env.LLM_TEST_NAME || 'unknown-test-name');
+  const dateOnly = new Date().toISOString().split('T')[0];
+  const logFile = path.join(logsDir, `${dateOnly}-${testFileName}.log`);
+  return { logFile, testFileName, testName };
+}
 
-// Format timestamp using local machine time with timezone
-const localTime = now.toLocaleString(undefined, {
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  timeZoneName: 'short'
-});
+const initializedLogFiles = new Set<string>();
 
-// Initialize log file (always truncate to start fresh for each test run)
-fs.writeFileSync(logFile, `=== Live Integration Test Run ===\n`);
-fs.appendFileSync(logFile, `Test File: ${testFileName}\n`);
-fs.appendFileSync(logFile, `Started at: ${localTime}\n\n`);
+function initLogFileOnce(target: { logFile: string; testFileName: string; testName: string }) {
+  if (initializedLogFiles.has(target.logFile)) return;
+
+  const now = new Date();
+  const localTime = now.toLocaleString(undefined, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short'
+  });
+
+  const isServerTransport = String(process.env.LLM_LIVE_TRANSPORT || '').toLowerCase() === 'server';
+
+  // CLI mode is one-process-per-call; truncation keeps logs small and avoids flakiness on reruns.
+  // Server mode is one-process-for-many-calls; never truncate.
+  if (!isServerTransport) {
+    fs.writeFileSync(target.logFile, '');
+  } else if (!fs.existsSync(target.logFile)) {
+    fs.writeFileSync(target.logFile, '');
+  }
+
+  fs.appendFileSync(target.logFile, `=== Live Integration Test Run ===\n`);
+  fs.appendFileSync(target.logFile, `Test File: ${target.testFileName}\n`);
+  fs.appendFileSync(target.logFile, `Test Name: ${target.testName}\n`);
+  fs.appendFileSync(target.logFile, `Started at: ${localTime}\n\n`);
+
+  initializedLogFiles.add(target.logFile);
+}
 
 /**
  * Redact sensitive data from headers (show only last 4 chars of API keys)
@@ -91,6 +112,9 @@ export function logRequest(data: {
   headers: Record<string, any>;
   body: any;
 }) {
+  const target = resolveLogTarget();
+  initLogFileOnce(target);
+
   const timestamp = new Date().toLocaleString(undefined, {
     year: 'numeric',
     month: '2-digit',
@@ -118,9 +142,7 @@ export function logRequest(data: {
     ''
   ].join('\n');
 
-  fs.appendFileSync(logFile, log);
-  // Log to stderr to avoid polluting JSON output on stdout
-  console.error(`[TEST LOG] Request logged to: ${logFile}`);
+  fs.appendFileSync(target.logFile, log);
 }
 
 /**
@@ -132,6 +154,9 @@ export function logResponse(data: {
   headers: Record<string, any>;
   body: any;
 }) {
+  const target = resolveLogTarget();
+  initLogFileOnce(target);
+
   const timestamp = new Date().toLocaleString(undefined, {
     year: 'numeric',
     month: '2-digit',
@@ -158,15 +183,16 @@ export function logResponse(data: {
     ''
   ].join('\n');
 
-  fs.appendFileSync(logFile, log);
-  // Log to stderr to avoid polluting JSON output on stdout
-  console.error(`[TEST LOG] Response logged to: ${logFile}`);
+  fs.appendFileSync(target.logFile, log);
 }
 
 /**
  * Log general test information
  */
 export function logInfo(message: string) {
+  const target = resolveLogTarget();
+  initLogFileOnce(target);
+
   const timestamp = new Date().toLocaleString(undefined, {
     year: 'numeric',
     month: '2-digit',
@@ -177,7 +203,7 @@ export function logInfo(message: string) {
     timeZoneName: 'short'
   });
   const log = `[${timestamp}] ${message}\n`;
-  fs.appendFileSync(logFile, log);
+  fs.appendFileSync(target.logFile, log);
 }
 
 /**
@@ -200,13 +226,7 @@ export function cleanupOldLogs(keepLast: number = 30) {
   toDelete.forEach(file => {
     fs.unlinkSync(file.path);
   });
-
-  if (toDelete.length > 0) {
-    logInfo(`Cleaned up ${toDelete.length} old log files`);
-  }
 }
 
 // Clean up old logs on import (keeps last 30)
 cleanupOldLogs(30);
-
-export { logFile };

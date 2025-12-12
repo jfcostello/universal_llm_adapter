@@ -12,6 +12,7 @@ export function parseLaunchConfig(argv, env, defaults) {
   const args = [...argv];
   let provider = null;
   let maxWorkersFromCli = null;
+  let transportFromCli = null;
   const passthrough = [];
 
   // First non-flag token is treated as provider selector
@@ -40,6 +41,18 @@ export function parseLaunchConfig(argv, env, defaults) {
       continue;
     }
 
+    if (token === '--transport') {
+      const next = args.shift();
+      if (next) {
+        transportFromCli = String(next);
+        continue;
+      }
+    } else if (token.startsWith('--transport=')) {
+      const val = token.split('=')[1];
+      transportFromCli = String(val);
+      continue;
+    }
+
     passthrough.push(token);
   }
 
@@ -47,12 +60,21 @@ export function parseLaunchConfig(argv, env, defaults) {
   const fallback = defaults?.maxWorkersDefault ?? 1;
   const maxWorkers = sanitizeMaxWorkers(maxWorkersFromCli ?? envMax ?? fallback);
 
-  return { provider, maxWorkers, passthrough };
+  const envTransport = env?.LLM_LIVE_TRANSPORT ? String(env.LLM_LIVE_TRANSPORT) : null;
+  const transport = sanitizeTransport(transportFromCli ?? envTransport ?? 'cli');
+
+  return { provider, maxWorkers, transport, passthrough };
 }
 
 function sanitizeMaxWorkers(value) {
   if (!Number.isFinite(value) || value < 1) return 1;
   return Math.floor(value);
+}
+
+function sanitizeTransport(value) {
+  const v = String(value || '').trim().toLowerCase();
+  if (v === 'server' || v === 'both') return v;
+  return 'cli';
 }
 
 /**

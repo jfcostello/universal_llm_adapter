@@ -16,8 +16,9 @@ import { jest } from '@jest/globals';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const SKIP_LIVE = !process.env.LLM_LIVE;
-const describeLive = SKIP_LIVE ? describe.skip : describe;
+const runLive = process.env.LLM_LIVE === '1';
+const runServerTransport = String(process.env.LLM_LIVE_TRANSPORT || 'cli').toLowerCase() === 'server';
+const describeLive = (runLive && !runServerTransport) ? describe : describe.skip;
 
 // Type imports
 import type { VectorStoreCoordinator } from '@/coordinator/vector-coordinator.ts';

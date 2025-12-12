@@ -16,6 +16,7 @@ import type { LLMCallSpec, LLMStreamEvent } from '../../../core/types.js';
 import type { PluginRegistryLike } from '../../coordinator-lifecycle/index.js';
 import type { ServerDependencies } from '../index.js';
 import { getLogger } from '../../../core/logging.js';
+import { runWithLiveTestContext } from '../../testing/live-test-context.js';
 
 interface HandlerOptions {
   registry: PluginRegistryLike;
@@ -115,64 +116,72 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           const logger = getLogger(correlationId);
           const startTime = Date.now();
 
-          const callPromise = runWithCoordinatorLifecycle<LLMCallSpec, any, any, any>({
-            spec,
-            pluginsPath,
-            registry,
-            batchId,
-            closeLoggerAfter: closeLoggerAfterRequest,
-            deps,
-            run: (coordinator: any, s) => coordinator.run(s)
-          });
+          const liveContext = {
+            correlationId,
+            testFile: (spec.metadata as any)?.testFile as string | undefined,
+            testName: (spec.metadata as any)?.testName as string | undefined
+          };
 
-          if (config.requestTimeoutMs > 0) {
-            let timedOut = false;
-            let timeoutId: NodeJS.Timeout | undefined;
-            const timeoutPromise = new Promise<never>((_, reject) => {
-              timeoutId = setTimeout(() => {
-                timedOut = true;
-                const error = new Error('Request timed out');
-                (error as any).statusCode = 504;
-                (error as any).code = 'timeout';
-                reject(error);
-              }, config.requestTimeoutMs);
+          await runWithLiveTestContext(liveContext, async () => {
+            const callPromise = runWithCoordinatorLifecycle<LLMCallSpec, any, any, any>({
+              spec,
+              pluginsPath,
+              registry,
+              batchId,
+              closeLoggerAfter: closeLoggerAfterRequest,
+              deps,
+              run: (coordinator: any, s) => coordinator.run(s)
             });
 
+            if (config.requestTimeoutMs > 0) {
+              let timedOut = false;
+              let timeoutId: NodeJS.Timeout | undefined;
+              const timeoutPromise = new Promise<never>((_, reject) => {
+                timeoutId = setTimeout(() => {
+                  timedOut = true;
+                  const error = new Error('Request timed out');
+                  (error as any).statusCode = 504;
+                  (error as any).code = 'timeout';
+                  reject(error);
+                }, config.requestTimeoutMs);
+              });
+
+              try {
+                const response = await Promise.race([callPromise, timeoutPromise]);
+                writeJson(res, 200, { type: 'response', data: response });
+                logger.info('HTTP /run completed', { durationMs: Date.now() - startTime });
+              } catch (error: any) {
+                if (timedOut) {
+                  const mapped = mapErrorToHttp(error);
+                  writeJson(res, mapped.status, mapped.body);
+                  logger.warning('HTTP /run timed out', { durationMs: Date.now() - startTime });
+                  releaseDeferred = true;
+                  callPromise
+                    .catch(err => logger.error('Coordinator finished after timeout', { error: err }))
+                    .finally(() => release());
+                  return;
+                }
+
+                const mapped = mapErrorToHttp(error);
+                writeJson(res, mapped.status, mapped.body);
+                logger.error('HTTP /run failed', { durationMs: Date.now() - startTime, error });
+              } finally {
+                if (timeoutId) clearTimeout(timeoutId);
+              }
+
+              return;
+            }
+
             try {
-              const response = await Promise.race([callPromise, timeoutPromise]);
+              const response = await callPromise;
               writeJson(res, 200, { type: 'response', data: response });
               logger.info('HTTP /run completed', { durationMs: Date.now() - startTime });
             } catch (error: any) {
-              if (timedOut) {
-                const mapped = mapErrorToHttp(error);
-                writeJson(res, mapped.status, mapped.body);
-                logger.warning('HTTP /run timed out', { durationMs: Date.now() - startTime });
-                releaseDeferred = true;
-                callPromise
-                  .catch(err => logger.error('Coordinator finished after timeout', { error: err }))
-                  .finally(() => release());
-                return;
-              }
-
               const mapped = mapErrorToHttp(error);
               writeJson(res, mapped.status, mapped.body);
               logger.error('HTTP /run failed', { durationMs: Date.now() - startTime, error });
-            } finally {
-              if (timeoutId) clearTimeout(timeoutId);
             }
-
-            return;
-          }
-
-          try {
-            const response = await callPromise;
-            writeJson(res, 200, { type: 'response', data: response });
-            logger.info('HTTP /run completed', { durationMs: Date.now() - startTime });
-          } catch (error: any) {
-            const mapped = mapErrorToHttp(error);
-            writeJson(res, mapped.status, mapped.body);
-            logger.error('HTTP /run failed', { durationMs: Date.now() - startTime, error });
-          }
+          });
         } catch (error: any) {
           const mapped = mapErrorToHttp(error);
           writeJson(res, mapped.status, mapped.body);
@@ -209,93 +218,101 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           const logger = getLogger(correlationId);
           const startTime = Date.now();
 
-          res.writeHead(200, {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            Connection: 'keep-alive'
-          });
-          (res as any).flushHeaders?.();
-
-          const lifecycleStream = streamWithCoordinatorLifecycle<
-            LLMCallSpec,
-            any,
-            any,
-            LLMStreamEvent
-          >({
-            spec,
-            pluginsPath,
-            registry,
-            batchId,
-            closeLoggerAfter: closeLoggerAfterRequest,
-            deps,
-            stream: (coordinator: any, s) => coordinator.runStream(s)
-          });
-
-          const iterator = lifecycleStream[Symbol.asyncIterator]();
-          const idleTimeoutMs = config.streamIdleTimeoutMs;
-          const requestTimeoutMs = config.requestTimeoutMs;
-          let lastEventAt = Date.now();
-          let finished = false;
-
-          const sendTimeoutAndClose = async (code: string, message: string) => {
-            finished = true;
-            await writeSseEventWithBackpressure(res, {
-              type: 'error',
-              error: { message, code }
-            });
-            res.end();
-            iterator.return?.(undefined);
+          const liveContext = {
+            correlationId,
+            testFile: (spec.metadata as any)?.testFile as string | undefined,
+            testName: (spec.metadata as any)?.testName as string | undefined
           };
 
-          try {
-            while (!finished) {
-              const now = Date.now();
-              const remainingIdleMs =
-                idleTimeoutMs > 0 ? Math.max(0, idleTimeoutMs - (now - lastEventAt)) : Number.POSITIVE_INFINITY;
-              const remainingRequestMs =
-                requestTimeoutMs > 0 ? Math.max(0, requestTimeoutMs - (now - startTime)) : Number.POSITIVE_INFINITY;
-              const waitMs = Math.min(remainingIdleMs, remainingRequestMs);
+          await runWithLiveTestContext(liveContext, async () => {
+            res.writeHead(200, {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              Connection: 'keep-alive'
+            });
+            (res as any).flushHeaders?.();
 
-              const timeoutType =
-                remainingRequestMs <= remainingIdleMs ? 'request' : 'idle';
+            const lifecycleStream = streamWithCoordinatorLifecycle<
+              LLMCallSpec,
+              any,
+              any,
+              LLMStreamEvent
+            >({
+              spec,
+              pluginsPath,
+              registry,
+              batchId,
+              closeLoggerAfter: closeLoggerAfterRequest,
+              deps,
+              stream: (coordinator: any, s) => coordinator.runStream(s)
+            });
 
-              const raced: any =
-                waitMs === Number.POSITIVE_INFINITY
-                  ? { result: await iterator.next() }
-                  : await Promise.race([
-                      iterator.next().then(result => ({ result })),
-                      new Promise(resolve => setTimeout(() => resolve({ timeout: true }), waitMs))
-                    ]);
+            const iterator = lifecycleStream[Symbol.asyncIterator]();
+            const idleTimeoutMs = config.streamIdleTimeoutMs;
+            const requestTimeoutMs = config.requestTimeoutMs;
+            let lastEventAt = Date.now();
+            let finished = false;
 
-              if (raced.timeout) {
-                if (timeoutType === 'request') {
-                  await sendTimeoutAndClose('timeout', 'Request timed out');
-                } else {
-                  await sendTimeoutAndClose('stream_idle_timeout', 'Stream idle timeout');
+            const sendTimeoutAndClose = async (code: string, message: string) => {
+              finished = true;
+              await writeSseEventWithBackpressure(res, {
+                type: 'error',
+                error: { message, code }
+              });
+              res.end();
+              iterator.return?.(undefined);
+            };
+
+            try {
+              while (!finished) {
+                const now = Date.now();
+                const remainingIdleMs =
+                  idleTimeoutMs > 0 ? Math.max(0, idleTimeoutMs - (now - lastEventAt)) : Number.POSITIVE_INFINITY;
+                const remainingRequestMs =
+                  requestTimeoutMs > 0 ? Math.max(0, requestTimeoutMs - (now - startTime)) : Number.POSITIVE_INFINITY;
+                const waitMs = Math.min(remainingIdleMs, remainingRequestMs);
+
+                const timeoutType =
+                  remainingRequestMs <= remainingIdleMs ? 'request' : 'idle';
+
+                const raced: any =
+                  waitMs === Number.POSITIVE_INFINITY
+                    ? { result: await iterator.next() }
+                    : await Promise.race([
+                        iterator.next().then(result => ({ result })),
+                        new Promise(resolve => setTimeout(() => resolve({ timeout: true }), waitMs))
+                      ]);
+
+                if (raced.timeout) {
+                  if (timeoutType === 'request') {
+                    await sendTimeoutAndClose('timeout', 'Request timed out');
+                  } else {
+                    await sendTimeoutAndClose('stream_idle_timeout', 'Stream idle timeout');
+                  }
+                  break;
                 }
-                break;
-              }
 
-              const { value, done } = raced.result as IteratorResult<LLMStreamEvent>;
-              if (done) {
-                finished = true;
-                break;
-              }
+                const { value, done } = raced.result as IteratorResult<LLMStreamEvent>;
+                if (done) {
+                  finished = true;
+                  break;
+                }
 
-              lastEventAt = Date.now();
-              await writeSseEventWithBackpressure(res, value);
+                lastEventAt = Date.now();
+                await writeSseEventWithBackpressure(res, value);
+              }
+            } catch (error: any) {
+              const mapped = mapErrorToHttp(error);
+              await writeSseEventWithBackpressure(res, mapped.body);
+              res.end();
             }
-          } catch (error: any) {
-            const mapped = mapErrorToHttp(error);
-            await writeSseEventWithBackpressure(res, mapped.body);
-            res.end();
-          }
 
-          if (!res.writableEnded) {
-            res.end();
-          }
+            if (!res.writableEnded) {
+              res.end();
+            }
 
-          logger.info('HTTP /stream completed', { durationMs: Date.now() - startTime });
+            logger.info('HTTP /stream completed', { durationMs: Date.now() - startTime });
+          });
         } finally {
           release();
         }

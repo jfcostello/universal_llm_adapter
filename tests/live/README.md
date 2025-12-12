@@ -14,12 +14,43 @@ At the end, a combined summary shows pass/fail counts for both suites.
 
 ## Live test parallelism
 
-- Default workers: `maxWorkersDefault` in `tests/live/config.ts` (currently 1).
+- Default workers: `maxWorkersDefault` in `tests/live/config.ts` (currently 5).
 - Override per run:
   - Env: `MAX_WORKERS=2 npm run test:live:openrouter`
   - CLI: `npm run test:live:openrouter -- --maxWorkers=2`
 - Provider selection: first positional arg to `test:live` scripts (e.g. `npm run test:live:openrouter` sets `LLM_TEST_PROVIDERS=openrouter`).
 - Custom patterns: pass `--testPathPattern=<pattern>`; defaults to `live` when not provided.
+
+## Live test transport
+
+Live tests can submit coordinator work via either:
+
+- **CLI** (default): spawns the coordinator CLI per call.
+- **Server**: starts one server instance and submits requests over HTTP (closest to real production usage).
+- **Both**: runs the full suite twice (CLI pass, then server pass).
+
+Select transport with either:
+
+- CLI flag: `--transport=cli|server|both`
+- Env var: `LLM_LIVE_TRANSPORT=cli|server|both`
+
+Examples:
+
+```bash
+# Default (CLI)
+npm run test:live:openrouter
+
+# Server only
+npm run test:live:openrouter -- --transport=server
+
+# Full run twice (CLI then server)
+npm run test:live:openrouter -- --transport=both
+```
+
+Notes:
+- Server transport generates a run-wide batch id and exposes it to tests as `LLM_LIVE_BATCH_ID` for batch logging assertions.
+- Server transport writes a server process log under `tests/live/logs/` and correlates each request via `spec.metadata.correlationId`.
+- Live tests `15–19` (embeddings/vector) are currently skipped in server transport until server parity work is complete.
 
 ## Test Scripts
 

@@ -2,6 +2,10 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 module.exports = async () => {
+  if (process.env.LLM_SKIP_TS_BUILD === '1') {
+    return;
+  }
+
   const rootDir = path.resolve(__dirname, '../..');
   const tsc = path.join(rootDir, 'node_modules', 'typescript', 'bin', 'tsc');
 

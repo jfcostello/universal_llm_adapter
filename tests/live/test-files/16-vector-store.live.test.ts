@@ -20,6 +20,7 @@ import path from 'path';
 import type { VectorStoreConfig } from '@/core/types.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
+const runServerTransport = String(process.env.LLM_LIVE_TRANSPORT || 'cli').toLowerCase() === 'server';
 const pluginsPath = path.join(process.cwd(), 'plugins');
 
 // Test collection name with timestamp to avoid conflicts
@@ -39,7 +40,7 @@ function getQdrantConfig(): VectorStoreConfig {
 
 // Skip if required env vars not set
 const hasQdrantConfig = !!(process.env.QDRANT_CLOUD_URL && process.env.QDRANT_API_KEY);
-const shouldRun = runLive && hasQdrantConfig;
+const shouldRun = runLive && hasQdrantConfig && !runServerTransport;
 
 (shouldRun ? describe : describe.skip)('16-vector-store — Qdrant Cloud', () => {
   let registry: PluginRegistry;

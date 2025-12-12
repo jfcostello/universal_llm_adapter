@@ -14,9 +14,10 @@ import { PluginRegistry } from '@/core/registry.ts';
 import path from 'path';
 
 const runLive = process.env.LLM_LIVE === '1';
+const runServerTransport = String(process.env.LLM_LIVE_TRANSPORT || 'cli').toLowerCase() === 'server';
 const pluginsPath = path.join(process.cwd(), 'plugins');
 
-(runLive ? describe : describe.skip)('15-embeddings — OpenRouter', () => {
+((runLive && !runServerTransport) ? describe : describe.skip)('15-embeddings — OpenRouter', () => {
   let registry: PluginRegistry;
   let embeddingManager: EmbeddingManager;
 
