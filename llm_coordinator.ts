@@ -8,6 +8,10 @@ import { LLMCoordinator } from './coordinator/coordinator.js';
 import { LLMCallSpec, LLMStreamEvent } from './core/types.js';
 import { closeLogger } from './core/logging.js';
 import { loadSpec, writeJsonToStdout } from './utils/cli/index.js';
+import {
+  runWithCoordinatorLifecycle,
+  streamWithCoordinatorLifecycle
+} from './utils/coordinator-lifecycle/index.js';
 
 export interface CliDependencies {
   createRegistry: (pluginsPath: string) => PromiseLike<PluginRegistryLike> | PluginRegistryLike;
@@ -54,21 +58,19 @@ export function createProgram(partialDeps: Partial<CliDependencies> = {}): Comma
     .option('--pretty', 'Pretty print output')
     .action(async (options) => {
       try {
-        if (options.batchId) {
-          // Expose to logging subsystem prior to any logger creation
-          process.env.LLM_ADAPTER_BATCH_ID = String(options.batchId);
-        }
         const spec = await loadSpec(options);
-        const registry = await deps.createRegistry(options.plugins ?? './plugins');
-        await registry.loadAll();
-
-        const coordinator = await deps.createCoordinator(registry);
-
-        const response = await coordinator.run(spec);
-
-        await coordinator.close();
-
-        await closeLogger();
+        const response = await runWithCoordinatorLifecycle<LLMCallSpec, any, any, unknown>({
+          spec,
+          pluginsPath: options.plugins ?? './plugins',
+          batchId: options.batchId,
+          closeLoggerAfter: true,
+          deps: {
+            createRegistry: deps.createRegistry,
+            createCoordinator: deps.createCoordinator,
+            closeLogger
+          },
+          run: (coordinator, s) => coordinator.run(s)
+        });
 
         const wrappedResponse = { type: 'response', data: response };
         await writeJsonToStdout(wrappedResponse, { pretty: options.pretty });
@@ -89,21 +91,21 @@ export function createProgram(partialDeps: Partial<CliDependencies> = {}): Comma
     .option('--batch-id <id>', 'Optional batch identifier for grouped logging')
     .action(async (options) => {
       try {
-        if (options.batchId) {
-          process.env.LLM_ADAPTER_BATCH_ID = String(options.batchId);
-        }
         const spec = await loadSpec(options);
-        const registry = await deps.createRegistry(options.plugins ?? './plugins');
-        await registry.loadAll();
-
-        const coordinator = await deps.createCoordinator(registry);
-
-        for await (const event of coordinator.runStream(spec)) {
+        for await (const event of streamWithCoordinatorLifecycle<LLMCallSpec, any, any, LLMStreamEvent>({
+          spec,
+          pluginsPath: options.plugins ?? './plugins',
+          batchId: options.batchId,
+          closeLoggerAfter: true,
+          deps: {
+            createRegistry: deps.createRegistry,
+            createCoordinator: deps.createCoordinator,
+            closeLogger
+          },
+          stream: (coordinator, s) => coordinator.runStream(s)
+        })) {
           deps.log(JSON.stringify(event));
         }
-
-        await coordinator.close();
-        await closeLogger(); // Flush all Winston buffers before exit
         deps.exit(0);
       } catch (error: any) {
         deps.error(JSON.stringify({ error: error?.message ?? String(error) }));

@@ -13,6 +13,10 @@ import { VectorStoreCoordinator } from './coordinator/vector-coordinator.js';
 import { VectorCallSpec, VectorStreamEvent } from './core/vector-spec-types.js';
 import { closeLogger } from './core/logging.js';
 import { loadSpec, writeJsonToStdout } from './utils/cli/index.js';
+import {
+  runWithCoordinatorLifecycle,
+  streamWithCoordinatorLifecycle
+} from './utils/coordinator-lifecycle/index.js';
 
 export interface CliDependencies {
   createRegistry: (pluginsPath: string) => PromiseLike<PluginRegistryLike> | PluginRegistryLike;
@@ -55,29 +59,38 @@ export function createProgram(partialDeps: Partial<CliDependencies> = {}): Comma
     streaming: boolean = false
   ) => {
     try {
-      if (options.batchId) {
-        process.env.LLM_ADAPTER_BATCH_ID = String(options.batchId);
-      }
-
       const spec = await loadSpec(options);
-      // options.plugins always has a value because Commander's .option() provides a default
-      const registry = await deps.createRegistry(options.plugins);
-      await registry.loadAll();
-
-      const coordinator = await deps.createCoordinator(registry);
-
       if (streaming) {
-        for await (const event of coordinator.executeStream(spec)) {
+        for await (const event of streamWithCoordinatorLifecycle<VectorCallSpec, any, any, VectorStreamEvent>({
+          spec,
+          pluginsPath: options.plugins,
+          batchId: options.batchId,
+          closeLoggerAfter: true,
+          deps: {
+            createRegistry: deps.createRegistry,
+            createCoordinator: deps.createCoordinator,
+            closeLogger
+          },
+          stream: (coordinator, s) => coordinator.executeStream(s)
+        })) {
           deps.log(JSON.stringify(event));
         }
       } else {
-        const result = await coordinator.execute(spec);
+        const result = await runWithCoordinatorLifecycle<VectorCallSpec, any, any, any>({
+          spec,
+          pluginsPath: options.plugins,
+          batchId: options.batchId,
+          closeLoggerAfter: true,
+          deps: {
+            createRegistry: deps.createRegistry,
+            createCoordinator: deps.createCoordinator,
+            closeLogger
+          },
+          run: (coordinator, s) => coordinator.execute(s)
+        });
         const wrappedResponse = { type: 'response', data: result };
         await writeJsonToStdout(wrappedResponse, { pretty: options.pretty });
       }
-
-      await coordinator.close();
-      await closeLogger();
       deps.exit(0);
     } catch (error: any) {
       deps.error(JSON.stringify({ error: error?.message ?? String(error) }));
