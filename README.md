@@ -13,6 +13,74 @@ Universal LLM adapter providing a unified interface across multiple AI providers
 - **Streaming**: Real-time streaming responses with tool support
 - **100% Test Coverage**: Comprehensive test suite with full coverage
 
+## Server Mode
+
+The adapter can run as a thin HTTP/SSE server, exposing the same spec‑driven behavior as the CLI.
+All LLM logic remains in the coordinator; the server is transport‑only.
+
+### Start via CLI
+
+```bash
+llm-coordinator serve [options]
+```
+
+Common options:
+- `--host <host>` (default `127.0.0.1`)
+- `--port <port>` (default `0` for ephemeral)
+- `--plugins <path>` (default `./plugins`)
+- `--batch-id <id>` (optional)
+
+Operational knobs (all optional; override `server.*` defaults):
+- `--max-request-bytes <n>`
+- `--body-read-timeout-ms <n>`
+- `--request-timeout-ms <n>`
+- `--stream-idle-timeout-ms <n>`
+- `--max-concurrent-requests <n>`
+- `--max-concurrent-streams <n>`
+- `--max-queue-size <n>`
+- `--queue-timeout-ms <n>`
+- `--auth-enabled`, `--no-auth-allow-bearer`, `--no-auth-allow-api-key-header`, `--auth-header-name <name>`, `--auth-realm <realm>`
+- `--rate-limit-enabled`, `--rate-limit-requests-per-minute <n>`, `--rate-limit-burst <n>`, `--rate-limit-trust-proxy-headers`
+- `--cors-enabled`
+- `--no-security-headers-enabled`
+
+**Secrets and allowlists are config/env only.** Do not pass API keys or CORS origin lists via CLI; set them under `server.auth.*` and `server.cors.*` in `plugins/configs/defaults.json` or via `${ENV}` substitution.
+
+### Start programmatically
+
+```ts
+import { createServer } from 'llm-adapter';
+
+const server = await createServer({ port: 3000 });
+console.log(server.url);
+
+// later
+await server.close();
+```
+
+This is only for embedding server startup in a Node process; consumers still call the HTTP endpoints.
+
+### Endpoints
+
+- `POST /run`
+  - Body: `LLMCallSpec` JSON.
+  - Response: `{ "type": "response", "data": <LLMResponse> }`.
+- `POST /stream`
+  - Body: `LLMCallSpec` JSON.
+  - Response: SSE `text/event-stream` where each event is a raw `LLMStreamEvent` framed as `data: <json>\n\n`.
+
+Minimal curl example:
+
+```bash
+curl -sS http://127.0.0.1:3000/run \\
+  -H "content-type: application/json" \\
+  -d '{
+    "messages": [{"role":"user","content":[{"type":"text","text":"Hello"}]}],
+    "llmPriority": [{"provider":"<provider-id>","model":"<model-id>"}],
+    "settings": {}
+  }'
+```
+
 ## Per-Provider Settings
 
 ### Overview

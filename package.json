@@ -2,6 +2,14 @@
   "name": "llm-adapter",
   "version": "1.0.0",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "bin": {
     "llm-coordinator": "./dist/llm_coordinator.js"
   },
