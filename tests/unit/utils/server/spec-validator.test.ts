@@ -1,4 +1,4 @@
-import { assertValidSpec, resolveAjvConstructor } from '@/utils/server/internal/spec-validator.ts';
+import { assertValidSpec, resolveAjvConstructor } from '@/utils/server/internal/transport/spec-validator.ts';
 
 describe('utils/server assertValidSpec', () => {
   test('accepts minimal valid spec', () => {

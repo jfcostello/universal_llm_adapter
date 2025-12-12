@@ -1,4 +1,4 @@
-import { applyCors } from '@/utils/server/internal/cors.ts';
+import { applyCors } from '@/utils/server/internal/security/cors.ts';
 
 describe('utils/server cors', () => {
   function makeRes() {

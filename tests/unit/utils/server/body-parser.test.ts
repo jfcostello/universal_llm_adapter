@@ -1,5 +1,5 @@
 import { Readable } from 'stream';
-import { readJsonBody } from '@/utils/server/internal/body-parser.ts';
+import { readJsonBody } from '@/utils/server/internal/transport/body-parser.ts';
 
 function makeReq(body: string): any {
   const req = new Readable({

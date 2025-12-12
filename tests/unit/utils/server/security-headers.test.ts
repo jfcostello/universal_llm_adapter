@@ -1,4 +1,4 @@
-import { applySecurityHeaders } from '@/utils/server/internal/security-headers.ts';
+import { applySecurityHeaders } from '@/utils/server/internal/security/security-headers.ts';
 
 describe('utils/server security headers', () => {
   function makeRes() {
@@ -22,4 +22,3 @@ describe('utils/server security headers', () => {
     expect(Object.keys(res.headers).length).toBe(0);
   });
 });
-

@@ -1,13 +1,13 @@
 import type http from 'http';
-import { readJsonBody } from './body-parser.js';
-import { writeSseEvent, writeSseEventWithBackpressure } from './sse.js';
-import { assertValidSpec } from './spec-validator.js';
-import { createLimiter } from './limiter.js';
-import { mapErrorToHttp } from './error-mapper.js';
-import { applyCors } from './cors.js';
-import { applySecurityHeaders } from './security-headers.js';
-import { assertAuthorized } from './auth.js';
-import { createRateLimiter, getClientIp } from './rate-limiter.js';
+import { readJsonBody } from './transport/body-parser.js';
+import { writeSseEvent, writeSseEventWithBackpressure } from './streaming/sse.js';
+import { assertValidSpec } from './transport/spec-validator.js';
+import { createLimiter } from './transport/limiter.js';
+import { mapErrorToHttp } from './transport/error-mapper.js';
+import { applyCors } from './security/cors.js';
+import { applySecurityHeaders } from './security/security-headers.js';
+import { assertAuthorized } from './security/auth.js';
+import { createRateLimiter, getClientIp } from './security/rate-limiter.js';
 import {
   runWithCoordinatorLifecycle,
   streamWithCoordinatorLifecycle

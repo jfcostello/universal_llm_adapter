@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { createLimiter } from '@/utils/server/internal/limiter.ts';
+import { createLimiter } from '@/utils/server/internal/transport/limiter.ts';
 
 describe('utils/server createLimiter', () => {
   test('allows immediate acquire under maxConcurrent', async () => {

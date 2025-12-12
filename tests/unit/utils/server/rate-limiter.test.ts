@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { createRateLimiter, getClientIp } from '@/utils/server/internal/rate-limiter.ts';
+import { createRateLimiter, getClientIp } from '@/utils/server/internal/security/rate-limiter.ts';
 
 describe('utils/server rate-limiter', () => {
   test('disabled limiter allows all', () => {

@@ -12,7 +12,10 @@ coordinator lifecycle helpers.
 
 ## Module Layout
 - `utils/server/index.ts` — public API.
-- `utils/server/internal/*` — private implementation details (router, body parser, SSE writer).
+- `utils/server/internal/handler.ts` — internal request handler orchestrator.
+- `utils/server/internal/transport/*` — body parsing, spec validation, error mapping, concurrency/queueing.
+- `utils/server/internal/security/*` — auth, rate limiting, CORS, security headers.
+- `utils/server/internal/streaming/*` — SSE helpers.
 
 Only `index.ts` should be imported by other code.
 
