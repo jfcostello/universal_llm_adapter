@@ -10,11 +10,10 @@ export function genericRedactHeaders(headers: Record<string, any>): Record<strin
     }
   }
 
-  const anthropicKey = redacted['x-api-key'];
-  if (typeof anthropicKey === 'string') {
-    redacted['x-api-key'] = `***${anthropicKey.slice(-4)}`;
+  const apiKey = redacted['x-api-key'];
+  if (typeof apiKey === 'string') {
+    redacted['x-api-key'] = `***${apiKey.slice(-4)}`;
   }
 
   return redacted;
 }
-

@@ -124,7 +124,7 @@ export class StreamCoordinator {
                 name: state.name || event.name,
                 arguments: state.arguments || event.arguments
               };
-              // Preserve provider-specific metadata (e.g., Google's thoughtSignature)
+              // Preserve provider-specific metadata (e.g., signed/opaque fields required on follow-ups)
               if (state.metadata) {
                 toolCall.metadata = state.metadata;
               }
@@ -139,7 +139,7 @@ export class StreamCoordinator {
                 arguments: JSON.parse(toolCall.arguments || '{}'),
                 args: JSON.parse(toolCall.arguments || '{}') // Alias for tests
               };
-              // Preserve provider-specific metadata (e.g., Google's thoughtSignature)
+              // Preserve provider-specific metadata (e.g., signed/opaque fields required on follow-ups)
               if (state.metadata) {
                 finalToolCall.metadata = state.metadata;
               }
@@ -206,7 +206,7 @@ export class StreamCoordinator {
             name: state.name,
             arguments: state.arguments
           };
-          // Preserve provider-specific metadata (e.g., Google's thoughtSignature)
+          // Preserve provider-specific metadata (e.g., signed/opaque fields required on follow-ups)
           if (state.metadata) {
             pendingCall.metadata = state.metadata;
           }
@@ -229,7 +229,7 @@ export class StreamCoordinator {
           arguments: parsedArgs,
           args: parsedArgs
         };
-        // Preserve provider-specific metadata (e.g., Google's thoughtSignature)
+        // Preserve provider-specific metadata (e.g., signed/opaque fields required on follow-ups)
         if (call.metadata) {
           finalToolCall.metadata = call.metadata;
         }
@@ -246,7 +246,7 @@ export class StreamCoordinator {
           name: call.name,
           arguments: JSON.parse(call.arguments || '{}')
         };
-        // Preserve provider-specific metadata (e.g., Google's thoughtSignature)
+        // Preserve provider-specific metadata (e.g., signed/opaque fields required on follow-ups)
         if (call.metadata) {
           prepared.metadata = call.metadata;
         }

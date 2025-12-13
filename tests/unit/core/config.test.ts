@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { jest } from '@jest/globals';
 import { substituteEnv, loadJsonFile } from '@/core/config.ts';
+import { ROOT_DIR } from '@tests/helpers/paths.ts';
 import { withTempCwd, writeJson } from '@tests/helpers/temp-files.ts';
 
 describe('core/config', () => {
@@ -57,10 +57,7 @@ describe('core/config', () => {
   });
 
   test('loadRootDotenv loads nearest .env file', async () => {
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = path.dirname(__filename);
-    const configDir = path.resolve(__dirname, '../../../core');
-    const envPath = path.join(configDir, '.env');
+    const envPath = path.join(ROOT_DIR, 'modules', 'kernel', 'internal', '.env');
 
     fs.writeFileSync(envPath, 'TEST_ENV_FROM_FILE=loaded', 'utf-8');
     delete process.env.TEST_ENV_FROM_FILE;

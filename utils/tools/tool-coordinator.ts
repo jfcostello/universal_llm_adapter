@@ -3,7 +3,7 @@ import axios from 'axios';
 import { minimatch } from 'minimatch';
 import { ProcessRouteManifest, VectorContextConfig } from '../../core/types.js';
 import { ToolExecutionError } from '../../core/errors.js';
-import { MCPClientPool } from '../../mcp/mcp-client.js';
+import type { MCPClientPool } from '../../mcp/mcp-client.js';
 import { AdapterLogger } from '../../core/logging.js';
 import { getDefaults } from '../../core/defaults.js';
 import { PluginRegistry } from '../../core/registry.js';

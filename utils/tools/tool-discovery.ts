@@ -1,7 +1,7 @@
 import { PluginRegistry } from '../../core/registry.js';
 import { LLMCallSpec, UnifiedTool, VectorContextConfig, ToolSchemaParamOverride } from '../../core/types.js';
-import { MCPManager } from '../../managers/mcp-manager.js';
-import { VectorStoreManager } from '../../managers/vector-store-manager.js';
+import type { MCPManager } from '../../managers/mcp-manager.js';
+import type { VectorStoreManager } from '../../managers/vector-store-manager.js';
 import { sanitizeToolName } from './tool-names.js';
 
 export interface ToolDiscoveryOptions {

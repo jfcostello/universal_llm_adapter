@@ -188,9 +188,7 @@ function identifyToolCallCycles(messages: Message[]): ToolCallCycle[] {
  * Prunes old reasoning from assistant messages in the conversation history.
  *
  * This function marks reasoning in older assistant messages as redacted. The compats
- * handle the actual redaction behavior:
- * - OpenAI: Omits reasoning field entirely when redacted
- * - Anthropic: Injects placeholder thinking block when redacted
+ * handle the actual redaction behavior, which may vary by provider.
  *
  * @param messages - The message array to prune (modified in-place)
  * @param preserveCount - How many reasoning blocks to preserve ('all', 'none', or a number)

@@ -429,7 +429,7 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
       name: sanitizeToolName(call.name ?? `tool_${call.id}`),
       arguments: call.arguments
     };
-    // Preserve provider-specific metadata (e.g., Google's thoughtSignature)
+    // Preserve provider-specific metadata (e.g., signed/opaque fields required on follow-ups)
     if (call.metadata) {
       mapped.metadata = call.metadata;
     }

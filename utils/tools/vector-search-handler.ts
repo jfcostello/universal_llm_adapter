@@ -18,7 +18,7 @@ import {
   getEmbeddingLogger,
   getVectorLogger
 } from '../../core/logging.js';
-import { interpolate } from '../string/interpolate.js';
+import { interpolate } from '../../modules/string/index.js';
 
 /**
  * Arguments provided by the LLM when calling vector_search tool.

@@ -22,7 +22,7 @@ import {
   getEmbeddingLogger,
   getVectorLogger
 } from '../../core/logging.js';
-import { interpolate } from '../string/interpolate.js';
+import { interpolate } from '../../modules/string/index.js';
 
 export interface VectorContextInjectorOptions {
   registry: PluginRegistry;

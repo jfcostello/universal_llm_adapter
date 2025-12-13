@@ -24,7 +24,7 @@ import { sanitizeToolName, sanitizeToolChoice } from '../utils/tools/tool-names.
 import { processDocumentContent } from '../utils/documents/document-loader.js';
 import { runToolLoop } from '../utils/tools/tool-loop.js';
 import { ProviderExecutionError } from '../core/errors.js';
-import { withRetries } from '../utils/retry/priority-handler.js';
+import { withRetries } from '../modules/retry/index.js';
 import { ToolCoordinator } from '../utils/tools/tool-coordinator.js';
 
 // Type-only imports for lazy loading

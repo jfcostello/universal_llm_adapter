@@ -87,8 +87,8 @@ export interface AssistantToolCallInput {
   arguments: Record<string, any>;
   /**
    * Provider-specific metadata for this tool call.
-   * Used to preserve cryptographic signatures (e.g., Google's thoughtSignature)
-   * that must be sent back in subsequent requests.
+   * Used to preserve cryptographic signatures/opaque fields that must be sent back
+   * in subsequent requests.
    */
   metadata?: Record<string, any>;
 }
