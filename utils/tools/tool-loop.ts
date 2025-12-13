@@ -23,7 +23,7 @@ import { formatCountdown, buildFinalPrompt } from './tool-message.js';
 import { appendAssistantToolCalls, appendToolResult } from '../messages/message-utils.js';
 import { pruneReasoning, pruneToolResults } from '../context/context-manager.js';
 import { sanitizeToolName } from './tool-names.js';
-import { usageStatsToJson } from '../usage/usage-utils.js';
+import { usageStatsToJson } from '../../modules/usage/index.js';
 import { getDefaults } from '../../core/defaults.js';
 
 interface BaseToolLoopOptions {

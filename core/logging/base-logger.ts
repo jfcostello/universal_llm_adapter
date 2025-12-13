@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import DailyRotateFile from 'winston-daily-rotate-file';
 import TransportStream from 'winston-transport';
 import type { TransformableInfo } from 'logform';
-import { genericRedactHeaders } from '../../utils/security/redaction.js';
+import { genericRedactHeaders } from '../../modules/security/index.js';
 import { readEnvFloat, readEnvInt } from '../../utils/logging/retention.js';
 import { applyRetentionOnce } from '../../utils/logging/retention-manager.js';
 import { getDefaults } from '../defaults.js';

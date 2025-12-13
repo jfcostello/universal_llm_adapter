@@ -12,9 +12,9 @@ import {
 import { ToolCoordinator } from '../utils/tools/tool-coordinator.js';
 import { AdapterLogger } from '../core/logging.js';
 import { pruneToolResults, pruneReasoning } from '../utils/context/context-manager.js';
-import { partitionSettings } from '../utils/settings/settings-partitioner.js';
+import { partitionSettings } from '../modules/settings/index.js';
 import { runToolLoop } from '../utils/tools/tool-loop.js';
-import { usageStatsToJson } from '../utils/usage/usage-utils.js';
+import { usageStatsToJson } from '../modules/usage/index.js';
 
 interface StreamingContext {
   provider: string;
