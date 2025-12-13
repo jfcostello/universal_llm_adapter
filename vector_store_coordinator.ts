@@ -10,6 +10,7 @@ import * as path from 'path';
 import { pathToFileURL } from 'url';
 import { PluginRegistry } from './core/registry.js';
 import { VectorStoreCoordinator } from './coordinator/vector-coordinator.js';
+import type { EmbeddingCallSpec } from './core/embedding-spec-types.js';
 import { VectorCallSpec, VectorStreamEvent } from './core/vector-spec-types.js';
 import { closeLogger } from './core/logging.js';
 import { loadSpec, writeJsonToStdout } from './utils/cli/index.js';
@@ -21,6 +22,9 @@ import {
 export interface CliDependencies {
   createRegistry: (pluginsPath: string) => PromiseLike<PluginRegistryLike> | PluginRegistryLike;
   createCoordinator: (registry: PluginRegistryLike) => PromiseLike<CoordinatorLike> | CoordinatorLike;
+  createEmbeddingCoordinator?: (
+    registry: PluginRegistryLike
+  ) => PromiseLike<EmbeddingCoordinatorLike> | EmbeddingCoordinatorLike;
   log: (message: string) => void;
   error: (message: string) => void;
   exit: (code: number) => void;
@@ -36,9 +40,18 @@ interface CoordinatorLike {
   close(): Promise<void>;
 }
 
+interface EmbeddingCoordinatorLike {
+  execute(spec: EmbeddingCallSpec): Promise<unknown>;
+  close(): Promise<void>;
+}
+
 const defaultDependencies: CliDependencies = {
   createRegistry: (pluginsPath: string) => new PluginRegistry(pluginsPath),
   createCoordinator: (registry: PluginRegistryLike) => new VectorStoreCoordinator(registry as PluginRegistry),
+  createEmbeddingCoordinator: async (registry: PluginRegistryLike) => {
+    const module = await import('./coordinator/embedding-coordinator.js');
+    return new module.EmbeddingCoordinator(registry as PluginRegistry);
+  },
   log: (message: string) => console.log(message),
   error: (message: string) => console.error(message),
   exit: (code: number) => process.exit(code)
@@ -97,6 +110,61 @@ export function createProgram(partialDeps: Partial<CliDependencies> = {}): Comma
       deps.exit(1);
     }
   };
+
+  const handleEmbeddingCommand = async (options: any) => {
+    try {
+      const spec = await loadSpec(options);
+
+      if (!deps.createEmbeddingCoordinator) {
+        throw new Error('createEmbeddingCoordinator dependency missing');
+      }
+
+      const result = await runWithCoordinatorLifecycle<EmbeddingCallSpec, any, any, any>({
+        spec,
+        pluginsPath: options.plugins,
+        batchId: options.batchId,
+        closeLoggerAfter: true,
+        deps: {
+          createRegistry: deps.createRegistry,
+          createCoordinator: deps.createEmbeddingCoordinator,
+          closeLogger
+        },
+        run: (coordinator: any, s) => coordinator.execute(s)
+      });
+
+      const wrappedResponse = { type: 'response', data: result };
+      await writeJsonToStdout(wrappedResponse, { pretty: options.pretty });
+      deps.exit(0);
+    } catch (error: any) {
+      deps.error(JSON.stringify({ error: error?.message ?? String(error) }));
+      deps.exit(1);
+    }
+  };
+
+  // Generic run command (operation-agnostic)
+  program
+    .command('run')
+    .description('Execute a non-streaming vector operation')
+    .option('-f, --file <path>', 'Path to spec JSON file')
+    .option('-s, --spec <json>', 'Spec as JSON string')
+    .option('-p, --plugins <path>', 'Path to plugins directory', './plugins')
+    .option('--batch-id <id>', 'Optional batch identifier for grouped logging')
+    .option('--pretty', 'Pretty print output')
+    .action(async (options) => {
+      await handleCommand(options, false);
+    });
+
+  // Generic stream command (operation-agnostic)
+  program
+    .command('stream')
+    .description('Execute a streaming vector operation')
+    .option('-f, --file <path>', 'Path to spec JSON file')
+    .option('-s, --spec <json>', 'Spec as JSON string')
+    .option('-p, --plugins <path>', 'Path to plugins directory', './plugins')
+    .option('--batch-id <id>', 'Optional batch identifier for grouped logging')
+    .action(async (options) => {
+      await handleCommand(options, true);
+    });
 
   // Embed command
   program
@@ -162,6 +230,22 @@ export function createProgram(partialDeps: Partial<CliDependencies> = {}): Comma
     .option('--pretty', 'Pretty print output')
     .action(async (options) => {
       await handleCommand(options);
+    });
+
+  const embeddings = program
+    .command('embeddings')
+    .description('Embedding operations (via vector coordinator CLI)');
+
+  embeddings
+    .command('run')
+    .description('Execute an embedding operation')
+    .option('-f, --file <path>', 'Path to spec JSON file')
+    .option('-s, --spec <json>', 'Spec as JSON string')
+    .option('-p, --plugins <path>', 'Path to plugins directory', './plugins')
+    .option('--batch-id <id>', 'Optional batch identifier for grouped logging')
+    .option('--pretty', 'Pretty print output')
+    .action(async (options) => {
+      await handleEmbeddingCommand(options);
     });
 
   return program;

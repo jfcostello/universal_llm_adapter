@@ -900,6 +900,13 @@ export interface ServerDefaults {
   maxConcurrentStreams: number;
   maxQueueSize: number;
   queueTimeoutMs: number;
+  maxConcurrentVectorRequests: number;
+  maxConcurrentVectorStreams: number;
+  vectorMaxQueueSize: number;
+  vectorQueueTimeoutMs: number;
+  maxConcurrentEmbeddingRequests: number;
+  embeddingMaxQueueSize: number;
+  embeddingQueueTimeoutMs: number;
   auth: ServerAuthDefaults;
   rateLimit: ServerRateLimitDefaults;
   cors: ServerCorsDefaults;

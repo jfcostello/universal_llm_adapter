@@ -100,6 +100,13 @@ describe('core/defaults', () => {
 	      expect(server.maxConcurrentStreams).toBe(32);
 	      expect(server.maxQueueSize).toBe(1000);
 	      expect(server.queueTimeoutMs).toBe(30000);
+	      expect(server.maxConcurrentVectorRequests).toBe(128);
+	      expect(server.maxConcurrentVectorStreams).toBe(32);
+	      expect(server.vectorMaxQueueSize).toBe(1000);
+	      expect(server.vectorQueueTimeoutMs).toBe(30000);
+	      expect(server.maxConcurrentEmbeddingRequests).toBe(128);
+	      expect(server.embeddingMaxQueueSize).toBe(1000);
+	      expect(server.embeddingQueueTimeoutMs).toBe(30000);
 	      expect(server.auth.enabled).toBe(false);
 	      expect(server.auth.allowBearer).toBe(true);
 	      expect(server.auth.allowApiKeyHeader).toBe(true);

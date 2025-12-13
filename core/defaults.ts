@@ -64,6 +64,13 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
     maxConcurrentStreams: 32,
     maxQueueSize: 1000,
     queueTimeoutMs: 30000,
+    maxConcurrentVectorRequests: 128,
+    maxConcurrentVectorStreams: 32,
+    vectorMaxQueueSize: 1000,
+    vectorQueueTimeoutMs: 30000,
+    maxConcurrentEmbeddingRequests: 128,
+    embeddingMaxQueueSize: 1000,
+    embeddingQueueTimeoutMs: 30000,
     auth: {
       enabled: false,
       allowBearer: true,

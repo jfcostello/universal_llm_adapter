@@ -7,7 +7,7 @@ export function resolveAjvConstructor(mod: any) {
 const Ajv = resolveAjvConstructor(AjvImport as any);
 const ajv = new Ajv({ allErrors: true, strict: false });
 
-const specSchema: any = {
+const llmSpecSchema: any = {
   type: 'object',
   required: ['messages', 'llmPriority', 'settings'],
   properties: {
@@ -77,15 +77,94 @@ const specSchema: any = {
   additionalProperties: true
 };
 
-const validate = ajv.compile(specSchema);
+const validateLlm = ajv.compile(llmSpecSchema);
+
+const vectorSpecSchema: any = {
+  type: 'object',
+  required: ['operation', 'store'],
+  properties: {
+    operation: { type: 'string' },
+    store: { type: 'string' },
+    collection: { type: 'string', nullable: true },
+    embeddingPriority: {
+      type: 'array',
+      nullable: true,
+      items: {
+        type: 'object',
+        required: ['provider'],
+        properties: {
+          provider: { type: 'string' },
+          model: { type: 'string', nullable: true }
+        },
+        additionalProperties: true
+      }
+    },
+    input: { type: 'object', nullable: true, additionalProperties: true },
+    settings: { type: 'object', nullable: true, additionalProperties: true },
+    metadata: { type: 'object', nullable: true, additionalProperties: true }
+  },
+  additionalProperties: true
+};
+
+const validateVector = ajv.compile(vectorSpecSchema);
+
+const embeddingSpecSchema: any = {
+  type: 'object',
+  required: ['operation'],
+  properties: {
+    operation: { type: 'string' },
+    provider: { type: 'string', nullable: true },
+    model: { type: 'string', nullable: true },
+    embeddingPriority: {
+      type: 'array',
+      nullable: true,
+      items: {
+        type: 'object',
+        required: ['provider'],
+        properties: {
+          provider: { type: 'string' },
+          model: { type: 'string', nullable: true }
+        },
+        additionalProperties: true
+      }
+    },
+    input: { type: 'object', nullable: true, additionalProperties: true },
+    metadata: { type: 'object', nullable: true, additionalProperties: true }
+  },
+  additionalProperties: true
+};
+
+const validateEmbedding = ajv.compile(embeddingSpecSchema);
 
 export function assertValidSpec(spec: unknown): void {
-  const ok = validate(spec);
+  const ok = validateLlm(spec);
   if (ok) return;
 
   const error = new Error('Spec validation failed');
   (error as any).statusCode = 400;
   (error as any).code = 'validation_error';
-  (error as any).details = validate.errors;
+  (error as any).details = validateLlm.errors;
+  throw error;
+}
+
+export function assertValidVectorSpec(spec: unknown): void {
+  const ok = validateVector(spec);
+  if (ok) return;
+
+  const error = new Error('Spec validation failed');
+  (error as any).statusCode = 400;
+  (error as any).code = 'validation_error';
+  (error as any).details = validateVector.errors;
+  throw error;
+}
+
+export function assertValidEmbeddingSpec(spec: unknown): void {
+  const ok = validateEmbedding(spec);
+  if (ok) return;
+
+  const error = new Error('Spec validation failed');
+  (error as any).statusCode = 400;
+  (error as any).code = 'validation_error';
+  (error as any).details = validateEmbedding.errors;
   throw error;
 }

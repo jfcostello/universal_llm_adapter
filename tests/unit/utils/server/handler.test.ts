@@ -61,6 +61,169 @@ describe('utils/server createServerHandler', () => {
     securityHeadersEnabled: true
   };
 
+  test('handles /vector/run with vector coordinator', async () => {
+    const vectorExecute = jest.fn().mockResolvedValue({ ok: true });
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(), // LLM coordinator (unused)
+        createVectorCoordinator: jest.fn().mockResolvedValue({
+          execute: vectorExecute,
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      } as any,
+      config
+    });
+
+    const req = makeReq(
+      'POST',
+      '/vector/run',
+      JSON.stringify({ operation: 'query', store: 'test', input: { vector: [0.1], topK: 1 } })
+    );
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(200);
+    const parsed = JSON.parse(out.body);
+    expect(parsed.type).toBe('response');
+    expect(parsed.data).toEqual({ ok: true });
+    expect(vectorExecute).toHaveBeenCalled();
+  });
+
+  test('returns 501 when /vector/run is requested but vector coordinator is missing', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config
+    });
+
+    const req = makeReq('POST', '/vector/run', JSON.stringify({ operation: 'query', store: 'test' }));
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(501);
+    expect(JSON.parse(out.body).error.code).toBe('not_implemented');
+  });
+
+  test('handles /vector/embeddings/run with embedding coordinator', async () => {
+    const embeddingExecute = jest.fn().mockResolvedValue({ ok: true });
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(), // LLM coordinator (unused)
+        createEmbeddingCoordinator: jest.fn().mockResolvedValue({
+          execute: embeddingExecute,
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      } as any,
+      config
+    });
+
+    const req = makeReq(
+      'POST',
+      '/vector/embeddings/run',
+      JSON.stringify({ operation: 'embed', embeddingPriority: [{ provider: 'p' }], input: { texts: ['hello'] } })
+    );
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(200);
+    const parsed = JSON.parse(out.body);
+    expect(parsed.type).toBe('response');
+    expect(parsed.data).toEqual({ ok: true });
+    expect(embeddingExecute).toHaveBeenCalled();
+  });
+
+  test('returns 501 when /vector/embeddings/run is requested but embedding coordinator is missing', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config
+    });
+
+    const req = makeReq('POST', '/vector/embeddings/run', JSON.stringify({ operation: 'embed' }));
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(501);
+    expect(JSON.parse(out.body).error.code).toBe('not_implemented');
+  });
+
+  test('handles /vector/stream with vector coordinator', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(), // LLM coordinator (unused)
+        createVectorCoordinator: jest.fn().mockResolvedValue({
+          executeStream: async function* () {
+            yield { type: 'progress', progress: { current: 0, total: 1 } } as any;
+            yield { type: 'done' } as any;
+          },
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, streamIdleTimeoutMs: 50 }
+    });
+
+    const req = makeReq(
+      'POST',
+      '/vector/stream',
+      JSON.stringify({ operation: 'embed', store: 'test' })
+    );
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(200);
+    expect(out.body).toContain('data:');
+    expect(out.body).toContain('"type":"progress"');
+  });
+
+  test('streams SSE error when /vector/stream fails after headers sent', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config
+    });
+
+    const req = makeReq('POST', '/vector/stream', JSON.stringify({ operation: 'embed', store: 'test' }));
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(200);
+    expect(out.body).toContain('data:');
+    expect(out.body).toContain('not_implemented');
+  });
+
   test('returns 405 for non-POST methods', async () => {
     const handler = createServerHandler({
       registry,
@@ -478,6 +641,34 @@ describe('utils/server createServerHandler', () => {
     expect(out.body).toContain('stream boom');
   });
 
+  test('streams SSE error when /vector/stream coordinator throws after headers sent', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        createVectorCoordinator: jest.fn().mockResolvedValue({
+          executeStream: async function* () {
+            throw new Error('vector stream boom');
+          },
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      } as any,
+      config
+    });
+
+    const req = makeReq('POST', '/vector/stream', JSON.stringify({ operation: 'embed', store: 'test' }));
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(200);
+    expect(out.body).toContain('data:');
+    expect(out.body).toContain('vector stream boom');
+  });
+
   test('streams SSE response for /stream success', async () => {
     const handler = createServerHandler({
       registry,
@@ -637,6 +828,296 @@ describe('utils/server createServerHandler', () => {
     expect(JSON.parse(out.body).error.code).toBe('timeout');
   });
 
+  test('times out /vector/run when requestTimeoutMs exceeded', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        createVectorCoordinator: jest.fn().mockResolvedValue({
+          execute: jest.fn().mockImplementation(async () => {
+            await new Promise(r => setTimeout(r, 20));
+            return { ok: true };
+          }),
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, requestTimeoutMs: 5 }
+    });
+
+    const req = makeReq(
+      'POST',
+      '/vector/run',
+      JSON.stringify({ operation: 'query', store: 's', input: { vector: [0.1], topK: 1 } })
+    );
+    const out = makeRes();
+    await handler(req, out.res);
+    await new Promise(r => setTimeout(r, 30));
+
+    expect(out.status).toBe(504);
+    expect(JSON.parse(out.body).error.code).toBe('timeout');
+  });
+
+  test('completes /vector/run before timeout when requestTimeoutMs set', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        createVectorCoordinator: jest.fn().mockResolvedValue({
+          execute: jest.fn().mockResolvedValue({ ok: true }),
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, requestTimeoutMs: 50 }
+    });
+
+    const req = makeReq(
+      'POST',
+      '/vector/run',
+      JSON.stringify({ operation: 'query', store: 's', input: { vector: [0.1], topK: 1 } })
+    );
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(200);
+    expect(JSON.parse(out.body).type).toBe('response');
+  });
+
+  test('timeout path handles later /vector/run coordinator rejection', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        createVectorCoordinator: jest.fn().mockResolvedValue({
+          execute: jest.fn().mockImplementation(async () => {
+            await new Promise(r => setTimeout(r, 20));
+            throw new Error('late boom vector');
+          }),
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, requestTimeoutMs: 5 }
+    });
+
+    const req = makeReq(
+      'POST',
+      '/vector/run',
+      JSON.stringify({ operation: 'query', store: 's', input: { vector: [0.1], topK: 1 } })
+    );
+    const out = makeRes();
+    await handler(req, out.res);
+    await new Promise(r => setTimeout(r, 30));
+
+    expect(out.status).toBe(504);
+    expect(JSON.parse(out.body).error.code).toBe('timeout');
+  });
+
+  test('handles /vector/run coordinator error within timeout branch', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        createVectorCoordinator: jest.fn().mockResolvedValue({
+          execute: jest.fn().mockRejectedValue(new Error('boom-vector-timeout-branch')),
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, requestTimeoutMs: 50 }
+    });
+
+    const req = makeReq(
+      'POST',
+      '/vector/run',
+      JSON.stringify({ operation: 'query', store: 's', input: { vector: [0.1], topK: 1 } })
+    );
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(500);
+    expect(JSON.parse(out.body).error.message).toContain('boom-vector-timeout-branch');
+  });
+
+  test('handles /vector/run coordinator error when requestTimeoutMs disabled', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        createVectorCoordinator: jest.fn().mockResolvedValue({
+          execute: jest.fn().mockRejectedValue(new Error('boom-vector')),
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, requestTimeoutMs: 0 }
+    });
+
+    const req = makeReq(
+      'POST',
+      '/vector/run',
+      JSON.stringify({ operation: 'query', store: 's', input: { vector: [0.1], topK: 1 } })
+    );
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(500);
+    expect(JSON.parse(out.body).error.message).toContain('boom-vector');
+  });
+
+  test('times out /vector/embeddings/run when requestTimeoutMs exceeded', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        createEmbeddingCoordinator: jest.fn().mockResolvedValue({
+          execute: jest.fn().mockImplementation(async () => {
+            await new Promise(r => setTimeout(r, 20));
+            return { ok: true };
+          }),
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, requestTimeoutMs: 5 }
+    });
+
+    const req = makeReq('POST', '/vector/embeddings/run', JSON.stringify({ operation: 'embed' }));
+    const out = makeRes();
+    await handler(req, out.res);
+    await new Promise(r => setTimeout(r, 30));
+
+    expect(out.status).toBe(504);
+    expect(JSON.parse(out.body).error.code).toBe('timeout');
+  });
+
+  test('completes /vector/embeddings/run before timeout when requestTimeoutMs set', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        createEmbeddingCoordinator: jest.fn().mockResolvedValue({
+          execute: jest.fn().mockResolvedValue({ ok: true }),
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, requestTimeoutMs: 50 }
+    });
+
+    const req = makeReq(
+      'POST',
+      '/vector/embeddings/run',
+      JSON.stringify({ operation: 'embed', embeddingPriority: [{ provider: 'p' }], input: { texts: ['hello'] } })
+    );
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(200);
+    expect(JSON.parse(out.body).type).toBe('response');
+  });
+
+  test('timeout path handles later /vector/embeddings/run coordinator rejection', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        createEmbeddingCoordinator: jest.fn().mockResolvedValue({
+          execute: jest.fn().mockImplementation(async () => {
+            await new Promise(r => setTimeout(r, 20));
+            throw new Error('late boom embeddings');
+          }),
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, requestTimeoutMs: 5 }
+    });
+
+    const req = makeReq('POST', '/vector/embeddings/run', JSON.stringify({ operation: 'embed' }));
+    const out = makeRes();
+    await handler(req, out.res);
+    await new Promise(r => setTimeout(r, 30));
+
+    expect(out.status).toBe(504);
+    expect(JSON.parse(out.body).error.code).toBe('timeout');
+  });
+
+  test('handles /vector/embeddings/run coordinator error within timeout branch', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        createEmbeddingCoordinator: jest.fn().mockResolvedValue({
+          execute: jest.fn().mockRejectedValue(new Error('boom-embeddings-timeout-branch')),
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, requestTimeoutMs: 50 }
+    });
+
+    const req = makeReq('POST', '/vector/embeddings/run', JSON.stringify({ operation: 'embed' }));
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(500);
+    expect(JSON.parse(out.body).error.message).toContain('boom-embeddings-timeout-branch');
+  });
+
+  test('handles /vector/embeddings/run coordinator error when requestTimeoutMs disabled', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        createEmbeddingCoordinator: jest.fn().mockResolvedValue({
+          execute: jest.fn().mockRejectedValue(new Error('boom-embeddings')),
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, requestTimeoutMs: 0 }
+    });
+
+    const req = makeReq('POST', '/vector/embeddings/run', JSON.stringify({ operation: 'embed' }));
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(500);
+    expect(JSON.parse(out.body).error.message).toContain('boom-embeddings');
+  });
+
   test('completes /run before timeout when requestTimeoutMs set', async () => {
     const handler = createServerHandler({
       registry,
@@ -751,6 +1232,76 @@ describe('utils/server createServerHandler', () => {
     expect(out.body).toContain('timeout');
   });
 
+  test('times out /stream on idle timeout', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn().mockResolvedValue({
+          runStream: async function* () {
+            await new Promise(() => {});
+          },
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      },
+      config: { ...config, requestTimeoutMs: 0, streamIdleTimeoutMs: 5 }
+    });
+
+    const req = makeReq(
+      'POST',
+      '/stream',
+      JSON.stringify({ messages: [], llmPriority: [{ provider: 'p', model: 'm' }], settings: {} })
+    );
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(200);
+    expect(out.body).toContain('stream_idle_timeout');
+  });
+
+	  test('swallows iterator.return errors on timeout', async () => {
+	    const handler = createServerHandler({
+	      registry,
+	      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn().mockResolvedValue({
+	          runStream: () => ({
+	            [Symbol.asyncIterator]: () => ({
+	              next: async () => {
+	                await new Promise(() => {});
+	                return { value: undefined, done: true };
+	              },
+	              return: () =>
+	                new Promise((_, reject) => {
+	                  setTimeout(() => reject(new Error('return boom')), 1);
+	                })
+	            })
+	          }),
+	          close: jest.fn().mockResolvedValue(undefined)
+	        }),
+        closeLogger: jest.fn()
+      },
+      config: { ...config, requestTimeoutMs: 5, streamIdleTimeoutMs: 1000 }
+    });
+
+    const req = makeReq(
+      'POST',
+      '/stream',
+      JSON.stringify({ messages: [], llmPriority: [{ provider: 'p', model: 'm' }], settings: {} })
+	    );
+	    const out = makeRes();
+	    await handler(req, out.res);
+	    await new Promise(r => setTimeout(r, 10));
+
+	    expect(out.status).toBe(200);
+	    expect(out.body).toContain('timeout');
+	  });
+
   test('swallows iterator.return rejection when coordinator close fails on timeout', async () => {
     const handler = createServerHandler({
       registry,
@@ -813,5 +1364,56 @@ describe('utils/server createServerHandler', () => {
     await handler(req, out.res);
 
     expect(out.body).toContain('writeHead boom');
+  });
+
+  test('swallows iterator.return promise rejections via catch callback', async () => {
+    jest.resetModules();
+
+    let createServerHandlerWithMock!: typeof createServerHandler;
+
+    (jest as any).unstable_mockModule('@/utils/coordinator-lifecycle/index.ts', () => ({
+      runWithCoordinatorLifecycle: jest.fn(),
+      streamWithCoordinatorLifecycle: jest.fn().mockImplementation(() => ({
+        [Symbol.asyncIterator]: () => ({
+          next: () => new Promise(() => {}),
+          return: () => ({
+            catch: (callback: any) => {
+              callback();
+            }
+          })
+        })
+      }))
+    }));
+
+    await jest.isolateModulesAsync(async () => {
+      ({ createServerHandler: createServerHandlerWithMock } = await import('@/utils/server/internal/handler.ts'));
+    });
+
+    const handler = createServerHandlerWithMock({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn().mockResolvedValue({
+          run: jest.fn().mockResolvedValue({ ok: true }),
+          runStream: jest.fn(),
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, requestTimeoutMs: 5, streamIdleTimeoutMs: 1000 }
+    });
+
+    const req = makeReq(
+      'POST',
+      '/stream',
+      JSON.stringify({ messages: [], llmPriority: [{ provider: 'p', model: 'm' }], settings: {} })
+    );
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(200);
+    expect(out.body).toContain('timeout');
   });
 });

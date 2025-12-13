@@ -1,4 +1,9 @@
-import { assertValidSpec, resolveAjvConstructor } from '@/utils/server/internal/transport/spec-validator.ts';
+import {
+  assertValidSpec,
+  assertValidVectorSpec,
+  assertValidEmbeddingSpec,
+  resolveAjvConstructor
+} from '@/utils/server/internal/transport/spec-validator.ts';
 
 describe('utils/server assertValidSpec', () => {
   test('accepts minimal valid spec', () => {
@@ -13,6 +18,34 @@ describe('utils/server assertValidSpec', () => {
 
   test('rejects missing required fields', () => {
     expect(() => assertValidSpec({ messages: [] } as any)).toThrow(/validation/i);
+  });
+
+  test('assertValidVectorSpec accepts minimal valid vector spec', () => {
+    expect(() =>
+      assertValidVectorSpec({
+        operation: 'query',
+        store: 'test-store',
+        input: { vector: [0.1], topK: 1 }
+      } as any)
+    ).not.toThrow();
+  });
+
+  test('assertValidVectorSpec rejects missing required fields', () => {
+    expect(() => assertValidVectorSpec({ operation: 'query' } as any)).toThrow(/validation/i);
+  });
+
+  test('assertValidEmbeddingSpec accepts minimal valid embedding spec', () => {
+    expect(() =>
+      assertValidEmbeddingSpec({
+        operation: 'embed',
+        embeddingPriority: [{ provider: 'p' }],
+        input: { texts: ['hello'] }
+      } as any)
+    ).not.toThrow();
+  });
+
+  test('assertValidEmbeddingSpec rejects missing required fields', () => {
+    expect(() => assertValidEmbeddingSpec({} as any)).toThrow(/validation/i);
   });
 
   test('resolveAjvConstructor uses default when present', () => {

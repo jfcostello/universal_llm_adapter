@@ -25,10 +25,21 @@ function createDeps(overrides: Partial<CliDependencies> = {}) {
     }),
     close: jest.fn().mockResolvedValue(undefined)
   };
+  const embeddingCoordinator = {
+    execute: jest.fn().mockResolvedValue({
+      operation: 'embed',
+      success: true,
+      vectors: [[0.1]],
+      model: 'm',
+      dimensions: 1
+    }),
+    close: jest.fn().mockResolvedValue(undefined)
+  };
 
   const baseDeps: CliDependencies = {
     createRegistry: jest.fn().mockResolvedValue(registry),
     createCoordinator: jest.fn().mockResolvedValue(coordinator),
+    createEmbeddingCoordinator: jest.fn().mockResolvedValue(embeddingCoordinator),
     log: jest.fn(),
     error: jest.fn(),
     exit: jest.fn()
@@ -37,7 +48,8 @@ function createDeps(overrides: Partial<CliDependencies> = {}) {
   return {
     deps: { ...baseDeps, ...overrides },
     registry,
-    coordinator
+    coordinator,
+    embeddingCoordinator
   };
 }
 
@@ -142,6 +154,57 @@ describe('vector_store_coordinator CLI', () => {
         JSON.stringify({ error: 'string error' })
       );
       expect(deps.exit).toHaveBeenCalledWith(1);
+    });
+  });
+
+  describe('run command (generic)', () => {
+    test('executes spec-defined operation', async () => {
+      const { deps, coordinator } = createDeps();
+      coordinator.execute.mockResolvedValue({
+        operation: 'query',
+        success: true,
+        results: []
+      });
+      const program = createProgram(deps);
+
+      await program.parseAsync([
+        'node',
+        'vector',
+        'run',
+        '--spec',
+        '{"operation":"query","store":"qdrant-cloud","input":{"vector":[0.1],\"topK\":5}}'
+      ]);
+
+      expect(coordinator.execute).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: 'query', store: 'qdrant-cloud' })
+      );
+      expect(deps.exit).toHaveBeenCalledWith(0);
+    });
+  });
+
+  describe('stream command (generic)', () => {
+    test('streams events for spec-defined operation', async () => {
+      const { deps, coordinator } = createDeps({
+        log: jest.fn(),
+        exit: jest.fn()
+      });
+      coordinator.executeStream = jest.fn().mockImplementation(async function* () {
+        yield { type: 'progress', progress: { current: 0, total: 1 } };
+        yield { type: 'done' };
+      });
+      const program = createProgram(deps);
+
+      await program.parseAsync([
+        'node',
+        'vector',
+        'stream',
+        '--spec',
+        '{"operation":"embed","store":"test","embeddingPriority":[{"provider":"p"}],"input":{"texts":["hello"]}}'
+      ]);
+
+      expect(coordinator.executeStream).toHaveBeenCalled();
+      expect(deps.log).toHaveBeenCalled();
+      expect(deps.exit).toHaveBeenCalledWith(0);
     });
   });
 
@@ -348,6 +411,141 @@ describe('vector_store_coordinator CLI', () => {
 
       expect(deps.log).toHaveBeenCalled();
       expect(deps.exit).toHaveBeenCalledWith(0);
+    });
+  });
+
+  describe('embeddings command group', () => {
+    test('embeddings run uses default createEmbeddingCoordinator when not provided', async () => {
+      const registry = {
+        loadAll: jest.fn().mockResolvedValue(undefined),
+        getEmbeddingProvider: jest.fn().mockResolvedValue({
+          id: 'p',
+          kind: 'test',
+          endpoint: { urlTemplate: 'http://test', headers: {} },
+          model: 'm',
+          dimensions: 1
+        }),
+        getEmbeddingCompat: jest.fn().mockResolvedValue({
+          embed: jest.fn().mockResolvedValue({
+            vectors: [[0.1]],
+            model: 'm',
+            dimensions: 1
+          }),
+          getDimensions: jest.fn().mockReturnValue(1),
+          validate: jest.fn().mockResolvedValue(true)
+        })
+      };
+
+      const deps: any = {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn().mockResolvedValue({
+          execute: jest.fn(),
+          executeStream: jest.fn(),
+          close: jest.fn().mockResolvedValue(undefined)
+        }),
+        log: jest.fn(),
+        error: jest.fn(),
+        exit: jest.fn()
+      };
+
+      const program = createProgram(deps);
+
+      await program.parseAsync([
+        'node',
+        'vector',
+        'embeddings',
+        'run',
+        '--spec',
+        '{"operation":"embed","embeddingPriority":[{"provider":"p"}],"input":{"texts":["hello"]}}'
+      ]);
+
+      expect(deps.createRegistry).toHaveBeenCalledWith('./plugins');
+      expect(registry.loadAll).toHaveBeenCalled();
+      expect(registry.getEmbeddingProvider).toHaveBeenCalledWith('p');
+      expect(registry.getEmbeddingCompat).toHaveBeenCalledWith('test');
+      expect(deps.exit).toHaveBeenCalledWith(0);
+    });
+
+    test('embeddings run uses embedding coordinator', async () => {
+      const { deps, registry, embeddingCoordinator } = createDeps();
+      const program = createProgram(deps);
+
+      await program.parseAsync([
+        'node',
+        'vector',
+        'embeddings',
+        'run',
+        '--spec',
+        '{"operation":"embed","embeddingPriority":[{"provider":"p"}],"input":{"texts":["hello"]}}'
+      ]);
+
+      expect(deps.createRegistry).toHaveBeenCalledWith('./plugins');
+      expect(registry.loadAll).toHaveBeenCalled();
+      expect(deps.createEmbeddingCoordinator).toHaveBeenCalled();
+      expect(embeddingCoordinator.execute).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: 'embed' })
+      );
+      expect(embeddingCoordinator.close).toHaveBeenCalled();
+      expect(deps.exit).toHaveBeenCalledWith(0);
+    });
+
+    test('embeddings run fails when createEmbeddingCoordinator dependency is missing', async () => {
+      const { deps } = createDeps({ createEmbeddingCoordinator: undefined as any });
+      const program = createProgram(deps);
+
+      await program.parseAsync([
+        'node',
+        'vector',
+        'embeddings',
+        'run',
+        '--spec',
+        '{"operation":"embed","embeddingPriority":[{"provider":"p"}],"input":{"texts":["hello"]}}'
+      ]);
+
+      expect(deps.error).toHaveBeenCalledWith(
+        JSON.stringify({ error: 'createEmbeddingCoordinator dependency missing' })
+      );
+      expect(deps.exit).toHaveBeenCalledWith(1);
+    });
+
+    test('embeddings run handles errors gracefully', async () => {
+      const { deps } = createDeps({
+        createEmbeddingCoordinator: jest.fn().mockRejectedValue(new Error('Embedding coordinator failed'))
+      });
+      const program = createProgram(deps);
+
+      await program.parseAsync([
+        'node',
+        'vector',
+        'embeddings',
+        'run',
+        '--spec',
+        '{"operation":"embed","embeddingPriority":[{"provider":"p"}],"input":{"texts":["hello"]}}'
+      ]);
+
+      expect(deps.error).toHaveBeenCalledWith(
+        expect.stringContaining('Embedding coordinator failed')
+      );
+      expect(deps.exit).toHaveBeenCalledWith(1);
+    });
+
+    test('embeddings run surfaces string errors via fallback', async () => {
+      const { deps } = createDeps({
+        createEmbeddingCoordinator: jest.fn().mockRejectedValue('total failure')
+      });
+      const program = createProgram(deps);
+
+      await program.parseAsync([
+        'node',
+        'vector',
+        'embeddings',
+        'run',
+        '--spec',
+        '{"operation":"embed","embeddingPriority":[{"provider":"p"}],"input":{"texts":["hello"]}}'
+      ]);
+
+      expect(deps.error).toHaveBeenCalledWith(JSON.stringify({ error: 'total failure' }));
+      expect(deps.exit).toHaveBeenCalledWith(1);
     });
   });
 

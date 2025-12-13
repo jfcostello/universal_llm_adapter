@@ -1,4 +1,5 @@
 import { QdrantClient } from '@qdrant/js-client-rest';
+import { createHash } from 'crypto';
 import {
   IVectorStoreCompat,
   VectorStoreConfig,
@@ -12,6 +13,42 @@ import { VectorStoreConnectionError, VectorStoreError } from '../../core/errors.
 
 // Factory type for creating Qdrant clients (allows test injection)
 export type QdrantClientFactory = (options: { host?: string; port?: number; url?: string; apiKey?: string }) => QdrantClient;
+
+const ORIGINAL_ID_KEY = '__llm_adapter_original_id';
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function toDeterministicUuidV4(input: string): string {
+  const bytes = createHash('sha256').update(input).digest().subarray(0, 16);
+  const b = Buffer.from(bytes);
+
+  // RFC 4122 variant + v4
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+
+  const hex = b.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function normalizePointId(id: string): { qdrantId: string | number; originalId?: string } {
+  const raw = String(id);
+
+  // Qdrant accepts UUIDs.
+  if (UUID_REGEX.test(raw)) {
+    return { qdrantId: raw };
+  }
+
+  // Qdrant accepts unsigned integers.
+  if (/^\d+$/.test(raw)) {
+    const asNumber = Number(raw);
+    if (Number.isSafeInteger(asNumber)) {
+      return { qdrantId: asNumber };
+    }
+  }
+
+  // Otherwise, derive a deterministic UUID so arbitrary string ids are supported.
+  return { qdrantId: toDeterministicUuidV4(raw), originalId: raw };
+}
 
 /**
  * Qdrant Vector Store Compat Module
@@ -142,9 +179,19 @@ export default class QdrantCompat implements IVectorStoreCompat {
       const results = await this.client!.search(collection, searchParams);
 
       const mappedResults = results.map(item => ({
-        id: String(item.id),
+        id:
+          item.payload && typeof (item.payload as any)[ORIGINAL_ID_KEY] === 'string'
+            ? String((item.payload as any)[ORIGINAL_ID_KEY])
+            : String(item.id),
         score: item.score,
-        payload: item.payload as JsonObject | undefined,
+        payload:
+          item.payload && typeof (item.payload as any)[ORIGINAL_ID_KEY] === 'string'
+            ? (() => {
+                const payload = { ...(item.payload as any) };
+                delete (payload as any)[ORIGINAL_ID_KEY];
+                return payload as JsonObject;
+              })()
+            : (item.payload as JsonObject | undefined),
         vector: item.vector as number[] | undefined
       }));
 
@@ -198,11 +245,14 @@ export default class QdrantCompat implements IVectorStoreCompat {
     });
 
     try {
-      const qdrantPoints = points.map(point => ({
-        id: point.id,
-        vector: point.vector,
-        payload: point.payload || {}
-      }));
+      const qdrantPoints = points.map(point => {
+        const normalized = normalizePointId(point.id);
+        const payload =
+          normalized.originalId !== undefined
+            ? { ...(point.payload || {}), [ORIGINAL_ID_KEY]: normalized.originalId }
+            : (point.payload || {});
+        return { id: normalized.qdrantId, vector: point.vector, payload };
+      });
 
       await this.client!.upsert(collection, {
         wait: true,
@@ -294,9 +344,10 @@ export default class QdrantCompat implements IVectorStoreCompat {
     });
 
     try {
+      const qdrantIds = ids.map(id => normalizePointId(id).qdrantId);
       await this.client!.delete(collection, {
         wait: true,
-        points: ids
+        points: qdrantIds
       });
 
       // Log success

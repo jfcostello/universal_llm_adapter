@@ -50,7 +50,7 @@ npm run test:live:openrouter -- --transport=both
 Notes:
 - Server transport generates a run-wide batch id and exposes it to tests as `LLM_LIVE_BATCH_ID` for batch logging assertions.
 - Server transport writes a server process log under `tests/live/logs/` and correlates each request via `spec.metadata.correlationId`.
-- Live tests `15–19` (embeddings/vector) are currently skipped in server transport until server parity work is complete.
+- Live tests `15–19` (embeddings/vector) are supported in server transport.
 
 ## Test Scripts
 

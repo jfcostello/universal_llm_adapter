@@ -4,6 +4,7 @@ describe('package public exports', () => {
     expect(module.createServer).toBeDefined();
     expect(module.createServerHandlerWithDefaults).toBeDefined();
     expect(module.LLMCoordinator).toBeDefined();
+    expect(module.VectorStoreCoordinator).toBeDefined();
+    expect(module.EmbeddingCoordinator).toBeDefined();
   });
 });
-

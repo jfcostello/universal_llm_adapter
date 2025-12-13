@@ -24,6 +24,34 @@ function getTransport(env: NodeJS.ProcessEnv | undefined): 'cli' | 'server' {
   return raw === 'server' ? 'server' : 'cli';
 }
 
+type ToolTarget = 'llm' | 'vector' | 'embedding';
+
+function getTargetScript(target: ToolTarget): string {
+  switch (target) {
+    case 'llm':
+      return path.join(DIST_DIR, 'llm_coordinator.js');
+    case 'vector':
+      return path.join(DIST_DIR, 'vector_store_coordinator.js');
+    case 'embedding':
+      return path.join(DIST_DIR, 'vector_store_coordinator.js');
+  }
+}
+
+function getTargetEndpoint(target: ToolTarget, command: string): string | null {
+  if (command === 'run') {
+    if (target === 'llm') return '/run';
+    if (target === 'vector') return '/vector/run';
+    if (target === 'embedding') return '/vector/embeddings/run';
+  }
+
+  if (command === 'stream') {
+    if (target === 'llm') return '/stream';
+    if (target === 'vector') return '/vector/stream';
+  }
+
+  return null;
+}
+
 function parseFlagValue(args: string[], flag: string): string | undefined {
   const idx = args.indexOf(flag);
   if (idx !== -1) {
@@ -109,7 +137,7 @@ async function readLogsForCorrelationId(options: {
   return [];
 }
 
-async function runCoordinatorViaServer(options: CliRunOptions): Promise<CliResult> {
+async function runToolViaServer(target: ToolTarget, options: CliRunOptions): Promise<CliResult> {
   const env = options.env || process.env;
   const serverUrl = env.LLM_TEST_SERVER_URL;
   if (!serverUrl) {
@@ -124,10 +152,14 @@ async function runCoordinatorViaServer(options: CliRunOptions): Promise<CliResul
   const { spec: rawSpec, args } = findSpecFromArgs(options);
   const command = args[0] || 'run';
 
-  if (command !== 'run' && command !== 'stream') {
+  const endpointPath = getTargetEndpoint(target, command);
+  if (!endpointPath) {
     return {
       stdout: '',
-      stderr: JSON.stringify({ error: `Unsupported command for server transport: ${command}` }),
+      stderr: JSON.stringify({
+        error: `Unsupported command for server transport: ${command}`,
+        target
+      }),
       code: 1,
       logs: []
     };
@@ -153,7 +185,7 @@ async function runCoordinatorViaServer(options: CliRunOptions): Promise<CliResul
 
   try {
     if (command === 'run') {
-      const res = await fetch(new URL('/run', serverUrl), {
+      const res = await fetch(new URL(endpointPath, serverUrl), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(spec)
@@ -180,7 +212,7 @@ async function runCoordinatorViaServer(options: CliRunOptions): Promise<CliResul
     }
 
     // stream
-    const res = await fetch(new URL('/stream', serverUrl), {
+    const res = await fetch(new URL(endpointPath, serverUrl), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(spec)
@@ -237,13 +269,13 @@ async function runCoordinatorViaServer(options: CliRunOptions): Promise<CliResul
   }
 }
 
-export function runCoordinator(options: CliRunOptions = {}): Promise<CliResult> {
-  if (getTransport(options.env) === 'server') {
-    return runCoordinatorViaServer(options);
-  }
-
-  const script = path.join(DIST_DIR, 'llm_coordinator.js');
-  const args = options.args ?? ['run'];
+function runToolViaCli(target: ToolTarget, options: CliRunOptions = {}): Promise<CliResult> {
+  const script = getTargetScript(target);
+  const rawArgs = options.args ?? ['run'];
+  const args =
+    target === 'embedding'
+      ? ['embeddings', ...(rawArgs.length > 0 ? rawArgs : ['run'])]
+      : rawArgs;
 
   return new Promise((resolve) => {
     // Use process.execPath to ensure we use the same Node.js executable running the tests
@@ -312,4 +344,25 @@ export function runCoordinator(options: CliRunOptions = {}): Promise<CliResult> 
     }
     child.stdin.end();
   });
+}
+
+export function runCoordinator(options: CliRunOptions = {}): Promise<CliResult> {
+  if (getTransport(options.env) === 'server') {
+    return runToolViaServer('llm', options);
+  }
+  return runToolViaCli('llm', options);
+}
+
+export function runVectorCoordinator(options: CliRunOptions = {}): Promise<CliResult> {
+  if (getTransport(options.env) === 'server') {
+    return runToolViaServer('vector', options);
+  }
+  return runToolViaCli('vector', options);
+}
+
+export function runEmbeddingCoordinator(options: CliRunOptions = {}): Promise<CliResult> {
+  if (getTransport(options.env) === 'server') {
+    return runToolViaServer('embedding', options);
+  }
+  return runToolViaCli('embedding', options);
 }

@@ -33,12 +33,19 @@ Options:
 - `closeLoggerAfterRequest` (boolean, default `false`)
 - `maxRequestBytes` (number, default `26214400` / 25MB) — maximum JSON body size including any embedded base64.
 - `bodyReadTimeoutMs` (number, default `10000`) — timeout while reading the request body.
-- `requestTimeoutMs` (number, default `0` = disabled) — total wall‑clock timeout for `/run` and `/stream`.
+- `requestTimeoutMs` (number, default `0` = disabled) — total wall‑clock timeout for `/run`, `/vector/run`, `/vector/embeddings/run`, and `/stream`.
 - `streamIdleTimeoutMs` (number, default `60000`) — max idle gap between SSE events before closing.
 - `maxConcurrentRequests` (number, default `128`) — concurrent `/run` executions.
 - `maxConcurrentStreams` (number, default `32`) — concurrent `/stream` executions.
 - `maxQueueSize` (number, default `1000`) — queued requests per limiter when saturated.
 - `queueTimeoutMs` (number, default `30000`) — max time a request may wait in the queue.
+- `maxConcurrentVectorRequests` (number, default `128`) — concurrent `/vector/run` executions.
+- `maxConcurrentVectorStreams` (number, default `32`) — concurrent `/vector/stream` executions.
+- `vectorMaxQueueSize` (number, default `1000`) — queue size for vector limiters when saturated.
+- `vectorQueueTimeoutMs` (number, default `30000`) — max time a vector request may wait in the queue.
+- `maxConcurrentEmbeddingRequests` (number, default `128`) — concurrent `/vector/embeddings/run` executions.
+- `embeddingMaxQueueSize` (number, default `1000`) — queue size for embedding limiter when saturated.
+- `embeddingQueueTimeoutMs` (number, default `30000`) — max time an embedding request may wait in the queue.
 - `auth` (object, default disabled) — optional request auth.
   - `enabled` (boolean)
   - `allowBearer` (boolean, default `true`) — accept `Authorization: Bearer <token>`.
@@ -87,6 +94,19 @@ Accepts the same options and defaults as `createServer`.
 - Response: SSE `text/event-stream` where each event is a raw `LLMStreamEvent`
   JSON object framed as `data: <json>\n\n`.
 
+### `POST /vector/run`
+- Body: `VectorCallSpec` JSON.
+- Response: `application/json` `{ type: "response", data: <VectorOperationResult> }`.
+
+### `POST /vector/stream`
+- Body: `VectorCallSpec` JSON.
+- Response: SSE `text/event-stream` where each event is a raw `VectorStreamEvent`
+  JSON object framed as `data: <json>\n\n`.
+
+### `POST /vector/embeddings/run`
+- Body: `EmbeddingCallSpec` JSON.
+- Response: `application/json` `{ type: "response", data: <EmbeddingOperationResult> }`.
+
 ## Validation, Limits, Concurrency
 
 - **Content-Type**: If `Content-Type` is present and not `application/json`, the server returns `415`.
@@ -95,9 +115,11 @@ Accepts the same options and defaults as `createServer`.
   Body reads exceeding `bodyReadTimeoutMs` return `408`.
 - **Spec validation**: Incoming specs are structurally validated (Ajv). Invalid specs return `400`
   with `error.code="validation_error"` and a `details` array.
-- **Concurrency & queueing**: `/run` and `/stream` each have independent limiters.
+- **Concurrency & queueing**: `/run`, `/stream`, `/vector/run`, `/vector/stream`, and `/vector/embeddings/run`
+  each have independent limiters.
   When saturated, requests enter a bounded FIFO queue up to `maxQueueSize`.
   Queue waits longer than `queueTimeoutMs` return `503` with `error.code="queue_timeout"`.
+  Vector and embedding limiters can be tuned independently via the `vector*` and `embedding*` options.
 
 ## Auth & Security Controls
 

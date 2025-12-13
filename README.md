@@ -68,6 +68,15 @@ This is only for embedding server startup in a Node process; consumers still cal
 - `POST /stream`
   - Body: `LLMCallSpec` JSON.
   - Response: SSE `text/event-stream` where each event is a raw `LLMStreamEvent` framed as `data: <json>\n\n`.
+- `POST /vector/run`
+  - Body: `VectorCallSpec` JSON.
+  - Response: `{ "type": "response", "data": <VectorOperationResult> }`.
+- `POST /vector/stream`
+  - Body: `VectorCallSpec` JSON.
+  - Response: SSE `text/event-stream` where each event is a raw `VectorStreamEvent` framed as `data: <json>\n\n`.
+- `POST /vector/embeddings/run`
+  - Body: `EmbeddingCallSpec` JSON.
+  - Response: `{ "type": "response", "data": <EmbeddingOperationResult> }`.
 
 Minimal curl example:
 
@@ -570,6 +579,8 @@ The Vector Store CLI (`vector_store_coordinator.ts`) provides batch operations f
 
 | Command | Description |
 |---------|-------------|
+| `run` | Execute any vector operation from a `VectorCallSpec` |
+| `stream` | Stream `VectorStreamEvent` for an operation (batch embed yields progress) |
 | `embed` | Embed texts and optionally upsert to a vector store |
 | `upsert` | Upsert pre-computed vectors to a store |
 | `query` | Query a vector store |
@@ -579,6 +590,12 @@ The Vector Store CLI (`vector_store_coordinator.ts`) provides batch operations f
 #### Usage
 
 ```bash
+# Run any vector operation (preferred for CLI/server parity)
+npx ts-node vector_store_coordinator.ts run --spec '{...}'
+
+# Stream any operation (preferred for CLI/server parity)
+npx ts-node vector_store_coordinator.ts stream --spec '{...}'
+
 # Embed texts and upsert
 npx ts-node vector_store_coordinator.ts embed --spec '{
   "operation": "embed",

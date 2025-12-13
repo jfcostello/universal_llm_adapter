@@ -3,6 +3,10 @@ import QdrantCompat from '@/plugins/vector-compat/qdrant.ts';
 import { VectorStoreConnectionError, VectorStoreError } from '@/core/errors.ts';
 import type { VectorStoreConfig } from '@/core/types.ts';
 
+const ORIGINAL_ID_KEY = '__llm_adapter_original_id';
+const UUID_V4_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function createConfig(overrides: Partial<VectorStoreConfig['connection']> = {}): VectorStoreConfig {
   return {
     id: 'test-qdrant',
@@ -97,12 +101,12 @@ describe('plugins/vector-compat/qdrant', () => {
     });
   });
 
-  describe('query', () => {
-    beforeEach(async () => {
-      await compat.connect(createConfig());
-    });
+	  describe('query', () => {
+	    beforeEach(async () => {
+	      await compat.connect(createConfig());
+	    });
 
-    test('searches with basic parameters', async () => {
+	    test('searches with basic parameters', async () => {
       mockClient.search.mockResolvedValue([
         { id: '1', score: 0.95, payload: { text: 'hello' } },
         { id: '2', score: 0.85, payload: { text: 'world' } }
@@ -117,18 +121,33 @@ describe('plugins/vector-compat/qdrant', () => {
         payload: { text: 'hello' },
         vector: undefined
       });
-      expect(mockClient.search).toHaveBeenCalledWith('my-collection', {
-        vector: [0.1, 0.2],
-        limit: 5,
-        with_payload: true,
-        with_vector: false
-      });
-    });
+	      expect(mockClient.search).toHaveBeenCalledWith('my-collection', {
+	        vector: [0.1, 0.2],
+	        limit: 5,
+	        with_payload: true,
+	        with_vector: false
+	      });
+	    });
 
-    test('includes vector when requested', async () => {
-      mockClient.search.mockResolvedValue([
-        { id: '1', score: 0.9, vector: [0.1, 0.2] }
-      ]);
+	    test('maps stored original id from payload onto result.id', async () => {
+	      mockClient.search.mockResolvedValue([
+	        {
+	          id: '550e8400-e29b-41d4-a716-446655440000',
+	          score: 0.9,
+	          payload: { [ORIGINAL_ID_KEY]: 'fact-1', text: 'hello', topic: 'technology' }
+	        }
+	      ]);
+
+	      const results = await compat.query('test', [1], 1);
+
+	      expect(results[0].id).toBe('fact-1');
+	      expect(results[0].payload).toEqual({ text: 'hello', topic: 'technology' });
+	    });
+
+	    test('includes vector when requested', async () => {
+	      mockClient.search.mockResolvedValue([
+	        { id: '1', score: 0.9, vector: [0.1, 0.2] }
+	      ]);
 
       const results = await compat.query('test', [1], 1, { includeVector: true });
 
@@ -233,32 +252,63 @@ describe('plugins/vector-compat/qdrant', () => {
     });
   });
 
-  describe('upsert', () => {
-    beforeEach(async () => {
-      await compat.connect(createConfig());
-    });
+	  describe('upsert', () => {
+	    beforeEach(async () => {
+	      await compat.connect(createConfig());
+	    });
 
-    test('upserts points with correct format', async () => {
-      mockClient.upsert.mockResolvedValue({});
+	    test('upserts points with correct format', async () => {
+	      mockClient.upsert.mockResolvedValue({});
 
-      await compat.upsert('my-collection', [
-        { id: 'p1', vector: [0.1, 0.2], payload: { text: 'hello' } },
-        { id: 'p2', vector: [0.3, 0.4] }
-      ]);
+	      await compat.upsert('my-collection', [
+	        { id: 'p1', vector: [0.1, 0.2], payload: { text: 'hello' } },
+	        { id: 'p2', vector: [0.3, 0.4] }
+	      ]);
 
-      expect(mockClient.upsert).toHaveBeenCalledWith('my-collection', {
-        wait: true,
-        points: [
-          { id: 'p1', vector: [0.1, 0.2], payload: { text: 'hello' } },
-          { id: 'p2', vector: [0.3, 0.4], payload: {} }
-        ]
-      });
-    });
+	      expect(mockClient.upsert).toHaveBeenCalledWith('my-collection', expect.objectContaining({ wait: true }));
+	      const payload = mockClient.upsert.mock.calls[0][1] as any;
+	      expect(payload.points).toHaveLength(2);
 
-    test('throws VectorStoreError on upsert failure', async () => {
-      mockClient.upsert.mockRejectedValue(new Error('Upsert failed'));
+	      expect(payload.points[0].id).toMatch(UUID_V4_REGEX);
+	      expect(payload.points[0].id).not.toBe('p1');
+	      expect(payload.points[0].vector).toEqual([0.1, 0.2]);
+	      expect(payload.points[0].payload).toEqual(
+	        expect.objectContaining({ text: 'hello', [ORIGINAL_ID_KEY]: 'p1' })
+	      );
 
-      await expect(compat.upsert('test', [{ id: '1', vector: [1] }])).rejects.toThrow(VectorStoreError);
+	      expect(payload.points[1].id).toMatch(UUID_V4_REGEX);
+	      expect(payload.points[1].id).not.toBe('p2');
+	      expect(payload.points[1].vector).toEqual([0.3, 0.4]);
+	      expect(payload.points[1].payload).toEqual(expect.objectContaining({ [ORIGINAL_ID_KEY]: 'p2' }));
+	    });
+
+	    test('passes through UUID ids without storing original id', async () => {
+	      mockClient.upsert.mockResolvedValue({});
+	      const uuid = '550e8400-e29b-41d4-a716-446655440000';
+
+	      await compat.upsert('my-collection', [{ id: uuid, vector: [0.1], payload: { text: 'hello' } }]);
+
+	      const payload = mockClient.upsert.mock.calls[0][1] as any;
+	      expect(payload.points).toHaveLength(1);
+	      expect(payload.points[0].id).toBe(uuid);
+	      expect(payload.points[0].payload).toEqual({ text: 'hello' });
+	    });
+
+	    test('converts numeric string ids to numbers', async () => {
+	      mockClient.upsert.mockResolvedValue({});
+
+	      await compat.upsert('my-collection', [{ id: '123', vector: [0.1] }]);
+
+	      const payload = mockClient.upsert.mock.calls[0][1] as any;
+	      expect(payload.points).toHaveLength(1);
+	      expect(payload.points[0].id).toBe(123);
+	      expect(payload.points[0].payload).toEqual({});
+	    });
+
+	    test('throws VectorStoreError on upsert failure', async () => {
+	      mockClient.upsert.mockRejectedValue(new Error('Upsert failed'));
+
+	      await expect(compat.upsert('test', [{ id: '1', vector: [1] }])).rejects.toThrow(VectorStoreError);
     });
 
     test('throws when not connected', async () => {
@@ -268,24 +318,25 @@ describe('plugins/vector-compat/qdrant', () => {
     });
   });
 
-  describe('deleteByIds', () => {
-    beforeEach(async () => {
-      await compat.connect(createConfig());
-    });
+	  describe('deleteByIds', () => {
+	    beforeEach(async () => {
+	      await compat.connect(createConfig());
+	    });
 
-    test('deletes points by ID', async () => {
-      mockClient.delete.mockResolvedValue({});
+	    test('deletes points by ID', async () => {
+	      mockClient.delete.mockResolvedValue({});
 
-      await compat.deleteByIds('my-collection', ['id1', 'id2']);
+	      await compat.deleteByIds('my-collection', ['id1', 'id2']);
 
-      expect(mockClient.delete).toHaveBeenCalledWith('my-collection', {
-        wait: true,
-        points: ['id1', 'id2']
-      });
-    });
+	      expect(mockClient.delete).toHaveBeenCalledWith('my-collection', expect.objectContaining({ wait: true }));
+	      const payload = mockClient.delete.mock.calls[0][1] as any;
+	      expect(payload.points).toHaveLength(2);
+	      expect(payload.points[0]).toMatch(UUID_V4_REGEX);
+	      expect(payload.points[1]).toMatch(UUID_V4_REGEX);
+	    });
 
-    test('throws VectorStoreError on delete failure', async () => {
-      mockClient.delete.mockRejectedValue(new Error('Delete failed'));
+	    test('throws VectorStoreError on delete failure', async () => {
+	      mockClient.delete.mockRejectedValue(new Error('Delete failed'));
 
       await expect(compat.deleteByIds('test', ['1'])).rejects.toThrow(VectorStoreError);
     });

@@ -3,6 +3,7 @@
 
 export { LLMCoordinator } from './coordinator/coordinator.js';
 export { VectorStoreCoordinator } from './coordinator/vector-coordinator.js';
+export { EmbeddingCoordinator } from './coordinator/embedding-coordinator.js';
 
 export {
   createServer,
@@ -18,4 +19,4 @@ export type {
 
 export * from './core/types.js';
 export * from './core/vector-spec-types.js';
-
+export * from './core/embedding-spec-types.js';

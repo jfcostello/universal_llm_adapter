@@ -1,330 +1,221 @@
 /**
- * Live test for Qdrant Cloud vector store.
+ * Live test for vector store operations via CLI/server transport.
  *
  * Required environment variables:
- * - QDRANT_CLOUD_URL: Your Qdrant Cloud cluster URL (e.g., https://xyz-abc.aws.cloud.qdrant.io:6333)
- * - QDRANT_API_KEY: Your Qdrant API key
- * - OPENROUTER_API_KEY: For embeddings
+ * - QDRANT_CLOUD_URL
+ * - QDRANT_API_KEY
+ * - OPENROUTER_API_KEY
  *
- * Run with: npm run test:live:vector
+ * Run with:
+ * - CLI: `npm run test:live:openrouter -- --transport=cli --testPathPattern=16-vector-store`
+ * - Server: `npm run test:live:openrouter -- --transport=server --testPathPattern=16-vector-store`
  */
 
-import dotenv from 'dotenv';
-dotenv.config();
-
-import { VectorStoreManager } from '@/managers/vector-store-manager.ts';
-import { EmbeddingManager } from '@/managers/embedding-manager.ts';
-import { PluginRegistry } from '@/core/registry.ts';
-import QdrantCompat from '@/plugins/vector-compat/qdrant.ts';
-import path from 'path';
-import type { VectorStoreConfig } from '@/core/types.ts';
+import { runEmbeddingCoordinator, runVectorCoordinator } from '@tests/helpers/node-cli.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
-const runServerTransport = String(process.env.LLM_LIVE_TRANSPORT || 'cli').toLowerCase() === 'server';
-const pluginsPath = path.join(process.cwd(), 'plugins');
+const hasQdrantConfig = Boolean(process.env.QDRANT_CLOUD_URL && process.env.QDRANT_API_KEY);
+const hasEmbeddingKey = Boolean(process.env.OPENROUTER_API_KEY);
+const describeLive = runLive && hasQdrantConfig && hasEmbeddingKey ? describe : describe.skip;
 
-// Test collection name with timestamp to avoid conflicts
+const pluginsPath = './plugins';
 const testCollection = `test_collection_${Date.now()}`;
 
-function getQdrantConfig(): VectorStoreConfig {
-  return {
-    id: 'qdrant-cloud',
-    kind: 'qdrant',
-    connection: {
-      url: process.env.QDRANT_CLOUD_URL || '',
-      apiKey: process.env.QDRANT_API_KEY || ''
-    },
-    defaultCollection: testCollection
-  };
+async function runEmbedding(spec: any): Promise<any> {
+  const result = await runEmbeddingCoordinator({
+    args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath],
+    cwd: process.cwd(),
+    env: process.env
+  });
+  expect(result.code).toBe(0);
+  return JSON.parse(result.stdout.trim());
 }
 
-// Skip if required env vars not set
-const hasQdrantConfig = !!(process.env.QDRANT_CLOUD_URL && process.env.QDRANT_API_KEY);
-const shouldRun = runLive && hasQdrantConfig && !runServerTransport;
+async function runVector(spec: any): Promise<any> {
+  const result = await runVectorCoordinator({
+    args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath],
+    cwd: process.cwd(),
+    env: process.env
+  });
+  expect(result.code).toBe(0);
+  return JSON.parse(result.stdout.trim());
+}
 
-(shouldRun ? describe : describe.skip)('16-vector-store — Qdrant Cloud', () => {
-  let registry: PluginRegistry;
-  let embeddingManager: EmbeddingManager;
-  let vectorStoreManager: VectorStoreManager;
-  let qdrantCompat: QdrantCompat;
-  const config = getQdrantConfig();
+describeLive('16-vector-store (transported)', () => {
+  let dimensions = 0;
 
   beforeAll(async () => {
-    if (!hasQdrantConfig) {
-      console.log('Skipping: QDRANT_CLOUD_URL and QDRANT_API_KEY must be set');
-      return;
-    }
+    const dimsRes = await runEmbedding({
+      operation: 'dimensions',
+      provider: 'openrouter-embeddings'
+    });
+    expect(dimsRes.success).toBe(true);
+    dimensions = Number(dimsRes.dimensions);
+    expect(dimensions).toBeGreaterThan(0);
 
-    registry = new PluginRegistry(pluginsPath);
-    embeddingManager = new EmbeddingManager(registry);
-
-    // Create Qdrant compat and connect
-    qdrantCompat = new QdrantCompat();
-
-    try {
-      await qdrantCompat.connect(config);
-      console.log('Connected to Qdrant Cloud');
-    } catch (error: any) {
-      console.error('Failed to connect to Qdrant Cloud:', error.message);
-      throw error;
-    }
-
-    // Create test collection (1536 dimensions for text-embedding-3-small)
-    const exists = await qdrantCompat.collectionExists(testCollection);
-    if (!exists) {
-      await qdrantCompat.createCollection(testCollection, 1536, { distance: 'Cosine' });
-      console.log(`Created collection: ${testCollection}`);
-    }
-
-    // Ensure payload index for category filtering
-    try {
-      await qdrantCompat.createPayloadIndex(testCollection, 'category', 'keyword');
-    } catch (err: any) {
-      console.warn('createPayloadIndex warning:', err?.message || err);
-    }
-
-    // Set up VectorStoreManager with embedding function
-    const embedFn = embeddingManager.createEmbedderFn([{ provider: 'openrouter-embeddings' }]);
-
-    const mockRegistry = {
-      getVectorStore: async () => config,
-      getVectorStoreCompat: async () => qdrantCompat
-    };
-
-    const configs = new Map<string, VectorStoreConfig>();
-    configs.set(config.id, config);
-
-    vectorStoreManager = new VectorStoreManager(
-      configs,
-      new Map(),
-      embedFn,
-      mockRegistry
-    );
-  }, 60000);
+    const createRes = await runVector({
+      operation: 'collections',
+      store: 'qdrant-cloud',
+      input: {
+        collectionOp: 'create',
+        collectionName: testCollection,
+        dimensions,
+        payloadIndexes: [{ field: 'category', type: 'keyword' }]
+      }
+    });
+    expect(createRes.success).toBe(true);
+  }, 120000);
 
   afterAll(async () => {
     try {
-      if (qdrantCompat) {
-        // Delete the test collection before closing
-        try {
-          await qdrantCompat.deleteCollection(testCollection);
-          console.log(`Deleted collection: ${testCollection}`);
-
-          // Verify deletion succeeded
-          const stillExists = await qdrantCompat.collectionExists(testCollection);
-          if (stillExists) {
-            console.error(`ERROR: Collection ${testCollection} still exists after deletion!`);
-          } else {
-            console.log(`Verified collection ${testCollection} no longer exists`);
-          }
-        } catch (deleteError: any) {
-          console.warn('Failed to delete test collection:', deleteError.message);
+      await runVector({
+        operation: 'collections',
+        store: 'qdrant-cloud',
+        input: {
+          collectionOp: 'delete',
+          collectionName: testCollection
         }
-      }
-      if (vectorStoreManager) {
-        await vectorStoreManager.closeAll();
-        console.log('Closed Qdrant connection');
-      }
+      });
+
+      const existsRes = await runVector({
+        operation: 'collections',
+        store: 'qdrant-cloud',
+        input: {
+          collectionOp: 'exists',
+          collectionName: testCollection
+        }
+      });
+
+      expect(existsRes.exists).toBe(false);
     } catch (error: any) {
-      console.warn('Cleanup warning:', error.message);
+      console.warn('Cleanup warning:', error?.message ?? String(error));
     }
-  }, 30000);
-
-  test('upserts documents with embeddings', async () => {
-    // Generate embeddings for documents
-    // Note: Qdrant requires UUIDs or integers for point IDs
-    const documents = [
-      { id: '11111111-1111-1111-1111-111111111111', text: 'TypeScript is a typed superset of JavaScript that compiles to plain JavaScript.', category: 'javascript' },
-      { id: '22222222-2222-2222-2222-222222222222', text: 'Python is a high-level programming language known for its simplicity.', category: 'other' },
-      { id: '33333333-3333-3333-3333-333333333333', text: 'Machine learning is a method of data analysis that automates analytical model building.', category: 'other' },
-      { id: '44444444-4444-4444-4444-444444444444', text: 'JavaScript runs in web browsers and is essential for frontend development.', category: 'javascript' }
-    ];
-
-    const embedResult = await embeddingManager.embed(
-      documents.map(d => d.text),
-      [{ provider: 'openrouter-embeddings' }]
-    );
-
-    const points = documents.map((doc, i) => ({
-      id: doc.id,
-      vector: embedResult.vectors[i],
-      payload: { text: doc.text, category: doc.category }
-    }));
-
-    await vectorStoreManager.upsert(config.id, points);
-
-    console.log(`Upserted ${points.length} documents`);
   }, 60000);
 
+  test('embeds and upserts documents', async () => {
+    const documents = [
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        text: 'TypeScript is a typed superset of JavaScript that compiles to plain JavaScript.',
+        category: 'javascript'
+      },
+      {
+        id: '22222222-2222-2222-2222-222222222222',
+        text: 'Python is a high-level programming language known for its simplicity.',
+        category: 'other'
+      },
+      {
+        id: '33333333-3333-3333-3333-333333333333',
+        text: 'Machine learning is a method of data analysis that automates analytical model building.',
+        category: 'other'
+      },
+      {
+        id: '44444444-4444-4444-4444-444444444444',
+        text: 'JavaScript runs in web browsers and is essential for frontend development.',
+        category: 'javascript'
+      }
+    ];
+
+    const res = await runVector({
+      operation: 'embed',
+      store: 'qdrant-cloud',
+      collection: testCollection,
+      embeddingPriority: [{ provider: 'openrouter-embeddings' }],
+      input: {
+        chunks: documents.map(d => ({
+          id: d.id,
+          text: d.text,
+          metadata: { category: d.category }
+        }))
+      }
+    });
+
+    expect(res.success).toBe(true);
+    expect(res.operation).toBe('embed');
+    expect(res.embedded).toBe(4);
+    expect(res.upserted).toBe(4);
+    expect(res.dimensions).toBe(dimensions);
+
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }, 120000);
+
   test('queries similar documents', async () => {
-    // Query for TypeScript-related content
-    const { store, results } = await vectorStoreManager.queryWithPriority(
-      [config.id],
-      'What programming language adds types to JavaScript?',
-      3
-    );
+    const res = await runVector({
+      operation: 'query',
+      store: 'qdrant-cloud',
+      collection: testCollection,
+      embeddingPriority: [{ provider: 'openrouter-embeddings' }],
+      input: {
+        query: 'What programming language adds types to JavaScript?',
+        topK: 3
+      }
+    });
 
-    expect(store).toBe(config.id);
-    expect(results.length).toBeGreaterThan(0);
+    expect(res.success).toBe(true);
+    expect(Array.isArray(res.results)).toBe(true);
+    expect(res.results.length).toBeGreaterThan(0);
 
-    console.log('Query results:');
-    for (const result of results) {
-      console.log(`  - ${result.id}: score=${result.score.toFixed(4)}, text="${(result.payload?.text as string)?.substring(0, 50)}..."`);
-    }
-
-    // The TypeScript document should be in top results
-    const topIds = results.map((r: any) => r.id);
+    const topIds = res.results.map((r: any) => String(r.id));
     expect(topIds).toContain('11111111-1111-1111-1111-111111111111');
   }, 60000);
 
-  test('queries with filter (category keyword index)', async () => {
-    // Use Qdrant's native filter format directly
-    const { results } = await vectorStoreManager.queryWithPriority(
-      [config.id],
-      'programming language',
-      10,
-      { must: [{ key: 'category', match: { value: 'javascript' } }] }
-    );
+  test('queries with filter', async () => {
+    const res = await runVector({
+      operation: 'query',
+      store: 'qdrant-cloud',
+      collection: testCollection,
+      embeddingPriority: [{ provider: 'openrouter-embeddings' }],
+      input: {
+        query: 'programming language',
+        topK: 10,
+        filter: { category: 'javascript' }
+      }
+    });
 
-    // All results should be in the javascript category
-    for (const result of results) {
-      expect(result.payload?.category).toBe('javascript');
+    expect(res.success).toBe(true);
+    for (const r of res.results ?? []) {
+      expect(r.payload?.category).toBe('javascript');
     }
-
-    console.log(`Filtered query returned ${results.length} javascript-related results`);
   }, 60000);
 
   test('deletes documents by ID', async () => {
-    const doc3Id = '33333333-3333-3333-3333-333333333333';
+    const docId = '33333333-3333-3333-3333-333333333333';
 
-    // First verify doc3 exists
-    const { results: before } = await vectorStoreManager.queryWithPriority(
-      [config.id],
-      'machine learning data analysis',
-      5
-    );
+    const before = await runVector({
+      operation: 'query',
+      store: 'qdrant-cloud',
+      collection: testCollection,
+      embeddingPriority: [{ provider: 'openrouter-embeddings' }],
+      input: {
+        query: 'machine learning data analysis',
+        topK: 10
+      }
+    });
+    const hadDoc = (before.results ?? []).some((r: any) => String(r.id) === docId);
+    expect(hadDoc).toBe(true);
 
-    const hadDoc3 = before.some((r: any) => r.id === doc3Id);
-    expect(hadDoc3).toBe(true);
+    const del = await runVector({
+      operation: 'delete',
+      store: 'qdrant-cloud',
+      collection: testCollection,
+      input: { ids: [docId] }
+    });
+    expect(del.success).toBe(true);
 
-    // Delete doc3
-    await vectorStoreManager.deleteByIds(config.id, [doc3Id]);
-
-    // Wait a moment for deletion to propagate
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // Verify doc3 is gone
-    const { results: after } = await vectorStoreManager.queryWithPriority(
-      [config.id],
-      'machine learning data analysis',
-      5
-    );
-
-    const stillHasDoc3 = after.some((r: any) => r.id === doc3Id);
-    expect(stillHasDoc3).toBe(false);
-
-    console.log('Successfully deleted doc3');
-  }, 60000);
-
-  test('getCompat returns underlying compat for advanced operations', async () => {
-    const compat = await vectorStoreManager.getCompat(config.id);
-
-    expect(compat).toBe(qdrantCompat);
-
-    // Use compat for collection check
-    const exists = await compat!.collectionExists(testCollection);
-    expect(exists).toBe(true);
-
-    const notExists = await compat!.collectionExists('nonexistent_collection_xyz');
-    expect(notExists).toBe(false);
-  }, 30000);
+    const after = await runVector({
+      operation: 'query',
+      store: 'qdrant-cloud',
+      collection: testCollection,
+      embeddingPriority: [{ provider: 'openrouter-embeddings' }],
+      input: {
+        query: 'machine learning data analysis',
+        topK: 10
+      }
+    });
+    const stillHasDoc = (after.results ?? []).some((r: any) => String(r.id) === docId);
+    expect(stillHasDoc).toBe(false);
+  }, 90000);
 });
 
-// Full RAG flow test
-(shouldRun ? describe : describe.skip)('16-vector-store — Full RAG Flow', () => {
-  test('end-to-end RAG: embed, store, query, retrieve', async () => {
-    const registry = new PluginRegistry(pluginsPath);
-    const embeddingManager = new EmbeddingManager(registry);
-    const qdrantCompat = new QdrantCompat();
-
-    const config: VectorStoreConfig = getQdrantConfig();
-    config.defaultCollection = `rag_test_${Date.now()}`;
-
-    try {
-      // Connect
-      await qdrantCompat.connect(config);
-
-      // Create collection
-      await qdrantCompat.createCollection(config.defaultCollection!, 1536);
-
-      // Prepare documents
-      const documents = [
-        'The Eiffel Tower is a wrought-iron lattice tower in Paris, France.',
-        'The Great Wall of China is a series of fortifications made of stone and brick.',
-        'The Colosseum is an ancient amphitheater in Rome, Italy.',
-        'Mount Everest is the highest mountain in the world, located in the Himalayas.'
-      ];
-
-      // Embed documents
-      const embedResult = await embeddingManager.embed(
-        documents,
-        [{ provider: 'openrouter-embeddings' }]
-      );
-
-      // Store in Qdrant (using UUIDs for point IDs)
-      const uuids = [
-        'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-        'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
-        'cccccccc-cccc-cccc-cccc-cccccccccccc',
-        'dddddddd-dddd-dddd-dddd-dddddddddddd'
-      ];
-      const points = documents.map((text, i) => ({
-        id: uuids[i],
-        vector: embedResult.vectors[i],
-        payload: { text, index: i }
-      }));
-
-      await qdrantCompat.upsert(config.defaultCollection!, points);
-
-      // Query for relevant context
-      const queryEmbedding = await embeddingManager.embed(
-        'What landmark is in Paris?',
-        [{ provider: 'openrouter-embeddings' }]
-      );
-
-      const results = await qdrantCompat.query(
-        config.defaultCollection!,
-        queryEmbedding.vectors[0],
-        2
-      );
-
-      console.log('RAG Query Results:');
-      for (const result of results) {
-        console.log(`  - Score: ${result.score.toFixed(4)}, Text: "${result.payload?.text}"`);
-      }
-
-      // The Eiffel Tower document should be the top result
-      expect(results.length).toBeGreaterThan(0);
-      expect(results[0].payload?.text).toContain('Eiffel Tower');
-
-      console.log('Full RAG flow completed successfully!');
-    } finally {
-      // Delete the RAG test collection before closing
-      try {
-        await qdrantCompat.deleteCollection(config.defaultCollection!);
-        console.log(`Deleted RAG test collection: ${config.defaultCollection}`);
-
-        // Verify deletion succeeded
-        const stillExists = await qdrantCompat.collectionExists(config.defaultCollection!);
-        if (stillExists) {
-          console.error(`ERROR: RAG collection ${config.defaultCollection} still exists after deletion!`);
-        } else {
-          console.log(`Verified RAG collection ${config.defaultCollection} no longer exists`);
-        }
-      } catch (deleteError: any) {
-        console.warn('Failed to delete RAG test collection:', deleteError.message);
-      }
-      await qdrantCompat.close();
-    }
-  }, 120000);
-});

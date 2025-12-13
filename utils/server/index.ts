@@ -15,6 +15,8 @@ export interface ServerDependencies
   extends CoordinatorLifecycleDeps<PluginRegistryLike, any> {
   createRegistry: (pluginsPath: string) => PromiseLike<PluginRegistryLike> | PluginRegistryLike;
   closeLogger: () => Promise<void>;
+  createVectorCoordinator?: (registry: PluginRegistryLike) => PromiseLike<any> | any;
+  createEmbeddingCoordinator?: (registry: PluginRegistryLike) => PromiseLike<any> | any;
 }
 
 export interface ServerAuthOptions {
@@ -55,6 +57,13 @@ export interface ServerOptions {
   maxConcurrentStreams?: number;
   maxQueueSize?: number;
   queueTimeoutMs?: number;
+  maxConcurrentVectorRequests?: number;
+  maxConcurrentVectorStreams?: number;
+  vectorMaxQueueSize?: number;
+  vectorQueueTimeoutMs?: number;
+  maxConcurrentEmbeddingRequests?: number;
+  embeddingMaxQueueSize?: number;
+  embeddingQueueTimeoutMs?: number;
   auth?: ServerAuthOptions;
   rateLimit?: ServerRateLimitOptions;
   cors?: ServerCorsOptions;
@@ -74,6 +83,14 @@ const defaultDependencies: ServerDependencies = {
   createRegistry: (pluginsPath: string) => new PluginRegistry(pluginsPath),
   createCoordinator: (registry: PluginRegistryLike) =>
     new LLMCoordinator(registry as PluginRegistry),
+  createVectorCoordinator: async (registry: PluginRegistryLike) => {
+    const module = await import('../../coordinator/vector-coordinator.js');
+    return new module.VectorStoreCoordinator(registry as PluginRegistry);
+  },
+  createEmbeddingCoordinator: async (registry: PluginRegistryLike) => {
+    const module = await import('../../coordinator/embedding-coordinator.js');
+    return new module.EmbeddingCoordinator(registry as PluginRegistry);
+  },
   closeLogger
 };
 
@@ -104,6 +121,19 @@ export function createServerHandlerWithDefaults(
       maxConcurrentStreams: options.maxConcurrentStreams ?? serverDefaults.maxConcurrentStreams,
       maxQueueSize: options.maxQueueSize ?? serverDefaults.maxQueueSize,
       queueTimeoutMs: options.queueTimeoutMs ?? serverDefaults.queueTimeoutMs,
+      maxConcurrentVectorRequests:
+        options.maxConcurrentVectorRequests ?? serverDefaults.maxConcurrentVectorRequests,
+      maxConcurrentVectorStreams:
+        options.maxConcurrentVectorStreams ?? serverDefaults.maxConcurrentVectorStreams,
+      vectorMaxQueueSize: options.vectorMaxQueueSize ?? serverDefaults.vectorMaxQueueSize,
+      vectorQueueTimeoutMs:
+        options.vectorQueueTimeoutMs ?? serverDefaults.vectorQueueTimeoutMs,
+      maxConcurrentEmbeddingRequests:
+        options.maxConcurrentEmbeddingRequests ?? serverDefaults.maxConcurrentEmbeddingRequests,
+      embeddingMaxQueueSize:
+        options.embeddingMaxQueueSize ?? serverDefaults.embeddingMaxQueueSize,
+      embeddingQueueTimeoutMs:
+        options.embeddingQueueTimeoutMs ?? serverDefaults.embeddingQueueTimeoutMs,
       auth: { ...authDefaults, ...options.auth },
       rateLimit: { ...rateLimitDefaults, ...options.rateLimit },
       cors: { ...corsDefaults, ...options.cors },
@@ -145,6 +175,19 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
       maxConcurrentStreams: options.maxConcurrentStreams ?? serverDefaults.maxConcurrentStreams,
       maxQueueSize: options.maxQueueSize ?? serverDefaults.maxQueueSize,
       queueTimeoutMs: options.queueTimeoutMs ?? serverDefaults.queueTimeoutMs,
+      maxConcurrentVectorRequests:
+        options.maxConcurrentVectorRequests ?? serverDefaults.maxConcurrentVectorRequests,
+      maxConcurrentVectorStreams:
+        options.maxConcurrentVectorStreams ?? serverDefaults.maxConcurrentVectorStreams,
+      vectorMaxQueueSize: options.vectorMaxQueueSize ?? serverDefaults.vectorMaxQueueSize,
+      vectorQueueTimeoutMs:
+        options.vectorQueueTimeoutMs ?? serverDefaults.vectorQueueTimeoutMs,
+      maxConcurrentEmbeddingRequests:
+        options.maxConcurrentEmbeddingRequests ?? serverDefaults.maxConcurrentEmbeddingRequests,
+      embeddingMaxQueueSize:
+        options.embeddingMaxQueueSize ?? serverDefaults.embeddingMaxQueueSize,
+      embeddingQueueTimeoutMs:
+        options.embeddingQueueTimeoutMs ?? serverDefaults.embeddingQueueTimeoutMs,
       auth: { ...authDefaults, ...options.auth },
       rateLimit: { ...rateLimitDefaults, ...options.rateLimit },
       cors: { ...corsDefaults, ...options.cors },
