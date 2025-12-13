@@ -11,7 +11,7 @@ import {
   LLM_MAX_FILES,
   LLM_MAX_AGE_DAYS
 } from './base-logger.js';
-import { enforceRetention } from '../../utils/logging/retention.js';
+import { applyRetentionOnce } from '../../utils/logging/retention-manager.js';
 
 export class LLMLogger extends BaseAdapterLogger {
   private llmLogFile?: string;
@@ -127,7 +127,7 @@ export class LLMLogger extends BaseAdapterLogger {
 
     /* istanbul ignore else */
     if (batchId && useBatchDir) {
-      enforceRetention(llmLogDir, {
+      applyRetentionOnce(llmLogDir, {
         includeDirs: true,
         match: (d) => d.isDirectory() && d.name.startsWith('batch-'),
         maxFiles: LLM_MAX_FILES,
@@ -137,7 +137,7 @@ export class LLMLogger extends BaseAdapterLogger {
         exclude: this.llmLogFile ? [path.dirname(this.llmLogFile)] : undefined
       });
     } else {
-      enforceRetention(llmLogDir, {
+      applyRetentionOnce(llmLogDir, {
         includeDirs: false,
         match: (d) => d.isFile() && /^llm.*\.log$/.test(d.name),
         maxFiles: LLM_MAX_FILES,

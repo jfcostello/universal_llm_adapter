@@ -5,7 +5,8 @@ import DailyRotateFile from 'winston-daily-rotate-file';
 import TransportStream from 'winston-transport';
 import type { TransformableInfo } from 'logform';
 import { genericRedactHeaders } from '../../utils/security/redaction.js';
-import { enforceRetention, readEnvFloat, readEnvInt } from '../../utils/logging/retention.js';
+import { readEnvFloat, readEnvInt } from '../../utils/logging/retention.js';
+import { applyRetentionOnce } from '../../utils/logging/retention-manager.js';
 import { getDefaults } from '../defaults.js';
 
 export const disableFileLogs = process.env.LLM_ADAPTER_DISABLE_FILE_LOGS === '1';
@@ -163,7 +164,7 @@ export class BaseAdapterLogger {
       const fileFormat = createAdapterFileFormat(this.correlationId);
 
       if (batchId) {
-        enforceRetention(logDir, {
+        applyRetentionOnce(logDir, {
           includeDirs: false,
           match: (d) => d.isFile() && /^adapter-batch-.*\.log/.test(d.name),
           maxFiles: ADAPTER_BATCH_MAX_FILES,
@@ -324,14 +325,14 @@ export class BaseAdapterLogger {
   protected performPostCloseRetention(): void {
     if (disableFileLogs) return;
 
-    enforceRetention(logDir, {
+    applyRetentionOnce(logDir, {
       includeDirs: false,
       match: (d) => d.isFile() && /^adapter-batch-.*\.log/.test(d.name),
       maxFiles: ADAPTER_BATCH_MAX_FILES,
       maxAgeDays: ADAPTER_MAX_AGE_DAYS
     });
 
-    enforceRetention(logDir, {
+    applyRetentionOnce(logDir, {
       includeDirs: false,
       match: (d) => d.isFile() && /^adapter-\d{4}-\d{2}-\d{2}.*\.log$/.test(d.name),
       maxFiles: ADAPTER_MAX_FILES,

@@ -200,4 +200,338 @@ describe('utils/logging/retention', () => {
       expect(fs.existsSync(path.join(root, 'batch-c'))).toBe(true);
     });
   });
+
+  test('enforceRetention tolerates ENOENT statSync races', async () => {
+    await withTempCwd('retention-enoent-stat', async (cwd) => {
+      const mod = await import('@/utils/logging/retention.ts');
+      const dir = path.join(cwd, 'logs');
+      fs.mkdirSync(dir, { recursive: true });
+
+      const a = path.join(dir, 'a.log');
+      const b = path.join(dir, 'b.log');
+      fs.writeFileSync(a, 'a');
+      fs.writeFileSync(b, 'b');
+
+      const realStatSync = fs.statSync.bind(fs);
+      const statSpy = jest.spyOn(fs as any, 'statSync').mockImplementation((target: any) => {
+        const full = String(target);
+        if (full.endsWith(`${path.sep}a.log`)) {
+          const err: any = new Error('missing');
+          err.code = 'ENOENT';
+          throw err;
+        }
+        return realStatSync(target);
+      });
+
+      try {
+        expect(() =>
+          mod.enforceRetention(dir, {
+            maxFiles: 1,
+            includeDirs: false,
+            match: (d) => d.isFile() && d.name.endsWith('.log')
+          })
+        ).not.toThrow();
+      } finally {
+        statSpy.mockRestore();
+      }
+    });
+  });
+
+  test('enforceRetention rethrows non-ENOENT statSync errors (initial scan)', async () => {
+    await withTempCwd('retention-stat-rethrow-initial', async (cwd) => {
+      const mod = await import('@/utils/logging/retention.ts');
+      const dir = path.join(cwd, 'logs');
+      fs.mkdirSync(dir, { recursive: true });
+
+      fs.writeFileSync(path.join(dir, 'a.log'), 'a');
+
+      const statSpy = jest.spyOn(fs as any, 'statSync').mockImplementation(() => {
+        const err: any = new Error('no access');
+        err.code = 'EACCES';
+        throw err;
+      });
+
+      try {
+        expect(() => mod.enforceRetention(dir, { maxFiles: 1 })).toThrow();
+      } finally {
+        statSpy.mockRestore();
+      }
+    });
+  });
+
+  test('enforceRetention rethrows non-ENOENT statSync errors (refresh scan)', async () => {
+    await withTempCwd('retention-stat-rethrow-refresh', async (cwd) => {
+      const mod = await import('@/utils/logging/retention.ts');
+      const dir = path.join(cwd, 'logs');
+      fs.mkdirSync(dir, { recursive: true });
+
+      const a = path.join(dir, 'a.log');
+      fs.writeFileSync(a, 'a');
+
+      const realStatSync = fs.statSync.bind(fs);
+      let calls = 0;
+      const statSpy = jest.spyOn(fs as any, 'statSync').mockImplementation((target: any) => {
+        calls += 1;
+        if (calls >= 2) {
+          const err: any = new Error('no access');
+          err.code = 'EACCES';
+          throw err;
+        }
+        return realStatSync(target);
+      });
+
+      try {
+        expect(() => mod.enforceRetention(dir, { maxFiles: 1 })).toThrow();
+      } finally {
+        statSpy.mockRestore();
+      }
+    });
+  });
+});
+
+describe('utils/logging/retention-manager', () => {
+  test('applyRetentionOnce dedupes repeated calls when directory is unchanged', async () => {
+    await withTempCwd('retention-manager-dedupe', async (cwd) => {
+      const manager = await import('@/utils/logging/retention-manager.ts');
+      manager.resetRetentionState();
+
+      const dir = path.join(cwd, 'logs');
+      fs.mkdirSync(dir, { recursive: true });
+
+      const filePath = path.join(dir, 'a.log');
+      fs.writeFileSync(filePath, 'a');
+
+      const baseMtimeMs = 1_000_000_000;
+      const base = new Date(baseMtimeMs);
+      fs.utimesSync(filePath, base, base);
+
+      const oneDayMs = 24 * 60 * 60 * 1000;
+      let now = baseMtimeMs + oneDayMs - 1; // just under maxAgeDays threshold
+      const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+
+      try {
+        // First call: file is not old enough to delete
+        manager.applyRetentionOnce(
+          dir,
+          {
+            maxFiles: 10,
+            maxAgeDays: 1,
+            includeDirs: false,
+            match: (d) => d.isFile() && d.name.endsWith('.log')
+          },
+          { minIntervalMs: 1_000_000, nowMs: 0 }
+        );
+        expect(fs.existsSync(filePath)).toBe(true);
+
+        // Second call: file would now be old enough, but dedupe skips because the dir is unchanged.
+        now = baseMtimeMs + oneDayMs + 1;
+        manager.applyRetentionOnce(
+          dir,
+          {
+            maxFiles: 10,
+            maxAgeDays: 1,
+            includeDirs: false,
+            match: (d) => d.isFile() && d.name.endsWith('.log')
+          },
+          { minIntervalMs: 1_000_000, nowMs: 1 }
+        );
+        expect(fs.existsSync(filePath)).toBe(true);
+
+        // Third call: outside the interval, retention runs and deletes the old file.
+        manager.applyRetentionOnce(
+          dir,
+          {
+            maxFiles: 10,
+            maxAgeDays: 1,
+            includeDirs: false,
+            match: (d) => d.isFile() && d.name.endsWith('.log')
+          },
+          { minIntervalMs: 1_000_000, nowMs: 2_000_000 }
+        );
+        expect(fs.existsSync(filePath)).toBe(false);
+      } finally {
+        nowSpy.mockRestore();
+      }
+    });
+  });
+
+  test('applyRetentionOnce uses default matcher when match is omitted', async () => {
+    await withTempCwd('retention-manager-default-match', async (cwd) => {
+      const manager = await import('@/utils/logging/retention-manager.ts');
+      manager.resetRetentionState();
+
+      const dir = path.join(cwd, 'logs');
+      fs.mkdirSync(dir, { recursive: true });
+
+      const a = path.join(dir, 'a.log');
+      const b = path.join(dir, 'b.log');
+      fs.writeFileSync(a, 'a');
+      fs.writeFileSync(b, 'b');
+
+      // Also create a directory; default match should ignore it (files only).
+      fs.mkdirSync(path.join(dir, 'subdir'), { recursive: true });
+
+      const old = new Date(Date.now() - 10_000);
+      fs.utimesSync(a, old, old);
+
+      manager.applyRetentionOnce(dir, { maxFiles: 1 }, { nowMs: 0, minIntervalMs: 0 });
+      expect(fs.existsSync(a)).toBe(false);
+      expect(fs.existsSync(b)).toBe(true);
+    });
+  });
+
+  test('applyRetentionOnce default match supports includeDirs=true', async () => {
+    await withTempCwd('retention-manager-default-match-dirs', async (cwd) => {
+      const manager = await import('@/utils/logging/retention-manager.ts');
+      manager.resetRetentionState();
+
+      const dir = path.join(cwd, 'logs');
+      fs.mkdirSync(dir, { recursive: true });
+
+      const d1 = path.join(dir, 'batch-a');
+      const d2 = path.join(dir, 'batch-b');
+      fs.mkdirSync(d1, { recursive: true });
+      fs.mkdirSync(d2, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'misc.log'), 'x');
+
+      const old = new Date(Date.now() - 10_000);
+      fs.utimesSync(d1, old, old);
+
+      manager.applyRetentionOnce(dir, { maxFiles: 1, includeDirs: true }, { nowMs: 0, minIntervalMs: 0 });
+      expect(fs.existsSync(d1)).toBe(false);
+      expect(fs.existsSync(d2)).toBe(true);
+      expect(fs.existsSync(path.join(dir, 'misc.log'))).toBe(true);
+    });
+  });
+
+  test('applyRetentionOnce handles match toString throwing (policy key)', async () => {
+    await withTempCwd('retention-manager-match-key-throws', async (cwd) => {
+      const manager = await import('@/utils/logging/retention-manager.ts');
+      manager.resetRetentionState();
+
+      const dir = path.join(cwd, 'logs');
+      fs.mkdirSync(dir, { recursive: true });
+
+      const a = path.join(dir, 'a.log');
+      const b = path.join(dir, 'b.log');
+      fs.writeFileSync(a, 'a');
+      fs.writeFileSync(b, 'b');
+
+      const match: any = (d: any) => d.isFile() && d.name.endsWith('.log');
+      match.toString = () => {
+        throw new Error('nope');
+      };
+
+      const old = new Date(Date.now() - 10_000);
+      fs.utimesSync(a, old, old);
+
+      expect(() =>
+        manager.applyRetentionOnce(
+          dir,
+          { maxFiles: 1, match },
+          { nowMs: 0, minIntervalMs: 0 }
+        )
+      ).not.toThrow();
+      expect(fs.existsSync(a)).toBe(false);
+      expect(fs.existsSync(b)).toBe(true);
+    });
+  });
+
+  test('applyRetentionOnce re-runs within the interval when entry count changes', async () => {
+    await withTempCwd('retention-manager-count-change', async (cwd) => {
+      const manager = await import('@/utils/logging/retention-manager.ts');
+      manager.resetRetentionState();
+
+      const dir = path.join(cwd, 'logs');
+      fs.mkdirSync(dir, { recursive: true });
+
+      const files = ['a.log', 'b.log', 'c.log'];
+      files.forEach((f, i) => {
+        const p = path.join(dir, f);
+        fs.writeFileSync(p, f);
+        const when = new Date(Date.now() - (files.length - i) * 1000);
+        fs.utimesSync(p, when, when);
+      });
+
+      manager.applyRetentionOnce(
+        dir,
+        {
+          maxFiles: 3,
+          includeDirs: false,
+          match: (d) => d.isFile() && d.name.endsWith('.log')
+        },
+        { minIntervalMs: 1_000_000, nowMs: 0 }
+      );
+
+      // Add an extra file and call again quickly. The count change should force a run.
+      const dPath = path.join(dir, 'd.log');
+      fs.writeFileSync(dPath, 'd');
+      const newest = new Date(Date.now() + 1000);
+      fs.utimesSync(dPath, newest, newest);
+
+      manager.applyRetentionOnce(
+        dir,
+        {
+          maxFiles: 3,
+          includeDirs: false,
+          match: (d) => d.isFile() && d.name.endsWith('.log')
+        },
+        { minIntervalMs: 1_000_000, nowMs: 1 }
+      );
+
+      const remaining = fs.readdirSync(dir).filter(f => f.endsWith('.log'));
+      expect(remaining.length).toBe(3);
+      expect(fs.existsSync(path.join(dir, 'a.log'))).toBe(false);
+    });
+  });
+
+  test('applyRetentionOnce does not collide across different matchers', async () => {
+    await withTempCwd('retention-manager-no-collide', async (cwd) => {
+      const manager = await import('@/utils/logging/retention-manager.ts');
+      manager.resetRetentionState();
+
+      const dir = path.join(cwd, 'logs');
+      fs.mkdirSync(dir, { recursive: true });
+
+      const aLog = path.join(dir, 'a.log');
+      const bLog = path.join(dir, 'b.log');
+      const aTxt = path.join(dir, 'a.txt');
+      const bTxt = path.join(dir, 'b.txt');
+
+      fs.writeFileSync(aLog, 'a');
+      fs.writeFileSync(bLog, 'b');
+      fs.writeFileSync(aTxt, 'a');
+      fs.writeFileSync(bTxt, 'b');
+
+      const old = new Date(Date.now() - 10_000);
+      fs.utimesSync(aLog, old, old);
+      fs.utimesSync(aTxt, old, old);
+
+      // Prune logs
+      manager.applyRetentionOnce(
+        dir,
+        {
+          maxFiles: 1,
+          includeDirs: false,
+          match: (d) => d.isFile() && d.name.endsWith('.log')
+        },
+        { minIntervalMs: 1_000_000 }
+      );
+      expect(fs.existsSync(aLog)).toBe(false);
+      expect(fs.existsSync(bLog)).toBe(true);
+
+      // Prune txt (must NOT be deduped away due to key collision)
+      manager.applyRetentionOnce(
+        dir,
+        {
+          maxFiles: 1,
+          includeDirs: false,
+          match: (d) => d.isFile() && d.name.endsWith('.txt')
+        },
+        { minIntervalMs: 1_000_000 }
+      );
+      expect(fs.existsSync(aTxt)).toBe(false);
+      expect(fs.existsSync(bTxt)).toBe(true);
+    });
+  });
 });

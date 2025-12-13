@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import fs from 'fs';
 import * as path from 'path';
 
 export interface RetentionOptions {
@@ -51,9 +51,15 @@ export function enforceRetention(dir: string, opts: RetentionOptions): string[] 
     .filter(d => match(d))
     .map(d => {
       const full = path.join(dir, d.name);
-      const stat = fs.statSync(full);
-      return { name: d.name, full, isDir: d.isDirectory(), mtimeMs: stat.mtimeMs };
-    });
+      try {
+        const stat = fs.statSync(full);
+        return { name: d.name, full, isDir: d.isDirectory(), mtimeMs: stat.mtimeMs };
+      } catch (error: any) {
+        if (error?.code === 'ENOENT') return null;
+        throw error;
+      }
+    })
+    .filter((e): e is NonNullable<typeof e> => e !== null);
 
   // Time-based trimming first
   if (typeof maxAgeMs === 'number') {
@@ -72,9 +78,15 @@ export function enforceRetention(dir: string, opts: RetentionOptions): string[] 
     .filter(d => match(d))
     .map(d => {
       const full = path.join(dir, d.name);
-      const stat = fs.statSync(full);
-      return { name: d.name, full, isDir: d.isDirectory(), mtimeMs: stat.mtimeMs };
+      try {
+        const stat = fs.statSync(full);
+        return { name: d.name, full, isDir: d.isDirectory(), mtimeMs: stat.mtimeMs };
+      } catch (error: any) {
+        if (error?.code === 'ENOENT') return null;
+        throw error;
+      }
     })
+    .filter((e): e is NonNullable<typeof e> => e !== null)
     .sort((a, b) => (b.mtimeMs - a.mtimeMs) || a.name.localeCompare(b.name));
 
   const toKeep = Math.max(0, opts.maxFiles);

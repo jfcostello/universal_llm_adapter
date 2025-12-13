@@ -11,7 +11,7 @@ import {
   VECTOR_MAX_FILES,
   VECTOR_MAX_AGE_DAYS
 } from './base-logger.js';
-import { enforceRetention } from '../../utils/logging/retention.js';
+import { applyRetentionOnce } from '../../utils/logging/retention-manager.js';
 
 export class VectorLogger extends BaseAdapterLogger {
   private vectorLogFile?: string;
@@ -114,7 +114,7 @@ export class VectorLogger extends BaseAdapterLogger {
 
     /* istanbul ignore else */
     if (batchId && useBatchDir) {
-      enforceRetention(vectorLogDir, {
+      applyRetentionOnce(vectorLogDir, {
         includeDirs: true,
         match: (d) => d.isDirectory() && d.name.startsWith('batch-'),
         maxFiles: VECTOR_MAX_FILES,
@@ -124,7 +124,7 @@ export class VectorLogger extends BaseAdapterLogger {
         exclude: this.vectorLogFile ? [path.dirname(this.vectorLogFile)] : undefined
       });
     } else {
-      enforceRetention(vectorLogDir, {
+      applyRetentionOnce(vectorLogDir, {
         includeDirs: false,
         match: (d) => d.isFile() && /^vector.*\.log$/.test(d.name),
         maxFiles: VECTOR_MAX_FILES,

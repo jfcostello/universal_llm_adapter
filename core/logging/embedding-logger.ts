@@ -11,7 +11,7 @@ import {
   EMBEDDING_MAX_FILES,
   EMBEDDING_MAX_AGE_DAYS
 } from './base-logger.js';
-import { enforceRetention } from '../../utils/logging/retention.js';
+import { applyRetentionOnce } from '../../utils/logging/retention-manager.js';
 
 export class EmbeddingLogger extends BaseAdapterLogger {
   private embeddingLogFile?: string;
@@ -128,7 +128,7 @@ export class EmbeddingLogger extends BaseAdapterLogger {
       if (this.embeddingLogFile) {
         excludePaths.push(path.dirname(this.embeddingLogFile));
       }
-      enforceRetention(embeddingLogDir, {
+      applyRetentionOnce(embeddingLogDir, {
         includeDirs: true,
         match: (d) => d.isDirectory() && d.name.startsWith('batch-'),
         maxFiles: EMBEDDING_MAX_FILES,
@@ -140,7 +140,7 @@ export class EmbeddingLogger extends BaseAdapterLogger {
       if (this.embeddingLogFile) {
         excludePaths.push(this.embeddingLogFile);
       }
-      enforceRetention(embeddingLogDir, {
+      applyRetentionOnce(embeddingLogDir, {
         includeDirs: false,
         match: (d) => d.isFile() && /^embedding.*\.log$/.test(d.name),
         maxFiles: EMBEDDING_MAX_FILES,
