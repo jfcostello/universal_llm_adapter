@@ -21,7 +21,7 @@ import type { VectorCallSpec, VectorStreamEvent } from '../../../core/vector-spe
 import type { EmbeddingCallSpec } from '../../../core/embedding-spec-types.js';
 import type { PluginRegistryLike } from '../../coordinator-lifecycle/index.js';
 import type { ServerDependencies } from '../index.js';
-import { getEmbeddingLogger, getLogger, getVectorLogger } from '../../../core/logging.js';
+import { getEmbeddingLogger, getLogger, getVectorLogger } from '../../../modules/logging/index.js';
 import { runWithLiveTestContext } from '../../testing/live-test-context.js';
 
 interface HandlerOptions {

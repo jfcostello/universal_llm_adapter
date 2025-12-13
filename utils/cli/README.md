@@ -1,10 +1,12 @@
 # CLI Utilities
 
-Shared helpers for CLI entrypoints and other transport adapters.
+Legacy shim for CLI helpers.
+
+Canonical implementation now lives in `modules/cli`.
 
 ## Public API
 
-All consumers must import only from `utils/cli/index.ts`.
+All consumers must import only from `utils/cli/index.ts` (shim) or `modules/cli/index.ts` (canonical).
 
 ### `loadSpec<T>(options, stdin?)`
 
@@ -25,4 +27,3 @@ Options:
 - `stdout` (WritableStream, default `process.stdout`): override output stream for tests/other adapters.
 
 The helper races the write completion callback against a short timeout to avoid truncation when stdout is piped.
-

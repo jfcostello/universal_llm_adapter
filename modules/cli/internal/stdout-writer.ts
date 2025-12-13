@@ -23,4 +23,3 @@ export async function writeJsonToStdout(
     new Promise<void>(resolve => setTimeout(resolve, timeoutMs))
   ]);
 }
-

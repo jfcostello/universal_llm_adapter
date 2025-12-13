@@ -1,4 +1,3 @@
-export { loadSpec } from './internal/spec-loader.js';
-export { writeJsonToStdout } from './internal/stdout-writer.js';
-export type { WriteJsonToStdoutOptions } from './internal/stdout-writer.js';
-
+// Shim: legacy path kept during migration.
+export { loadSpec, writeJsonToStdout } from '../../modules/cli/index.js';
+export type { WriteJsonToStdoutOptions } from '../../modules/cli/index.js';

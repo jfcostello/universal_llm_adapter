@@ -22,4 +22,3 @@ export async function loadSpec<T = any>(
 
   return specData as T;
 }
-

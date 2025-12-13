@@ -10,8 +10,8 @@ import {
   ReasoningData
 } from '../core/types.js';
 import { ToolCoordinator } from '../utils/tools/tool-coordinator.js';
-import { AdapterLogger } from '../core/logging.js';
-import { pruneToolResults, pruneReasoning } from '../utils/context/context-manager.js';
+import type { AdapterLogger } from '../modules/logging/index.js';
+import { pruneToolResults, pruneReasoning } from '../modules/context/index.js';
 import { partitionSettings } from '../modules/settings/index.js';
 import { runToolLoop } from '../utils/tools/tool-loop.js';
 import { usageStatsToJson } from '../modules/usage/index.js';

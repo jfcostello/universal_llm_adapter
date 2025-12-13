@@ -8,7 +8,7 @@ import {
   LLMResponse
 } from '../core/types.js';
 import { ProviderExecutionError } from '../core/errors.js';
-import { AdapterLogger } from '../core/logging.js';
+import type { AdapterLogger } from '../modules/logging/index.js';
 import { buildFinalPayload } from '../utils/provider/payload-builder.js';
 import { normalizeToolCalls } from '../utils/tools/tool-call-normalizer.js';
 import { getDefaults } from '../core/defaults.js';

@@ -2,7 +2,7 @@ import http from 'http';
 import { AddressInfo } from 'net';
 import { PluginRegistry } from '../../core/registry.js';
 import { LLMCoordinator } from '../../coordinator/coordinator.js';
-import { closeLogger } from '../../core/logging.js';
+import { closeLogger } from '../../modules/logging/index.js';
 import { getDefaults } from '../../core/defaults.js';
 import type { LLMCallSpec, LLMStreamEvent } from '../../core/types.js';
 import type {

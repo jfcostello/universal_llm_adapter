@@ -1,7 +1,7 @@
 import { PluginRegistry } from '../../core/registry.js';
-import {
+import type {
   AdapterLogger
-} from '../../core/logging.js';
+} from '../../modules/logging/index.js';
 import {
   LLMResponse,
   LLMStreamEvent,
@@ -21,7 +21,7 @@ import { LLMManager } from '../../managers/llm-manager.js';
 import { ToolCallBudget } from './tool-budget.js';
 import { formatCountdown, buildFinalPrompt } from './tool-message.js';
 import { appendAssistantToolCalls, appendToolResult } from '../messages/message-utils.js';
-import { pruneReasoning, pruneToolResults } from '../context/context-manager.js';
+import { pruneReasoning, pruneToolResults } from '../../modules/context/index.js';
 import { sanitizeToolName } from './tool-names.js';
 import { usageStatsToJson } from '../../modules/usage/index.js';
 import { getDefaults } from '../../core/defaults.js';

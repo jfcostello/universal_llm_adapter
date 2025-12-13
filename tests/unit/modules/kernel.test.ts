@@ -14,6 +14,9 @@ describe('modules/kernel', () => {
       jest.unstable_mockModule('../../../managers/mcp-manager.js', () => {
         throw new Error('kernel must not import MCP manager');
       });
+      jest.unstable_mockModule('../../../modules/mcp/index.js', () => {
+        throw new Error('kernel must not import MCP module');
+      });
       jest.unstable_mockModule('../../../mcp/mcp-client.js', () => {
         throw new Error('kernel must not import MCP client');
       });
@@ -33,4 +36,3 @@ describe('modules/kernel', () => {
     });
   });
 });
-

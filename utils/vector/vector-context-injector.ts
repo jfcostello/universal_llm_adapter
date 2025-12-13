@@ -13,7 +13,7 @@ import {
   QueryConstructionSettings
 } from '../../core/types.js';
 import { PluginRegistry } from '../../core/registry.js';
-import { EmbeddingManager } from '../../managers/embedding-manager.js';
+import { EmbeddingManager } from '../../modules/embeddings/index.js';
 import { VectorStoreManager } from '../../managers/vector-store-manager.js';
 import { getDefaults } from '../../core/defaults.js';
 import {
@@ -21,7 +21,7 @@ import {
   AdapterLogger,
   getEmbeddingLogger,
   getVectorLogger
-} from '../../core/logging.js';
+} from '../../modules/logging/index.js';
 import { interpolate } from '../../modules/string/index.js';
 
 export interface VectorContextInjectorOptions {

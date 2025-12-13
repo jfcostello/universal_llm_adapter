@@ -41,6 +41,9 @@ describe('integration/lazy-loading/import-evaluation', () => {
   test('baseline run does not evaluate optional MCP/vector modules', async () => {
     jest.resetModules();
     await jest.isolateModulesAsync(async () => {
+      jest.unstable_mockModule('../../../modules/mcp/index.js', () => {
+        throw new Error('mcp module should not be imported in baseline');
+      });
       jest.unstable_mockModule('../../../mcp/mcp-manifest.js', () => {
         throw new Error('mcp-manifest should not be imported in baseline');
       });
@@ -88,6 +91,9 @@ describe('integration/lazy-loading/import-evaluation', () => {
   test('tools-only run does not evaluate MCP/vector modules', async () => {
     jest.resetModules();
     await jest.isolateModulesAsync(async () => {
+      jest.unstable_mockModule('../../../modules/mcp/index.js', () => {
+        throw new Error('mcp module should not be imported for tools-only');
+      });
       jest.unstable_mockModule('../../../mcp/mcp-manifest.js', () => {
         throw new Error('mcp-manifest should not be imported for tools-only');
       });
@@ -144,6 +150,9 @@ describe('integration/lazy-loading/import-evaluation', () => {
     await jest.isolateModulesAsync(async () => {
       // Explicitly allow MCP modules in this scenario (and avoid any network/process work).
       // These mocks also override the baseline/tools-only "throw on import" mocks.
+      jest.unstable_mockModule('../../../modules/mcp/index.js', () => ({
+        parseMCPManifest: () => [{ id: 'local', command: 'node' }]
+      }));
       jest.unstable_mockModule('../../../mcp/mcp-manifest.js', () => ({
         parseMCPManifest: () => [{ id: 'local', command: 'node' }]
       }));
@@ -205,6 +214,9 @@ describe('integration/lazy-loading/import-evaluation', () => {
   test('vector-context run does not evaluate MCP modules', async () => {
     jest.resetModules();
     await jest.isolateModulesAsync(async () => {
+      jest.unstable_mockModule('../../../modules/mcp/index.js', () => {
+        throw new Error('mcp module should not be imported for vector-context-only');
+      });
       jest.unstable_mockModule('../../../mcp/mcp-manifest.js', () => {
         throw new Error('mcp-manifest should not be imported for vector-context-only');
       });

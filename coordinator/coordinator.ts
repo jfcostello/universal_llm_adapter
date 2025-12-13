@@ -14,8 +14,8 @@ import {
 } from '../core/types.js';
 import { PluginRegistry } from '../core/registry.js';
 import { LLMManager } from '../managers/llm-manager.js';
-import { getLogger, AdapterLogger, closeLogger as resetLogger } from '../core/logging.js';
-import { pruneToolResults, pruneReasoning } from '../utils/context/context-manager.js';
+import { getLogger, AdapterLogger, closeLogger as resetLogger } from '../modules/logging/index.js';
+import { pruneToolResults, pruneReasoning } from '../modules/context/index.js';
 import { RuntimeSettings } from '../core/types.js';
 import { partitionSettings, mergeProviderSettings } from '../modules/settings/index.js';
 import { prepareMessages, appendAssistantToolCalls, appendToolResult } from '../modules/messages/index.js';
@@ -644,7 +644,7 @@ export class LLMCoordinator {
 
       // Lazy-load EmbeddingManager with logger for embedding request/response logging
       const { EmbeddingManager } = await import('../managers/embedding-manager.js');
-      const { getEmbeddingLogger } = await import('../core/logging.js');
+      const { getEmbeddingLogger } = await import('../modules/logging/index.js');
       const embeddingManager = new EmbeddingManager(this.registry, getEmbeddingLogger());
 
       // Lazy-load VectorContextInjector
