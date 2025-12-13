@@ -60,7 +60,6 @@ export class VectorContextInjector {
   private logger: AdapterLogger;
   private embeddingLogger = getEmbeddingLogger();
   private vectorLogger = getVectorLogger();
-  private initializedStores: Set<string> = new Set();
 
   constructor(options: VectorContextInjectorOptions) {
     this.registry = options.registry;
@@ -411,19 +410,9 @@ export class VectorContextInjector {
    * Ensure a vector store is initialized.
    */
   private async ensureStoreInitialized(storeId: string): Promise<void> {
-    if (this.initializedStores.has(storeId)) {
-      return;
+    const compat = await this.vectorManager!.getCompat(storeId);
+    if (!compat) {
+      throw new Error(`Vector store not available: ${storeId}`);
     }
-
-    const storeConfig = await this.registry.getVectorStore(storeId);
-    const compat = await this.registry.getVectorStoreCompat(storeConfig.kind);
-
-    // Inject logger for operation logging
-    if (typeof compat.setLogger === 'function') {
-    compat.setLogger(this.vectorLogger);
-    }
-
-    await compat.connect(storeConfig);
-    this.initializedStores.add(storeId);
   }
 }

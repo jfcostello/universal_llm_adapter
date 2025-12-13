@@ -455,6 +455,39 @@ describe('utils/tools/vector-search-handler', () => {
       expect(result.error).toContain('Query failed');
     });
 
+    test('returns error when vector store compat is unavailable', async () => {
+      const args: VectorSearchArgs = {
+        query: 'test query'
+      };
+
+      const config: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool'
+      };
+
+      const registry = {
+        getVectorStore: jest.fn().mockResolvedValue({
+          id: 'docs',
+          kind: 'memory',
+          defaultCollection: 'test'
+        }),
+        getVectorStoreCompat: jest.fn().mockRejectedValue(new Error('No compat available'))
+      } as unknown as PluginRegistry;
+
+      const embeddingManager = createMockEmbeddingManager();
+
+      const context: VectorSearchHandlerContext = {
+        vectorConfig: config,
+        registry,
+        embeddingManager
+      };
+
+      const result = await executeVectorSearch(args, context);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Vector store not available');
+    });
+
     test('multiple locks are all enforced', async () => {
       const args: VectorSearchArgs = {
         query: 'test query',

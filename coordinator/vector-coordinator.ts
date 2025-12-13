@@ -25,7 +25,6 @@ export class VectorStoreCoordinator {
   private vectorManager?: VectorStoreManager;
   private embeddingLogger = getEmbeddingLogger();
   private vectorLogger = getVectorLogger();
-  private initializedStores: Set<string> = new Set();
 
   constructor(registry: PluginRegistry) {
     this.registry = registry;
@@ -530,23 +529,6 @@ export class VectorStoreCoordinator {
         this.registry,
         this.vectorLogger  // logger for vector operations
       );
-    }
-
-    // Initialize the store if not already done
-    if (!this.initializedStores.has(spec.store)) {
-      const storeConfig = await this.registry.getVectorStore(spec.store);
-      const compat = await this.registry.getVectorStoreCompat(storeConfig.kind);
-      if (!compat) {
-        throw new Error(`Vector store compat not found for kind: ${storeConfig.kind}`);
-      }
-
-      // Inject logger for operation logging
-      if (typeof compat.setLogger === 'function') {
-        compat.setLogger(this.vectorLogger);
-      }
-
-      await compat.connect(storeConfig);
-      this.initializedStores.add(spec.store);
     }
   }
 }

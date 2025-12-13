@@ -287,6 +287,45 @@ describe('core/registry', () => {
       });
     });
 
+    test('vector store compat instances are isolated across managers (close does not leak)', async () => {
+      await withTempCwd('registry-vector-compat-isolation', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const registry = new PluginRegistry(pluginsDir);
+
+        const storeConfig = await registry.getVectorStore('memory');
+        // Fixtures may use legacy `type`/`connection.kind` fields; normalize to `kind`.
+        const kind =
+          (storeConfig as any).kind ??
+          (storeConfig as any).type ??
+          (storeConfig as any).connection?.kind;
+        expect(kind).toBe('memory');
+        const normalizedStoreConfig = { ...(storeConfig as any), kind };
+
+        const compatA = await registry.getVectorStoreCompat(kind);
+        const compatB = await registry.getVectorStoreCompat(kind);
+
+        await compatA.connect(normalizedStoreConfig);
+        await compatB.connect(normalizedStoreConfig);
+
+        await compatB.upsert('documents', [
+          { id: 'doc1', vector: [0.1], payload: { text: 'hello' } }
+        ]);
+
+        const before = await compatB.query('documents', [0.1], 1, { includePayload: true });
+        expect(before).toHaveLength(1);
+
+        // Closing compatA must not break compatB (simulates another request closing its compat)
+        await compatA.close();
+
+        const after = await compatB.query('documents', [0.1], 1, { includePayload: true });
+        expect(after).toHaveLength(1);
+
+        await compatB.close();
+      });
+    });
+
     test('throws ManifestError for unknown vector store compat', async () => {
       await withTempCwd('registry-vector-compat-missing', async (dir) => {
         const pluginsDir = path.join(dir, 'plugins');
@@ -449,6 +488,7 @@ describe('core/registry', () => {
           js: path.join(compatRoot, 'vector-test-temp.js'),
           ts: path.join(compatRoot, 'vector-test-temp.ts'),
           broken: path.join(compatRoot, 'vector-test-broken.js'),
+          notAConstructor: path.join(compatRoot, 'vector-test-object.js'),
           duplicate: path.join(compatLocal, 'vector-test-temp.js'),
           dts: path.join(compatRoot, 'vector-test-dts.d.ts')
         };
@@ -464,6 +504,7 @@ describe('core/registry', () => {
           'utf-8'
         );
         fs.writeFileSync(files.broken, 'throw new Error("vector broken compat");', 'utf-8');
+        fs.writeFileSync(files.notAConstructor, 'export default { kind: \"object\" };', 'utf-8');
         fs.writeFileSync(
           files.duplicate,
           'export default class VectorTestTempDuplicate { constructor() { this.kind = "duplicate"; } }',
@@ -494,6 +535,8 @@ describe('core/registry', () => {
           const compatKeys = Array.from((registry as any).vectorStoreCompats.keys());
           expect(compatKeys).toEqual(expect.arrayContaining(['memory', 'vector-test-temp', 'vector-test-named']));
           expect(compatKeys).not.toContain('vector-test-dts');
+          await expect(registry.getVectorStoreCompat('vector-test-object')).rejects.toThrow(ManifestError);
+          expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('vector-test-object'));
           await expect(registry.getVectorStoreCompat('vector-test-broken')).rejects.toThrow(ManifestError);
           expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('vector-test-broken'));
           expect(warnSpy.mock.calls.some(([msg]) => String(msg).includes('vector-test-dts'))).toBe(false);

@@ -1291,7 +1291,7 @@ describe('coordinator/vector-coordinator', () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('compat not found');
+      expect(result.error).toContain('Vector store not found');
     });
   });
 
@@ -1348,7 +1348,7 @@ describe('coordinator/vector-coordinator', () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('compat not found');
+      expect(result.error).toContain('Vector store not found');
     });
 
     test('extractTexts returns empty when input is undefined', async () => {
@@ -1367,22 +1367,10 @@ describe('coordinator/vector-coordinator', () => {
     });
 
     test('query returns error when vectorManager.getCompat returns null', async () => {
-      // This test covers the branch at line 312 where getCompat returns null
-      // after ensureVectorManager succeeds
-      const vectorCompat = {
-        ...createMockVectorCompat(),
-        connect: jest.fn() // Will be called by ensureVectorManager
-      };
-
-      // First call to getVectorStoreCompat (from ensureVectorManager) returns valid compat
-      // Second call (from vectorManager.getCompat) returns null
-      const getVectorStoreCompat = jest.fn()
-        .mockResolvedValueOnce(vectorCompat)
-        .mockResolvedValueOnce(null);
-
+      // Cover the branch where getCompat returns null
       const registry = {
         ...createMockRegistry(),
-        getVectorStoreCompat
+        getVectorStoreCompat: jest.fn().mockResolvedValue(null)
       };
 
       const coordinator = new VectorStoreCoordinator(registry as any);
@@ -1398,20 +1386,10 @@ describe('coordinator/vector-coordinator', () => {
     });
 
     test('collections returns error when vectorManager.getCompat returns null', async () => {
-      // This test covers the branch at line 363 where getCompat returns null
-      // after ensureVectorManager succeeds
-      const vectorCompat = {
-        ...createMockVectorCompat(),
-        connect: jest.fn()
-      };
-
-      const getVectorStoreCompat = jest.fn()
-        .mockResolvedValueOnce(vectorCompat)
-        .mockResolvedValueOnce(null);
-
+      // Cover the branch where getCompat returns null
       const registry = {
         ...createMockRegistry(),
-        getVectorStoreCompat
+        getVectorStoreCompat: jest.fn().mockResolvedValue(null)
       };
 
       const coordinator = new VectorStoreCoordinator(registry as any);

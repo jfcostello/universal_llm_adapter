@@ -113,70 +113,66 @@ export async function executeVectorSearch(
     const embeddingManager = context.embeddingManager ??
       new EmbeddingManager(registry, embeddingLogger);
 
+    const ownsVectorManager = !context.vectorManager;
     const vectorManager = context.vectorManager ??
-      new VectorStoreManager(
-        new Map(),
-        new Map(),
-        undefined,
-        registry,
-        vectorLogger
+      new VectorStoreManager(new Map(), new Map(), undefined, registry, vectorLogger);
+
+    try {
+      // Embed the query
+      const embeddingPriority = vectorConfig.embeddingPriority ?? [{ provider: 'openrouter-embeddings' }];
+      const embeddingResult = await embeddingManager.embed(args.query, embeddingPriority);
+      const queryVector = embeddingResult.vectors[0];
+
+      // Ensure store config exists (for defaults) and compat is connected via manager-owned instance
+      const storeConfig = await registry.getVectorStore(effectiveStore);
+      const compat = await vectorManager.getCompat(effectiveStore);
+      if (!compat) {
+        throw new Error(`Vector store not available: ${effectiveStore}`);
+      }
+
+      // Determine collection
+      const collection = effectiveCollection ?? storeConfig.defaultCollection ?? 'default';
+
+      // Execute query
+      let results = await compat.query(
+        collection,
+        queryVector,
+        effectiveTopK,
+        {
+          filter: effectiveFilter,
+          includePayload: true
+        }
       );
 
-    // Embed the query
-    const embeddingPriority = vectorConfig.embeddingPriority ?? [{ provider: 'openrouter-embeddings' }];
-    const embeddingResult = await embeddingManager.embed(args.query, embeddingPriority);
-    const queryVector = embeddingResult.vectors[0];
-
-    // Get store config and compat
-    const storeConfig = await registry.getVectorStore(effectiveStore);
-    const compat = await registry.getVectorStoreCompat(storeConfig.kind);
-
-    // Inject logger if supported
-    if (typeof compat.setLogger === 'function') {
-      compat.setLogger(vectorLogger);
-    }
-
-    // Connect to store
-    await compat.connect(storeConfig);
-
-    // Determine collection
-    const collection = effectiveCollection ?? storeConfig.defaultCollection ?? 'default';
-
-    // Execute query
-    let results = await compat.query(
-      collection,
-      queryVector,
-      effectiveTopK,
-      {
-        filter: effectiveFilter,
-        includePayload: true
+      // Apply score threshold if set
+      if (effectiveScoreThreshold !== undefined) {
+        results = results.filter(r => r.score >= effectiveScoreThreshold);
       }
-    );
 
-    // Apply score threshold if set
-    if (effectiveScoreThreshold !== undefined) {
-      results = results.filter(r => r.score >= effectiveScoreThreshold);
-    }
+      logger.info('Vector search completed', {
+        query: args.query,
+        resultsCount: results.length,
+        effectiveStore,
+        collection
+      });
 
-    logger.info('Vector search completed', {
-      query: args.query,
-      resultsCount: results.length,
-      effectiveStore,
-      collection
-    });
-
-    return {
-      success: true,
-      results,
-      query: args.query,
-      effectiveParams: {
-        store: effectiveStore,
-        collection,
-        topK: effectiveTopK,
-        scoreThreshold: effectiveScoreThreshold,
-        filter: effectiveFilter
+      return {
+        success: true,
+        results,
+        query: args.query,
+        effectiveParams: {
+          store: effectiveStore,
+          collection,
+          topK: effectiveTopK,
+          scoreThreshold: effectiveScoreThreshold,
+          filter: effectiveFilter
+        }
+      };
+    } finally {
+      if (ownsVectorManager) {
+        await vectorManager.closeAll().catch(() => {});
       }
-    };
+    }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
 

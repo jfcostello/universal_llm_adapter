@@ -30,7 +30,7 @@ export class PluginRegistry {
   private compatModules = new Map<string, ICompatModule>();
   private embeddingProviders = new Map<string, EmbeddingProviderConfig>();
   private embeddingCompats = new Map<string, IEmbeddingCompat>();
-  private vectorStoreCompats = new Map<string, IVectorStoreCompat>();
+  private vectorStoreCompats = new Map<string, () => IVectorStoreCompat>();
 
   // Lazy loading flags
   private providersLoaded = false;
@@ -304,7 +304,11 @@ export class PluginRegistry {
         try {
           const imported = await import(pathToFileURL(modulePath).href);
           const CompatClass = imported.default || imported[Object.keys(imported)[0]];
-          this.vectorStoreCompats.set(moduleName, new CompatClass());
+          if (typeof CompatClass !== 'function') {
+            console.warn(`Failed to load vector store compat module ${moduleName}: module did not export a constructor`);
+            continue;
+          }
+          this.vectorStoreCompats.set(moduleName, () => new (CompatClass as any)());
         } catch (error: any) {
           console.warn(`Failed to load vector store compat module ${moduleName}: ${error.message}`);
         }
@@ -412,10 +416,10 @@ export class PluginRegistry {
 
   async getVectorStoreCompat(kind: string): Promise<IVectorStoreCompat> {
     await this.loadVectorStoreCompats();
-    const compat = this.vectorStoreCompats.get(kind);
-    if (!compat) {
+    const factory = this.vectorStoreCompats.get(kind);
+    if (!factory) {
       throw new ManifestError(`No vector store compat module found for '${kind}'`);
     }
-    return compat;
+    return factory();
   }
 }

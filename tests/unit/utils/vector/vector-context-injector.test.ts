@@ -283,6 +283,35 @@ describe('utils/vector/vector-context-injector', () => {
       expect(result.resultsInjected).toBe(0);
     });
 
+    test('returns original messages when vector store compat is unavailable', async () => {
+      const registry = createMockRegistry();
+      const embeddingManager = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1, 0.2, 0.3]],
+          model: 'test',
+          dimensions: 3
+        })
+      } as any;
+      const vectorManager = {
+        getCompat: jest.fn().mockResolvedValue(null)
+      } as any;
+
+      const injector = new VectorContextInjector({ registry, embeddingManager, vectorManager });
+      const messages = createMessages(['Query']);
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        embeddingPriority: [{ provider: 'test-embeddings' }]
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      expect(result.messages).toEqual(messages);
+      expect(result.resultsInjected).toBe(0);
+      expect(result.retrievedResults).toHaveLength(0);
+    });
+
     test('uses custom result format', async () => {
       const vectorCompat = {
         connect: jest.fn(),
