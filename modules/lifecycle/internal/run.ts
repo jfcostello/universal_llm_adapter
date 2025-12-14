@@ -2,6 +2,7 @@ import { PluginRegistry } from '../../kernel/index.js';
 import type { PluginRegistryLike, RunLifecycleOptions } from './types.js';
 
 const defaultPluginsPath = './plugins';
+const noopCloseLogger = async (): Promise<void> => {};
 
 export async function runWithCoordinatorLifecycle<S, R extends PluginRegistryLike, C, T>(
   options: RunLifecycleOptions<S, R, C, T>
@@ -51,8 +52,7 @@ export async function runWithCoordinatorLifecycle<S, R extends PluginRegistryLik
 
     if (closeLoggerAfter) {
       const closeLogger =
-        deps.closeLogger ??
-        (await import('../../logging/index.js')).closeLogger;
+        deps.closeLogger ?? noopCloseLogger;
       try {
         await closeLogger();
       } catch (error) {
@@ -66,4 +66,3 @@ export async function runWithCoordinatorLifecycle<S, R extends PluginRegistryLik
 
   return result as T;
 }
-

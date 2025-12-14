@@ -13,11 +13,14 @@ import {
 import type { PluginRegistry, EmbeddingPriorityItem } from '../../kernel/index.js';
 import { getDefaults } from '../../kernel/index.js';
 import {
-  getLogger,
+  resolveLoggingDeps,
+} from '../../kernel/index.js';
+import type {
   AdapterLogger,
-  getEmbeddingLogger,
-  getVectorLogger
-} from '../../logging/index.js';
+  LoggingDeps,
+  IEmbeddingOperationLogger,
+  IVectorOperationLogger
+} from '../../kernel/index.js';
 import { interpolate } from '../../string/index.js';
 import type { EmbeddingManager } from '../../embeddings/index.js';
 import { VectorStoreManager } from './vector-store-manager.js';
@@ -27,6 +30,7 @@ export interface VectorContextInjectorOptions {
   registry: PluginRegistry;
   embeddingManager?: EmbeddingManager;
   vectorManager?: VectorStoreManager;
+  logging?: Partial<LoggingDeps>;
 }
 
 export interface InjectionResult {
@@ -57,14 +61,18 @@ export class VectorContextInjector {
   private embeddingManager?: EmbeddingManager;
   private vectorManager?: VectorStoreManager;
   private logger: AdapterLogger;
-  private embeddingLogger = getEmbeddingLogger();
-  private vectorLogger = getVectorLogger();
+  private logging: LoggingDeps;
+  private embeddingLogger: IEmbeddingOperationLogger;
+  private vectorLogger: IVectorOperationLogger;
 
   constructor(options: VectorContextInjectorOptions) {
     this.registry = options.registry;
     this.embeddingManager = options.embeddingManager;
     this.vectorManager = options.vectorManager;
-    this.logger = getLogger();
+    this.logging = resolveLoggingDeps(options.logging);
+    this.logger = this.logging.getLogger();
+    this.embeddingLogger = this.logging.getEmbeddingLogger();
+    this.vectorLogger = this.logging.getVectorLogger();
   }
 
   /**
@@ -412,4 +420,3 @@ export class VectorContextInjector {
     }
   }
 }
-

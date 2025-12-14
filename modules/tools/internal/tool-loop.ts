@@ -1,5 +1,4 @@
 import type { PluginRegistry } from '../../kernel/index.js';
-import type { AdapterLogger } from '../../logging/index.js';
 import {
   Role,
   StreamEventType,
@@ -16,7 +15,8 @@ import type {
   UnifiedTool,
   RuntimeSettings,
   UsageStats,
-  ReasoningData
+  ReasoningData,
+  AdapterLogger
 } from '../../kernel/index.js';
 import type { LLMManager } from '../../llm/index.js';
 import { ToolCallBudget } from './tool-budget.js';

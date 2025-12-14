@@ -1,5 +1,10 @@
-import type { PluginRegistry, EmbeddingCallSpec, EmbeddingOperationResult } from '../../kernel/index.js';
-import { getEmbeddingLogger } from '../../logging/index.js';
+import type {
+  PluginRegistry,
+  EmbeddingCallSpec,
+  EmbeddingOperationResult,
+  LoggingDeps
+} from '../../kernel/index.js';
+import { resolveLoggingDeps } from '../../kernel/index.js';
 import { EmbeddingManager } from './embedding-manager.js';
 
 function asErrorMessage(error: unknown): string {
@@ -9,16 +14,18 @@ function asErrorMessage(error: unknown): string {
 
 export class EmbeddingCoordinator {
   private manager: EmbeddingManager;
+  private logging: LoggingDeps;
 
-  constructor(private registry: PluginRegistry) {
-    this.manager = new EmbeddingManager(registry, getEmbeddingLogger());
+  constructor(private registry: PluginRegistry, options?: { logging?: Partial<LoggingDeps> }) {
+    this.logging = resolveLoggingDeps(options?.logging);
+    this.manager = new EmbeddingManager(registry, this.logging.getEmbeddingLogger());
   }
 
   async execute(spec: EmbeddingCallSpec): Promise<EmbeddingOperationResult> {
     const operation = (spec as any)?.operation ?? 'unknown';
 
     const correlationId = spec?.metadata?.correlationId as string | undefined;
-    this.manager.setLogger(getEmbeddingLogger(correlationId));
+    this.manager.setLogger(this.logging.getEmbeddingLogger(correlationId));
 
     try {
       if (operation === 'embed') {
@@ -76,4 +83,3 @@ export class EmbeddingCoordinator {
     // No-op for now. Kept for lifecycle symmetry with other coordinators.
   }
 }
-

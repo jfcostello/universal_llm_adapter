@@ -1,15 +1,23 @@
-import { JsonObject, MCPServerConfig, UnifiedTool } from '../../kernel/index.js';
+import {
+  JsonObject,
+  MCPServerConfig,
+  UnifiedTool,
+  resolveLoggingDeps
+} from '../../kernel/index.js';
+import type { AdapterLogger, LoggingDeps } from '../../kernel/index.js';
 import { MCPConnectionError } from '../../kernel/index.js';
 import { MCPClientPool } from './client.js';
-import { getLogger } from '../../logging/index.js';
 
 export class MCPManager {
   private pool: MCPClientPool;
   private toolCache = new Map<string, UnifiedTool[]>();
-  private logger = getLogger();
+  private logging: LoggingDeps;
+  private logger: AdapterLogger;
 
-  constructor(private servers: MCPServerConfig[]) {
-    this.pool = new MCPClientPool(servers);
+  constructor(private servers: MCPServerConfig[], options?: { logging?: Partial<LoggingDeps> }) {
+    this.logging = resolveLoggingDeps(options?.logging);
+    this.logger = this.logging.getLogger();
+    this.pool = new MCPClientPool(servers, { logger: this.logger });
   }
 
   listEnabledServers(): string[] {
@@ -131,4 +139,3 @@ export class MCPManager {
     }
   }
 }
-

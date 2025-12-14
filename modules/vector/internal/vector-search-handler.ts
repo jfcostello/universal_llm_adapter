@@ -10,14 +10,16 @@ import {
   JsonObject,
   PluginRegistry,
   getDefaults,
+  getNoopLogger,
+  getNoopEmbeddingLogger,
+  getNoopVectorLogger,
+} from '../../kernel/index.js';
+import type {
+  AdapterLogger,
+  IEmbeddingOperationLogger,
+  IVectorOperationLogger
 } from '../../kernel/index.js';
 import { VectorStoreManager } from './vector-store-manager.js';
-import {
-  AdapterLogger,
-  getLogger,
-  getEmbeddingLogger,
-  getVectorLogger
-} from '../../logging/index.js';
 import { interpolate } from '../../string/index.js';
 import { resolveEmbeddingPriority } from './embedding-priority.js';
 
@@ -53,6 +55,10 @@ export interface VectorSearchHandlerContext {
   vectorManager?: VectorStoreManager;
   /** Optional logger for diagnostics */
   logger?: AdapterLogger;
+  /** Optional embedding operation logger (for request/response tracing) */
+  embeddingLogger?: IEmbeddingOperationLogger;
+  /** Optional vector operation logger (for store operation tracing) */
+  vectorLogger?: IVectorOperationLogger;
 }
 
 /**
@@ -87,7 +93,7 @@ export async function executeVectorSearch(
 ): Promise<VectorSearchResult> {
   const { vectorConfig, registry } = context;
   const locks = vectorConfig.locks;
-  const logger = context.logger ?? getLogger();
+  const logger = context.logger ?? getNoopLogger();
 
   // Apply locks - locked values always take precedence, then args, then config defaults
   const effectiveStore = locks?.store ?? args.store ?? vectorConfig.stores[0];
@@ -108,8 +114,8 @@ export async function executeVectorSearch(
 
   try {
     // Ensure managers are initialized
-    const embeddingLogger = getEmbeddingLogger();
-    const vectorLogger = getVectorLogger();
+    const embeddingLogger = context.embeddingLogger ?? getNoopEmbeddingLogger();
+    const vectorLogger = context.vectorLogger ?? getNoopVectorLogger();
 
     const embeddingManager = context.embeddingManager ??
       await createEmbeddingManager(registry, embeddingLogger);
@@ -201,7 +207,10 @@ export async function executeVectorSearch(
   }
 }
 
-async function createEmbeddingManager(registry: PluginRegistry, logger: any): Promise<EmbeddingManager> {
+async function createEmbeddingManager(
+  registry: PluginRegistry,
+  logger: IEmbeddingOperationLogger
+): Promise<EmbeddingManager> {
   const { EmbeddingManager } = await import('../../embeddings/index.js');
   return new EmbeddingManager(registry as any, logger);
 }
@@ -246,4 +255,3 @@ export function formatVectorSearchResults(
 
   return `Found ${result.results.length} results:\n${formatted.join('\n')}`;
 }
-

@@ -2,6 +2,7 @@
 // Production code should import only from this file, not `internal/**`.
 
 export * from './internal/types.js';
+export * from './internal/logger.js';
 export * from './internal/errors.js';
 export * from './internal/defaults.js';
 export * from './internal/config.js';

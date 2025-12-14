@@ -4,7 +4,7 @@ import { minimatch } from 'minimatch';
 import { ProcessRouteManifest, VectorContextConfig, ToolExecutionError, getDefaults } from '../../kernel/index.js';
 import type { PluginRegistry } from '../../kernel/index.js';
 import type { MCPClientPool } from '../../mcp/index.js';
-import type { AdapterLogger } from '../../logging/index.js';
+import type { AdapterLogger } from '../../kernel/index.js';
 
 interface ToolContext {
   toolName: string;

@@ -36,7 +36,10 @@ const defaultDependencies: LlmCliDependencies = {
   },
   createCoordinator: async (registry: PluginRegistryLike) => {
     const module = await import('../../llm/index.js');
-    return new module.LLMCoordinator(registry as any);
+    const logging = await import('../../logging/index.js');
+    return new module.LLMCoordinator(registry as any, {
+      logging: logging.createLoggingDeps()
+    });
   },
   createServer: async (options: ServerOptions) => {
     const module = await import('../../server/index.js');
@@ -70,6 +73,7 @@ export function createLlmCoordinatorProgram(
       try {
         const spec = await loadSpec(options);
         const { runWithCoordinatorLifecycle } = await import('../../lifecycle/index.js');
+        const logging = await import('../../logging/index.js');
         const response = await runWithCoordinatorLifecycle<LLMCallSpec, any, any, unknown>({
           spec,
           pluginsPath: options.plugins ?? './plugins',
@@ -77,7 +81,8 @@ export function createLlmCoordinatorProgram(
           closeLoggerAfter: true,
           deps: {
             createRegistry: deps.createRegistry,
-            createCoordinator: deps.createCoordinator
+            createCoordinator: deps.createCoordinator,
+            closeLogger: logging.closeLogger
           },
           run: (coordinator, s) => coordinator.run(s)
         });
@@ -103,6 +108,7 @@ export function createLlmCoordinatorProgram(
       try {
         const spec = await loadSpec(options);
         const { streamWithCoordinatorLifecycle } = await import('../../lifecycle/index.js');
+        const logging = await import('../../logging/index.js');
         for await (const event of streamWithCoordinatorLifecycle<LLMCallSpec, any, any, LLMStreamEvent>({
           spec,
           pluginsPath: options.plugins ?? './plugins',
@@ -110,7 +116,8 @@ export function createLlmCoordinatorProgram(
           closeLoggerAfter: true,
           deps: {
             createRegistry: deps.createRegistry,
-            createCoordinator: deps.createCoordinator
+            createCoordinator: deps.createCoordinator,
+            closeLogger: logging.closeLogger
           },
           stream: (coordinator, s) => coordinator.runStream(s)
         })) {

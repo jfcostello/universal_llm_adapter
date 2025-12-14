@@ -5,10 +5,10 @@ import type {
   Message,
   UnifiedTool,
   ToolChoice,
-  LLMResponse
+  LLMResponse,
+  AdapterLogger
 } from '../../kernel/index.js';
 import { ProviderExecutionError, getDefaults } from '../../kernel/index.js';
-import type { AdapterLogger } from '../../logging/index.js';
 import { buildFinalPayload } from './payload/payload-builder.js';
 
 export class LLMManager {

@@ -1,6 +1,6 @@
 import { RetryPolicy, createDefaultRetryPolicy } from './retry-policy.js';
-import type { AdapterLogger } from '../../logging/index.js';
 import { getDefaults } from '../../kernel/index.js';
+import type { AdapterLogger } from '../../kernel/index.js';
 
 export interface RetrySequenceItem {
   provider: string;

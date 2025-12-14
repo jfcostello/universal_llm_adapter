@@ -1,6 +1,7 @@
 import { PluginRegistry } from '@/modules/kernel/index.ts';
 import { LLMCoordinator } from '@/modules/llm/index.ts';
 import { VectorStoreManager } from '@/modules/vector/index.ts';
+import { createLoggingDeps } from '@/modules/logging/index.ts';
 import { resolveFixture } from './paths.ts';
 
 interface CreateCoordinatorOptions {
@@ -19,6 +20,7 @@ export async function createFixtureCoordinator(
 ): Promise<LLMCoordinator> {
   const registry = await createFixtureRegistry();
   return new LLMCoordinator(registry, {
-    vectorManager: options.vectorManager
+    vectorManager: options.vectorManager,
+    logging: createLoggingDeps()
   });
 }

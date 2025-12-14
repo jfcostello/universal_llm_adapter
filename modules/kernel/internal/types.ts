@@ -555,6 +555,50 @@ export interface VectorQueryOptions {
 // COMPAT INTERFACES (implemented by plugins)
 // ============================================================
 
+export type LoggerCorrelationId = string | string[];
+
+/**
+ * Minimal, provider-agnostic logger interface for coordinator-level diagnostics.
+ */
+export interface IBaseLogger<TSelf> {
+  withCorrelation(correlationId: LoggerCorrelationId): TSelf;
+  debug(message: string, data?: any): void;
+  info(message: string, data?: any): void;
+  warning(message: string, data?: any): void;
+  error(message: string, data?: any): void;
+  close(): Promise<void>;
+}
+
+/**
+ * Logger interface for LLM request/response logging.
+ */
+export interface ILLMOperationLogger {
+  logLLMRequest(data: {
+    url: string;
+    method: string;
+    headers: Record<string, any>;
+    body: any;
+    provider?: string;
+    model?: string;
+  }): void;
+
+  logLLMResponse(data: {
+    status: number;
+    statusText?: string;
+    headers: Record<string, any>;
+    body: any;
+    duration?: number;
+    provider?: string;
+    model?: string;
+  }): void;
+}
+
+/**
+ * Backwards-compatible alias used by older code paths that expect a single logger.
+ * This matches the shape implemented by the optional `modules/logging` module.
+ */
+export interface AdapterLogger extends IBaseLogger<AdapterLogger>, ILLMOperationLogger {}
+
 /**
  * Logger interface for embedding compats.
  */

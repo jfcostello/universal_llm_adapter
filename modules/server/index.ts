@@ -82,15 +82,24 @@ const defaultDependencies: ServerDependencies = {
   createRegistry: (pluginsPath: string) => new PluginRegistry(pluginsPath),
   createCoordinator: async (registry: PluginRegistryLike) => {
     const module = await import('../llm/index.js');
-    return new module.LLMCoordinator(registry as any);
+    const logging = await import('../logging/index.js');
+    return new module.LLMCoordinator(registry as any, {
+      logging: logging.createLoggingDeps()
+    });
   },
   createVectorCoordinator: async (registry: PluginRegistryLike) => {
     const module = await import('../vector/index.js');
-    return new module.VectorStoreCoordinator(registry as any);
+    const logging = await import('../logging/index.js');
+    return new module.VectorStoreCoordinator(registry as any, {
+      logging: logging.createLoggingDeps()
+    });
   },
   createEmbeddingCoordinator: async (registry: PluginRegistryLike) => {
     const module = await import('../embeddings/index.js');
-    return new module.EmbeddingCoordinator(registry as any);
+    const logging = await import('../logging/index.js');
+    return new module.EmbeddingCoordinator(registry as any, {
+      logging: logging.createLoggingDeps()
+    });
   },
   closeLogger: async () => (await import('../logging/index.js')).closeLogger()
 };

@@ -4,10 +4,10 @@ import type {
   Message,
   RuntimeSettings,
   UsageStats,
-  ReasoningData
+  ReasoningData,
+  AdapterLogger
 } from '../../kernel/index.js';
 import { StreamEventType, ToolCallEventType } from '../../kernel/index.js';
-import type { AdapterLogger } from '../../logging/index.js';
 import { pruneToolResults, pruneReasoning } from '../../context/index.js';
 import { partitionSettings } from '../../settings/index.js';
 import { usageStatsToJson } from '../../usage/index.js';

@@ -4,9 +4,15 @@ import { EventEmitter } from 'events';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { MCPServerConfig, UnifiedTool, JsonObject } from '../../kernel/index.js';
-import { MCPConnectionError, getDefaults } from '../../kernel/index.js';
-import { getLogger } from '../../logging/index.js';
+import {
+  MCPServerConfig,
+  UnifiedTool,
+  JsonObject,
+  getDefaults,
+  MCPConnectionError,
+  getNoopLogger
+} from '../../kernel/index.js';
+import type { AdapterLogger } from '../../kernel/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -138,13 +144,14 @@ export class MCPConnection {
   private process?: ChildProcess;
   private session?: JSONRPCSession;
   private toolNameMap = new Map<string, string>();
-  private logger = getLogger();
+  private logger: AdapterLogger;
   private requestTimeoutMs: number;
   private serverCapabilities?: JsonObject;
   private serverInfo?: JsonObject;
 
-  constructor(private config: MCPServerConfig) {
+  constructor(private config: MCPServerConfig, options?: { logger?: AdapterLogger }) {
     this.requestTimeoutMs = config.requestTimeoutMs ?? getDefaults().timeouts.mcpRequest;
+    this.logger = options?.logger ?? getNoopLogger();
   }
 
   async connect(): Promise<void> {
@@ -298,9 +305,11 @@ export class MCPConnection {
 
 export class MCPClientPool {
   private connections = new Map<string, MCPConnection>();
-  private logger = getLogger();
+  private logger: AdapterLogger;
 
-  constructor(private servers: MCPServerConfig[]) {}
+  constructor(private servers: MCPServerConfig[], options?: { logger?: AdapterLogger }) {
+    this.logger = options?.logger ?? getNoopLogger();
+  }
 
   async listTools(serverId: string): Promise<UnifiedTool[]> {
     const connection = await this.getConnection(serverId);
@@ -349,7 +358,7 @@ export class MCPClientPool {
         throw new MCPConnectionError(`Unknown MCP server '${serverId}'`);
       }
 
-      const connection = new MCPConnection(server);
+      const connection = new MCPConnection(server, { logger: this.logger });
       this.connections.set(serverId, connection);
     }
 
@@ -371,4 +380,3 @@ export class MCPClientPool {
     this.connections.clear();
   }
 }
-

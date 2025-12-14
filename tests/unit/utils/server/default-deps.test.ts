@@ -40,24 +40,37 @@ describe('utils/server default dependency wiring', () => {
     jest.unstable_mockModule('../../../../modules/embeddings/index.js', () => ({
       EmbeddingCoordinator: EmbeddingCoordinatorMock
     }));
-    jest.unstable_mockModule('../../../../modules/logging/index.js', () => ({
-      closeLogger: jest.fn().mockResolvedValue(undefined),
-      getLogger: jest.fn().mockReturnValue({
+    jest.unstable_mockModule('../../../../modules/logging/index.js', () => {
+      const closeLogger = jest.fn().mockResolvedValue(undefined);
+      const getLogger = jest.fn().mockReturnValue({
         info: jest.fn(),
         warning: jest.fn(),
         error: jest.fn()
-      }),
-      getVectorLogger: jest.fn().mockReturnValue({
+      });
+      const getVectorLogger = jest.fn().mockReturnValue({
         info: jest.fn(),
         warning: jest.fn(),
         error: jest.fn()
-      }),
-      getEmbeddingLogger: jest.fn().mockReturnValue({
+      });
+      const getEmbeddingLogger = jest.fn().mockReturnValue({
         info: jest.fn(),
         warning: jest.fn(),
         error: jest.fn()
-      })
-    }));
+      });
+
+      return {
+        closeLogger,
+        getLogger,
+        getVectorLogger,
+        getEmbeddingLogger,
+        createLoggingDeps: () => ({
+          getLogger,
+          getVectorLogger,
+          getEmbeddingLogger,
+          closeLogger
+        })
+      };
+    });
 
     ({ createServer } = await import('@/modules/server/index.ts'));
 
@@ -93,6 +106,7 @@ describe('utils/server default dependency wiring', () => {
       body: JSON.stringify({
         messages: [],
         llmPriority: [{ provider: 'p', model: 'm' }],
+        metadata: { correlationId: 'server-default-deps' },
         settings: {}
       })
     });

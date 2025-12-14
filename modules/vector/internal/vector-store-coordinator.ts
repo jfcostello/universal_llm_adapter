@@ -14,22 +14,26 @@ import {
   VectorOperationResult,
   VectorStreamEvent,
   TextChunk,
+  LoggingDeps,
+  IEmbeddingOperationLogger,
+  IVectorOperationLogger,
+  resolveLoggingDeps
 } from '../../kernel/index.js';
 import { VectorStoreManager } from './vector-store-manager.js';
-import {
-  getEmbeddingLogger,
-  getVectorLogger
-} from '../../logging/index.js';
 
 export class VectorStoreCoordinator {
   private registry: PluginRegistry;
   private embeddingManager?: EmbeddingManager;
   private vectorManager?: VectorStoreManager;
-  private embeddingLogger = getEmbeddingLogger();
-  private vectorLogger = getVectorLogger();
+  private logging: LoggingDeps;
+  private embeddingLogger: IEmbeddingOperationLogger;
+  private vectorLogger: IVectorOperationLogger;
 
-  constructor(registry: PluginRegistry) {
+  constructor(registry: PluginRegistry, options?: { logging?: Partial<LoggingDeps> }) {
     this.registry = registry;
+    this.logging = resolveLoggingDeps(options?.logging);
+    this.embeddingLogger = this.logging.getEmbeddingLogger();
+    this.vectorLogger = this.logging.getVectorLogger();
   }
 
   /**

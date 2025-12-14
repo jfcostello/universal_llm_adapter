@@ -2,6 +2,7 @@ import { PluginRegistry } from '../../kernel/index.js';
 import type { PluginRegistryLike, StreamLifecycleOptions } from './types.js';
 
 const defaultPluginsPath = './plugins';
+const noopCloseLogger = async (): Promise<void> => {};
 
 export async function* streamWithCoordinatorLifecycle<S, R extends PluginRegistryLike, C, E>(
   options: StreamLifecycleOptions<S, R, C, E>
@@ -54,8 +55,7 @@ export async function* streamWithCoordinatorLifecycle<S, R extends PluginRegistr
 
     if (closeLoggerAfter) {
       const closeLogger =
-        deps.closeLogger ??
-        (await import('../../logging/index.js')).closeLogger;
+        deps.closeLogger ?? noopCloseLogger;
       try {
         await closeLogger();
       } catch (error) {
@@ -66,4 +66,3 @@ export async function* streamWithCoordinatorLifecycle<S, R extends PluginRegistr
 
   if (primaryError) throw primaryError;
 }
-

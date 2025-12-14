@@ -46,7 +46,7 @@ describe('coordinator/coordinator integration', () => {
     jest.restoreAllMocks();
   });
 
-  async function createCoordinator(): Promise<LLMCoordinator> {
+  async function createCoordinator(options: { enableLogging?: boolean } = {}): Promise<LLMCoordinator> {
     const pluginsDir = resolveFixture('plugins', 'basic');
     const registry = new PluginRegistry(pluginsDir);
     await registry.loadAll();
@@ -54,7 +54,10 @@ describe('coordinator/coordinator integration', () => {
     processRoutes.forEach(route => {
       route.timeoutMs = 10;
     });
-    return new LLMCoordinator(registry);
+    const logging = options.enableLogging
+      ? (await import('@/modules/logging/index.ts')).createLoggingDeps()
+      : undefined;
+    return new LLMCoordinator(registry, logging ? { logging } : undefined);
   }
 
   test('runs tool call workflow and aggregates tool results', async () => {
@@ -278,7 +281,7 @@ describe('coordinator/coordinator integration', () => {
 
   describe('per-provider settings', () => {
     test('uses per-provider settings when specified', async () => {
-      const coordinator = await createCoordinator();
+      const coordinator = await createCoordinator({ enableLogging: true });
       const mockResponse: LLMResponse = {
         provider: 'test-openai',
         model: 'stub-model',
@@ -316,7 +319,7 @@ describe('coordinator/coordinator integration', () => {
     });
 
     test('uses global settings when no per-provider settings specified', async () => {
-      const coordinator = await createCoordinator();
+      const coordinator = await createCoordinator({ enableLogging: true });
       const mockResponse: LLMResponse = {
         provider: 'test-openai',
         model: 'stub-model',
@@ -353,7 +356,7 @@ describe('coordinator/coordinator integration', () => {
     });
 
     test('deep merges nested objects like reasoning', async () => {
-      const coordinator = await createCoordinator();
+      const coordinator = await createCoordinator({ enableLogging: true });
       const mockResponse: LLMResponse = {
         provider: 'test-openai',
         model: 'stub-model',
@@ -508,7 +511,7 @@ describe('coordinator/coordinator integration', () => {
       // Spy on logEmbeddingRequest method
       const logEmbeddingRequestSpy = jest.spyOn(EmbeddingLogger.prototype, 'logEmbeddingRequest');
 
-      const coordinator = await createCoordinator();
+      const coordinator = await createCoordinator({ enableLogging: true });
 
       // Mock embedding provider
       const mockEmbeddingCompat = {

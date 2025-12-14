@@ -8,22 +8,19 @@ import type {
   DocumentContent,
   RuntimeSettings,
   VectorContextConfig,
-  PluginRegistry
+  PluginRegistry,
+  AdapterLogger,
+  LoggingDeps
 } from '../../kernel/index.js';
 import {
   Role,
   StreamEventType,
   sanitizeToolName,
   ProviderExecutionError,
-  getDefaults
+  getDefaults,
+  resolveLoggingDeps
 } from '../../kernel/index.js';
 import { LLMManager } from './llm-manager.js';
-import {
-  getLogger,
-  type AdapterLogger,
-  closeLogger as resetLogger,
-  getEmbeddingLogger
-} from '../../logging/index.js';
 import { pruneToolResults, pruneReasoning } from '../../context/index.js';
 import { partitionSettings, mergeProviderSettings } from '../../settings/index.js';
 import { prepareMessages, appendAssistantToolCalls, appendToolResult } from '../../messages/index.js';
@@ -41,6 +38,7 @@ export class LLMCoordinator {
   private vectorContextInjector?: VectorContextInjector;
   private toolCoordinator: any;
   private toolCoordinatorImpl?: any;
+  private logging: LoggingDeps;
   private logger: AdapterLogger;
   private toolCoordinatorInitialized = false;
   private activeToolSpec?: LLMCallSpec;
@@ -53,11 +51,13 @@ export class LLMCoordinator {
     private registry: PluginRegistry,
     options?: {
       vectorManager?: VectorStoreManager;
+      logging?: Partial<LoggingDeps>;
     }
   ) {
     this.llmManager = new LLMManager(registry);
     this.vectorManager = options?.vectorManager;
-    this.logger = getLogger();
+    this.logging = resolveLoggingDeps(options?.logging);
+    this.logger = this.logging.getLogger();
 
     // Stable proxy so tests can spy on methods without being broken by lazy initialization.
     // The real implementation is stored in `toolCoordinatorImpl` and populated on-demand.
@@ -98,7 +98,7 @@ export class LLMCoordinator {
       const mcpServers = await this.registry.getMCPServers(spec.mcpServers);
       if (mcpServers.length > 0) {
         const { MCPManager } = await import('../../mcp/index.js');
-        this.mcpManager = new MCPManager(mcpServers);
+        this.mcpManager = new MCPManager(mcpServers, { logging: this.logging });
       }
     }
 
@@ -129,8 +129,8 @@ export class LLMCoordinator {
     }
 
     process.env.LLM_ADAPTER_BATCH_ID = normalized;
-    await resetLogger();
-    this.logger = getLogger();
+    await this.logging.closeLogger();
+    this.logger = this.logging.getLogger();
   }
 
   async run(spec: LLMCallSpec): Promise<LLMResponse> {
@@ -695,13 +695,17 @@ export class LLMCoordinator {
           new Map(),  // configs - will be loaded from registry
           new Map(),  // adapters - will be created via compat
           undefined,  // embedder - not needed, we use EmbeddingManager directly
-          this.registry
+          this.registry,
+          this.logging.getVectorLogger()
         );
       }
 
       // Lazy-load EmbeddingManager with logger for embedding request/response logging
       const { EmbeddingManager } = await import('../../embeddings/index.js');
-      const embeddingManager = new EmbeddingManager(this.registry, getEmbeddingLogger());
+      const embeddingManager = new EmbeddingManager(
+        this.registry,
+        this.logging.getEmbeddingLogger()
+      );
 
       // Lazy-load VectorContextInjector
       const { VectorContextInjector } = await import('../../vector/index.js');
