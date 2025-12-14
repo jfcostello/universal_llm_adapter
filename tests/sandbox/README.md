@@ -1,9 +1,9 @@
 # Sandbox runner
 
-Ad-hoc CLI runner for the LLM coordinator. It sends a multi-turn conversation defined in a single YAML file, prints each turn to the console, and saves a transcript plus copied logs under `tests/sandbox/logs/`.
+Ad-hoc runner for the unified CLI. It sends a multi-turn conversation defined in a single YAML file, prints each turn to the console, and saves a transcript plus copied logs under `tests/sandbox/logs/`.
 
 ## Prerequisites
-- Build the CLI once: `npm run build` (produces `dist/llm_coordinator.js`).
+- Build the CLI once: `npm run build` (produces `dist/bin/cli.js`).
 - Provide any plugin/config paths referenced by your scenario.
 
 ## Usage

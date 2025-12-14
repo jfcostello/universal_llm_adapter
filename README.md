@@ -376,7 +376,7 @@ The coordinator provides unified vector store and embedding support for RAG (Ret
 
 ### Two Ways to Use Vector Stores
 
-1. **Vector Store CLI** (`vector_store_coordinator.ts`): Batch operations for managing vector data (embed, upsert, query, delete, collections)
+1. **Unified CLI** (`llm-adapter vector ...`): Batch operations for managing vector data (embed, upsert, query, delete, collections)
 2. **VectorContextConfig** in `LLMCallSpec`: RAG context injection during LLM calls (auto-inject, tool mode, or both)
 
 ### Architecture

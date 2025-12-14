@@ -165,6 +165,30 @@ describe('utils/coordinator-lifecycle streamWithCoordinatorLifecycle', () => {
     delete process.env.LLM_ADAPTER_BATCH_ID;
   });
 
+  test('sets LLM_ADAPTER_BATCH_ID when batchId is provided', async () => {
+    const { deps } = createDeps();
+
+    async function* fakeStream() {
+      yield { type: 'one' };
+    }
+
+    const events: any[] = [];
+    for await (const ev of streamWithCoordinatorLifecycle<FakeSpec, any, any, any>({
+      spec: { foo: 'bar' },
+      batchId: 'batch-stream-1',
+      deps,
+      closeLoggerAfter: false,
+      stream: async function* () {
+        yield* fakeStream();
+      }
+    })) {
+      events.push(ev);
+    }
+
+    expect(events).toEqual([{ type: 'one' }]);
+    expect(process.env.LLM_ADAPTER_BATCH_ID).toBe('batch-stream-1');
+  });
+
   test('streams events and cleans up after completion', async () => {
     const { deps, coordinator, closeLogger } = createDeps();
 

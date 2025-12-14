@@ -133,7 +133,7 @@ beforeAll(async () => {
   }
 });
 
-describe('CLI llm-coordinator', () => {
+describe('CLI llm-adapter', () => {
   const pluginsDir = resolveFixture('plugins', 'basic');
   const specPath = resolveFixture('specs', 'simple.json');
 

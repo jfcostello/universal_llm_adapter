@@ -145,10 +145,9 @@ function invokeCli(
   }
 ): Promise<{ assistant: Message; raw?: LLMResponse }> {
   return new Promise((resolve, reject) => {
-    // Use unified CLI with 'llm' subcommand
+    // Use unified CLI (LLM commands are at the root level: run/stream)
     const args = [
       DIST_CLI,
-      'llm',
       options.mode === 'stream' ? 'stream' : 'run',
       '--plugins',
       options.pluginsPath

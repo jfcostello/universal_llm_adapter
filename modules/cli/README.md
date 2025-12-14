@@ -56,31 +56,6 @@ const program = createUnifiedProgram(partialDeps);
 await runUnifiedCli(['node', 'llm-adapter', 'run', '--spec', '...']);
 ```
 
-### Spec + Output Helpers
-
-```typescript
-import { loadSpec, writeJsonToStdout } from 'llm-adapter/cli';
-
-// Load spec from file or JSON string
-const spec = await loadSpec<LLMCallSpec>({ file: 'spec.json' });
-
-// Write JSON to stdout with proper flushing
-await writeJsonToStdout(response, { pretty: true });
-```
-
-### Legacy Program Factories (Deprecated)
-
-These are kept for backwards compatibility but will be removed in a future version:
-
-```typescript
-import {
-  createLlmCoordinatorProgram,
-  runLlmCoordinatorCli,
-  createVectorStoreCoordinatorProgram,
-  runVectorStoreCoordinatorCli
-} from 'llm-adapter/cli';
-```
-
 ## CLI Commands
 
 ### LLM Operations

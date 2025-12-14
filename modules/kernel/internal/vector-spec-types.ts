@@ -1,6 +1,6 @@
 /**
- * Type definitions for Vector Store CLI operations.
- * Used by VectorStoreCoordinator and vector_store_coordinator CLI.
+ * Type definitions for vector store CLI operations.
+ * Used by VectorStoreCoordinator and the unified CLI.
  */
 
 import { JsonObject, EmbeddingPriorityItem, VectorPoint, VectorQueryResult } from './types.js';
