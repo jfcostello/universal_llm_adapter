@@ -10,8 +10,8 @@
       "import": "./dist/modules/kernel/index.js"
     },
     "./llm": {
-      "types": "./dist/coordinator/coordinator.d.ts",
-      "import": "./dist/coordinator/coordinator.js"
+      "types": "./dist/modules/llm/index.d.ts",
+      "import": "./dist/modules/llm/index.js"
     },
     "./server": {
       "types": "./dist/modules/server/index.d.ts",

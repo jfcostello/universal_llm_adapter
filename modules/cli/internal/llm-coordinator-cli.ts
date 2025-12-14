@@ -35,7 +35,7 @@ const defaultDependencies: LlmCliDependencies = {
     return new module.PluginRegistry(pluginsPath);
   },
   createCoordinator: async (registry: PluginRegistryLike) => {
-    const module = await import('../../../coordinator/coordinator.js');
+    const module = await import('../../llm/index.js');
     return new module.LLMCoordinator(registry as any);
   },
   createServer: async (options: ServerOptions) => {

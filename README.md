@@ -358,7 +358,7 @@ LLM API
 - `core/types.ts` - DocumentContent type definitions
 - `utils/documents/document-loader.ts` - File loading and preprocessing
 - `utils/documents/mime-types.ts` - MIME type detection
-- `coordinator/coordinator.ts` - Message preprocessing integration
+- `modules/llm/index.ts` - Message preprocessing integration
 - `plugins/compat/<compat-id>/index.ts` - Provider-specific transformations
 - `vector_store_coordinator.ts` - Vector Store CLI entry point
 - `coordinator/vector-coordinator.ts` - VectorStoreCoordinator class

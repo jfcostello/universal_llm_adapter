@@ -18,7 +18,7 @@ import type {
   UsageStats,
   ReasoningData
 } from '../../kernel/index.js';
-import type { LLMManager } from '../../../managers/llm-manager.js';
+import type { LLMManager } from '../../llm/index.js';
 import { ToolCallBudget } from './tool-budget.js';
 import { formatCountdown, buildFinalPrompt } from './tool-message.js';
 import { appendAssistantToolCalls, appendToolResult } from '../../messages/index.js';

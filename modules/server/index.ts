@@ -81,7 +81,7 @@ const defaultDependencies: ServerDependencies = {
   getDefaults,
   createRegistry: (pluginsPath: string) => new PluginRegistry(pluginsPath),
   createCoordinator: async (registry: PluginRegistryLike) => {
-    const module = await import('../../coordinator/coordinator.js');
+    const module = await import('../llm/index.js');
     return new module.LLMCoordinator(registry as any);
   },
   createVectorCoordinator: async (registry: PluginRegistryLike) => {

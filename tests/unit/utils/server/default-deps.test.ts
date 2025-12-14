@@ -31,7 +31,7 @@ describe('utils/server default dependency wiring', () => {
   let running!: Awaited<ReturnType<typeof import('@/utils/server/index.ts').createServer>>;
 
   beforeAll(async () => {
-    jest.unstable_mockModule('../../../../coordinator/coordinator.js', () => ({
+    jest.unstable_mockModule('../../../../modules/llm/index.js', () => ({
       LLMCoordinator: LLMCoordinatorMock
     }));
     jest.unstable_mockModule('../../../../coordinator/vector-coordinator.js', () => ({

@@ -56,14 +56,11 @@ describe('integration/lazy-loading/import-evaluation', () => {
       jest.unstable_mockModule('../../../managers/mcp-manager.js', () => {
         throw new Error('mcp-manager should not be imported in baseline');
       });
-      jest.unstable_mockModule('../../../managers/vector-store-manager.js', () => {
-        throw new Error('vector-store-manager should not be imported in baseline');
+      jest.unstable_mockModule('../../../modules/vector/index.js', () => {
+        throw new Error('vector module should not be imported in baseline');
       });
-      jest.unstable_mockModule('../../../managers/embedding-manager.js', () => {
-        throw new Error('embedding-manager should not be imported in baseline');
-      });
-      jest.unstable_mockModule('../../../utils/vector/vector-context-injector.js', () => {
-        throw new Error('vector-context-injector should not be imported in baseline');
+      jest.unstable_mockModule('../../../modules/embeddings/index.js', () => {
+        throw new Error('embeddings module should not be imported in baseline');
       });
 
       const { PluginRegistry } = await import('@/core/registry.ts');
@@ -126,14 +123,11 @@ describe('integration/lazy-loading/import-evaluation', () => {
       jest.unstable_mockModule('../../../managers/mcp-manager.js', () => {
         throw new Error('mcp-manager should not be imported for tools-only');
       });
-      jest.unstable_mockModule('../../../managers/vector-store-manager.js', () => {
-        throw new Error('vector-store-manager should not be imported for tools-only');
+      jest.unstable_mockModule('../../../modules/vector/index.js', () => {
+        throw new Error('vector module should not be imported for tools-only');
       });
-      jest.unstable_mockModule('../../../managers/embedding-manager.js', () => {
-        throw new Error('embedding-manager should not be imported for tools-only');
-      });
-      jest.unstable_mockModule('../../../utils/vector/vector-context-injector.js', () => {
-        throw new Error('vector-context-injector should not be imported for tools-only');
+      jest.unstable_mockModule('../../../modules/embeddings/index.js', () => {
+        throw new Error('embeddings module should not be imported for tools-only');
       });
 
       const { PluginRegistry } = await import('@/core/registry.ts');
@@ -194,7 +188,20 @@ describe('integration/lazy-loading/import-evaluation', () => {
       // Explicitly allow MCP modules in this scenario (and avoid any network/process work).
       // These mocks also override the baseline/tools-only "throw on import" mocks.
       jest.unstable_mockModule('../../../modules/mcp/index.js', () => ({
-        parseMCPManifest: () => [{ id: 'local', command: 'node' }]
+        parseMCPManifest: () => [{ id: 'local', command: 'node' }],
+        MCPManager: class MCPManager {
+          constructor(private servers: any[]) {}
+
+          getPool() {
+            return undefined;
+          }
+
+          async gatherTools() {
+            return [[], this.servers.map(s => s.id)];
+          }
+
+          async close() {}
+        }
       }));
       jest.unstable_mockModule('../../../mcp/mcp-manifest.js', () => ({
         parseMCPManifest: () => [{ id: 'local', command: 'node' }]
@@ -218,14 +225,11 @@ describe('integration/lazy-loading/import-evaluation', () => {
         }
       }));
 
-      jest.unstable_mockModule('../../../managers/vector-store-manager.js', () => {
-        throw new Error('vector-store-manager should not be imported for MCP-only');
+      jest.unstable_mockModule('../../../modules/vector/index.js', () => {
+        throw new Error('vector module should not be imported for MCP-only');
       });
-      jest.unstable_mockModule('../../../managers/embedding-manager.js', () => {
-        throw new Error('embedding-manager should not be imported for MCP-only');
-      });
-      jest.unstable_mockModule('../../../utils/vector/vector-context-injector.js', () => {
-        throw new Error('vector-context-injector should not be imported for MCP-only');
+      jest.unstable_mockModule('../../../modules/embeddings/index.js', () => {
+        throw new Error('embeddings module should not be imported for MCP-only');
       });
 
       const { PluginRegistry } = await import('@/core/registry.ts');
@@ -257,6 +261,9 @@ describe('integration/lazy-loading/import-evaluation', () => {
   test('vector-context run does not evaluate MCP modules', async () => {
     jest.resetModules();
     await jest.isolateModulesAsync(async () => {
+      jest.unstable_mockModule('../../../modules/tools/index.js', () => {
+        throw new Error('tools module should not be imported for vector-context-only');
+      });
       jest.unstable_mockModule('../../../modules/mcp/index.js', () => {
         throw new Error('mcp module should not be imported for vector-context-only');
       });
@@ -270,25 +277,26 @@ describe('integration/lazy-loading/import-evaluation', () => {
         throw new Error('mcp-manager should not be imported for vector-context-only');
       });
 
-      let injectorImported = false;
+      let vectorModuleImported = false;
+      let embeddingsModuleImported = false;
 
-      jest.unstable_mockModule('../../../managers/vector-store-manager.js', () => ({
-        VectorStoreManager: class VectorStoreManager {
-          // eslint-disable-next-line @typescript-eslint/no-useless-constructor
-          constructor(..._args: any[]) {}
-        }
-      }));
-
-      jest.unstable_mockModule('../../../managers/embedding-manager.js', () => ({
-        EmbeddingManager: class EmbeddingManager {
-          // eslint-disable-next-line @typescript-eslint/no-useless-constructor
-          constructor(..._args: any[]) {}
-        }
-      }));
-
-      jest.unstable_mockModule('../../../utils/vector/vector-context-injector.js', () => {
-        injectorImported = true;
+      jest.unstable_mockModule('../../../modules/embeddings/index.js', () => {
+        embeddingsModuleImported = true;
         return {
+          EmbeddingManager: class EmbeddingManager {
+            // eslint-disable-next-line @typescript-eslint/no-useless-constructor
+            constructor(..._args: any[]) {}
+          }
+        };
+      });
+
+      jest.unstable_mockModule('../../../modules/vector/index.js', () => {
+        vectorModuleImported = true;
+        return {
+          VectorStoreManager: class VectorStoreManager {
+            // eslint-disable-next-line @typescript-eslint/no-useless-constructor
+            constructor(..._args: any[]) {}
+          },
           VectorContextInjector: class VectorContextInjector {
             // eslint-disable-next-line @typescript-eslint/no-useless-constructor
             constructor(..._args: any[]) {}
@@ -326,7 +334,8 @@ describe('integration/lazy-loading/import-evaluation', () => {
         settings: {}
       } as any);
 
-      expect(injectorImported).toBe(true);
+      expect(vectorModuleImported).toBe(true);
+      expect(embeddingsModuleImported).toBe(true);
 
       await coordinator.close();
     });

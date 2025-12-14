@@ -29,7 +29,7 @@ describe('llm_coordinator default wiring', () => {
       PluginRegistry: jest.fn().mockImplementation(() => registryInstance)
     }));
 
-    (jest as any).unstable_mockModule('@/coordinator/coordinator.ts', () => ({
+    (jest as any).unstable_mockModule('@/modules/llm/index.ts', () => ({
       LLMCoordinator: jest.fn().mockImplementation(() => ({
         run: runMock,
         runStream: jest.fn(),
@@ -70,7 +70,7 @@ describe('llm_coordinator default wiring', () => {
       PluginRegistry: jest.fn().mockImplementation(() => registryInstance)
     }));
 
-    (jest as any).unstable_mockModule('@/coordinator/coordinator.ts', () => ({
+    (jest as any).unstable_mockModule('@/modules/llm/index.ts', () => ({
       LLMCoordinator: jest.fn().mockImplementation(() => ({
         run: jest.fn(),
         runStream: jest.fn().mockImplementation(async function* () {
@@ -107,7 +107,7 @@ describe('llm_coordinator default wiring', () => {
       PluginRegistry: jest.fn().mockImplementation(() => registryInstance)
     }));
 
-    (jest as any).unstable_mockModule('@/coordinator/coordinator.ts', () => ({
+    (jest as any).unstable_mockModule('@/modules/llm/index.ts', () => ({
       LLMCoordinator: jest.fn().mockImplementation(() => ({
         run: jest.fn(),
         runStream: jest.fn().mockImplementation(async function* () {
@@ -170,7 +170,7 @@ describe('llm_coordinator default wiring', () => {
       PluginRegistry: jest.fn().mockImplementation(() => registryInstance)
     }));
 
-    (jest as any).unstable_mockModule('@/coordinator/coordinator.ts', () => ({
+    (jest as any).unstable_mockModule('@/modules/llm/index.ts', () => ({
       LLMCoordinator: jest.fn().mockImplementation(() => ({
         run: jest.fn().mockResolvedValue({}),
         runStream: jest.fn().mockResolvedValue(undefined),
