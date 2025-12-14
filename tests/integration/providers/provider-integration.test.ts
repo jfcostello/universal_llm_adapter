@@ -44,7 +44,7 @@ describe('integration/providers/cross-provider', () => {
       getCompatModule: () => new OpenAICompat()
     };
 
-    const manager = new (await import('@/managers/llm-manager.ts')).LLMManager(registry as any);
+    const manager = new (await import('@/modules/llm/index.ts')).LLMManager(registry as any);
 
     const requestSpy = jest
       .spyOn((manager as any).httpClient, 'request')

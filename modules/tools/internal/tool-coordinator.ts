@@ -3,7 +3,7 @@ import axios from 'axios';
 import { minimatch } from 'minimatch';
 import { ProcessRouteManifest, VectorContextConfig, ToolExecutionError, getDefaults } from '../../kernel/index.js';
 import type { PluginRegistry } from '../../kernel/index.js';
-import type { MCPClientPool } from '../../../mcp/mcp-client.js';
+import type { MCPClientPool } from '../../mcp/index.js';
 import type { AdapterLogger } from '../../logging/index.js';
 
 interface ToolContext {
@@ -195,7 +195,7 @@ export class ToolCoordinator {
 
     // Lazy-load the handler to avoid importing vector code unless invoked.
     const { executeVectorSearch, formatVectorSearchResults } =
-      await import('../../../utils/tools/vector-search-handler.js');
+      await import('../../vector/index.js');
 
     const result = await executeVectorSearch(
       {

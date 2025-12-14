@@ -19,9 +19,6 @@ coordinator lifecycle helpers.
 
 Only `index.ts` should be imported by other code.
 
-Legacy entrypoints:
-- `utils/server/index.ts` forwards to this module during the migration.
-
 ## Public API
 
 ### `createServer(options?): Promise<RunningServer>`
@@ -164,7 +161,7 @@ Accepts the same options and defaults as `createServer`.
 ## Example
 
 ```ts
-import { createServer } from '@/utils/server/index.ts';
+import { createServer } from '@/modules/server/index.ts';
 
 const server = await createServer({ port: 3000 });
 console.log(server.url);

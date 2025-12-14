@@ -1,4 +1,4 @@
-import { ProviderExecutionError, ToolExecutionError } from '@/core/errors.ts';
+import { ProviderExecutionError, ToolExecutionError } from '@/modules/kernel/index.ts';
 import { mapErrorToHttp } from '@/modules/server/internal/transport/error-mapper.ts';
 
 describe('utils/server mapErrorToHttp', () => {

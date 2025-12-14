@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { createServerHandlerWithDefaults } from '@/utils/server/index.ts';
+import { createServerHandlerWithDefaults } from '@/modules/server/index.ts';
 
 describe('utils/server createServerHandlerWithDefaults', () => {
   test('throws when registry missing', () => {

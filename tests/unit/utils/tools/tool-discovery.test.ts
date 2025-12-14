@@ -1,8 +1,8 @@
 import { describe, expect, jest, test } from '@jest/globals';
-import { collectTools, shouldCreateVectorSearchTool, createVectorSearchTool } from '@/utils/tools/tool-discovery.ts';
-import { LLMCallSpec, UnifiedTool, VectorContextConfig } from '@/core/types.ts';
-import { PluginRegistry } from '@/core/registry.ts';
-import { MCPManager } from '@/managers/mcp-manager.ts';
+import { collectTools, shouldCreateVectorSearchTool, createVectorSearchTool } from '@/modules/tools/index.ts';
+import { LLMCallSpec, UnifiedTool, VectorContextConfig } from '@/modules/kernel/index.ts';
+import { PluginRegistry } from '@/modules/kernel/index.ts';
+import { MCPManager } from '@/modules/mcp/index.ts';
 
 describe('utils/tools/tool-discovery', () => {
   test('collectTools merges spec, function, and MCP tools with sanitized names', async () => {

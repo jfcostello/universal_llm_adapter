@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
-import { LLMCoordinator } from '@/coordinator/coordinator.ts';
-import { StreamEventType, Role, ToolCallEventType } from '@/core/types.ts';
+import { LLMCoordinator } from '@/modules/llm/index.ts';
+import { StreamEventType, Role, ToolCallEventType } from '@/modules/kernel/index.ts';
 
 const handleChunkMock = jest.fn();
 

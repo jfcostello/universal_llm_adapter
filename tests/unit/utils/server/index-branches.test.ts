@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 
-import { createServer, createServerHandlerWithDefaults } from '@/utils/server/index.ts';
+import { createServer, createServerHandlerWithDefaults } from '@/modules/server/index.ts';
 
 const DEFAULTS_WITHOUT_NESTED = {
   server: {

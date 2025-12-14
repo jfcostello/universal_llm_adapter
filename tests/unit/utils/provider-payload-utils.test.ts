@@ -1,5 +1,5 @@
 import { applyProviderPayloadExtensions } from '@/modules/llm/internal/payload/provider-payload-utils.ts';
-import { ProviderPayloadError } from '@/core/errors.ts';
+import { ProviderPayloadError } from '@/modules/kernel/index.ts';
 
 const baseProvider: any = {
   id: 'provider-x',

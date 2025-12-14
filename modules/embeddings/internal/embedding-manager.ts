@@ -4,7 +4,7 @@ import {
   IEmbeddingOperationLogger
 } from '../../kernel/index.js';
 import { EmbeddingError, EmbeddingProviderError } from '../../kernel/index.js';
-import type { EmbedderFn } from '../../../managers/vector-store-manager.js';
+import type { EmbedderFn } from '../../vector/index.js';
 
 /**
  * EmbeddingManager - Agnostic embedding orchestration with priority-based fallback

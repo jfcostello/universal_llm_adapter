@@ -132,6 +132,7 @@ describe('guardrails/repo', () => {
       .filter(Boolean)
       .filter(p => p.endsWith('.md'))
       .map(p => path.join(ROOT_DIR, p))
+      .filter(f => fs.existsSync(f))
       .filter(f => !isUnder('tests', f))
       .filter(f => !isUnder('plugins', f));
 

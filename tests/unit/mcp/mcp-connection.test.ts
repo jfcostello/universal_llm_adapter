@@ -1,8 +1,8 @@
 import { jest } from '@jest/globals';
-import { MCPConnectionError } from '@/core/errors.ts';
+import { MCPConnectionError } from '@/modules/kernel/index.ts';
 
 async function loadClientModule() {
-  return import('@/mcp/mcp-client.ts');
+  return import('@/modules/mcp/index.ts');
 }
 
 describe('mcp/MCPConnection edge cases', () => {

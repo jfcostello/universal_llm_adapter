@@ -21,7 +21,7 @@ describe('unit/managers/llm-manager live logging branches', () => {
       })
     } as any;
 
-    const { LLMManager } = await import('@/managers/llm-manager.ts');
+    const { LLMManager } = await import('@/modules/llm/index.ts');
     const manager = new LLMManager(registry);
 
     const requestSpy = jest
@@ -46,7 +46,7 @@ describe('unit/managers/llm-manager live logging branches', () => {
       })
     } as any;
 
-    const { LLMManager } = await import('@/managers/llm-manager.ts');
+    const { LLMManager } = await import('@/modules/llm/index.ts');
     const manager = new LLMManager(registry);
     const requestSpy = jest
       .spyOn((manager as any).httpClient, 'request')

@@ -3,10 +3,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 // Type imports
-import type { LLMCoordinator } from '@/coordinator/coordinator.ts';
-import type { PluginRegistry } from '@/core/registry.ts';
-import type { LLMCallSpec, Message, Role, VectorContextConfig, TextContent } from '@/core/types.ts';
-import type { VectorContextInjector } from '@/utils/vector/vector-context-injector.ts';
+import type { LLMCoordinator } from '@/modules/llm/index.ts';
+import type { PluginRegistry } from '@/modules/kernel/index.ts';
+import type { LLMCallSpec, Message, Role, VectorContextConfig, TextContent } from '@/modules/kernel/index.ts';
+import type { VectorContextInjector } from '@/modules/vector/index.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,9 +21,9 @@ describe('integration/vector/auto-inject', () => {
 
   beforeAll(async () => {
     try {
-      const coordinatorModule = await import('@/coordinator/coordinator.ts');
-      const registryModule = await import('@/core/registry.ts');
-      const injectorModule = await import('@/utils/vector/vector-context-injector.ts');
+      const coordinatorModule = await import('@/modules/llm/index.ts');
+      const registryModule = await import('@/modules/kernel/index.ts');
+      const injectorModule = await import('@/modules/vector/index.ts');
       LLMCoordinatorClass = coordinatorModule.LLMCoordinator;
       PluginRegistryClass = registryModule.PluginRegistry;
       VectorContextInjectorClass = injectorModule.VectorContextInjector;
@@ -415,7 +415,7 @@ describe('integration/vector/auto-inject', () => {
 
   describe('tool mode - vector_search tool creation', () => {
     test('creates vector_search tool with correct schema', async () => {
-      const { createVectorSearchTool } = await import('@/utils/tools/tool-discovery.ts');
+      const { createVectorSearchTool } = await import('@/modules/tools/index.ts');
 
       const config: VectorContextConfig = {
         stores: ['store1', 'store2'],
@@ -437,7 +437,7 @@ describe('integration/vector/auto-inject', () => {
     });
 
     test('uses default tool name and description when not specified', async () => {
-      const { createVectorSearchTool } = await import('@/utils/tools/tool-discovery.ts');
+      const { createVectorSearchTool } = await import('@/modules/tools/index.ts');
 
       const config: VectorContextConfig = {
         stores: ['my-store'],
@@ -453,7 +453,7 @@ describe('integration/vector/auto-inject', () => {
 
   describe('both mode - hybrid behavior', () => {
     test('shouldCreateVectorSearchTool returns true for both mode', async () => {
-      const { shouldCreateVectorSearchTool } = await import('@/utils/tools/tool-discovery.ts');
+      const { shouldCreateVectorSearchTool } = await import('@/modules/tools/index.ts');
 
       expect(shouldCreateVectorSearchTool('both')).toBe(true);
       expect(shouldCreateVectorSearchTool('tool')).toBe(true);
@@ -464,7 +464,7 @@ describe('integration/vector/auto-inject', () => {
 
   describe('tool mode - resultFormat configuration', () => {
     test('formatVectorSearchResults uses resultFormat from config', async () => {
-      const { formatVectorSearchResults } = await import('@/utils/tools/vector-search-handler.ts');
+      const { formatVectorSearchResults } = await import('@/modules/vector/index.ts');
 
       const result = {
         success: true,
@@ -494,7 +494,7 @@ describe('integration/vector/auto-inject', () => {
     });
 
     test('formatVectorSearchResults uses default behavior when no resultFormat', async () => {
-      const { formatVectorSearchResults } = await import('@/utils/tools/vector-search-handler.ts');
+      const { formatVectorSearchResults } = await import('@/modules/vector/index.ts');
 
       const result = {
         success: true,
@@ -518,7 +518,7 @@ describe('integration/vector/auto-inject', () => {
     });
 
     test('formatVectorSearchResults with resultFormat using score and id', async () => {
-      const { formatVectorSearchResults } = await import('@/utils/tools/vector-search-handler.ts');
+      const { formatVectorSearchResults } = await import('@/modules/vector/index.ts');
 
       const result = {
         success: true,

@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 
-import type { EmbeddingCoordinator } from '@/coordinator/embedding-coordinator.ts';
-import type { EmbeddingCallSpec, EmbeddingOperationResult } from '@/core/embedding-spec-types.ts';
+import type { EmbeddingCoordinator } from '@/modules/embeddings/index.ts';
+import type { EmbeddingCallSpec, EmbeddingOperationResult } from '@/modules/kernel/index.ts';
 
 function createMockRegistry(options: {
   embeddingProvider?: any;
@@ -45,7 +45,7 @@ describe('coordinator/embedding-coordinator', () => {
 
   beforeAll(async () => {
     try {
-      const module = await import('@/coordinator/embedding-coordinator.ts');
+      const module = await import('@/modules/embeddings/index.ts');
       EmbeddingCoordinatorClass = module.EmbeddingCoordinator;
     } catch {
       EmbeddingCoordinatorClass = class MockEmbeddingCoordinator {

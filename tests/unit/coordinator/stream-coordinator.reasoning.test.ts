@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { ToolCallEventType, Role } from '@/core/types.ts';
+import { ToolCallEventType, Role } from '@/modules/kernel/index.ts';
 
 const unstableMockModule = (jest as unknown as { unstable_mockModule?: typeof jest.unstable_mockModule }).unstable_mockModule;
 if (!unstableMockModule) {
@@ -21,7 +21,7 @@ describe('StreamCoordinator reasoning aggregation', () => {
       runToolLoop: runToolLoopMock
     }));
 
-    const { StreamCoordinator } = await import('@/coordinator/stream-coordinator.ts');
+    const { StreamCoordinator } = await import('@/modules/llm/index.ts');
 
     const registry = {
       getCompatModule: jest.fn(() => ({

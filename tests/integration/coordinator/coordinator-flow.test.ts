@@ -1,9 +1,9 @@
 import { jest } from '@jest/globals';
-import { LLMManager } from '@/managers/llm-manager.ts';
-import { ToolCoordinator } from '@/utils/tools/tool-coordinator.ts';
-import { Role, LLMResponse } from '@/core/types.ts';
-import { TOOL_REDACTION_PLACEHOLDER, TOOL_REDACTION_REASON } from '@/utils/context/context-manager.ts';
-import { AdapterLogger } from '@/core/logging.ts';
+import { LLMManager } from '@/modules/llm/index.ts';
+import { ToolCoordinator } from '@/modules/tools/index.ts';
+import { Role, LLMResponse } from '@/modules/kernel/index.ts';
+import { TOOL_REDACTION_PLACEHOLDER, TOOL_REDACTION_REASON } from '@/modules/context/index.ts';
+import { AdapterLogger } from '@/modules/logging/index.ts';
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
 import { createFixtureCoordinator } from '@tests/helpers/coordinator.ts';
 
@@ -229,7 +229,7 @@ describe('integration/coordinator/coordinator-flow', () => {
       deleteByIds: jest.fn()
     };
 
-    const vectorManager = new (await import('@/managers/vector-store-manager.ts')).VectorStoreManager(
+    const vectorManager = new (await import('@/modules/vector/index.ts')).VectorStoreManager(
       new Map(),
       new Map([['memory', adapter]]),
       async () => [0.1, 0.2]

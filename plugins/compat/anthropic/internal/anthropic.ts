@@ -14,7 +14,7 @@ import {
   UsageStats,
   ReasoningData,
   ParsedStreamChunk
-} from '../../../../core/types.js';
+} from '../../../../modules/kernel/index.js';
 
 
 export default class AnthropicCompat implements ICompatModule {

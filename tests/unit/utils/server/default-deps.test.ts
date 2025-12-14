@@ -27,17 +27,17 @@ describe('utils/server default dependency wiring', () => {
     close: embedCloseMock
   }));
 
-  let createServer!: typeof import('@/utils/server/index.ts').createServer;
-  let running!: Awaited<ReturnType<typeof import('@/utils/server/index.ts').createServer>>;
+  let createServer!: typeof import('@/modules/server/index.ts').createServer;
+  let running!: Awaited<ReturnType<typeof import('@/modules/server/index.ts').createServer>>;
 
   beforeAll(async () => {
     jest.unstable_mockModule('../../../../modules/llm/index.js', () => ({
       LLMCoordinator: LLMCoordinatorMock
     }));
-    jest.unstable_mockModule('../../../../coordinator/vector-coordinator.js', () => ({
+    jest.unstable_mockModule('../../../../modules/vector/index.js', () => ({
       VectorStoreCoordinator: VectorStoreCoordinatorMock
     }));
-    jest.unstable_mockModule('../../../../coordinator/embedding-coordinator.js', () => ({
+    jest.unstable_mockModule('../../../../modules/embeddings/index.js', () => ({
       EmbeddingCoordinator: EmbeddingCoordinatorMock
     }));
     jest.unstable_mockModule('../../../../modules/logging/index.js', () => ({
@@ -59,7 +59,7 @@ describe('utils/server default dependency wiring', () => {
       })
     }));
 
-    ({ createServer } = await import('@/utils/server/index.ts'));
+    ({ createServer } = await import('@/modules/server/index.ts'));
 
     running = await createServer({
       registry: { loadAll: jest.fn().mockResolvedValue(undefined) } as any,

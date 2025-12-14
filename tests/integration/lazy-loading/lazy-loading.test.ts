@@ -1,8 +1,8 @@
 import { jest } from '@jest/globals';
-import { LLMCoordinator } from '@/coordinator/coordinator.ts';
-import { PluginRegistry } from '@/core/registry.ts';
-import { LLMManager } from '@/managers/llm-manager.ts';
-import { Role, LLMResponse } from '@/core/types.ts';
+import { LLMCoordinator } from '@/modules/llm/index.ts';
+import { PluginRegistry } from '@/modules/kernel/index.ts';
+import { LLMManager } from '@/modules/llm/index.ts';
+import { Role, LLMResponse } from '@/modules/kernel/index.ts';
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
 import path from 'path';
 
@@ -525,7 +525,7 @@ describe('integration/lazy-loading', () => {
     // Load MCP configs
     const servers = await registry.getMCPServers(['local']);
 
-    const { MCPManager } = await import('@/managers/mcp-manager.ts');
+    const { MCPManager } = await import('@/modules/mcp/index.ts');
     const mcpManager = new MCPManager(servers);
 
     // Call gatherTools with undefined (covers line 79)

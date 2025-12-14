@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 import OpenRouterEmbeddingCompat from '@/plugins/embedding-compat/openrouter/index.ts';
-import { EmbeddingProviderError } from '@/core/errors.ts';
-import type { EmbeddingProviderConfig } from '@/core/types.ts';
+import { EmbeddingProviderError } from '@/modules/kernel/index.ts';
+import type { EmbeddingProviderConfig } from '@/modules/kernel/index.ts';
 
 function createConfig(overrides: Partial<EmbeddingProviderConfig> = {}): EmbeddingProviderConfig {
   return {

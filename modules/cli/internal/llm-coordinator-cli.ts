@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { loadSpec } from './spec-loader.js';
 import { writeJsonToStdout } from './stdout-writer.js';
 import type { LLMCallSpec, LLMStreamEvent } from '../../kernel/index.js';
-import type { ServerOptions, RunningServer } from '../../../utils/server/index.js';
+import type { ServerOptions, RunningServer } from '../../server/index.js';
 
 export interface LlmCliDependencies {
   createRegistry: (
@@ -31,7 +31,7 @@ interface CoordinatorLike {
 
 const defaultDependencies: LlmCliDependencies = {
   createRegistry: async (pluginsPath: string) => {
-    const module = await import('../../../core/registry.js');
+    const module = await import('../../kernel/index.js');
     return new module.PluginRegistry(pluginsPath);
   },
   createCoordinator: async (registry: PluginRegistryLike) => {
@@ -39,7 +39,7 @@ const defaultDependencies: LlmCliDependencies = {
     return new module.LLMCoordinator(registry as any);
   },
   createServer: async (options: ServerOptions) => {
-    const module = await import('../../../utils/server/index.js');
+    const module = await import('../../server/index.js');
     return module.createServer(options);
   },
   log: (message: string) => console.log(message),

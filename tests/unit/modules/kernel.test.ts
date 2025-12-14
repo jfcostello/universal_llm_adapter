@@ -5,26 +5,56 @@ describe('modules/kernel', () => {
     jest.resetModules();
     await jest.isolateModulesAsync(async () => {
       // If kernel starts pulling in feature code, these mocks will fail the import.
-      jest.unstable_mockModule('../../../utils/server/index.js', () => {
+      jest.unstable_mockModule('../../../modules/server/index.js', () => {
         throw new Error('kernel must not import server module');
       });
-      jest.unstable_mockModule('../../../utils/tools/tool-coordinator.js', () => {
+      jest.unstable_mockModule('../../../modules/tools/index.js', () => {
         throw new Error('kernel must not import tools module');
-      });
-      jest.unstable_mockModule('../../../managers/mcp-manager.js', () => {
-        throw new Error('kernel must not import MCP manager');
       });
       jest.unstable_mockModule('../../../modules/mcp/index.js', () => {
         throw new Error('kernel must not import MCP module');
       });
-      jest.unstable_mockModule('../../../mcp/mcp-client.js', () => {
-        throw new Error('kernel must not import MCP client');
+      jest.unstable_mockModule('../../../modules/vector/index.js', () => {
+        throw new Error('kernel must not import vector module');
       });
-      jest.unstable_mockModule('../../../mcp/mcp-manifest.js', () => {
-        throw new Error('kernel must not import MCP manifest parser');
+      jest.unstable_mockModule('../../../modules/embeddings/index.js', () => {
+        throw new Error('kernel must not import embeddings module');
       });
-      jest.unstable_mockModule('../../../coordinator/coordinator.js', () => {
-        throw new Error('kernel must not import coordinators');
+      jest.unstable_mockModule('../../../modules/llm/index.js', () => {
+        throw new Error('kernel must not import llm module');
+      });
+      jest.unstable_mockModule('../../../modules/logging/index.js', () => {
+        throw new Error('kernel must not import logging module');
+      });
+      jest.unstable_mockModule('../../../modules/cli/index.js', () => {
+        throw new Error('kernel must not import cli module');
+      });
+      jest.unstable_mockModule('../../../modules/context/index.js', () => {
+        throw new Error('kernel must not import context module');
+      });
+      jest.unstable_mockModule('../../../modules/documents/index.js', () => {
+        throw new Error('kernel must not import documents module');
+      });
+      jest.unstable_mockModule('../../../modules/lifecycle/index.js', () => {
+        throw new Error('kernel must not import lifecycle module');
+      });
+      jest.unstable_mockModule('../../../modules/messages/index.js', () => {
+        throw new Error('kernel must not import messages module');
+      });
+      jest.unstable_mockModule('../../../modules/retry/index.js', () => {
+        throw new Error('kernel must not import retry module');
+      });
+      jest.unstable_mockModule('../../../modules/security/index.js', () => {
+        throw new Error('kernel must not import security module');
+      });
+      jest.unstable_mockModule('../../../modules/settings/index.js', () => {
+        throw new Error('kernel must not import settings module');
+      });
+      jest.unstable_mockModule('../../../modules/string/index.js', () => {
+        throw new Error('kernel must not import string module');
+      });
+      jest.unstable_mockModule('../../../modules/usage/index.js', () => {
+        throw new Error('kernel must not import usage module');
       });
 
       const kernel = await import('@/modules/kernel/index.ts');

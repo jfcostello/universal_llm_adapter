@@ -1,12 +1,13 @@
 import path from 'path';
 import { jest } from '@jest/globals';
 import { Command } from 'commander';
-import * as CliModule from '@/llm_coordinator.ts';
+import { createLlmCoordinatorProgram as createProgram } from '@/modules/cli/index.ts';
+import { runLlmCoordinatorCli as runCli } from '@/modules/cli/index.ts';
+import type { LlmCliDependencies as CliDependencies } from '@/modules/cli/index.ts';
+import { __isEntryPoint } from '@/llm_coordinator.ts';
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
 
-const { createProgram, runCli, __isEntryPoint } = CliModule;
-
-function createDeps(overrides: Partial<CliModule.CliDependencies> = {}) {
+function createDeps(overrides: Partial<CliDependencies> = {}) {
   const registry = { loadAll: jest.fn().mockResolvedValue(undefined) };
   const coordinator = {
     run: jest.fn().mockResolvedValue({ ok: true }),

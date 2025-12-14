@@ -27,7 +27,7 @@ describe('coordinator toolCoordinator proxy', () => {
       }
     }));
 
-    const { LLMCoordinator } = await import('@/coordinator/coordinator.ts');
+    const { LLMCoordinator } = await import('@/modules/llm/index.ts');
 
     const registry = {
       getProcessRoutes: jest.fn().mockResolvedValue([]),

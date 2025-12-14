@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 
 export interface WinstonMockHarness {
-  module: typeof import('@/core/logging.ts');
+  module: typeof import('@/modules/logging/index.ts');
   mocks: {
     logger: {
       debug: jest.Mock;
@@ -107,7 +107,7 @@ export async function setupLoggingTestHarness(
 
   process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = options.disableFileLogs ? '1' : '0';
 
-  const module = await import('@/core/logging.ts');
+  const module = await import('@/modules/logging/index.ts');
 
   return {
     module,

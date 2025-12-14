@@ -17,6 +17,10 @@
       "types": "./dist/modules/server/index.d.ts",
       "import": "./dist/modules/server/index.js"
     },
+    "./logging": {
+      "types": "./dist/modules/logging/index.d.ts",
+      "import": "./dist/modules/logging/index.js"
+    },
     "./mcp": {
       "types": "./dist/modules/mcp/index.d.ts",
       "import": "./dist/modules/mcp/index.js"

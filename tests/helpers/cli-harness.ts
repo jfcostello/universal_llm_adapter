@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { jest } from '@jest/globals';
-import { createProgram, CliDependencies } from '@/llm_coordinator.ts';
+import { createLlmCoordinatorProgram as createProgram } from '@/modules/cli/index.ts';
+import type { LlmCliDependencies as CliDependencies } from '@/modules/cli/index.ts';
 
 export interface CliTestHarness {
   program: Command;
@@ -81,4 +82,3 @@ export function createCliTestHarness(partial?: Partial<CliDependencies>): CliTes
     }
   };
 }
-

@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { Message, Role, VectorContextConfig, EmbeddingPriorityItem } from '@/core/types.ts';
+import { Message, Role, VectorContextConfig, EmbeddingPriorityItem } from '@/modules/kernel/index.ts';
 
 // Module imports - will exist after implementation
 let VectorContextInjector: any;
@@ -70,7 +70,7 @@ function createMessages(texts: string[]): Message[] {
 describe('utils/vector/vector-context-injector', () => {
   beforeAll(async () => {
     try {
-      const module = await import('@/utils/vector/vector-context-injector.ts');
+      const module = await import('@/modules/vector/index.ts');
       VectorContextInjector = module.VectorContextInjector;
     } catch {
       // Module doesn't exist yet - mock for TDD

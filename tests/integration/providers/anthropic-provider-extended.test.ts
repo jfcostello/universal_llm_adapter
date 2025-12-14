@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import AnthropicCompat from '@/plugins/compat/anthropic/index.ts';
-import { ToolCallEventType, Role } from '@/core/types.ts';
+import { ToolCallEventType, Role } from '@/modules/kernel/index.ts';
 
 /**
  * Extended comprehensive tests for Anthropic provider

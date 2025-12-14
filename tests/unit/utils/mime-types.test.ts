@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import { detectMimeType, isDocumentMimeType, MIME_TYPES } from '@/utils/documents/mime-types.ts';
+import { detectMimeType, isDocumentMimeType, MIME_TYPES } from '@/modules/documents/index.ts';
 
 describe('mime-types', () => {
   describe('detectMimeType', () => {

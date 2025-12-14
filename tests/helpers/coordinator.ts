@@ -1,6 +1,6 @@
-import { PluginRegistry } from '@/core/registry.ts';
-import { LLMCoordinator } from '@/coordinator/coordinator.ts';
-import { VectorStoreManager } from '@/managers/vector-store-manager.ts';
+import { PluginRegistry } from '@/modules/kernel/index.ts';
+import { LLMCoordinator } from '@/modules/llm/index.ts';
+import { VectorStoreManager } from '@/modules/vector/index.ts';
 import { resolveFixture } from './paths.ts';
 
 interface CreateCoordinatorOptions {

@@ -47,15 +47,6 @@ describe('integration/lazy-loading/import-evaluation', () => {
       jest.unstable_mockModule('../../../modules/mcp/index.js', () => {
         throw new Error('mcp module should not be imported in baseline');
       });
-      jest.unstable_mockModule('../../../mcp/mcp-manifest.js', () => {
-        throw new Error('mcp-manifest should not be imported in baseline');
-      });
-      jest.unstable_mockModule('../../../mcp/mcp-client.js', () => {
-        throw new Error('mcp-client should not be imported in baseline');
-      });
-      jest.unstable_mockModule('../../../managers/mcp-manager.js', () => {
-        throw new Error('mcp-manager should not be imported in baseline');
-      });
       jest.unstable_mockModule('../../../modules/vector/index.js', () => {
         throw new Error('vector module should not be imported in baseline');
       });
@@ -63,9 +54,9 @@ describe('integration/lazy-loading/import-evaluation', () => {
         throw new Error('embeddings module should not be imported in baseline');
       });
 
-      const { PluginRegistry } = await import('@/core/registry.ts');
-      const { LLMCoordinator } = await import('@/coordinator/coordinator.ts');
-      const { LLMManager } = await import('@/managers/llm-manager.ts');
+      const { PluginRegistry } = await import('@/modules/kernel/index.ts');
+      const { LLMCoordinator } = await import('@/modules/llm/index.ts');
+      const { LLMManager } = await import('@/modules/llm/index.ts');
 
       jest
         .spyOn(LLMManager.prototype, 'callProvider')
@@ -114,15 +105,6 @@ describe('integration/lazy-loading/import-evaluation', () => {
       jest.unstable_mockModule('../../../modules/mcp/index.js', () => {
         throw new Error('mcp module should not be imported for tools-only');
       });
-      jest.unstable_mockModule('../../../mcp/mcp-manifest.js', () => {
-        throw new Error('mcp-manifest should not be imported for tools-only');
-      });
-      jest.unstable_mockModule('../../../mcp/mcp-client.js', () => {
-        throw new Error('mcp-client should not be imported for tools-only');
-      });
-      jest.unstable_mockModule('../../../managers/mcp-manager.js', () => {
-        throw new Error('mcp-manager should not be imported for tools-only');
-      });
       jest.unstable_mockModule('../../../modules/vector/index.js', () => {
         throw new Error('vector module should not be imported for tools-only');
       });
@@ -130,9 +112,9 @@ describe('integration/lazy-loading/import-evaluation', () => {
         throw new Error('embeddings module should not be imported for tools-only');
       });
 
-      const { PluginRegistry } = await import('@/core/registry.ts');
-      const { LLMCoordinator } = await import('@/coordinator/coordinator.ts');
-      const { LLMManager } = await import('@/managers/llm-manager.ts');
+      const { PluginRegistry } = await import('@/modules/kernel/index.ts');
+      const { LLMCoordinator } = await import('@/modules/llm/index.ts');
+      const { LLMManager } = await import('@/modules/llm/index.ts');
 
       jest
         .spyOn(LLMManager.prototype, 'callProvider')
@@ -186,30 +168,9 @@ describe('integration/lazy-loading/import-evaluation', () => {
       }));
 
       // Explicitly allow MCP modules in this scenario (and avoid any network/process work).
-      // These mocks also override the baseline/tools-only "throw on import" mocks.
+      // This mock overrides the baseline/tools-only "throw on import" mock.
       jest.unstable_mockModule('../../../modules/mcp/index.js', () => ({
         parseMCPManifest: () => [{ id: 'local', command: 'node' }],
-        MCPManager: class MCPManager {
-          constructor(private servers: any[]) {}
-
-          getPool() {
-            return undefined;
-          }
-
-          async gatherTools() {
-            return [[], this.servers.map(s => s.id)];
-          }
-
-          async close() {}
-        }
-      }));
-      jest.unstable_mockModule('../../../mcp/mcp-manifest.js', () => ({
-        parseMCPManifest: () => [{ id: 'local', command: 'node' }]
-      }));
-      jest.unstable_mockModule('../../../mcp/mcp-client.js', () => ({
-        MCPClientPool: class MCPClientPool {}
-      }));
-      jest.unstable_mockModule('../../../managers/mcp-manager.js', () => ({
         MCPManager: class MCPManager {
           constructor(private servers: any[]) {}
 
@@ -232,9 +193,9 @@ describe('integration/lazy-loading/import-evaluation', () => {
         throw new Error('embeddings module should not be imported for MCP-only');
       });
 
-      const { PluginRegistry } = await import('@/core/registry.ts');
-      const { LLMCoordinator } = await import('@/coordinator/coordinator.ts');
-      const { LLMManager } = await import('@/managers/llm-manager.ts');
+      const { PluginRegistry } = await import('@/modules/kernel/index.ts');
+      const { LLMCoordinator } = await import('@/modules/llm/index.ts');
+      const { LLMManager } = await import('@/modules/llm/index.ts');
 
       jest
         .spyOn(LLMManager.prototype, 'callProvider')
@@ -266,15 +227,6 @@ describe('integration/lazy-loading/import-evaluation', () => {
       });
       jest.unstable_mockModule('../../../modules/mcp/index.js', () => {
         throw new Error('mcp module should not be imported for vector-context-only');
-      });
-      jest.unstable_mockModule('../../../mcp/mcp-manifest.js', () => {
-        throw new Error('mcp-manifest should not be imported for vector-context-only');
-      });
-      jest.unstable_mockModule('../../../mcp/mcp-client.js', () => {
-        throw new Error('mcp-client should not be imported for vector-context-only');
-      });
-      jest.unstable_mockModule('../../../managers/mcp-manager.js', () => {
-        throw new Error('mcp-manager should not be imported for vector-context-only');
       });
 
       let vectorModuleImported = false;
@@ -308,9 +260,9 @@ describe('integration/lazy-loading/import-evaluation', () => {
         };
       });
 
-      const { PluginRegistry } = await import('@/core/registry.ts');
-      const { LLMCoordinator } = await import('@/coordinator/coordinator.ts');
-      const { LLMManager } = await import('@/managers/llm-manager.ts');
+      const { PluginRegistry } = await import('@/modules/kernel/index.ts');
+      const { LLMCoordinator } = await import('@/modules/llm/index.ts');
+      const { LLMManager } = await import('@/modules/llm/index.ts');
 
       jest
         .spyOn(LLMManager.prototype, 'callProvider')

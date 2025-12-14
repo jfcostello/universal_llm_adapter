@@ -1,4 +1,4 @@
-import { createDefaultRetryPolicy, DEFAULT_RATE_LIMIT_DELAYS, getDefaultRateLimitDelays } from '@/utils/retry/retry-policy.ts';
+import { createDefaultRetryPolicy, DEFAULT_RATE_LIMIT_DELAYS, getDefaultRateLimitDelays } from '@/modules/retry/index.ts';
 
 describe('utils/retry/retry-policy', () => {
   test('createDefaultRetryPolicy returns expected policy', () => {

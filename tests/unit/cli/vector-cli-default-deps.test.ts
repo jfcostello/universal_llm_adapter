@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 
-async function importVectorModule() {
-  return import('@/vector_store_coordinator.ts');
+async function importVectorCliModule() {
+  return import('@/modules/cli/index.ts');
 }
 
 describe('vector_store_coordinator default wiring', () => {
@@ -23,11 +23,12 @@ describe('vector_store_coordinator default wiring', () => {
     const executeMock = jest.fn().mockResolvedValue({ success: true, results: [] });
     const closeMock = jest.fn().mockResolvedValue(undefined);
 
-    (jest as any).unstable_mockModule('@/core/registry.ts', () => ({
-      PluginRegistry: jest.fn().mockImplementation(() => registryInstance)
+    (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
+      PluginRegistry: jest.fn().mockImplementation(() => registryInstance),
+      getDefaults: () => ({ timeouts: { loggerFlush: 0 } })
     }));
 
-    (jest as any).unstable_mockModule('@/coordinator/vector-coordinator.ts', () => ({
+    (jest as any).unstable_mockModule('@/modules/vector/index.ts', () => ({
       VectorStoreCoordinator: jest.fn().mockImplementation(() => ({
         execute: executeMock,
         executeStream: jest.fn(),
@@ -44,7 +45,7 @@ describe('vector_store_coordinator default wiring', () => {
     });
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation(((code?: number) => undefined) as any);
 
-    const { createProgram } = await importVectorModule();
+    const { createVectorStoreCoordinatorProgram: createProgram } = await importVectorCliModule();
     const spec = JSON.stringify({ operation: 'query', store: 'test', input: { vector: [0.1], topK: 5 } });
     const program = createProgram();
 
@@ -64,15 +65,16 @@ describe('vector_store_coordinator default wiring', () => {
       loadAll: jest.fn().mockRejectedValue(new Error('Registry error'))
     };
 
-    (jest as any).unstable_mockModule('@/core/registry.ts', () => ({
-      PluginRegistry: jest.fn().mockImplementation(() => registryInstance)
+    (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
+      PluginRegistry: jest.fn().mockImplementation(() => registryInstance),
+      getDefaults: () => ({ timeouts: { loggerFlush: 0 } })
     }));
 
     jest.spyOn(console, 'log').mockImplementation(() => {});
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation(((code?: number) => undefined) as any);
 
-    const { createProgram } = await importVectorModule();
+    const { createVectorStoreCoordinatorProgram: createProgram } = await importVectorCliModule();
     const spec = JSON.stringify({ operation: 'query', store: 'test' });
     const program = createProgram();
 
@@ -92,11 +94,12 @@ describe('vector_store_coordinator default wiring', () => {
     const executeMock = jest.fn().mockResolvedValue({ success: true });
     const closeMock = jest.fn().mockResolvedValue(undefined);
 
-    (jest as any).unstable_mockModule('@/core/registry.ts', () => ({
-      PluginRegistry: jest.fn().mockImplementation(() => registryInstance)
+    (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
+      PluginRegistry: jest.fn().mockImplementation(() => registryInstance),
+      getDefaults: () => ({ timeouts: { loggerFlush: 0 } })
     }));
 
-    (jest as any).unstable_mockModule('@/coordinator/vector-coordinator.ts', () => ({
+    (jest as any).unstable_mockModule('@/modules/vector/index.ts', () => ({
       VectorStoreCoordinator: jest.fn().mockImplementation(() => ({
         execute: executeMock,
         executeStream: jest.fn(),
@@ -113,10 +116,10 @@ describe('vector_store_coordinator default wiring', () => {
     });
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation(((code?: number) => undefined) as any);
 
-    const module = await importVectorModule();
+    const module = await importVectorCliModule();
     const spec = JSON.stringify({ operation: 'embed', store: 'test', embeddingPriority: [{ provider: 'openrouter' }] });
 
-    await module.runCli(['node', 'vector-store-coordinator', 'embed', '--spec', spec]);
+    await module.runVectorStoreCoordinatorCli(['node', 'vector-store-coordinator', 'embed', '--spec', spec]);
 
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
@@ -135,11 +138,12 @@ describe('vector_store_coordinator default wiring', () => {
     });
     const closeMock = jest.fn().mockResolvedValue(undefined);
 
-    (jest as any).unstable_mockModule('@/core/registry.ts', () => ({
-      PluginRegistry: jest.fn().mockImplementation(() => registryInstance)
+    (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
+      PluginRegistry: jest.fn().mockImplementation(() => registryInstance),
+      getDefaults: () => ({ timeouts: { loggerFlush: 0 } })
     }));
 
-    (jest as any).unstable_mockModule('@/coordinator/vector-coordinator.ts', () => ({
+    (jest as any).unstable_mockModule('@/modules/vector/index.ts', () => ({
       VectorStoreCoordinator: jest.fn().mockImplementation(() => ({
         execute: jest.fn(),
         executeStream: executeStreamMock,
@@ -151,7 +155,7 @@ describe('vector_store_coordinator default wiring', () => {
     jest.spyOn(console, 'error').mockImplementation(() => {});
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation(((code?: number) => undefined) as any);
 
-    const { createProgram } = await importVectorModule();
+    const { createVectorStoreCoordinatorProgram: createProgram } = await importVectorCliModule();
     const spec = JSON.stringify({ operation: 'embed', store: 'test', embeddingPriority: [{ provider: 'test' }], input: { texts: ['hello'] } });
     const program = createProgram();
 
@@ -163,7 +167,7 @@ describe('vector_store_coordinator default wiring', () => {
   });
 
   test('__isEntryPoint is exported', async () => {
-    const module = await importVectorModule();
+    const module = await import('@/vector_store_coordinator.ts');
     expect(typeof module.__isEntryPoint).toBe('boolean');
   });
 
@@ -177,11 +181,12 @@ describe('vector_store_coordinator default wiring', () => {
 
     const closeMock = jest.fn().mockResolvedValue(undefined);
 
-    (jest as any).unstable_mockModule('@/core/registry.ts', () => ({
-      PluginRegistry: jest.fn().mockImplementation(() => registryInstance)
+    (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
+      PluginRegistry: jest.fn().mockImplementation(() => registryInstance),
+      getDefaults: () => ({ timeouts: { loggerFlush: 0 } })
     }));
 
-    (jest as any).unstable_mockModule('@/coordinator/vector-coordinator.ts', () => ({
+    (jest as any).unstable_mockModule('@/modules/vector/index.ts', () => ({
       VectorStoreCoordinator: jest.fn().mockImplementation(() => ({
         execute: jest.fn().mockResolvedValue({ success: true }),
         executeStream: jest.fn(),
@@ -202,7 +207,7 @@ describe('vector_store_coordinator default wiring', () => {
     const modulePath = decodeURIComponent(moduleUrl.pathname);
     process.argv = ['node', modulePath];
 
-    const module = await importVectorModule();
+    const module = await import('@/vector_store_coordinator.ts');
     expect(module.__isEntryPoint).toBe(true);
   });
 
@@ -216,11 +221,12 @@ describe('vector_store_coordinator default wiring', () => {
     const executeMock = jest.fn().mockResolvedValue({ success: true, embedded: 0 });
     const closeMock = jest.fn().mockResolvedValue(undefined);
 
-    (jest as any).unstable_mockModule('@/core/registry.ts', () => ({
-      PluginRegistry: jest.fn().mockImplementation(() => registryInstance)
+    (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
+      PluginRegistry: jest.fn().mockImplementation(() => registryInstance),
+      getDefaults: () => ({ timeouts: { loggerFlush: 0 } })
     }));
 
-    (jest as any).unstable_mockModule('@/coordinator/vector-coordinator.ts', () => ({
+    (jest as any).unstable_mockModule('@/modules/vector/index.ts', () => ({
       VectorStoreCoordinator: jest.fn().mockImplementation(() => ({
         execute: executeMock,
         executeStream: jest.fn(),
@@ -242,8 +248,8 @@ describe('vector_store_coordinator default wiring', () => {
     process.argv = ['node', 'vector-store-coordinator', 'embed', '--spec', spec];
 
     // Call runCli without arguments - it should use process.argv
-    const { runCli } = await importVectorModule();
-    await runCli();
+    const { runVectorStoreCoordinatorCli } = await importVectorCliModule();
+    await runVectorStoreCoordinatorCli();
 
     expect(exitSpy).toHaveBeenCalledWith(0);
   });

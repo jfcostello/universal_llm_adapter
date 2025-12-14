@@ -8,12 +8,12 @@ import type {
   VectorOperationResult,
   VectorStreamEvent,
   TextChunk
-} from '@/core/vector-spec-types.ts';
+} from '@/modules/kernel/index.ts';
 
 import type {
   VectorSearchLocks,
   VectorContextConfig
-} from '@/core/types.ts';
+} from '@/modules/kernel/index.ts';
 
 describe('core/vector-spec-types', () => {
   describe('VectorCallSpec', () => {

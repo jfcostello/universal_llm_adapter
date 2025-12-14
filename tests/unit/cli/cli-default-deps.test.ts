@@ -3,7 +3,7 @@ import { pathToFileURL } from 'url';
 import { jest } from '@jest/globals';
 
 async function importCoordinatorModule() {
-  return import('@/llm_coordinator.ts');
+  return import('@/modules/cli/index.ts');
 }
 
 describe('llm_coordinator default wiring', () => {
@@ -25,8 +25,9 @@ describe('llm_coordinator default wiring', () => {
     const runMock = jest.fn().mockResolvedValue({ ok: true });
     const closeMock = jest.fn().mockResolvedValue(undefined);
 
-    (jest as any).unstable_mockModule('@/core/registry.ts', () => ({
-      PluginRegistry: jest.fn().mockImplementation(() => registryInstance)
+    (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
+      PluginRegistry: jest.fn().mockImplementation(() => registryInstance),
+      getDefaults: () => ({ timeouts: { loggerFlush: 0 } })
     }));
 
     (jest as any).unstable_mockModule('@/modules/llm/index.ts', () => ({
@@ -46,7 +47,7 @@ describe('llm_coordinator default wiring', () => {
     });
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation(((code?: number) => undefined) as any);
 
-    const { createProgram } = await importCoordinatorModule();
+    const { createLlmCoordinatorProgram: createProgram } = await importCoordinatorModule();
     const spec = JSON.stringify({ messages: [], llmPriority: [], settings: {} });
     const program = createProgram();
 
@@ -66,8 +67,9 @@ describe('llm_coordinator default wiring', () => {
       loadAll: jest.fn().mockResolvedValue(undefined)
     };
 
-    (jest as any).unstable_mockModule('@/core/registry.ts', () => ({
-      PluginRegistry: jest.fn().mockImplementation(() => registryInstance)
+    (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
+      PluginRegistry: jest.fn().mockImplementation(() => registryInstance),
+      getDefaults: () => ({ timeouts: { loggerFlush: 0 } })
     }));
 
     (jest as any).unstable_mockModule('@/modules/llm/index.ts', () => ({
@@ -84,7 +86,7 @@ describe('llm_coordinator default wiring', () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation(((code?: number) => undefined) as any);
 
-    const { createProgram } = await importCoordinatorModule();
+    const { createLlmCoordinatorProgram: createProgram } = await importCoordinatorModule();
     const spec = JSON.stringify({ messages: [], llmPriority: [], settings: {} });
     const program = createProgram();
 
@@ -103,8 +105,9 @@ describe('llm_coordinator default wiring', () => {
 
     const closeMock = jest.fn().mockResolvedValue(undefined);
 
-    (jest as any).unstable_mockModule('@/core/registry.ts', () => ({
-      PluginRegistry: jest.fn().mockImplementation(() => registryInstance)
+    (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
+      PluginRegistry: jest.fn().mockImplementation(() => registryInstance),
+      getDefaults: () => ({ timeouts: { loggerFlush: 0 } })
     }));
 
     (jest as any).unstable_mockModule('@/modules/llm/index.ts', () => ({
@@ -122,7 +125,7 @@ describe('llm_coordinator default wiring', () => {
     jest.spyOn(console, 'error').mockImplementation(() => {});
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation(((code?: number) => undefined) as any);
 
-    const { createProgram } = await importCoordinatorModule();
+    const { createLlmCoordinatorProgram: createProgram } = await importCoordinatorModule();
     const spec = JSON.stringify({ messages: [], llmPriority: [], settings: {} });
 
     // Create program with NO deps - this uses defaults, and stream command calls deps.log()
@@ -157,7 +160,7 @@ describe('llm_coordinator default wiring', () => {
     });
 
     const module = await importCoordinatorModule();
-    await module.runCli(['node', 'llm-coordinator', '--version']);
+    await module.runLlmCoordinatorCli(['node', 'llm-coordinator', '--version']);
 
     expect(parseSpy).toHaveBeenCalledWith(['node', 'llm-coordinator', '--version']);
   });
@@ -166,7 +169,7 @@ describe('llm_coordinator default wiring', () => {
     jest.resetModules();
 
     const registryInstance = { loadAll: jest.fn().mockResolvedValue(undefined) };
-    (jest as any).unstable_mockModule('@/core/registry.ts', () => ({
+    (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
       PluginRegistry: jest.fn().mockImplementation(() => registryInstance)
     }));
 

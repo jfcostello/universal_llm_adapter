@@ -2,7 +2,7 @@ import { jest } from '@jest/globals';
 import { EventEmitter } from 'events';
 
 const mockRequest = jest.fn();
-let ToolCoordinator: typeof import('@/utils/tools/tool-coordinator.ts').ToolCoordinator;
+let ToolCoordinator: typeof import('@/modules/tools/index.ts').ToolCoordinator;
 
 beforeAll(async () => {
   await (jest as any).unstable_mockModule('axios', () => ({
@@ -10,7 +10,7 @@ beforeAll(async () => {
     default: { request: mockRequest }
   }));
 
-  ({ ToolCoordinator } = await import('@/utils/tools/tool-coordinator.ts'));
+  ({ ToolCoordinator } = await import('@/modules/tools/index.ts'));
 });
 
 describe('utils/tools/tool-coordinator success paths', () => {

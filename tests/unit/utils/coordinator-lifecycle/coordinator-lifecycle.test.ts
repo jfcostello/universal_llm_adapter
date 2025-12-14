@@ -1,9 +1,9 @@
 import { jest } from '@jest/globals';
-import type { PluginRegistryLike } from '@/utils/coordinator-lifecycle/index.ts';
+import type { PluginRegistryLike } from '@/modules/lifecycle/index.ts';
 import {
   runWithCoordinatorLifecycle,
   streamWithCoordinatorLifecycle
-} from '@/utils/coordinator-lifecycle/index.ts';
+} from '@/modules/lifecycle/index.ts';
 
 interface FakeSpec {
   foo: string;

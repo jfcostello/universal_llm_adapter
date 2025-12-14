@@ -5,7 +5,7 @@ import { jest } from '@jest/globals';
 process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';
 delete process.env.LLM_ADAPTER_DISABLE_CONSOLE_LOGS;
 
-import { AdapterLogger, LogLevel } from '@/core/logging.ts';
+import { AdapterLogger, LogLevel } from '@/modules/logging/index.ts';
 
 /**
  * Integration test for FlushingConsoleTransport

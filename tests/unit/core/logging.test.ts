@@ -211,7 +211,7 @@ describe('core/logging', () => {
       process.env.LLM_ADAPTER_DISABLE_CONSOLE_LOGS = '1';
       process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';
       jest.resetModules();
-      const logging = await import('@/core/logging.ts');
+      const logging = await import('@/modules/logging/index.ts');
       const logger = new logging.AdapterLogger(logging.LogLevel.INFO);
       expect((logger as any).logger.transports.length).toBe(0);
       delete process.env.LLM_ADAPTER_DISABLE_CONSOLE_LOGS;

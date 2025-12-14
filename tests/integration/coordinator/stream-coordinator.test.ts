@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
-import { StreamCoordinator } from '@/coordinator/stream-coordinator.ts';
-import { StreamEventType, ToolCallEventType } from '@/core/types.ts';
-import { ToolCallBudget } from '@/utils/tools/tool-budget.ts';
+import { StreamCoordinator } from '@/modules/llm/index.ts';
+import { StreamEventType, ToolCallEventType } from '@/modules/kernel/index.ts';
+import { ToolCallBudget } from '@/modules/tools/index.ts';
 import OpenAICompat from '@/plugins/compat/openai/index.ts';
 
 interface MockOptions {

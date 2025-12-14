@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { createProgram } from '@/llm_coordinator.ts';
+import { createLlmCoordinatorProgram as createProgram } from '@/modules/cli/index.ts';
 import { createCliTestHarness } from '@tests/helpers/cli-harness.ts';
 import { withTempCwd, writeJson } from '@tests/helpers/temp-files.ts';
 

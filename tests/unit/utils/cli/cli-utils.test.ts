@@ -2,7 +2,7 @@ import { PassThrough, Readable } from 'stream';
 import fs from 'fs';
 import path from 'path';
 import { jest } from '@jest/globals';
-import { loadSpec, writeJsonToStdout } from '@/utils/cli/index.ts';
+import { loadSpec, writeJsonToStdout } from '@/modules/cli/index.ts';
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
 
 describe('utils/cli loadSpec', () => {

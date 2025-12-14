@@ -7,17 +7,17 @@ describe('integration/lazy-loading/server-import-evaluation', () => {
 
   test('importing server does not evaluate coordinator modules', async () => {
     await jest.isolateModulesAsync(async () => {
-      jest.unstable_mockModule('../../../coordinator/coordinator.js', () => {
-        throw new Error('LLM coordinator must not be imported at server module load');
+      jest.unstable_mockModule('../../../modules/llm/index.js', () => {
+        throw new Error('LLM module must not be imported at server module load');
       });
-      jest.unstable_mockModule('../../../coordinator/vector-coordinator.js', () => {
-        throw new Error('Vector coordinator must not be imported at server module load');
+      jest.unstable_mockModule('../../../modules/vector/index.js', () => {
+        throw new Error('Vector module must not be imported at server module load');
       });
-      jest.unstable_mockModule('../../../coordinator/embedding-coordinator.js', () => {
-        throw new Error('Embedding coordinator must not be imported at server module load');
+      jest.unstable_mockModule('../../../modules/embeddings/index.js', () => {
+        throw new Error('Embeddings module must not be imported at server module load');
       });
 
-      const { createServerHandlerWithDefaults } = await import('@/utils/server/index.ts');
+      const { createServerHandlerWithDefaults } = await import('@/modules/server/index.ts');
 
       const handler = createServerHandlerWithDefaults({
         registry: { loadAll: async () => {} } as any,
@@ -32,4 +32,3 @@ describe('integration/lazy-loading/server-import-evaluation', () => {
     });
   });
 });
-

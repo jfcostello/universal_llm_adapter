@@ -18,7 +18,7 @@ describe('unit/managers/llm-manager branch coverage', () => {
       })
     } as any;
 
-    const { LLMManager } = await import('@/managers/llm-manager.ts');
+    const { LLMManager } = await import('@/modules/llm/index.ts');
     const manager = new LLMManager(registry);
 
     const requestSpy = jest
@@ -45,7 +45,7 @@ describe('unit/managers/llm-manager branch coverage', () => {
       })
     } as any;
 
-    const { LLMManager } = await import('@/managers/llm-manager.ts');
+    const { LLMManager } = await import('@/modules/llm/index.ts');
     const manager = new LLMManager(reg);
     const logger = loggerStub();
 
@@ -88,7 +88,7 @@ describe('unit/managers/llm-manager branch coverage', () => {
       })
     } as any;
 
-    const { LLMManager } = await import('@/managers/llm-manager.ts');
+    const { LLMManager } = await import('@/modules/llm/index.ts');
     const manager = new LLMManager(reg);
 
     const requestSpy = jest

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { jest } from '@jest/globals';
-import { substituteEnv, loadJsonFile } from '@/core/config.ts';
+import { substituteEnv, loadJsonFile } from '@/modules/kernel/index.ts';
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
 import { withTempCwd, writeJson } from '@tests/helpers/temp-files.ts';
 
@@ -64,7 +64,7 @@ describe('core/config', () => {
     jest.resetModules();
 
     try {
-      const configModule = await import('@/core/config.ts');
+      const configModule = await import('@/modules/kernel/index.ts');
       expect(configModule.substituteEnv('${TEST_ENV_FROM_FILE}')).toBe('loaded');
     } finally {
       if (fs.existsSync(envPath)) {
@@ -77,7 +77,7 @@ describe('core/config', () => {
   test('loadRootDotenv marks environment loaded when no dotenv present', async () => {
     jest.resetModules();
     const existsSpy = jest.spyOn(fs, 'existsSync').mockReturnValue(false);
-    const configModule = await import('@/core/config.ts');
+    const configModule = await import('@/modules/kernel/index.ts');
     expect(configModule.substituteEnv('plain')).toBe('plain');
     expect(existsSpy).toHaveBeenCalled();
     existsSpy.mockRestore();

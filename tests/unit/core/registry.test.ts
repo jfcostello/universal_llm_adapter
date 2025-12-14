@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { jest } from '@jest/globals';
-import { PluginRegistry } from '@/core/registry.ts';
-import { ManifestError } from '@/core/errors.ts';
+import { PluginRegistry } from '@/modules/kernel/index.ts';
+import { ManifestError } from '@/modules/kernel/index.ts';
 import { PACKAGE_ROOT } from '@/modules/kernel/internal/paths.ts';
 import { withTempCwd } from '@tests/helpers/temp-files.ts';
 import { copyFixturePlugins } from '@tests/helpers/plugins.ts';

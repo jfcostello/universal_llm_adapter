@@ -1,9 +1,9 @@
 import { jest } from '@jest/globals';
-import { runToolLoop } from '@/utils/tools/tool-loop.ts';
-import { PluginRegistry } from '@/core/registry.ts';
-import { LLMManager } from '@/managers/llm-manager.ts';
-import { AdapterLogger } from '@/core/logging.ts';
-import { Role, LLMResponse } from '@/core/types.ts';
+import { runToolLoop } from '@/modules/tools/index.ts';
+import { PluginRegistry } from '@/modules/kernel/index.ts';
+import { LLMManager } from '@/modules/llm/index.ts';
+import { AdapterLogger } from '@/modules/logging/index.ts';
+import { Role, LLMResponse } from '@/modules/kernel/index.ts';
 import { ROOT_DIR, resolveFixture } from '@tests/helpers/paths.ts';
 
 const loggerStub = (): AdapterLogger => ({

@@ -16,7 +16,7 @@ import OpenAICompat from '@/plugins/compat/openai/index.ts';
 import OpenAIResponsesCompat from '@/plugins/compat/openai-responses/index.ts';
 import AnthropicCompat from '@/plugins/compat/anthropic/index.ts';
 import GoogleCompat from '@/plugins/compat/google/index.ts';
-import { Role, Message } from '@/core/types.ts';
+import { Role, Message } from '@/modules/kernel/index.ts';
 
 const baseMessages: Message[] = [
   { role: Role.SYSTEM, content: [{ type: 'text', text: 'You are helpful.' }] },

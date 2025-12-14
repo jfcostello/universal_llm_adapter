@@ -5,7 +5,7 @@ import {
   ToolExecutionError,
   MCPConnectionError,
   ProviderPayloadError
-} from '@/core/errors.ts';
+} from '@/modules/kernel/index.ts';
 
 describe('core/errors', () => {
   test('ProviderExecutionError extends base error with metadata', () => {

@@ -1,5 +1,5 @@
-import { ToolCallBudget } from '@/utils/tools/tool-budget.ts';
-import { formatCountdown, buildFinalPrompt } from '@/utils/tools/tool-message.ts';
+import { ToolCallBudget } from '@/modules/tools/index.ts';
+import { formatCountdown, buildFinalPrompt } from '@/modules/tools/index.ts';
 
 describe('utils/tools/tool-budget', () => {
   test('consumes with finite budget and reports remaining', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
-import type { DocumentContent, Message, Role } from '@/core/types.ts';
+import type { DocumentContent, Message, Role } from '@/modules/kernel/index.ts';
 import AnthropicCompat from '@/plugins/compat/anthropic/index.ts';
 import OpenAICompat from '@/plugins/compat/openai/index.ts';
 import GoogleCompat from '@/plugins/compat/google/index.ts';

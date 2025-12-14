@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { createServer } from '@/utils/server/index.ts';
+import { createServer } from '@/modules/server/index.ts';
 import {
   baseSpec,
   canBindToLocalhost,

@@ -1,7 +1,7 @@
 import { PluginRegistry } from '../../kernel/index.js';
 import { LLMCallSpec, UnifiedTool, VectorContextConfig, ToolSchemaParamOverride } from '../../kernel/index.js';
-import type { MCPManager } from '../../../managers/mcp-manager.js';
-import type { VectorStoreManager } from '../../../managers/vector-store-manager.js';
+import type { MCPManager } from '../../mcp/index.js';
+import type { VectorStoreManager } from '../../vector/index.js';
 import { sanitizeToolName } from './tool-names.js';
 
 export interface ToolDiscoveryOptions {
@@ -302,4 +302,3 @@ export function createVectorSearchTool(config: VectorContextConfig): VectorSearc
 
   return { tool, aliasMap };
 }
-

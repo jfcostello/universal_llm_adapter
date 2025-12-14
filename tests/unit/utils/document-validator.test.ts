@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import { isValidBase64, estimateFileSizeFromBase64, formatFileSize } from '@/utils/documents/document-validator.ts';
+import { isValidBase64, estimateFileSizeFromBase64, formatFileSize } from '@/modules/documents/index.ts';
 
 describe('document-validator', () => {
   describe('isValidBase64', () => {

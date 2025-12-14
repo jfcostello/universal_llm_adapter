@@ -1,5 +1,5 @@
-import { LLMCoordinator } from '@/coordinator/coordinator.ts';
-import { sanitizeToolChoice } from '@/utils/tools/tool-names.ts';
+import { LLMCoordinator } from '@/modules/llm/index.ts';
+import { sanitizeToolChoice } from '@/modules/kernel/index.ts';
 
 function instance(): any {
   return new LLMCoordinator({

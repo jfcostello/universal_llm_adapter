@@ -85,11 +85,11 @@ const defaultDependencies: ServerDependencies = {
     return new module.LLMCoordinator(registry as any);
   },
   createVectorCoordinator: async (registry: PluginRegistryLike) => {
-    const module = await import('../../coordinator/vector-coordinator.js');
+    const module = await import('../vector/index.js');
     return new module.VectorStoreCoordinator(registry as any);
   },
   createEmbeddingCoordinator: async (registry: PluginRegistryLike) => {
-    const module = await import('../../coordinator/embedding-coordinator.js');
+    const module = await import('../embeddings/index.js');
     return new module.EmbeddingCoordinator(registry as any);
   },
   closeLogger: async () => (await import('../logging/index.js')).closeLogger()

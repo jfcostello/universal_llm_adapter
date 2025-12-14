@@ -1,8 +1,7 @@
 import { Command } from 'commander';
 import { loadSpec } from './spec-loader.js';
 import { writeJsonToStdout } from './stdout-writer.js';
-import type { EmbeddingCallSpec } from '../../../core/embedding-spec-types.js';
-import type { VectorCallSpec, VectorStreamEvent } from '../../../core/vector-spec-types.js';
+import type { EmbeddingCallSpec, VectorCallSpec, VectorStreamEvent } from '../../kernel/index.js';
 
 export interface VectorCliDependencies {
   createRegistry: (
@@ -36,15 +35,15 @@ interface EmbeddingCoordinatorLike {
 
 const defaultDependencies: VectorCliDependencies = {
   createRegistry: async (pluginsPath: string) => {
-    const module = await import('../../../core/registry.js');
+    const module = await import('../../kernel/index.js');
     return new module.PluginRegistry(pluginsPath);
   },
   createCoordinator: async (registry: PluginRegistryLike) => {
-    const module = await import('../../../coordinator/vector-coordinator.js');
+    const module = await import('../../vector/index.js');
     return new module.VectorStoreCoordinator(registry as any);
   },
   createEmbeddingCoordinator: async (registry: PluginRegistryLike) => {
-    const module = await import('../../../coordinator/embedding-coordinator.js');
+    const module = await import('../../embeddings/index.js');
     return new module.EmbeddingCoordinator(registry as any);
   },
   log: (message: string) => console.log(message),

@@ -1,11 +1,11 @@
 import { describe, expect, test } from '@jest/globals';
-import { Role } from '@/core/types.ts';
+import { Role } from '@/modules/kernel/index.ts';
 import {
   aggregateSystemMessages,
   appendAssistantToolCalls,
   appendToolResult,
   prepareMessages
-} from '@/utils/messages/message-utils.ts';
+} from '@/modules/messages/index.ts';
 
 describe('utils/messages/message-utils', () => {
   test('prepareMessages prepends system prompt when present', () => {

@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
-import { LLMCoordinator } from '@/coordinator/coordinator.ts';
-import * as toolDiscovery from '@/utils/tools/tool-discovery.ts';
+import { LLMCoordinator } from '@/modules/llm/index.ts';
+import * as toolDiscovery from '@/modules/tools/index.ts';
 
 function createRegistryStub() {
   return {

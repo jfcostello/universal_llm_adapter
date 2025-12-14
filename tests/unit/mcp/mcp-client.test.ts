@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
-import { MCPClientPool, MCPConnection } from '@/mcp/mcp-client.ts';
-import { MCPConnectionError } from '@/core/errors.ts';
+import { MCPClientPool, MCPConnection } from '@/modules/mcp/index.ts';
+import { MCPConnectionError } from '@/modules/kernel/index.ts';
 import { resolveFixture } from '@tests/helpers/paths.ts';
 
 describe('mcp/mcp-client', () => {
@@ -32,7 +32,7 @@ describe('mcp/mcp-client', () => {
     (jest as any).unstable_mockModule('fs', () => fsMock);
 
     // Now import MCPConnection which will use the mocked fs
-    const { MCPConnection: MockedConnection } = await import('@/mcp/mcp-client.ts');
+    const { MCPConnection: MockedConnection } = await import('@/modules/mcp/index.ts');
 
     // Creating a connection will trigger the package.json reading code
     const connection = new MockedConnection({ id: 'test', command: 'node' } as any);

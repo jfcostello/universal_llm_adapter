@@ -1,5 +1,5 @@
 import { describe, test, expect } from '@jest/globals';
-import { interpolate } from '@/utils/string/interpolate.ts';
+import { interpolate } from '@/modules/string/index.ts';
 
 describe('utils/string/interpolate', () => {
   describe('basic interpolation', () => {

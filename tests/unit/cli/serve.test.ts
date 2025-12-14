@@ -1,16 +1,15 @@
 import { jest } from '@jest/globals';
-import * as CliModule from '@/llm_coordinator.ts';
+import { createLlmCoordinatorProgram as createProgram } from '@/modules/cli/index.ts';
+import type { LlmCliDependencies as CliDependencies } from '@/modules/cli/index.ts';
 
-const { createProgram } = CliModule;
-
-function createServeDeps(overrides: Partial<CliModule.CliDependencies> = {}) {
+function createServeDeps(overrides: Partial<CliDependencies> = {}) {
   const runningServer = {
     url: 'http://127.0.0.1:4000',
     server: {} as any,
     close: jest.fn().mockResolvedValue(undefined)
   };
 
-  const baseDeps: CliModule.CliDependencies = {
+  const baseDeps: CliDependencies = {
     createRegistry: jest.fn(),
     createCoordinator: jest.fn(),
     log: jest.fn(),

@@ -1,8 +1,8 @@
 import { jest } from '@jest/globals';
 
 // Type imports - will exist after implementation
-import type { VectorStoreCoordinator } from '@/coordinator/vector-coordinator.ts';
-import type { VectorCallSpec, VectorOperationResult } from '@/core/vector-spec-types.ts';
+import type { VectorStoreCoordinator } from '@/modules/vector/index.ts';
+import type { VectorCallSpec, VectorOperationResult } from '@/modules/kernel/index.ts';
 
 // Mock registry helper
 function createMockRegistry(options: {
@@ -71,7 +71,7 @@ describe('coordinator/vector-coordinator', () => {
 
   beforeAll(async () => {
     try {
-      const module = await import('@/coordinator/vector-coordinator.ts');
+      const module = await import('@/modules/vector/index.ts');
       VectorStoreCoordinator = module.VectorStoreCoordinator;
     } catch {
       // Module doesn't exist yet - tests document expected behavior

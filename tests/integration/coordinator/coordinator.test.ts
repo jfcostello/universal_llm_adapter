@@ -1,9 +1,9 @@
 import path from 'path';
 import { jest } from '@jest/globals';
-import { PluginRegistry } from '@/core/registry.ts';
-import { LLMCoordinator } from '@/coordinator/coordinator.ts';
-import { Role, LLMResponse, LLMCallSettings } from '@/core/types.ts';
-import { LLMManager } from '@/managers/llm-manager.ts';
+import { PluginRegistry } from '@/modules/kernel/index.ts';
+import { LLMCoordinator } from '@/modules/llm/index.ts';
+import { Role, LLMResponse, LLMCallSettings } from '@/modules/kernel/index.ts';
+import { LLMManager } from '@/modules/llm/index.ts';
 import { ROOT_DIR, resolveFixture } from '@tests/helpers/paths.ts';
 
 const specBase = {
@@ -502,7 +502,7 @@ describe('coordinator/coordinator integration', () => {
   describe('vector context auto mode logging', () => {
     test('EmbeddingLogger.logEmbeddingRequest is called when using auto mode with embeddings', async () => {
       // Import logging module to spy on the logger
-      const loggingModule = await import('@/core/logging.ts');
+      const loggingModule = await import('@/modules/logging/index.ts');
       const { EmbeddingLogger } = loggingModule;
 
       // Spy on logEmbeddingRequest method

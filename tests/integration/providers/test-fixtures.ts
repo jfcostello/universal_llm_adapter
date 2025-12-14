@@ -1,4 +1,4 @@
-import { Role, Message, UnifiedTool } from '../../../core/types.js';
+import { Role, Message, UnifiedTool } from '../../../modules/kernel/index.js';
 
 /**
  * Shared test fixtures for provider integration tests

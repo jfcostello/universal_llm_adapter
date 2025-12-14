@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 
 // Type imports - will exist after implementation
-import type { TextChunk } from '@/core/vector-spec-types.ts';
+import type { TextChunk } from '@/modules/kernel/index.ts';
 
 // Module imports - will exist after implementation
 let chunkText: (text: string, options?: ChunkOptions) => TextChunk[];
@@ -18,7 +18,7 @@ interface ChunkOptions {
 describe('utils/vector/vector-chunker', () => {
   beforeAll(async () => {
     try {
-      const module = await import('@/utils/vector/vector-chunker.ts');
+      const module = await import('@/modules/vector/index.ts');
       chunkText = module.chunkText;
       chunkFile = module.chunkFile;
     } catch {

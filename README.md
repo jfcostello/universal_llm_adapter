@@ -355,16 +355,16 @@ LLM API
 ```
 
 **Key Files**:
-- `core/types.ts` - DocumentContent type definitions
-- `utils/documents/document-loader.ts` - File loading and preprocessing
-- `utils/documents/mime-types.ts` - MIME type detection
+- `modules/kernel/index.ts` - DocumentContent type definitions
+- `modules/documents/index.ts` - File loading and preprocessing
+- `modules/documents/index.ts` - MIME type detection
 - `modules/llm/index.ts` - Message preprocessing integration
 - `plugins/compat/<compat-id>/index.ts` - Provider-specific transformations
 - `vector_store_coordinator.ts` - Vector Store CLI entry point
-- `coordinator/vector-coordinator.ts` - VectorStoreCoordinator class
-- `core/vector-spec-types.ts` - VectorCallSpec and related types
-- `utils/vector/vector-chunker.ts` - Text chunking utility
-- `utils/vector/vector-context-injector.ts` - RAG context injection
+- `modules/vector/index.ts` - VectorStoreCoordinator class
+- `modules/kernel/index.ts` - VectorCallSpec and related types
+- `modules/vector/index.ts` - Text chunking utility
+- `modules/vector/index.ts` - RAG context injection
 
 ## Vector Stores & Embeddings
 
@@ -1008,7 +1008,7 @@ These serve different purposes and can coexist:
 Create `plugins/embedding-compat/<kind>/index.ts`:
 
 ```typescript
-	import { IEmbeddingCompat, EmbeddingProviderConfig, EmbeddingResult } from '../../../core/types.js';
+	import { IEmbeddingCompat, EmbeddingProviderConfig, EmbeddingResult } from '../../../modules/kernel/index.js';
 
 export default class YourProviderEmbeddingCompat implements IEmbeddingCompat {
   async embed(
@@ -1035,7 +1035,7 @@ export default class YourProviderEmbeddingCompat implements IEmbeddingCompat {
 Create `plugins/vector-compat/<kind>/index.ts`:
 
 ```typescript
-	import { IVectorStoreCompat, VectorStoreConfig, VectorPoint, VectorQueryResult } from '../../../core/types.js';
+	import { IVectorStoreCompat, VectorStoreConfig, VectorPoint, VectorQueryResult } from '../../../modules/kernel/index.js';
 
 export default class YourProviderCompat implements IVectorStoreCompat {
   async connect(config: VectorStoreConfig): Promise<void> { /* ... */ }
@@ -1158,7 +1158,7 @@ All non-provider-specific defaults are centralized in `/plugins/configs/defaults
 #### Accessing Defaults in Code
 
 ```typescript
-import { getDefaults } from './core/defaults';
+import { getDefaults } from 'llm-adapter';
 
 const defaults = getDefaults();
 console.log(defaults.retry.maxAttempts);  // 3
@@ -1221,7 +1221,7 @@ Ad-hoc CLI runner for scripted or interactive conversations that write transcrip
 
 ## Logging
 
-- Use factory helpers from `core/logging.ts`:
+- Use factory helpers from `llm-adapter/logging`:
   - `getLLMLogger()` (also available via `getLogger()`) for LLM HTTP + console logs
   - `getEmbeddingLogger()` for embedding requests/responses
   - `getVectorLogger()` for vector store operations
@@ -1279,7 +1279,7 @@ const response = await coordinator.run({
 You can also use correlationId directly with loggers:
 
 ```typescript
-import { getLLMLogger } from './core/logging';
+import { getLLMLogger } from 'llm-adapter/logging';
 
 // Create logger with correlationId
 const logger = getLLMLogger().withCorrelation('request-123');

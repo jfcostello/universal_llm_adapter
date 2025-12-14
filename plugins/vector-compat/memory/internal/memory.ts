@@ -5,9 +5,9 @@ import {
   VectorQueryResult,
   VectorQueryOptions,
   JsonObject,
-  IVectorOperationLogger
-} from '../../../../core/types.js';
-import { VectorStoreError } from '../../../../core/errors.js';
+  IVectorOperationLogger,
+  VectorStoreError
+} from '../../../../modules/kernel/index.js';
 
 /**
  * In-Memory Vector Store Compat Module

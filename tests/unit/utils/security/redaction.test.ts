@@ -1,5 +1,5 @@
 import { describe, expect, test } from '@jest/globals';
-import { genericRedactHeaders } from '@/utils/security/redaction.ts';
+import { genericRedactHeaders } from '@/modules/security/index.ts';
 
 describe('utils/security/redaction', () => {
   test('genericRedactHeaders masks authorization and api keys', () => {

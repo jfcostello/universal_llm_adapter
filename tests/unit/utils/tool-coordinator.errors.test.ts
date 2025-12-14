@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import path from 'path';
-import { ToolCoordinator } from '@/utils/tools/tool-coordinator.ts';
+import { ToolCoordinator } from '@/modules/tools/index.ts';
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
 
 const rawModulePath = path.join(ROOT_DIR, 'tests/fixtures/modules/raw-return.mjs');

@@ -1,12 +1,9 @@
 import path from 'path';
 import { jest } from '@jest/globals';
 import { Command } from 'commander';
-
-// These will be created in implementation
-import type { CliDependencies } from '@/vector_store_coordinator.ts';
-
-// Mock the module - will be replaced when implementation exists
-const mockCreateProgram = jest.fn();
+import { createVectorStoreCoordinatorProgram as createProgram } from '@/modules/cli/index.ts';
+import { runVectorStoreCoordinatorCli as runCli } from '@/modules/cli/index.ts';
+import type { VectorCliDependencies as CliDependencies } from '@/modules/cli/index.ts';
 
 // Import ROOT_DIR from test helpers
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
@@ -54,22 +51,6 @@ function createDeps(overrides: Partial<CliDependencies> = {}) {
 }
 
 describe('vector_store_coordinator CLI', () => {
-  // Note: These tests will fail until implementation exists
-  // This is TDD - tests first, then implementation
-
-  let createProgram: typeof mockCreateProgram;
-
-  beforeAll(async () => {
-    // Will import from actual module when it exists
-    try {
-      const module = await import('@/vector_store_coordinator.ts');
-      createProgram = module.createProgram;
-    } catch {
-      // Module doesn't exist yet - use mocks for type checking
-      createProgram = mockCreateProgram;
-    }
-  });
-
   afterEach(() => {
     jest.restoreAllMocks();
   });
@@ -569,29 +550,21 @@ describe('vector_store_coordinator CLI', () => {
 
   describe('runCli', () => {
     test('runCli function is exported and callable', async () => {
-      // Verify runCli is exported
-      const module = await import('@/vector_store_coordinator.ts');
-      expect(typeof module.runCli).toBe('function');
+      expect(typeof runCli).toBe('function');
     });
 
     test('runCli calls program.parseAsync with provided argv', async () => {
-      const module = await import('@/vector_store_coordinator.ts');
+      const originalArgv = [...process.argv];
+      process.argv = ['node', 'vector-store-coordinator', '--version'];
 
-      // Mock process.exit to prevent --help from actually exiting
-      const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+      const parseSpy = jest.spyOn(Command.prototype, 'parseAsync').mockResolvedValue(undefined);
 
-      // Call runCli with --version flag
-      try {
-        await module.runCli(['node', 'vector-store-coordinator', '--version']);
-      } catch {
-        // --version may throw/exit in commander, that's ok
-      }
+      await runCli(process.argv);
 
-      // Restore
-      exitSpy.mockRestore();
+      expect(parseSpy).toHaveBeenCalledWith(process.argv);
 
-      // If we got here without crashing, runCli was executed
-      expect(true).toBe(true);
+      parseSpy.mockRestore();
+      process.argv = originalArgv;
     });
   });
 
