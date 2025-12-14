@@ -12,11 +12,11 @@ import {
   ToolCall,
   ToolCallEvent,
   ToolCallEventType,
+  sanitizeToolName,
   UsageStats,
   ParsedStreamChunk,
   ReasoningData
 } from '../../core/types.js';
-import { sanitizeToolName } from '../../utils/tools/tool-names.js';
 
 type GooglePart = {
   text?: string;

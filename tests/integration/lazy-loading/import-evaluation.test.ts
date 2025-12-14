@@ -41,6 +41,9 @@ describe('integration/lazy-loading/import-evaluation', () => {
   test('baseline run does not evaluate optional MCP/vector modules', async () => {
     jest.resetModules();
     await jest.isolateModulesAsync(async () => {
+      jest.unstable_mockModule('../../../modules/tools/index.js', () => {
+        throw new Error('tools module should not be imported in baseline');
+      });
       jest.unstable_mockModule('../../../modules/mcp/index.js', () => {
         throw new Error('mcp module should not be imported in baseline');
       });
@@ -91,6 +94,26 @@ describe('integration/lazy-loading/import-evaluation', () => {
   test('tools-only run does not evaluate MCP/vector modules', async () => {
     jest.resetModules();
     await jest.isolateModulesAsync(async () => {
+      // Override the baseline "throw on import" mock so this test can exercise tool-providing flows.
+      // (Jest ESM mocks persist across tests in this file.)
+      jest.unstable_mockModule('../../../modules/tools/index.js', () => ({
+        ToolCoordinator: class ToolCoordinator {
+          constructor(..._args: any[]) {}
+          setVectorContext() {}
+          async routeAndInvoke() {
+            throw new Error('ToolCoordinator not used in tools-only import test');
+          }
+          async close() {}
+        },
+        sanitizeToolChoice: (choice: any) => choice,
+        collectTools: async ({ spec }: any) => ({
+          tools: spec.tools ?? [],
+          mcpServers: [],
+          toolNameMap: {},
+          vectorSearchAliasMap: undefined
+        })
+      }));
+
       jest.unstable_mockModule('../../../modules/mcp/index.js', () => {
         throw new Error('mcp module should not be imported for tools-only');
       });
@@ -148,6 +171,26 @@ describe('integration/lazy-loading/import-evaluation', () => {
   test('MCP-only run does not evaluate vector modules', async () => {
     jest.resetModules();
     await jest.isolateModulesAsync(async () => {
+      // Override the baseline "throw on import" mock so this test can exercise MCP flows.
+      // (Jest ESM mocks persist across tests in this file.)
+      jest.unstable_mockModule('../../../modules/tools/index.js', () => ({
+        ToolCoordinator: class ToolCoordinator {
+          constructor(..._args: any[]) {}
+          setVectorContext() {}
+          async routeAndInvoke() {
+            throw new Error('ToolCoordinator not used in MCP-only import test');
+          }
+          async close() {}
+        },
+        sanitizeToolChoice: (choice: any) => choice,
+        collectTools: async () => ({
+          tools: [],
+          mcpServers: [],
+          toolNameMap: {},
+          vectorSearchAliasMap: undefined
+        })
+      }));
+
       // Explicitly allow MCP modules in this scenario (and avoid any network/process work).
       // These mocks also override the baseline/tools-only "throw on import" mocks.
       jest.unstable_mockModule('../../../modules/mcp/index.js', () => ({

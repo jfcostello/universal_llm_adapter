@@ -10,7 +10,6 @@ import {
 import { ProviderExecutionError } from '../core/errors.js';
 import type { AdapterLogger } from '../modules/logging/index.js';
 import { buildFinalPayload } from '../utils/provider/payload-builder.js';
-import { normalizeToolCalls } from '../utils/tools/tool-call-normalizer.js';
 import { getDefaults } from '../core/defaults.js';
 
 export class LLMManager {
@@ -87,7 +86,7 @@ export class LLMManager {
 
       try {
         const response = await compat.callSDK(model, settings, messages, tools, toolChoice, logger, provider.endpoint.headers);
-        response.toolCalls = normalizeToolCalls(response.toolCalls);
+        response.toolCalls = await this.normalizeToolCallsIfPresent(response.toolCalls);
         response.provider = provider.id;
 
         // Log SDK response using existing logging infrastructure
@@ -229,7 +228,7 @@ export class LLMManager {
       }
       
       const parsed = compat.parseResponse(response.data, model);
-      parsed.toolCalls = normalizeToolCalls(parsed.toolCalls);
+      parsed.toolCalls = await this.normalizeToolCallsIfPresent(parsed.toolCalls);
       parsed.provider = provider.id;
       return parsed;
       
@@ -438,6 +437,15 @@ export class LLMManager {
         // test-logger not available (not in test environment), skip logging
       }
     }
+  }
+
+  private async normalizeToolCallsIfPresent(toolCalls: any): Promise<any> {
+    if (!toolCalls || !Array.isArray(toolCalls) || toolCalls.length === 0) {
+      return toolCalls;
+    }
+
+    const { normalizeToolCalls } = await import('../modules/tools/index.js');
+    return normalizeToolCalls(toolCalls);
   }
 
   private isRateLimitResponse(provider: ProviderManifest, response: any): boolean {

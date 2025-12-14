@@ -43,7 +43,8 @@ function createMockRegistry(options: {
         id: 'test-store',
         kind: 'memory',
         connection: {},
-        defaultCollection: 'test'
+        defaultCollection: 'test',
+        defaultEmbeddingPriority: [{ provider: 'test-embeddings' }]
       }
     ),
     getVectorStoreCompat: jest.fn().mockResolvedValue(
@@ -1227,7 +1228,7 @@ describe('utils/vector/vector-context-injector', () => {
 
       // Store config without defaultCollection
       const registry = createMockRegistry({
-        vectorStore: { id: 'test-store', kind: 'memory' }, // No defaultCollection
+        vectorStore: { id: 'test-store', kind: 'memory', defaultEmbeddingPriority: [{ provider: 'test-embeddings' }] }, // No defaultCollection
         vectorCompat,
         embeddingCompat
       });

@@ -65,4 +65,43 @@ describe('unit/managers/llm-manager branch coverage', () => {
 
     reqSpy1.mockRestore();
   });
+
+  test('callProvider normalizes toolCalls when present', async () => {
+    const reg = {
+      getCompatModule: () => ({
+        buildPayload: () => ({}),
+        parseResponse: () => ({
+          provider: 'p',
+          model: 'm',
+          role: 'assistant',
+          content: [],
+          toolCalls: [
+            {
+              id: 'call-1',
+              name: 'echo.text',
+              args: { text: 'hi' }
+            }
+          ]
+        }),
+        serializeTools: () => ({}),
+        serializeToolChoice: () => ({})
+      })
+    } as any;
+
+    const { LLMManager } = await import('@/managers/llm-manager.ts');
+    const manager = new LLMManager(reg);
+
+    const requestSpy = jest
+      .spyOn((manager as any).httpClient, 'request')
+      .mockResolvedValue({ status: 200, statusText: 'OK', headers: {}, data: {} });
+
+    const provider: any = { id: 'p', compat: 'x', endpoint: { urlTemplate: 'https://e/{model}', method: 'POST', headers: {} } };
+    const response = await manager.callProvider(provider, 'm', {}, [], [], undefined, {}, loggerStub() as any, undefined);
+
+    expect(response.toolCalls).toHaveLength(1);
+    expect((response.toolCalls![0] as any).args).toEqual({ text: 'hi' });
+    expect(response.toolCalls![0].arguments).toEqual({ text: 'hi' });
+
+    requestSpy.mockRestore();
+  });
 });

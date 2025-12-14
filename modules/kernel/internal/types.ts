@@ -483,6 +483,11 @@ export interface VectorStoreConfig {
   kind: string;
   connection: JsonObject;
   defaultCollection?: string;
+  /**
+   * Default embedding priority for operations that require embeddings when the spec does not provide one.
+   * Must reference embedding provider IDs from plugins/embeddings/*.json.
+   */
+  defaultEmbeddingPriority?: EmbeddingPriorityItem[];
   metadata?: JsonObject;
 }
 

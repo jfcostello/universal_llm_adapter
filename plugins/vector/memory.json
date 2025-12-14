@@ -2,5 +2,8 @@
   "id": "memory",
   "kind": "memory",
   "connection": {},
+  "defaultEmbeddingPriority": [
+    { "provider": "openrouter-embeddings" }
+  ],
   "defaultCollection": "test"
 }

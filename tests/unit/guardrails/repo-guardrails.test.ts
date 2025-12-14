@@ -110,8 +110,6 @@ describe('guardrails/repo', () => {
     // Legacy allowlist (will shrink as the epic progresses)
     const allowlistedFiles = new Set<string>([
       'modules/kernel/internal/types.ts',
-      'utils/tools/vector-search-handler.ts',
-      'utils/vector/vector-context-injector.ts'
     ]);
 
     const files = walk(ROOT_DIR)

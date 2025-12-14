@@ -9,11 +9,9 @@ import {
   UsageStats,
   ReasoningData
 } from '../core/types.js';
-import { ToolCoordinator } from '../utils/tools/tool-coordinator.js';
 import type { AdapterLogger } from '../modules/logging/index.js';
 import { pruneToolResults, pruneReasoning } from '../modules/context/index.js';
 import { partitionSettings } from '../modules/settings/index.js';
-import { runToolLoop } from '../utils/tools/tool-loop.js';
 import { usageStatsToJson } from '../modules/usage/index.js';
 
 interface StreamingContext {
@@ -29,7 +27,7 @@ export class StreamCoordinator {
   constructor(
     private registry: any,
     private llmManager: any,
-    private toolCoordinator: ToolCoordinator
+    private toolCoordinator: any
   ) {}
 
   async *coordinateStream(
@@ -255,6 +253,7 @@ export class StreamCoordinator {
 
       const toolNameMap = Object.fromEntries(context.toolNameMap.entries());
 
+      const { runToolLoop } = await import('../modules/tools/index.js');
       const streamGenerator = runToolLoop({
         mode: 'stream',
         llmManager: this.llmManager,

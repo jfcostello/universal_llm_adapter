@@ -4,10 +4,10 @@ import {
   Message,
   ReasoningData,
   Role,
+  sanitizeToolName,
   TextContent,
   ToolResultContent
 } from '../../kernel/index.js';
-import { sanitizeToolName } from '../../../utils/tools/tool-names.js';
 
 export function prepareMessages(spec: LLMCallSpec): Message[] {
   const baseMessages = [...spec.messages];
@@ -248,4 +248,3 @@ export function appendToolResult(
 
   messages.push(message);
 }
-

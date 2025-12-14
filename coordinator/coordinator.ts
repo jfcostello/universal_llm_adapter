@@ -10,7 +10,9 @@ import {
   StreamEventType,
   ToolCallEventType,
   MCPServerConfig,
-  DocumentContent
+  DocumentContent,
+  sanitizeToolName,
+  VectorContextConfig
 } from '../core/types.js';
 import { PluginRegistry } from '../core/registry.js';
 import { LLMManager } from '../managers/llm-manager.js';
@@ -19,13 +21,9 @@ import { pruneToolResults, pruneReasoning } from '../modules/context/index.js';
 import { RuntimeSettings } from '../core/types.js';
 import { partitionSettings, mergeProviderSettings } from '../modules/settings/index.js';
 import { prepareMessages, appendAssistantToolCalls, appendToolResult } from '../modules/messages/index.js';
-import { collectTools } from '../utils/tools/tool-discovery.js';
-import { sanitizeToolName, sanitizeToolChoice } from '../utils/tools/tool-names.js';
 import { processDocumentContent } from '../modules/documents/index.js';
-import { runToolLoop } from '../utils/tools/tool-loop.js';
 import { ProviderExecutionError } from '../core/errors.js';
 import { withRetries } from '../modules/retry/index.js';
-import { ToolCoordinator } from '../utils/tools/tool-coordinator.js';
 
 // Type-only imports for lazy loading
 import type { MCPManager } from '../managers/mcp-manager.js';
@@ -37,9 +35,15 @@ export class LLMCoordinator {
   private mcpManager?: MCPManager;
   private vectorManager?: VectorStoreManager;
   private vectorContextInjector?: VectorContextInjector;
-  private toolCoordinator: ToolCoordinator;
+  private toolCoordinator: any;
+  private toolCoordinatorImpl?: any;
   private logger: AdapterLogger;
   private toolCoordinatorInitialized = false;
+  private activeToolSpec?: LLMCallSpec;
+  private pendingVectorContext?: {
+    config: VectorContextConfig | undefined;
+    aliasMap?: Record<string, string>;
+  };
 
   constructor(
     private registry: PluginRegistry,
@@ -51,15 +55,37 @@ export class LLMCoordinator {
     this.vectorManager = options?.vectorManager;
     this.logger = getLogger();
 
-    // Initialize ToolCoordinator with empty routes - will be populated lazily
-    // This ensures tests can spy on it before it's fully initialized
-    this.toolCoordinator = new ToolCoordinator([], undefined);
+    // Stable proxy so tests can spy on methods without being broken by lazy initialization.
+    // The real implementation is stored in `toolCoordinatorImpl` and populated on-demand.
+    this.toolCoordinator = {
+      __isToolCoordinatorProxy: true,
+      setVectorContext: (config: VectorContextConfig | undefined, _registry?: PluginRegistry, aliasMap?: Record<string, string>) => {
+        this.pendingVectorContext = { config, aliasMap };
+        this.toolCoordinatorImpl?.setVectorContext?.(config, this.registry, aliasMap);
+      },
+      routeAndInvoke: async (toolName: string, callId: string, args: any, context: any) => {
+        if (!this.toolCoordinatorImpl) {
+          if (!this.activeToolSpec) {
+            throw new Error('ToolCoordinator not initialized (no active spec)');
+          }
+          await this.ensureToolCoordinator(this.activeToolSpec);
+        }
+        return this.toolCoordinatorImpl.routeAndInvoke(toolName, callId, args, context);
+      },
+      close: async () => {
+        await this.toolCoordinatorImpl?.close?.();
+      }
+    };
   }
 
-  private async ensureToolCoordinator(spec: LLMCallSpec): Promise<ToolCoordinator> {
+  private async ensureToolCoordinator(spec: LLMCallSpec): Promise<any> {
+    this.activeToolSpec = spec;
+
     if (this.toolCoordinatorInitialized) {
       // Update vector context for new spec (may have different locks)
-      this.toolCoordinator.setVectorContext(spec.vectorContext, this.registry);
+      const config = this.pendingVectorContext?.config ?? spec.vectorContext;
+      const aliasMap = this.pendingVectorContext?.aliasMap;
+      this.toolCoordinatorImpl?.setVectorContext?.(config, this.registry, aliasMap);
       return this.toolCoordinator;
     }
 
@@ -73,12 +99,14 @@ export class LLMCoordinator {
     }
 
     const processRoutes = await this.registry.getProcessRoutes();
-    this.toolCoordinator = new ToolCoordinator(
+    const { ToolCoordinator } = await import('../modules/tools/index.js');
+    this.toolCoordinatorImpl = new ToolCoordinator(
       processRoutes,
       this.mcpManager?.getPool(),
       {
-        vectorContext: spec.vectorContext,
-        registry: this.registry
+        vectorContext: this.pendingVectorContext?.config ?? spec.vectorContext,
+        registry: this.registry,
+        vectorSearchAliasMap: this.pendingVectorContext?.aliasMap
       }
     );
 
@@ -123,26 +151,32 @@ export class LLMCoordinator {
       messages = injectionResult.messages;
     }
 
-    // Ensure tool coordinator is initialized if needed
+    // Tools are optional; avoid importing tool code unless actually needed.
     const needsTools = (spec.tools && spec.tools.length > 0) ||
                       (spec.functionToolNames && spec.functionToolNames.length > 0) ||
                       (spec.mcpServers && spec.mcpServers.length > 0) ||
                       (spec.vectorPriority && spec.vectorPriority.length > 0) ||
-                      this.shouldCreateVectorTool(spec);
+                      this.shouldCreateVectorTool(spec) ||
+                      typeof spec.toolChoice === 'object';
+
+    let tools: UnifiedTool[] = [];
+    let mcpServers: string[] = [];
+    let toolNameMap: Record<string, string> = {};
+    let vectorSearchAliasMap: Record<string, string> | undefined;
 
     if (needsTools) {
       await this.ensureToolCoordinator(executionSpec);
+      [tools, mcpServers, toolNameMap, vectorSearchAliasMap] = await this.collectTools(executionSpec);
+
+      // Update vector context with alias map after collectTools generates it
+      if (vectorSearchAliasMap) {
+        this.toolCoordinator.setVectorContext(executionSpec.vectorContext, this.registry, vectorSearchAliasMap);
+      }
+
+      // Sanitize toolChoice to match sanitized tool names
+      const { sanitizeToolChoice } = await import('../modules/tools/index.js');
+      executionSpec.toolChoice = sanitizeToolChoice(executionSpec.toolChoice);
     }
-
-    const [tools, mcpServers, toolNameMap, vectorSearchAliasMap] = await this.collectTools(executionSpec);
-
-    // Update vector context with alias map after collectTools generates it
-    if (needsTools && vectorSearchAliasMap) {
-      this.toolCoordinator.setVectorContext(executionSpec.vectorContext, this.registry, vectorSearchAliasMap);
-    }
-
-    // Sanitize toolChoice to match sanitized tool names
-    executionSpec.toolChoice = sanitizeToolChoice(executionSpec.toolChoice);
 
     const runContext = {
       tools: tools.map(t => t.name),
@@ -280,26 +314,32 @@ export class LLMCoordinator {
       messages = injectionResult.messages;
     }
 
-    // Ensure tool coordinator is initialized if needed
+    // Tools are optional; avoid importing tool code unless actually needed.
     const needsTools = (spec.tools && spec.tools.length > 0) ||
                       (spec.functionToolNames && spec.functionToolNames.length > 0) ||
                       (spec.mcpServers && spec.mcpServers.length > 0) ||
                       (spec.vectorPriority && spec.vectorPriority.length > 0) ||
-                      this.shouldCreateVectorTool(spec);
+                      this.shouldCreateVectorTool(spec) ||
+                      typeof spec.toolChoice === 'object';
+
+    let tools: UnifiedTool[] = [];
+    let mcpServers: string[] = [];
+    let toolNameMap: Record<string, string> = {};
+    let vectorSearchAliasMap: Record<string, string> | undefined;
 
     if (needsTools) {
       await this.ensureToolCoordinator(executionSpec);
+      [tools, mcpServers, toolNameMap, vectorSearchAliasMap] = await this.collectTools(executionSpec);
+
+      // Update vector context with alias map after collectTools generates it
+      if (vectorSearchAliasMap) {
+        this.toolCoordinator.setVectorContext(executionSpec.vectorContext, this.registry, vectorSearchAliasMap);
+      }
+
+      // Sanitize toolChoice to match sanitized tool names
+      const { sanitizeToolChoice } = await import('../modules/tools/index.js');
+      streamExecutionSpec.toolChoice = sanitizeToolChoice(streamExecutionSpec.toolChoice);
     }
-
-    const [tools, mcpServers, toolNameMap, vectorSearchAliasMap] = await this.collectTools(executionSpec);
-
-    // Update vector context with alias map after collectTools generates it
-    if (needsTools && vectorSearchAliasMap) {
-      this.toolCoordinator.setVectorContext(executionSpec.vectorContext, this.registry, vectorSearchAliasMap);
-    }
-
-    // Sanitize toolChoice to match sanitized tool names
-    streamExecutionSpec.toolChoice = sanitizeToolChoice(streamExecutionSpec.toolChoice);
 
     const runLogger = this.logger.withCorrelation(spec.metadata?.correlationId as string);
     runLogger.info('Streaming call started', {
@@ -487,7 +527,7 @@ export class LLMCoordinator {
     return followUpContent;
   }
 
-  private handleTools(
+  private async handleTools(
     spec: LLMCallSpec,
     runtime: RuntimeSettings,
     providerExtras: Record<string, any>,
@@ -500,6 +540,16 @@ export class LLMCoordinator {
     runContext: any,
     toolNameMap: Record<string, string>
   ): Promise<LLMResponse> {
+    const hasToolCalls = Array.isArray(response.toolCalls) && response.toolCalls.length > 0;
+    if (!hasToolCalls) {
+      return response;
+    }
+
+    // Ensure the proxy has a current spec if it needs to lazily initialize the tool coordinator.
+    this.activeToolSpec = spec;
+
+    const { runToolLoop } = await import('../modules/tools/index.js');
+
     return runToolLoop({
       mode: 'nonstream',
       llmManager: this.llmManager,
@@ -532,6 +582,10 @@ export class LLMCoordinator {
         );
       }
     });
+  }
+
+  private sanitizeToolName(name: string): string {
+    return sanitizeToolName(name);
   }
 
 
@@ -580,6 +634,7 @@ export class LLMCoordinator {
   }
 
   private async collectTools(spec: LLMCallSpec): Promise<[UnifiedTool[], string[], Record<string, string>, Record<string, string> | undefined]> {
+    const { collectTools } = await import('../modules/tools/index.js');
     const result = await collectTools({
       spec,
       registry: this.registry,
@@ -587,10 +642,6 @@ export class LLMCoordinator {
       vectorManager: this.vectorManager
     });
     return [result.tools, result.mcpServers, result.toolNameMap, result.vectorSearchAliasMap];
-  }
-
-  private sanitizeToolName(name: string): string {
-    return sanitizeToolName(name);
   }
 
   private ensureValidAssistantResponse(response: LLMResponse, providerId: string | undefined): void {

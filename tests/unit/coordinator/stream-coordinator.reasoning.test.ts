@@ -17,7 +17,7 @@ describe('StreamCoordinator reasoning aggregation', () => {
       return runToolLoopReturn;
     })());
 
-    unstableMockModule('@/utils/tools/tool-loop.ts', () => ({
+    unstableMockModule('../../../modules/tools/index.js', () => ({
       runToolLoop: runToolLoopMock
     }));
 

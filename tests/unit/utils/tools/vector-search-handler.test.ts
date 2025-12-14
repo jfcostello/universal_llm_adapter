@@ -27,7 +27,8 @@ describe('utils/tools/vector-search-handler', () => {
     getVectorStore: jest.fn().mockResolvedValue({
       id: 'test-store',
       kind: 'memory',
-      defaultCollection: 'test-collection'
+      defaultCollection: 'test-collection',
+      defaultEmbeddingPriority: [{ provider: 'test-embeddings' }]
     }),
     getVectorStoreCompat: jest.fn().mockResolvedValue({
       connect: jest.fn().mockResolvedValue(undefined),
@@ -213,7 +214,8 @@ describe('utils/tools/vector-search-handler', () => {
         getVectorStore: jest.fn().mockResolvedValue({
           id: 'docs',
           kind: 'memory',
-          defaultCollection: 'store-default'
+          defaultCollection: 'store-default',
+          defaultEmbeddingPriority: [{ provider: 'test-embeddings' }]
         }),
         getVectorStoreCompat: jest.fn().mockResolvedValue(mockCompat)
       } as unknown as PluginRegistry;
@@ -263,7 +265,8 @@ describe('utils/tools/vector-search-handler', () => {
         getVectorStore: jest.fn().mockResolvedValue({
           id: 'docs',
           kind: 'memory',
-          defaultCollection: 'test'
+          defaultCollection: 'test',
+          defaultEmbeddingPriority: [{ provider: 'test-embeddings' }]
         }),
         getVectorStoreCompat: jest.fn().mockResolvedValue(mockCompat)
       } as unknown as PluginRegistry;
@@ -311,7 +314,8 @@ describe('utils/tools/vector-search-handler', () => {
         getVectorStore: jest.fn().mockResolvedValue({
           id: 'docs',
           kind: 'memory',
-          defaultCollection: 'test'
+          defaultCollection: 'test',
+          defaultEmbeddingPriority: [{ provider: 'test-embeddings' }]
         }),
         getVectorStoreCompat: jest.fn().mockResolvedValue(mockCompat)
       } as unknown as PluginRegistry;
@@ -432,7 +436,8 @@ describe('utils/tools/vector-search-handler', () => {
         getVectorStore: jest.fn().mockResolvedValue({
           id: 'docs',
           kind: 'memory',
-          defaultCollection: 'test'
+          defaultCollection: 'test',
+          defaultEmbeddingPriority: [{ provider: 'test-embeddings' }]
         }),
         getVectorStoreCompat: jest.fn().mockResolvedValue({
           connect: jest.fn().mockResolvedValue(undefined),
@@ -469,7 +474,8 @@ describe('utils/tools/vector-search-handler', () => {
         getVectorStore: jest.fn().mockResolvedValue({
           id: 'docs',
           kind: 'memory',
-          defaultCollection: 'test'
+          defaultCollection: 'test',
+          defaultEmbeddingPriority: [{ provider: 'test-embeddings' }]
         }),
         getVectorStoreCompat: jest.fn().mockRejectedValue(new Error('No compat available'))
       } as unknown as PluginRegistry;
@@ -519,7 +525,8 @@ describe('utils/tools/vector-search-handler', () => {
         getVectorStore: jest.fn().mockResolvedValue({
           id: 'locked-store',
           kind: 'memory',
-          defaultCollection: 'default'
+          defaultCollection: 'default',
+          defaultEmbeddingPriority: [{ provider: 'test-embeddings' }]
         }),
         getVectorStoreCompat: jest.fn().mockResolvedValue(mockCompat)
       } as unknown as PluginRegistry;
@@ -983,7 +990,8 @@ describe('utils/tools/vector-search-handler', () => {
       const registry = {
         getVectorStore: jest.fn().mockResolvedValue({
           id: 'docs',
-          kind: 'memory'
+          kind: 'memory',
+          defaultEmbeddingPriority: [{ provider: 'test-embeddings' }]
           // No defaultCollection
         }),
         getVectorStoreCompat: jest.fn().mockResolvedValue(mockCompat)
@@ -1023,7 +1031,8 @@ describe('utils/tools/vector-search-handler', () => {
         getVectorStore: jest.fn().mockResolvedValue({
           id: 'docs',
           kind: 'memory',
-          defaultCollection: 'test'
+          defaultCollection: 'test',
+          defaultEmbeddingPriority: [{ provider: 'test-embeddings' }]
         }),
         getVectorStoreCompat: jest.fn().mockResolvedValue({
           connect: jest.fn().mockResolvedValue(undefined),
