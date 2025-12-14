@@ -1,5 +1,5 @@
 import { describe, expect, jest, test } from '@jest/globals';
-import { buildFinalPayload } from '@/utils/provider/payload-builder.ts';
+import { buildFinalPayload } from '@/modules/llm/internal/payload/payload-builder.ts';
 import {
   ICompatModule,
   LLMCallSettings,
@@ -34,7 +34,7 @@ function createCompat(): ICompatModule {
   };
 }
 
-describe('utils/provider/payload-builder', () => {
+describe('modules/llm/internal/payload/payload-builder', () => {
   const provider: ProviderManifest = {
     id: 'test-provider',
     compat: 'test-compat',

@@ -19,6 +19,7 @@ interface StreamingContext {
   mcpServers: string[];
   toolNameMap: Map<string, string>;
   logger: AdapterLogger;
+  metadata?: Record<string, any>;
 }
 
 export class StreamCoordinator {
@@ -68,7 +69,8 @@ export class StreamCoordinator {
       tools,
       executionSpec.toolChoice,
       providerExtras,
-      context.logger
+      context.logger,
+      context
     );
 
     let hasToolCalls = false;
@@ -266,6 +268,7 @@ export class StreamCoordinator {
         providerExtras,
         logger: context.logger,
         toolNameMap,
+        runContext: { metadata: executionSpec.metadata },
         metadata: executionSpec.metadata,
         initialToolCalls: preparedToolCalls,
         initialReasoning: reasoningAggregate,
@@ -324,4 +327,3 @@ export class StreamCoordinator {
   }
 
 }
-

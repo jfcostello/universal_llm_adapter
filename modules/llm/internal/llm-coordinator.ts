@@ -185,7 +185,8 @@ export class LLMCoordinator {
     const runContext = {
       tools: tools.map(t => t.name),
       mcpServers,
-      toolNameMap
+      toolNameMap,
+      metadata: spec.metadata
     };
 
     const runLogger = this.logger.withCorrelation(spec.metadata?.correlationId as string);
@@ -366,7 +367,8 @@ export class LLMCoordinator {
       tools,
       mcpServers,
       toolNameMap: new Map<string, string>(Object.entries(toolNameMap)),
-      logger: runLogger
+      logger: runLogger,
+      metadata: spec.metadata
     };
 
     yield* streamCoordinator.coordinateStream(
@@ -482,7 +484,8 @@ export class LLMCoordinator {
         tools,  // Keep tools available for potential multi-turn tool use
         toolChoice,
         providerExtras,
-        logger
+        logger,
+        { metadata: spec.metadata }
       );
       logger.info('Follow-up stream created successfully');
     } catch (error) {

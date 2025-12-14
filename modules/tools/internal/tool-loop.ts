@@ -410,7 +410,8 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
     invokeTool,
     initialToolCalls,
     initialReasoning,
-    metadata
+    metadata,
+    runContext
   } = options;
 
   const compat = await registry.getCompatModule(providerManifest.compat);
@@ -587,7 +588,8 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
     budget.exhausted ? [] : tools,
     budget.exhausted ? 'none' : toolChoice,
     providerExtras,
-    logger
+    logger,
+    runContext
   );
 
   let followUpContent = '';

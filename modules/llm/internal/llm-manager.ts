@@ -9,7 +9,7 @@ import type {
 } from '../../kernel/index.js';
 import { ProviderExecutionError, getDefaults } from '../../kernel/index.js';
 import type { AdapterLogger } from '../../logging/index.js';
-import { buildFinalPayload } from '../../../utils/provider/payload-builder.js';
+import { buildFinalPayload } from './payload/payload-builder.js';
 
 export class LLMManager {
   private httpClient: AxiosInstance;
@@ -30,7 +30,7 @@ export class LLMManager {
     toolChoice?: ToolChoice,
     providerExtras: Record<string, any> = {},
     logger?: AdapterLogger,
-    context?: any
+    context: any = {}
   ): Promise<LLMResponse> {
     const compat = await this.registry.getCompatModule(provider.compat);
 
@@ -77,7 +77,7 @@ export class LLMManager {
             method: 'SDK_CALL',
             headers: {},
             body: { model, messages, tools, toolChoice, settings, providerExtras }
-          });
+          }, context.metadata);
         } catch (e) {
           // Test logger not available, skip
         }
@@ -107,7 +107,7 @@ export class LLMManager {
               statusText: 'SDK_SUCCESS',
               headers: {},
               body: response
-            });
+            }, context.metadata);
           } catch (e) {
             // Test logger not available, skip
           }
@@ -167,7 +167,7 @@ export class LLMManager {
           method: provider.endpoint.method,
           headers: provider.endpoint.headers,
           body: finalPayload
-        });
+        }, context.metadata);
       } catch (e) {
         // Test logger not available, skip
       }
@@ -200,7 +200,7 @@ export class LLMManager {
             statusText: response.statusText,
             headers: response.headers,
             body: response.data
-          });
+          }, context.metadata);
         } catch (e) {
           // Test logger not available, skip
         }
@@ -247,7 +247,8 @@ export class LLMManager {
     tools: UnifiedTool[],
     toolChoice?: ToolChoice,
     providerExtras: Record<string, any> = {},
-    logger?: AdapterLogger
+    logger?: AdapterLogger,
+    context: any = {}
   ): AsyncGenerator<any> {
     const compat = await this.registry.getCompatModule(provider.compat);
 
@@ -268,7 +269,7 @@ export class LLMManager {
             method: 'SDK_STREAM',
             headers: {},
             body: { model, messages, tools, toolChoice, settings, providerExtras }
-          });
+          }, context.metadata);
         } catch (e) {
           // test-logger not available (not in test environment), skip logging
         }
@@ -294,7 +295,7 @@ export class LLMManager {
               statusText: 'SDK_SUCCESS',
               headers: {},
               body: { chunks: streamedChunks, totalChunks: streamedChunks.length }
-            });
+            }, context.metadata);
           } catch (e) {
             // test-logger not available (not in test environment), skip logging
           }
@@ -346,7 +347,7 @@ export class LLMManager {
           method: provider.endpoint.method,
           headers: provider.endpoint.headers,
           body: finalPayload
-        });
+        }, context.metadata);
       } catch (e) {
         // test-logger not available (not in test environment), skip logging
       }
@@ -431,7 +432,7 @@ export class LLMManager {
           statusText: response.statusText,
           headers: response.headers,
           body: { chunks: streamedChunks, totalChunks: streamedChunks.length }
-        });
+        }, context.metadata);
       } catch (e) {
         // test-logger not available (not in test environment), skip logging
       }

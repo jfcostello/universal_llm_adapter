@@ -1,13 +1,13 @@
-import {
+import type {
   ICompatModule,
   LLMCallSettings,
   Message,
   ProviderManifest,
   ToolChoice,
   UnifiedTool
-} from '../../core/types.js';
-import { applyProviderPayloadExtensions } from '../provider-payload-utils.js';
-import { aggregateSystemMessages } from '../messages/message-utils.js';
+} from '../../../kernel/index.js';
+import { aggregateSystemMessages } from '../../../messages/index.js';
+import { applyProviderPayloadExtensions } from './provider-payload-utils.js';
 
 export interface BuildPayloadOptions {
   provider: ProviderManifest;
@@ -89,3 +89,4 @@ export function buildFinalPayload({
     unconsumedExtras
   };
 }
+

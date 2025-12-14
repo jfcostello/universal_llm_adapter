@@ -6,7 +6,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { getLiveTestContext } from '../../utils/testing/live-test-context.js';
+
+export interface LiveTestLogContext {
+  correlationId?: string;
+  testFile?: string;
+  testName?: string;
+}
 
 // Find project root (where package.json is) and use tests/live/logs from there
 const currentFile = fileURLToPath(import.meta.url);
@@ -27,10 +32,9 @@ if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
 
-function resolveLogTarget(): { logFile: string; testFileName: string; testName: string } {
-  const ctx = getLiveTestContext();
-  const testFileName = String(ctx?.testFile || process.env.TEST_FILE || 'unknown-test');
-  const testName = String(ctx?.testName || process.env.LLM_TEST_NAME || 'unknown-test-name');
+function resolveLogTarget(context?: LiveTestLogContext): { logFile: string; testFileName: string; testName: string } {
+  const testFileName = String(context?.testFile || process.env.TEST_FILE || 'unknown-test');
+  const testName = String(context?.testName || process.env.LLM_TEST_NAME || 'unknown-test-name');
   const dateOnly = new Date().toISOString().split('T')[0];
   const logFile = path.join(logsDir, `${dateOnly}-${testFileName}.log`);
   return { logFile, testFileName, testName };
@@ -111,8 +115,8 @@ export function logRequest(data: {
   method: string;
   headers: Record<string, any>;
   body: any;
-}) {
-  const target = resolveLogTarget();
+}, context?: LiveTestLogContext) {
+  const target = resolveLogTarget(context);
   initLogFileOnce(target);
 
   const timestamp = new Date().toLocaleString(undefined, {
@@ -153,8 +157,8 @@ export function logResponse(data: {
   statusText?: string;
   headers: Record<string, any>;
   body: any;
-}) {
-  const target = resolveLogTarget();
+}, context?: LiveTestLogContext) {
+  const target = resolveLogTarget(context);
   initLogFileOnce(target);
 
   const timestamp = new Date().toLocaleString(undefined, {

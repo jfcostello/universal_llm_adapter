@@ -27,7 +27,6 @@ import type {
 } from '../../kernel/index.js';
 import type { PluginRegistryLike } from '../../lifecycle/index.js';
 import type { ServerDependencies } from '../index.js';
-import { runWithLiveTestContext } from '../../../utils/testing/live-test-context.js';
 
 interface HandlerOptions {
   registry: PluginRegistryLike;
@@ -257,73 +256,64 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           const { getLogger } = await import('../../logging/index.js');
           const logger = getLogger(correlationId);
           const startTime = Date.now();
+          const callPromise = runWithCoordinatorLifecycleFn<LLMCallSpec, any, any, any>({
+            spec,
+            pluginsPath,
+            registry,
+            batchId,
+            closeLoggerAfter: closeLoggerAfterRequest,
+            deps,
+            run: (coordinator: any, s) => coordinator.run(s)
+          });
 
-          const liveContext = {
-            correlationId,
-            testFile: (spec.metadata as any)?.testFile as string | undefined,
-            testName: (spec.metadata as any)?.testName as string | undefined
-          };
-
-          await runWithLiveTestContext(liveContext, async () => {
-            const callPromise = runWithCoordinatorLifecycleFn<LLMCallSpec, any, any, any>({
-              spec,
-              pluginsPath,
-              registry,
-              batchId,
-              closeLoggerAfter: closeLoggerAfterRequest,
-              deps,
-              run: (coordinator: any, s) => coordinator.run(s)
+          if (config.requestTimeoutMs > 0) {
+            let timedOut = false;
+            let timeoutId: NodeJS.Timeout | undefined;
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              timeoutId = setTimeout(() => {
+                timedOut = true;
+                const error = new Error('Request timed out');
+                (error as any).statusCode = 504;
+                (error as any).code = 'timeout';
+                reject(error);
+              }, config.requestTimeoutMs);
             });
 
-            if (config.requestTimeoutMs > 0) {
-              let timedOut = false;
-              let timeoutId: NodeJS.Timeout | undefined;
-              const timeoutPromise = new Promise<never>((_, reject) => {
-                timeoutId = setTimeout(() => {
-                  timedOut = true;
-                  const error = new Error('Request timed out');
-                  (error as any).statusCode = 504;
-                  (error as any).code = 'timeout';
-                  reject(error);
-                }, config.requestTimeoutMs);
-              });
-
-              try {
-                const response = await Promise.race([callPromise, timeoutPromise]);
-                writeJson(res, 200, { type: 'response', data: response });
-                logger.info('HTTP /run completed', { durationMs: Date.now() - startTime });
-              } catch (error: any) {
-                if (timedOut) {
-                  const mapped = mapErrorToHttp(error);
-                  writeJson(res, mapped.status, mapped.body);
-                  logger.warning('HTTP /run timed out', { durationMs: Date.now() - startTime });
-                  releaseDeferred = true;
-                  callPromise
-                    .catch(err => logger.error('Coordinator finished after timeout', { error: err }))
-                    .finally(() => release());
-                  return;
-                }
-
-                const mapped = mapErrorToHttp(error);
-                writeJson(res, mapped.status, mapped.body);
-                logger.error('HTTP /run failed', { durationMs: Date.now() - startTime, error });
-              } finally {
-                if (timeoutId) clearTimeout(timeoutId);
-              }
-
-              return;
-            }
-
             try {
-              const response = await callPromise;
+              const response = await Promise.race([callPromise, timeoutPromise]);
               writeJson(res, 200, { type: 'response', data: response });
               logger.info('HTTP /run completed', { durationMs: Date.now() - startTime });
             } catch (error: any) {
+              if (timedOut) {
+                const mapped = mapErrorToHttp(error);
+                writeJson(res, mapped.status, mapped.body);
+                logger.warning('HTTP /run timed out', { durationMs: Date.now() - startTime });
+                releaseDeferred = true;
+                callPromise
+                  .catch(err => logger.error('Coordinator finished after timeout', { error: err }))
+                  .finally(() => release());
+                return;
+              }
+
               const mapped = mapErrorToHttp(error);
               writeJson(res, mapped.status, mapped.body);
               logger.error('HTTP /run failed', { durationMs: Date.now() - startTime, error });
+            } finally {
+              if (timeoutId) clearTimeout(timeoutId);
             }
-          });
+
+            return;
+          }
+
+          try {
+            const response = await callPromise;
+            writeJson(res, 200, { type: 'response', data: response });
+            logger.info('HTTP /run completed', { durationMs: Date.now() - startTime });
+          } catch (error: any) {
+            const mapped = mapErrorToHttp(error);
+            writeJson(res, mapped.status, mapped.body);
+            logger.error('HTTP /run failed', { durationMs: Date.now() - startTime, error });
+          }
         } catch (error: any) {
           const mapped = mapErrorToHttp(error);
           writeJson(res, mapped.status, mapped.body);
@@ -353,60 +343,51 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           const { getLogger } = await import('../../logging/index.js');
           const logger = getLogger(correlationId);
           const startTime = Date.now();
-
-          const liveContext = {
-            correlationId,
-            testFile: (spec.metadata as any)?.testFile as string | undefined,
-            testName: (spec.metadata as any)?.testName as string | undefined
-          };
-
-          await runWithLiveTestContext(liveContext, async () => {
-            res.writeHead(200, {
-              'Content-Type': 'text/event-stream',
-              'Cache-Control': 'no-cache',
-              Connection: 'keep-alive'
-            });
-            (res as any).flushHeaders?.();
-
-            const lifecycleStream = streamWithCoordinatorLifecycleFn<
-              LLMCallSpec,
-              any,
-              any,
-              LLMStreamEvent
-            >({
-              spec,
-              pluginsPath,
-              registry,
-              batchId,
-              closeLoggerAfter: closeLoggerAfterRequest,
-              deps,
-              stream: (coordinator: any, s) => coordinator.runStream(s)
-            });
-
-            const iterator = lifecycleStream[Symbol.asyncIterator]();
-            const idleTimeoutMs = config.streamIdleTimeoutMs;
-            const requestTimeoutMs = config.requestTimeoutMs;
-
-            try {
-              await handleSseStream({
-                iterator,
-                res,
-                startTimeMs: startTime,
-                requestTimeoutMs,
-                idleTimeoutMs
-              });
-            } catch (error: any) {
-              const mapped = mapErrorToHttp(error);
-              await writeSseEventWithBackpressure(res, mapped.body);
-              res.end();
-            }
-
-            if (!res.writableEnded) {
-              res.end();
-            }
-
-            logger.info('HTTP /stream completed', { durationMs: Date.now() - startTime });
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            Connection: 'keep-alive'
           });
+          (res as any).flushHeaders?.();
+
+          const lifecycleStream = streamWithCoordinatorLifecycleFn<
+            LLMCallSpec,
+            any,
+            any,
+            LLMStreamEvent
+          >({
+            spec,
+            pluginsPath,
+            registry,
+            batchId,
+            closeLoggerAfter: closeLoggerAfterRequest,
+            deps,
+            stream: (coordinator: any, s) => coordinator.runStream(s)
+          });
+
+          const iterator = lifecycleStream[Symbol.asyncIterator]();
+          const idleTimeoutMs = config.streamIdleTimeoutMs;
+          const requestTimeoutMs = config.requestTimeoutMs;
+
+          try {
+            await handleSseStream({
+              iterator,
+              res,
+              startTimeMs: startTime,
+              requestTimeoutMs,
+              idleTimeoutMs
+            });
+          } catch (error: any) {
+            const mapped = mapErrorToHttp(error);
+            await writeSseEventWithBackpressure(res, mapped.body);
+            res.end();
+          }
+
+          if (!res.writableEnded) {
+            res.end();
+          }
+
+          logger.info('HTTP /stream completed', { durationMs: Date.now() - startTime });
         } finally {
           release();
         }
@@ -436,84 +417,75 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           const { getVectorLogger } = await import('../../logging/index.js');
           const logger = getVectorLogger(correlationId);
           const startTime = Date.now();
+          const createVectorCoordinator = (deps as any).createVectorCoordinator as
+            | ServerDependencies['createVectorCoordinator']
+            | undefined;
 
-          const liveContext = {
-            correlationId,
-            testFile: (spec.metadata as any)?.testFile as string | undefined,
-            testName: (spec.metadata as any)?.testName as string | undefined
-          };
+          if (!createVectorCoordinator) {
+            const error = new Error('Vector coordinator not available');
+            (error as any).statusCode = 501;
+            (error as any).code = 'not_implemented';
+            throw error;
+          }
 
-          await runWithLiveTestContext(liveContext, async () => {
-            const createVectorCoordinator = (deps as any).createVectorCoordinator as
-              | ServerDependencies['createVectorCoordinator']
-              | undefined;
+          const callPromise = runWithCoordinatorLifecycleFn<VectorCallSpec, any, any, any>({
+            spec,
+            pluginsPath,
+            registry,
+            batchId,
+            closeLoggerAfter: closeLoggerAfterRequest,
+            deps: { ...deps, createCoordinator: createVectorCoordinator },
+            run: (coordinator: any, s) => coordinator.execute(s)
+          });
 
-            if (!createVectorCoordinator) {
-              const error = new Error('Vector coordinator not available');
-              (error as any).statusCode = 501;
-              (error as any).code = 'not_implemented';
-              throw error;
-            }
-
-            const callPromise = runWithCoordinatorLifecycleFn<VectorCallSpec, any, any, any>({
-              spec,
-              pluginsPath,
-              registry,
-              batchId,
-              closeLoggerAfter: closeLoggerAfterRequest,
-              deps: { ...deps, createCoordinator: createVectorCoordinator },
-              run: (coordinator: any, s) => coordinator.execute(s)
+          if (config.requestTimeoutMs > 0) {
+            let timedOut = false;
+            let timeoutId: NodeJS.Timeout | undefined;
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              timeoutId = setTimeout(() => {
+                timedOut = true;
+                const error = new Error('Request timed out');
+                (error as any).statusCode = 504;
+                (error as any).code = 'timeout';
+                reject(error);
+              }, config.requestTimeoutMs);
             });
 
-            if (config.requestTimeoutMs > 0) {
-              let timedOut = false;
-              let timeoutId: NodeJS.Timeout | undefined;
-              const timeoutPromise = new Promise<never>((_, reject) => {
-                timeoutId = setTimeout(() => {
-                  timedOut = true;
-                  const error = new Error('Request timed out');
-                  (error as any).statusCode = 504;
-                  (error as any).code = 'timeout';
-                  reject(error);
-                }, config.requestTimeoutMs);
-              });
-
-              try {
-                const response = await Promise.race([callPromise, timeoutPromise]);
-                writeJson(res, 200, { type: 'response', data: response });
-                logger.info('HTTP /vector/run completed', { durationMs: Date.now() - startTime });
-              } catch (error: any) {
-                if (timedOut) {
-                  const mapped = mapErrorToHttp(error);
-                  writeJson(res, mapped.status, mapped.body);
-                  logger.warning('HTTP /vector/run timed out', { durationMs: Date.now() - startTime });
-                  releaseDeferred = true;
-                  callPromise
-                    .catch(err => logger.error('Coordinator finished after timeout', { error: err }))
-                    .finally(() => release());
-                  return;
-                }
-
-                const mapped = mapErrorToHttp(error);
-                writeJson(res, mapped.status, mapped.body);
-                logger.error('HTTP /vector/run failed', { durationMs: Date.now() - startTime, error });
-              } finally {
-                if (timeoutId) clearTimeout(timeoutId);
-              }
-
-              return;
-            }
-
             try {
-              const response = await callPromise;
+              const response = await Promise.race([callPromise, timeoutPromise]);
               writeJson(res, 200, { type: 'response', data: response });
               logger.info('HTTP /vector/run completed', { durationMs: Date.now() - startTime });
             } catch (error: any) {
+              if (timedOut) {
+                const mapped = mapErrorToHttp(error);
+                writeJson(res, mapped.status, mapped.body);
+                logger.warning('HTTP /vector/run timed out', { durationMs: Date.now() - startTime });
+                releaseDeferred = true;
+                callPromise
+                  .catch(err => logger.error('Coordinator finished after timeout', { error: err }))
+                  .finally(() => release());
+                return;
+              }
+
               const mapped = mapErrorToHttp(error);
               writeJson(res, mapped.status, mapped.body);
               logger.error('HTTP /vector/run failed', { durationMs: Date.now() - startTime, error });
+            } finally {
+              if (timeoutId) clearTimeout(timeoutId);
             }
-          });
+
+            return;
+          }
+
+          try {
+            const response = await callPromise;
+            writeJson(res, 200, { type: 'response', data: response });
+            logger.info('HTTP /vector/run completed', { durationMs: Date.now() - startTime });
+          } catch (error: any) {
+            const mapped = mapErrorToHttp(error);
+            writeJson(res, mapped.status, mapped.body);
+            logger.error('HTTP /vector/run failed', { durationMs: Date.now() - startTime, error });
+          }
         } catch (error: any) {
           const mapped = mapErrorToHttp(error);
           writeJson(res, mapped.status, mapped.body);
@@ -544,69 +516,60 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           const { getVectorLogger } = await import('../../logging/index.js');
           const logger = getVectorLogger(correlationId);
           const startTime = Date.now();
-
-          const liveContext = {
-            correlationId,
-            testFile: (spec.metadata as any)?.testFile as string | undefined,
-            testName: (spec.metadata as any)?.testName as string | undefined
-          };
-
-          await runWithLiveTestContext(liveContext, async () => {
-            res.writeHead(200, {
-              'Content-Type': 'text/event-stream',
-              'Cache-Control': 'no-cache',
-              Connection: 'keep-alive'
-            });
-            (res as any).flushHeaders?.();
-
-            const createVectorCoordinator = (deps as any).createVectorCoordinator as
-              | ServerDependencies['createVectorCoordinator']
-              | undefined;
-
-            if (!createVectorCoordinator) {
-              const error = new Error('Vector coordinator not available');
-              (error as any).statusCode = 501;
-              (error as any).code = 'not_implemented';
-              throw error;
-            }
-
-            const lifecycleStream = streamWithCoordinatorLifecycleFn<
-              VectorCallSpec,
-              any,
-              any,
-              VectorStreamEvent
-            >({
-              spec,
-              pluginsPath,
-              registry,
-              batchId,
-              closeLoggerAfter: closeLoggerAfterRequest,
-              deps: { ...deps, createCoordinator: createVectorCoordinator },
-              stream: (coordinator: any, s) => coordinator.executeStream(s)
-            });
-
-            const iterator = lifecycleStream[Symbol.asyncIterator]();
-
-            try {
-              await handleSseStream({
-                iterator,
-                res,
-                startTimeMs: startTime,
-                requestTimeoutMs: config.requestTimeoutMs,
-                idleTimeoutMs: config.streamIdleTimeoutMs
-              });
-            } catch (error: any) {
-              const mapped = mapErrorToHttp(error);
-              await writeSseEventWithBackpressure(res, mapped.body);
-              res.end();
-            }
-
-            if (!res.writableEnded) {
-              res.end();
-            }
-
-            logger.info('HTTP /vector/stream completed', { durationMs: Date.now() - startTime });
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            Connection: 'keep-alive'
           });
+          (res as any).flushHeaders?.();
+
+          const createVectorCoordinator = (deps as any).createVectorCoordinator as
+            | ServerDependencies['createVectorCoordinator']
+            | undefined;
+
+          if (!createVectorCoordinator) {
+            const error = new Error('Vector coordinator not available');
+            (error as any).statusCode = 501;
+            (error as any).code = 'not_implemented';
+            throw error;
+          }
+
+          const lifecycleStream = streamWithCoordinatorLifecycleFn<
+            VectorCallSpec,
+            any,
+            any,
+            VectorStreamEvent
+          >({
+            spec,
+            pluginsPath,
+            registry,
+            batchId,
+            closeLoggerAfter: closeLoggerAfterRequest,
+            deps: { ...deps, createCoordinator: createVectorCoordinator },
+            stream: (coordinator: any, s) => coordinator.executeStream(s)
+          });
+
+          const iterator = lifecycleStream[Symbol.asyncIterator]();
+
+          try {
+            await handleSseStream({
+              iterator,
+              res,
+              startTimeMs: startTime,
+              requestTimeoutMs: config.requestTimeoutMs,
+              idleTimeoutMs: config.streamIdleTimeoutMs
+            });
+          } catch (error: any) {
+            const mapped = mapErrorToHttp(error);
+            await writeSseEventWithBackpressure(res, mapped.body);
+            res.end();
+          }
+
+          if (!res.writableEnded) {
+            res.end();
+          }
+
+          logger.info('HTTP /vector/stream completed', { durationMs: Date.now() - startTime });
         } finally {
           release();
         }
@@ -636,84 +599,75 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           const { getEmbeddingLogger } = await import('../../logging/index.js');
           const logger = getEmbeddingLogger(correlationId);
           const startTime = Date.now();
+          const createEmbeddingCoordinator = (deps as any).createEmbeddingCoordinator as
+            | ServerDependencies['createEmbeddingCoordinator']
+            | undefined;
 
-          const liveContext = {
-            correlationId,
-            testFile: (spec.metadata as any)?.testFile as string | undefined,
-            testName: (spec.metadata as any)?.testName as string | undefined
-          };
+          if (!createEmbeddingCoordinator) {
+            const error = new Error('Embedding coordinator not available');
+            (error as any).statusCode = 501;
+            (error as any).code = 'not_implemented';
+            throw error;
+          }
 
-          await runWithLiveTestContext(liveContext, async () => {
-            const createEmbeddingCoordinator = (deps as any).createEmbeddingCoordinator as
-              | ServerDependencies['createEmbeddingCoordinator']
-              | undefined;
+          const callPromise = runWithCoordinatorLifecycleFn<EmbeddingCallSpec, any, any, any>({
+            spec,
+            pluginsPath,
+            registry,
+            batchId,
+            closeLoggerAfter: closeLoggerAfterRequest,
+            deps: { ...deps, createCoordinator: createEmbeddingCoordinator },
+            run: (coordinator: any, s) => coordinator.execute(s)
+          });
 
-            if (!createEmbeddingCoordinator) {
-              const error = new Error('Embedding coordinator not available');
-              (error as any).statusCode = 501;
-              (error as any).code = 'not_implemented';
-              throw error;
-            }
-
-            const callPromise = runWithCoordinatorLifecycleFn<EmbeddingCallSpec, any, any, any>({
-              spec,
-              pluginsPath,
-              registry,
-              batchId,
-              closeLoggerAfter: closeLoggerAfterRequest,
-              deps: { ...deps, createCoordinator: createEmbeddingCoordinator },
-              run: (coordinator: any, s) => coordinator.execute(s)
+          if (config.requestTimeoutMs > 0) {
+            let timedOut = false;
+            let timeoutId: NodeJS.Timeout | undefined;
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              timeoutId = setTimeout(() => {
+                timedOut = true;
+                const error = new Error('Request timed out');
+                (error as any).statusCode = 504;
+                (error as any).code = 'timeout';
+                reject(error);
+              }, config.requestTimeoutMs);
             });
 
-            if (config.requestTimeoutMs > 0) {
-              let timedOut = false;
-              let timeoutId: NodeJS.Timeout | undefined;
-              const timeoutPromise = new Promise<never>((_, reject) => {
-                timeoutId = setTimeout(() => {
-                  timedOut = true;
-                  const error = new Error('Request timed out');
-                  (error as any).statusCode = 504;
-                  (error as any).code = 'timeout';
-                  reject(error);
-                }, config.requestTimeoutMs);
-              });
-
-              try {
-                const response = await Promise.race([callPromise, timeoutPromise]);
-                writeJson(res, 200, { type: 'response', data: response });
-                logger.info('HTTP /vector/embeddings/run completed', { durationMs: Date.now() - startTime });
-              } catch (error: any) {
-                if (timedOut) {
-                  const mapped = mapErrorToHttp(error);
-                  writeJson(res, mapped.status, mapped.body);
-                  logger.warning('HTTP /vector/embeddings/run timed out', { durationMs: Date.now() - startTime });
-                  releaseDeferred = true;
-                  callPromise
-                    .catch(err => logger.error('Coordinator finished after timeout', { error: err }))
-                    .finally(() => release());
-                  return;
-                }
-
-                const mapped = mapErrorToHttp(error);
-                writeJson(res, mapped.status, mapped.body);
-                logger.error('HTTP /vector/embeddings/run failed', { durationMs: Date.now() - startTime, error });
-              } finally {
-                if (timeoutId) clearTimeout(timeoutId);
-              }
-
-              return;
-            }
-
             try {
-              const response = await callPromise;
+              const response = await Promise.race([callPromise, timeoutPromise]);
               writeJson(res, 200, { type: 'response', data: response });
               logger.info('HTTP /vector/embeddings/run completed', { durationMs: Date.now() - startTime });
             } catch (error: any) {
+              if (timedOut) {
+                const mapped = mapErrorToHttp(error);
+                writeJson(res, mapped.status, mapped.body);
+                logger.warning('HTTP /vector/embeddings/run timed out', { durationMs: Date.now() - startTime });
+                releaseDeferred = true;
+                callPromise
+                  .catch(err => logger.error('Coordinator finished after timeout', { error: err }))
+                  .finally(() => release());
+                return;
+              }
+
               const mapped = mapErrorToHttp(error);
               writeJson(res, mapped.status, mapped.body);
               logger.error('HTTP /vector/embeddings/run failed', { durationMs: Date.now() - startTime, error });
+            } finally {
+              if (timeoutId) clearTimeout(timeoutId);
             }
-          });
+
+            return;
+          }
+
+          try {
+            const response = await callPromise;
+            writeJson(res, 200, { type: 'response', data: response });
+            logger.info('HTTP /vector/embeddings/run completed', { durationMs: Date.now() - startTime });
+          } catch (error: any) {
+            const mapped = mapErrorToHttp(error);
+            writeJson(res, mapped.status, mapped.body);
+            logger.error('HTTP /vector/embeddings/run failed', { durationMs: Date.now() - startTime, error });
+          }
         } catch (error: any) {
           const mapped = mapErrorToHttp(error);
           writeJson(res, mapped.status, mapped.body);
