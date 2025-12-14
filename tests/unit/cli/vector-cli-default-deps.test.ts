@@ -166,51 +166,6 @@ describe('vector_store_coordinator default wiring', () => {
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
-  test('__isEntryPoint is exported', async () => {
-    const module = await import('@/vector_store_coordinator.ts');
-    expect(typeof module.__isEntryPoint).toBe('boolean');
-  });
-
-  test('__isEntryPoint is true when module is main entry point', async () => {
-    jest.resetModules();
-
-    // Mock dependencies to prevent actual execution
-    const registryInstance = {
-      loadAll: jest.fn().mockResolvedValue(undefined)
-    };
-
-    const closeMock = jest.fn().mockResolvedValue(undefined);
-
-    (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
-      PluginRegistry: jest.fn().mockImplementation(() => registryInstance),
-      getDefaults: () => ({ timeouts: { loggerFlush: 0 } })
-    }));
-
-    (jest as any).unstable_mockModule('@/modules/vector/index.ts', () => ({
-      VectorStoreCoordinator: jest.fn().mockImplementation(() => ({
-        execute: jest.fn().mockResolvedValue({ success: true }),
-        executeStream: jest.fn(),
-        close: closeMock
-      }))
-    }));
-
-    jest.spyOn(console, 'log').mockImplementation(() => {});
-    jest.spyOn(console, 'error').mockImplementation(() => {});
-    jest.spyOn(process.stdout, 'write').mockImplementation((...args: any[]) => {
-      const callback = args.find((arg: any) => typeof arg === 'function');
-      if (callback) setImmediate(callback);
-      return true;
-    });
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation(((code?: number) => undefined) as any);
-
-    const moduleUrl = new URL('../../../vector_store_coordinator.ts', import.meta.url);
-    const modulePath = decodeURIComponent(moduleUrl.pathname);
-    process.argv = ['node', modulePath];
-
-    const module = await import('@/vector_store_coordinator.ts');
-    expect(module.__isEntryPoint).toBe(true);
-  });
-
   test('runCli uses process.argv when called without arguments', async () => {
     jest.resetModules();
 

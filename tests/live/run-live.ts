@@ -45,7 +45,7 @@ async function startLiveServer(options: {
   env: NodeJS.ProcessEnv;
   batchId: string;
 }): Promise<{ url: string; logPath: string; close: () => Promise<void> }> {
-  const script = path.join(rootDir, 'dist', 'llm_coordinator.js');
+  const script = path.join(rootDir, 'dist', 'bin', 'cli.js');
   const logsDir = path.join(rootDir, 'tests', 'live', 'logs');
   fs.mkdirSync(logsDir, { recursive: true });
 

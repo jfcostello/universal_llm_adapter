@@ -568,14 +568,4 @@ describe('vector_store_coordinator CLI', () => {
     });
   });
 
-  describe('__isEntryPoint', () => {
-    test('exports isEntryPoint flag', async () => {
-      try {
-        const module = await import('@/vector_store_coordinator.ts');
-        expect(typeof module.__isEntryPoint).toBe('boolean');
-      } catch {
-        expect(true).toBe(true);
-      }
-    });
-  });
 });

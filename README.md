@@ -21,7 +21,7 @@ All LLM logic remains in the coordinator; the server is transport‑only.
 ### Start via CLI
 
 ```bash
-llm-coordinator serve [options]
+llm-adapter serve [options]
 ```
 
 Common options:
@@ -85,7 +85,7 @@ This is only for embedding server startup in a Node process; consumers still cal
 - `POST /vector/stream`
   - Body: `VectorCallSpec` JSON.
   - Response: SSE `text/event-stream` where each event is a raw `VectorStreamEvent` framed as `data: <json>\n\n`.
-- `POST /vector/embeddings/run`
+- `POST /embeddings/run`
   - Body: `EmbeddingCallSpec` JSON.
   - Response: `{ "type": "response", "data": <EmbeddingOperationResult> }`.
 
@@ -360,7 +360,7 @@ LLM API
 - `modules/documents/index.ts` - MIME type detection
 - `modules/llm/index.ts` - Message preprocessing integration
 - `plugins/compat/<compat-id>/index.ts` - Provider-specific transformations
-- `vector_store_coordinator.ts` - Vector Store CLI entry point
+- `bin/cli.ts` - Unified CLI entry point (llm-adapter command)
 - `modules/vector/index.ts` - VectorStoreCoordinator class
 - `modules/kernel/index.ts` - VectorCallSpec and related types
 - `modules/vector/index.ts` - Text chunking utility
@@ -520,33 +520,41 @@ if (compat) {
 await vectorStore.closeAll();
 ```
 
-### Vector Store CLI
+### Unified CLI
 
-The Vector Store CLI (`vector_store_coordinator.ts`) provides batch operations for managing vector data outside of LLM calls.
+The unified CLI (`llm-adapter`) provides a single command-line interface for all LLM, vector, and embedding operations.
 
-#### Commands
+#### LLM Commands
+
+```bash
+# Non-streaming LLM call
+llm-adapter run --spec '{...}'
+
+# Streaming LLM call
+llm-adapter stream --spec '{...}'
+```
+
+#### Vector Commands
 
 | Command | Description |
 |---------|-------------|
-| `run` | Execute any vector operation from a `VectorCallSpec` |
-| `stream` | Stream `VectorStreamEvent` for an operation (batch embed yields progress) |
-| `embed` | Embed texts and optionally upsert to a vector store |
-| `upsert` | Upsert pre-computed vectors to a store |
-| `query` | Query a vector store |
-| `delete` | Delete vectors by ID |
-| `collections` | Manage collections (list, create, delete, exists) |
-
-#### Usage
+| `vector run` | Execute any vector operation from a `VectorCallSpec` |
+| `vector stream` | Stream `VectorStreamEvent` for an operation (batch embed yields progress) |
+| `vector embed` | Embed texts and optionally upsert to a vector store |
+| `vector upsert` | Upsert pre-computed vectors to a store |
+| `vector query` | Query a vector store |
+| `vector delete` | Delete vectors by ID |
+| `vector collections` | Manage collections (list, create, delete, exists) |
 
 ```bash
 # Run any vector operation (preferred for CLI/server parity)
-npx ts-node vector_store_coordinator.ts run --spec '{...}'
+llm-adapter vector run --spec '{...}'
 
 # Stream any operation (preferred for CLI/server parity)
-npx ts-node vector_store_coordinator.ts stream --spec '{...}'
+llm-adapter vector stream --spec '{...}'
 
 # Embed texts and upsert
-npx ts-node vector_store_coordinator.ts embed --spec '{
+llm-adapter vector embed --spec '{
   "operation": "embed",
   "store": "<vector-store-id>",
   "embeddingPriority": [{ "provider": "<embedding-provider-id>" }],
@@ -556,7 +564,7 @@ npx ts-node vector_store_coordinator.ts embed --spec '{
 # Embed with custom batch size (default: 10)
 # The batchSize setting controls how many texts are embedded per API call.
 # This applies to both streaming and non-streaming embed operations.
-npx ts-node vector_store_coordinator.ts embed --spec '{
+llm-adapter vector embed --spec '{
   "operation": "embed",
   "store": "<vector-store-id>",
   "embeddingPriority": [{ "provider": "<embedding-provider-id>" }],
@@ -565,7 +573,7 @@ npx ts-node vector_store_coordinator.ts embed --spec '{
 }'
 
 # Query with a text query (auto-embedded)
-npx ts-node vector_store_coordinator.ts query --spec '{
+llm-adapter vector query --spec '{
   "operation": "query",
   "store": "<vector-store-id>",
   "embeddingPriority": [{ "provider": "<embedding-provider-id>" }],
@@ -573,28 +581,46 @@ npx ts-node vector_store_coordinator.ts query --spec '{
 }'
 
 # Query with pre-computed vector
-npx ts-node vector_store_coordinator.ts query --spec '{
+llm-adapter vector query --spec '{
   "operation": "query",
   "store": "<vector-store-id>",
   "input": { "vector": [0.1, 0.2, ...], "topK": 5 }
 }'
 
 # Delete vectors
-npx ts-node vector_store_coordinator.ts delete --spec '{
+llm-adapter vector delete --spec '{
   "operation": "delete",
   "store": "<vector-store-id>",
   "input": { "ids": ["doc1", "doc2"] }
 }'
 
 # List collections
-npx ts-node vector_store_coordinator.ts collections --spec '{
+llm-adapter vector collections --spec '{
   "operation": "collections",
   "store": "<vector-store-id>",
   "input": { "collectionOp": "list" }
 }'
 
 # Stream progress for batch operations
-npx ts-node vector_store_coordinator.ts embed --stream --spec '{...}'
+llm-adapter vector embed --stream --spec '{...}'
+```
+
+#### Embedding Commands
+
+```bash
+# Execute an embedding operation
+llm-adapter embeddings run --spec '{
+  "operation": "embed",
+  "embeddingPriority": [{ "provider": "<embedding-provider-id>" }],
+  "input": { "texts": ["Hello world"] }
+}'
+```
+
+#### Server Command
+
+```bash
+# Start the HTTP/SSE server
+llm-adapter serve --port 3000
 ```
 
 #### CLI Options

@@ -26,14 +26,19 @@ function getTransport(env: NodeJS.ProcessEnv | undefined): 'cli' | 'server' {
 
 type ToolTarget = 'llm' | 'vector' | 'embedding';
 
-function getTargetScript(target: ToolTarget): string {
+function getUnifiedCliScript(): string {
+  return path.join(DIST_DIR, 'bin', 'cli.js');
+}
+
+function getTargetCommand(target: ToolTarget): string[] {
   switch (target) {
     case 'llm':
-      return path.join(DIST_DIR, 'llm_coordinator.js');
+      // LLM commands (run, stream) are at the root level of the unified CLI
+      return [];
     case 'vector':
-      return path.join(DIST_DIR, 'vector_store_coordinator.js');
+      return ['vector'];
     case 'embedding':
-      return path.join(DIST_DIR, 'vector_store_coordinator.js');
+      return ['embeddings'];
   }
 }
 
@@ -41,7 +46,7 @@ function getTargetEndpoint(target: ToolTarget, command: string): string | null {
   if (command === 'run') {
     if (target === 'llm') return '/run';
     if (target === 'vector') return '/vector/run';
-    if (target === 'embedding') return '/vector/embeddings/run';
+    if (target === 'embedding') return '/embeddings/run';
   }
 
   if (command === 'stream') {
@@ -270,12 +275,14 @@ async function runToolViaServer(target: ToolTarget, options: CliRunOptions): Pro
 }
 
 function runToolViaCli(target: ToolTarget, options: CliRunOptions = {}): Promise<CliResult> {
-  const script = getTargetScript(target);
+  const script = getUnifiedCliScript();
+  const targetCmd = getTargetCommand(target);
   const rawArgs = options.args ?? ['run'];
-  const args =
-    target === 'embedding'
-      ? ['embeddings', ...(rawArgs.length > 0 ? rawArgs : ['run'])]
-      : rawArgs;
+  // Unified CLI: llm-adapter <target> <command> [options]
+  // e.g., llm-adapter llm run --spec '...'
+  // e.g., llm-adapter vector embed --spec '...'
+  // e.g., llm-adapter embeddings run --spec '...'
+  const args = [...targetCmd, ...rawArgs];
 
   return new Promise((resolve) => {
     // Use process.execPath to ensure we use the same Node.js executable running the tests

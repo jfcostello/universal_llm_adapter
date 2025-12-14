@@ -77,31 +77,33 @@ export interface RunningServer {
   close: () => Promise<void>;
 }
 
+/**
+ * Default dependencies using shared factory functions.
+ * This ensures CLI and server use identical coordinator creation logic.
+ * All imports are dynamic to preserve lazy loading.
+ */
 const defaultDependencies: ServerDependencies = {
   getDefaults,
-  createRegistry: (pluginsPath: string) => new PluginRegistry(pluginsPath),
+  createRegistry: async (pluginsPath: string) => {
+    const { createRegistry } = await import('../lifecycle/index.js');
+    return createRegistry(pluginsPath);
+  },
   createCoordinator: async (registry: PluginRegistryLike) => {
-    const module = await import('../llm/index.js');
-    const logging = await import('../logging/index.js');
-    return new module.LLMCoordinator(registry as any, {
-      logging: logging.createLoggingDeps()
-    });
+    const { createLlmCoordinator } = await import('../lifecycle/index.js');
+    return createLlmCoordinator(registry);
   },
   createVectorCoordinator: async (registry: PluginRegistryLike) => {
-    const module = await import('../vector/index.js');
-    const logging = await import('../logging/index.js');
-    return new module.VectorStoreCoordinator(registry as any, {
-      logging: logging.createLoggingDeps()
-    });
+    const { createVectorCoordinator } = await import('../lifecycle/index.js');
+    return createVectorCoordinator(registry);
   },
   createEmbeddingCoordinator: async (registry: PluginRegistryLike) => {
-    const module = await import('../embeddings/index.js');
-    const logging = await import('../logging/index.js');
-    return new module.EmbeddingCoordinator(registry as any, {
-      logging: logging.createLoggingDeps()
-    });
+    const { createEmbeddingCoordinator } = await import('../lifecycle/index.js');
+    return createEmbeddingCoordinator(registry);
   },
-  closeLogger: async () => (await import('../logging/index.js')).closeLogger()
+  closeLogger: async () => {
+    const { closeLogger } = await import('../lifecycle/index.js');
+    return closeLogger();
+  }
 };
 
 export function createServerHandlerWithDefaults(

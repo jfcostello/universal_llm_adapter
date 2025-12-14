@@ -1,11 +1,8 @@
-import path from 'path';
 import { jest } from '@jest/globals';
 import { Command } from 'commander';
 import { createLlmCoordinatorProgram as createProgram } from '@/modules/cli/index.ts';
 import { runLlmCoordinatorCli as runCli } from '@/modules/cli/index.ts';
 import type { LlmCliDependencies as CliDependencies } from '@/modules/cli/index.ts';
-import { __isEntryPoint } from '@/llm_coordinator.ts';
-import { ROOT_DIR } from '@tests/helpers/paths.ts';
 
 function createDeps(overrides: Partial<CliDependencies> = {}) {
   const registry = { loadAll: jest.fn().mockResolvedValue(undefined) };
@@ -50,7 +47,6 @@ describe('llm_coordinator CLI', () => {
     expect(coordinator.close).toHaveBeenCalled();
     // Note: deps.log is no longer called - response is written via process.stdout.write for proper flushing
     expect(deps.exit).toHaveBeenCalledWith(0);
-    expect(__isEntryPoint).toBe(false);
   });
 
   test('run command falls back to builtin plugins path when option absent', async () => {
@@ -184,31 +180,6 @@ describe('llm_coordinator CLI', () => {
     expect(parseSpy).toHaveBeenCalledWith(process.argv);
 
     parseSpy.mockRestore();
-    process.argv = originalArgv;
-  });
-
-  test('entrypoint auto-invokes runCli when executed directly', async () => {
-    const originalArgv = [...process.argv];
-    const scriptPath = path.join(ROOT_DIR, 'llm_coordinator.ts');
-    process.argv = ['node', scriptPath, '--version'];
-
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => undefined as never);
-    let localParseSpy: jest.SpyInstance | undefined;
-
-    jest.resetModules();
-    await jest.isolateModulesAsync(async () => {
-      const commander = await import('commander');
-      localParseSpy = jest
-        .spyOn(commander.Command.prototype, 'parseAsync')
-        .mockResolvedValue(undefined);
-      await import('@/llm_coordinator.ts');
-    });
-
-    expect(localParseSpy).toBeDefined();
-    expect(localParseSpy?.mock.calls.length).toBeGreaterThan(0);
-
-    localParseSpy?.mockRestore();
-    exitSpy.mockRestore();
     process.argv = originalArgv;
   });
 });

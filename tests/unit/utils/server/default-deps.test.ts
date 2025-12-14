@@ -140,8 +140,8 @@ describe('utils/server default dependency wiring', () => {
     expect(vectorCloseMock).toHaveBeenCalled();
   });
 
-  test('POST /vector/embeddings/run uses default createEmbeddingCoordinator', async () => {
-    const res = await fetch(new URL('/vector/embeddings/run', running.url), {
+  test('POST /embeddings/run uses default createEmbeddingCoordinator', async () => {
+    const res = await fetch(new URL('/embeddings/run', running.url), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({

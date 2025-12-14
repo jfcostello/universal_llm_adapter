@@ -577,7 +577,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
         return;
       }
 
-      if (url === '/vector/embeddings/run') {
+      if (url === '/embeddings/run') {
         await assertAuthorizedAndRateLimited(req);
 
         assertJsonContentType(req);
@@ -636,12 +636,12 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
             try {
               const response = await Promise.race([callPromise, timeoutPromise]);
               writeJson(res, 200, { type: 'response', data: response });
-              logger.info('HTTP /vector/embeddings/run completed', { durationMs: Date.now() - startTime });
+              logger.info('HTTP /embeddings/run completed', { durationMs: Date.now() - startTime });
             } catch (error: any) {
               if (timedOut) {
                 const mapped = mapErrorToHttp(error);
                 writeJson(res, mapped.status, mapped.body);
-                logger.warning('HTTP /vector/embeddings/run timed out', { durationMs: Date.now() - startTime });
+                logger.warning('HTTP /embeddings/run timed out', { durationMs: Date.now() - startTime });
                 releaseDeferred = true;
                 callPromise
                   .catch(err => logger.error('Coordinator finished after timeout', { error: err }))
@@ -651,7 +651,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
 
               const mapped = mapErrorToHttp(error);
               writeJson(res, mapped.status, mapped.body);
-              logger.error('HTTP /vector/embeddings/run failed', { durationMs: Date.now() - startTime, error });
+              logger.error('HTTP /embeddings/run failed', { durationMs: Date.now() - startTime, error });
             } finally {
               if (timeoutId) clearTimeout(timeoutId);
             }
@@ -662,11 +662,11 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           try {
             const response = await callPromise;
             writeJson(res, 200, { type: 'response', data: response });
-            logger.info('HTTP /vector/embeddings/run completed', { durationMs: Date.now() - startTime });
+            logger.info('HTTP /embeddings/run completed', { durationMs: Date.now() - startTime });
           } catch (error: any) {
             const mapped = mapErrorToHttp(error);
             writeJson(res, mapped.status, mapped.body);
-            logger.error('HTTP /vector/embeddings/run failed', { durationMs: Date.now() - startTime, error });
+            logger.error('HTTP /embeddings/run failed', { durationMs: Date.now() - startTime, error });
           }
         } catch (error: any) {
           const mapped = mapErrorToHttp(error);

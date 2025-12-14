@@ -115,7 +115,7 @@ describe('utils/server createServerHandler', () => {
     expect(JSON.parse(out.body).error.code).toBe('not_implemented');
   });
 
-  test('handles /vector/embeddings/run with embedding coordinator', async () => {
+  test('handles /embeddings/run with embedding coordinator', async () => {
     const embeddingExecute = jest.fn().mockResolvedValue({ ok: true });
     const handler = createServerHandler({
       registry,
@@ -135,7 +135,7 @@ describe('utils/server createServerHandler', () => {
 
     const req = makeReq(
       'POST',
-      '/vector/embeddings/run',
+      '/embeddings/run',
       JSON.stringify({ operation: 'embed', embeddingPriority: [{ provider: 'p' }], input: { texts: ['hello'] } })
     );
     const out = makeRes();
@@ -148,7 +148,7 @@ describe('utils/server createServerHandler', () => {
     expect(embeddingExecute).toHaveBeenCalled();
   });
 
-  test('returns 501 when /vector/embeddings/run is requested but embedding coordinator is missing', async () => {
+  test('returns 501 when /embeddings/run is requested but embedding coordinator is missing', async () => {
     const handler = createServerHandler({
       registry,
       pluginsPath: './plugins',
@@ -161,7 +161,7 @@ describe('utils/server createServerHandler', () => {
       config
     });
 
-    const req = makeReq('POST', '/vector/embeddings/run', JSON.stringify({ operation: 'embed' }));
+    const req = makeReq('POST', '/embeddings/run', JSON.stringify({ operation: 'embed' }));
     const out = makeRes();
     await handler(req, out.res);
 
@@ -981,7 +981,7 @@ describe('utils/server createServerHandler', () => {
     expect(JSON.parse(out.body).error.message).toContain('boom-vector');
   });
 
-  test('times out /vector/embeddings/run when requestTimeoutMs exceeded', async () => {
+  test('times out /embeddings/run when requestTimeoutMs exceeded', async () => {
     const handler = createServerHandler({
       registry,
       pluginsPath: './plugins',
@@ -1001,7 +1001,7 @@ describe('utils/server createServerHandler', () => {
       config: { ...config, requestTimeoutMs: 5 }
     });
 
-    const req = makeReq('POST', '/vector/embeddings/run', JSON.stringify({ operation: 'embed' }));
+    const req = makeReq('POST', '/embeddings/run', JSON.stringify({ operation: 'embed' }));
     const out = makeRes();
     await handler(req, out.res);
     await new Promise(r => setTimeout(r, 30));
@@ -1010,7 +1010,7 @@ describe('utils/server createServerHandler', () => {
     expect(JSON.parse(out.body).error.code).toBe('timeout');
   });
 
-  test('completes /vector/embeddings/run before timeout when requestTimeoutMs set', async () => {
+  test('completes /embeddings/run before timeout when requestTimeoutMs set', async () => {
     const handler = createServerHandler({
       registry,
       pluginsPath: './plugins',
@@ -1029,7 +1029,7 @@ describe('utils/server createServerHandler', () => {
 
     const req = makeReq(
       'POST',
-      '/vector/embeddings/run',
+      '/embeddings/run',
       JSON.stringify({ operation: 'embed', embeddingPriority: [{ provider: 'p' }], input: { texts: ['hello'] } })
     );
     const out = makeRes();
@@ -1039,7 +1039,7 @@ describe('utils/server createServerHandler', () => {
     expect(JSON.parse(out.body).type).toBe('response');
   });
 
-  test('timeout path handles later /vector/embeddings/run coordinator rejection', async () => {
+  test('timeout path handles later /embeddings/run coordinator rejection', async () => {
     const handler = createServerHandler({
       registry,
       pluginsPath: './plugins',
@@ -1059,7 +1059,7 @@ describe('utils/server createServerHandler', () => {
       config: { ...config, requestTimeoutMs: 5 }
     });
 
-    const req = makeReq('POST', '/vector/embeddings/run', JSON.stringify({ operation: 'embed' }));
+    const req = makeReq('POST', '/embeddings/run', JSON.stringify({ operation: 'embed' }));
     const out = makeRes();
     await handler(req, out.res);
     await new Promise(r => setTimeout(r, 30));
@@ -1068,7 +1068,7 @@ describe('utils/server createServerHandler', () => {
     expect(JSON.parse(out.body).error.code).toBe('timeout');
   });
 
-  test('handles /vector/embeddings/run coordinator error within timeout branch', async () => {
+  test('handles /embeddings/run coordinator error within timeout branch', async () => {
     const handler = createServerHandler({
       registry,
       pluginsPath: './plugins',
@@ -1085,7 +1085,7 @@ describe('utils/server createServerHandler', () => {
       config: { ...config, requestTimeoutMs: 50 }
     });
 
-    const req = makeReq('POST', '/vector/embeddings/run', JSON.stringify({ operation: 'embed' }));
+    const req = makeReq('POST', '/embeddings/run', JSON.stringify({ operation: 'embed' }));
     const out = makeRes();
     await handler(req, out.res);
 
@@ -1093,7 +1093,7 @@ describe('utils/server createServerHandler', () => {
     expect(JSON.parse(out.body).error.message).toContain('boom-embeddings-timeout-branch');
   });
 
-  test('handles /vector/embeddings/run coordinator error when requestTimeoutMs disabled', async () => {
+  test('handles /embeddings/run coordinator error when requestTimeoutMs disabled', async () => {
     const handler = createServerHandler({
       registry,
       pluginsPath: './plugins',
@@ -1110,7 +1110,7 @@ describe('utils/server createServerHandler', () => {
       config: { ...config, requestTimeoutMs: 0 }
     });
 
-    const req = makeReq('POST', '/vector/embeddings/run', JSON.stringify({ operation: 'embed' }));
+    const req = makeReq('POST', '/embeddings/run', JSON.stringify({ operation: 'embed' }));
     const out = makeRes();
     await handler(req, out.res);
 

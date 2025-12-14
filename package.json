@@ -43,11 +43,11 @@
     }
   },
   "bin": {
-    "llm-coordinator": "./dist/llm_coordinator.js"
+    "llm-adapter": "./dist/bin/cli.js"
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsx watch llm_coordinator.ts",
+    "dev": "tsx watch bin/cli.ts serve",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand --forceExit",
     "test:all": "tsx tests/live/run-all.ts",
     "test:live": "tsx tests/live/run-live.ts",
@@ -57,7 +57,7 @@
     "test:live:google": "tsx tests/live/run-live.ts google",
     "test:live:embeddings": "tsx tests/live/run-live.ts --testPathPattern=15-embeddings",
     "test:live:vector": "tsx tests/live/run-live.ts --testPathPattern=16-vector-store",
-    "start": "node dist/llm_coordinator.js",
+    "start": "node dist/bin/cli.js serve",
     "sandbox:cli": "tsx tests/sandbox/index.ts"
   },
   "dependencies": {

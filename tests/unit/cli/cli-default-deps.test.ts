@@ -1,5 +1,3 @@
-import path from 'path';
-import { pathToFileURL } from 'url';
 import { jest } from '@jest/globals';
 
 async function importCoordinatorModule() {
@@ -163,34 +161,6 @@ describe('llm_coordinator default wiring', () => {
     await module.runLlmCoordinatorCli(['node', 'llm-coordinator', '--version']);
 
     expect(parseSpy).toHaveBeenCalledWith(['node', 'llm-coordinator', '--version']);
-  });
-
-  test('auto-run bootstrap triggers when invoked directly', async () => {
-    jest.resetModules();
-
-    const registryInstance = { loadAll: jest.fn().mockResolvedValue(undefined) };
-    (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
-      PluginRegistry: jest.fn().mockImplementation(() => registryInstance)
-    }));
-
-    (jest as any).unstable_mockModule('@/modules/llm/index.ts', () => ({
-      LLMCoordinator: jest.fn().mockImplementation(() => ({
-        run: jest.fn().mockResolvedValue({}),
-        runStream: jest.fn().mockResolvedValue(undefined),
-        close: jest.fn().mockResolvedValue(undefined)
-      }))
-    }));
-
-    jest.spyOn(console, 'log').mockImplementation(() => {});
-    jest.spyOn(console, 'error').mockImplementation(() => {});
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation(((code?: number) => undefined) as any);
-
-    const moduleUrl = new URL('../../../llm_coordinator.ts', import.meta.url);
-    const modulePath = decodeURIComponent(moduleUrl.pathname);
-    process.argv = ['node', modulePath];
-
-    const module = await import('@/llm_coordinator.ts');
-    expect(module.__isEntryPoint).toBe(true);
   });
 
 });

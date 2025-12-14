@@ -11,7 +11,7 @@ import type { ContentPart, LLMCallSpec, Message } from './internal/load-scenario
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, '..', '..');
-const DIST_CLI = path.join(ROOT_DIR, 'dist', 'llm_coordinator.js');
+const DIST_CLI = path.join(ROOT_DIR, 'dist', 'bin', 'cli.js');
 const SANDBOX_LOG_DIR = path.join(ROOT_DIR, 'tests', 'sandbox', 'logs');
 
 async function main(): Promise<void> {
@@ -40,7 +40,7 @@ async function main(): Promise<void> {
 
 async function ensureDistExists(): Promise<void> {
   if (fs.existsSync(DIST_CLI)) return;
-  throw new Error('dist/llm_coordinator.js not found. Run `npm run build` before running the sandbox.');
+  throw new Error('dist/bin/cli.js not found. Run `npm run build` before running the sandbox.');
 }
 
 async function runScenario(scenario: SandboxScenario, scenarioPath: string): Promise<void> {
@@ -145,8 +145,10 @@ function invokeCli(
   }
 ): Promise<{ assistant: Message; raw?: LLMResponse }> {
   return new Promise((resolve, reject) => {
+    // Use unified CLI with 'llm' subcommand
     const args = [
       DIST_CLI,
+      'llm',
       options.mode === 'stream' ? 'stream' : 'run',
       '--plugins',
       options.pluginsPath

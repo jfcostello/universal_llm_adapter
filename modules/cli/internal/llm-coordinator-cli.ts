@@ -175,7 +175,7 @@ export function createLlmCoordinatorProgram(
     )
     .option(
       '--max-concurrent-embedding-requests <n>',
-      'Concurrent /vector/embeddings/run executions',
+      'Concurrent /embeddings/run executions',
       parseNumber
     )
     .option(
