@@ -1,4 +1,6 @@
 import type http from 'http';
+import fs from 'fs';
+import path from 'path';
 import { readJsonBody } from './transport/body-parser.js';
 import { writeSseEvent, writeSseEventWithBackpressure } from './streaming/sse.js';
 import {
@@ -209,6 +211,24 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
 
     const method = req.method ?? 'GET';
     const url = req.url ?? '/';
+
+    if (method === 'GET' && url === '/health') {
+      writeJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (method === 'GET' && url === '/ready') {
+      const resolvedPluginsPath = path.isAbsolute(pluginsPath)
+        ? pluginsPath
+        : path.resolve(process.cwd(), pluginsPath);
+      const ready = fs.existsSync(resolvedPluginsPath);
+      if (!ready) {
+        writeJson(res, 503, { ok: false });
+        return;
+      }
+      writeJson(res, 200, { ok: true });
+      return;
+    }
 
     if (method !== 'POST') {
       writeJson(res, 405, { type: 'error', error: { message: 'Method not allowed' } });

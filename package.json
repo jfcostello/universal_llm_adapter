@@ -2,12 +2,40 @@
   "name": "llm-adapter",
   "version": "1.0.0",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/modules/kernel/index.js",
+  "types": "./dist/modules/kernel/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./dist/modules/kernel/index.d.ts",
+      "import": "./dist/modules/kernel/index.js"
+    },
+    "./llm": {
+      "types": "./dist/coordinator/coordinator.d.ts",
+      "import": "./dist/coordinator/coordinator.js"
+    },
+    "./server": {
+      "types": "./dist/modules/server/index.d.ts",
+      "import": "./dist/modules/server/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/modules/mcp/index.d.ts",
+      "import": "./dist/modules/mcp/index.js"
+    },
+    "./vector": {
+      "types": "./dist/modules/vector/index.d.ts",
+      "import": "./dist/modules/vector/index.js"
+    },
+    "./embeddings": {
+      "types": "./dist/modules/embeddings/index.d.ts",
+      "import": "./dist/modules/embeddings/index.js"
+    },
+    "./tools": {
+      "types": "./dist/modules/tools/index.d.ts",
+      "import": "./dist/modules/tools/index.js"
+    },
+    "./cli": {
+      "types": "./dist/modules/cli/index.d.ts",
+      "import": "./dist/modules/cli/index.js"
     }
   },
   "bin": {

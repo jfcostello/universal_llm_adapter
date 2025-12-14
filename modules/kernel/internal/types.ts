@@ -61,18 +61,9 @@ export interface DocumentContent {
 
   /**
    * Provider-specific options (optional).
-   * Only used by certain providers (e.g., Anthropic prompt caching).
+   * Only used by certain provider plugins (e.g., caching controls, document processing hints).
    */
-  providerOptions?: {
-    anthropic?: {
-      cacheControl?: {
-        type: string;
-      };
-    };
-    openrouter?: {
-      plugin?: 'pdf-text' | 'mistral-ocr' | 'native';
-    };
-  };
+  providerOptions?: Record<string, any>;
 }
 
 export type ContentPart = TextContent | ImageContent | DocumentContent | ToolResultContent;
@@ -80,7 +71,7 @@ export type ContentPart = TextContent | ImageContent | DocumentContent | ToolRes
 export interface ReasoningData {
   text: string;
   redacted?: boolean;
-  metadata?: Record<string, any>; // Provider-specific metadata (e.g., Anthropic's signature)
+  metadata?: Record<string, any>; // Provider-specific metadata returned by the compat layer
 }
 
 export interface Message {
@@ -109,8 +100,8 @@ export interface ToolCall {
   args?: JsonObject;
   /**
    * Provider-specific metadata for this tool call.
-   * Used to preserve cryptographic signatures (e.g., Google's thoughtSignature)
-   * that must be sent back in subsequent requests.
+   * Used to preserve provider-supplied signatures that must be sent back in
+   * subsequent requests.
    */
   metadata?: Record<string, any>;
 }
@@ -413,11 +404,11 @@ export interface UsageStats {
   completionTokens?: number;
   totalTokens?: number;
   reasoningTokens?: number;
-  /** Cost in credits (OpenRouter usage accounting) */
+  /** Optional cost returned by the provider */
   cost?: number;
-  /** Tokens read from cache (OpenRouter/OpenAI prompt caching) */
+  /** Tokens read from cache (if supported) */
   cachedTokens?: number;
-  /** Audio tokens (OpenRouter/OpenAI) */
+  /** Audio tokens (if supported) */
   audioTokens?: number;
 }
 
@@ -614,7 +605,6 @@ export type IOperationLogger = IEmbeddingOperationLogger & IVectorOperationLogge
 
 /**
  * Interface for embedding compat modules.
- * Implemented by: plugins/embedding-compat/openrouter/index.ts, etc.
  */
 export interface IEmbeddingCompat {
   embed(
@@ -631,7 +621,6 @@ export interface IEmbeddingCompat {
 
 /**
  * Interface for vector store compat modules.
- * Implemented by: plugins/vector-compat/qdrant/index.ts, etc.
  */
 export interface IVectorStoreCompat {
   /** Optional method to inject a logger for operation logging */
@@ -706,8 +695,8 @@ export interface ToolCallEvent {
   arguments?: string;
   /**
    * Provider-specific metadata for this tool call event.
-   * Used to preserve encrypted signatures (e.g., OpenRouter/Gemini reasoning.encrypted)
-   * that must be sent back in subsequent requests for multi-turn tool conversations.
+   * Used to preserve encrypted signatures that must be sent back in subsequent
+   * requests for multi-turn tool conversations.
    */
   metadata?: Record<string, any>;
 }

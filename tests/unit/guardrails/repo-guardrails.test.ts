@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
 
 const IGNORED_DIRS = new Set([
@@ -95,7 +96,7 @@ describe('guardrails/repo', () => {
     expect(offenders).toEqual([]);
   });
 
-  test('provider/model/endpoint/API/SDK names do not appear outside plugins (allowlisted legacy files only)', () => {
+  test('provider/model/endpoint/API/SDK names do not appear outside plugins', () => {
     const disallowedTokens = [
       'anthropic',
       'openai',
@@ -107,11 +108,6 @@ describe('guardrails/repo', () => {
       'gpt'
     ];
 
-    // Legacy allowlist (will shrink as the epic progresses)
-    const allowlistedFiles = new Set<string>([
-      'modules/kernel/internal/types.ts',
-    ]);
-
     const files = walk(ROOT_DIR)
       .filter(f => f.endsWith('.ts'))
       .filter(f => !isUnder('tests', f))
@@ -121,10 +117,26 @@ describe('guardrails/repo', () => {
 
     for (const file of files) {
       const rel = toRepoRelative(file);
-      if (allowlistedFiles.has(rel)) {
-        continue;
+      const lower = fs.readFileSync(file, 'utf8').toLowerCase();
+      for (const token of disallowedTokens) {
+        if (lower.includes(token)) {
+          offenders.push({ file: rel, token });
+        }
       }
+    }
 
+    // Also scan tracked docs (exclude tests/** and plugins/** to avoid legitimate provider/plugin docs).
+    const trackedDocs = execSync('git ls-files', { cwd: ROOT_DIR, encoding: 'utf8' })
+      .split('\n')
+      .map(s => s.trim())
+      .filter(Boolean)
+      .filter(p => p.endsWith('.md'))
+      .map(p => path.join(ROOT_DIR, p))
+      .filter(f => !isUnder('tests', f))
+      .filter(f => !isUnder('plugins', f));
+
+    for (const file of trackedDocs) {
+      const rel = toRepoRelative(file);
       const lower = fs.readFileSync(file, 'utf8').toLowerCase();
       for (const token of disallowedTokens) {
         if (lower.includes(token)) {

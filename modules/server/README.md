@@ -88,6 +88,14 @@ Accepts the same options and defaults as `createServer`.
 
 ## Endpoints
 
+### `GET /health`
+- Response: `application/json` `{ ok: true }`.
+
+### `GET /ready`
+- Response:
+  - `200` with `{ ok: true }` when the server is ready to accept work.
+  - `503` with `{ ok: false }` when not ready (e.g., configured `pluginsPath` is missing).
+
 ### `POST /run`
 - Body: `LLMCallSpec` JSON.
 - Response: `application/json` `{ type: "response", data: <LLMResponse> }`.

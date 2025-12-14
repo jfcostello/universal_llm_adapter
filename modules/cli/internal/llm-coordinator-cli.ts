@@ -146,6 +146,41 @@ export function createLlmCoordinatorProgram(
     .option('--max-concurrent-streams <n>', 'Concurrent /stream executions', parseNumber)
     .option('--max-queue-size <n>', 'Queued requests per limiter', parseNumber)
     .option('--queue-timeout-ms <ms>', 'Max time a request waits in queue', parseNumber)
+    .option(
+      '--max-concurrent-vector-requests <n>',
+      'Concurrent /vector/run executions',
+      parseNumber
+    )
+    .option(
+      '--max-concurrent-vector-streams <n>',
+      'Concurrent /vector/stream executions',
+      parseNumber
+    )
+    .option(
+      '--vector-max-queue-size <n>',
+      'Queued vector requests per limiter',
+      parseNumber
+    )
+    .option(
+      '--vector-queue-timeout-ms <ms>',
+      'Max time a vector request waits in queue',
+      parseNumber
+    )
+    .option(
+      '--max-concurrent-embedding-requests <n>',
+      'Concurrent /vector/embeddings/run executions',
+      parseNumber
+    )
+    .option(
+      '--embedding-max-queue-size <n>',
+      'Queued embedding requests per limiter',
+      parseNumber
+    )
+    .option(
+      '--embedding-queue-timeout-ms <ms>',
+      'Max time an embedding request waits in queue',
+      parseNumber
+    )
     .option('--auth-enabled', 'Enable API key/token auth')
     .option('--no-auth-allow-bearer', 'Disable Authorization: Bearer header support')
     .option('--no-auth-allow-api-key-header', 'Disable API key header support')
@@ -179,7 +214,14 @@ export function createLlmCoordinatorProgram(
           maxConcurrentRequests: options.maxConcurrentRequests,
           maxConcurrentStreams: options.maxConcurrentStreams,
           maxQueueSize: options.maxQueueSize,
-          queueTimeoutMs: options.queueTimeoutMs
+          queueTimeoutMs: options.queueTimeoutMs,
+          maxConcurrentVectorRequests: options.maxConcurrentVectorRequests,
+          maxConcurrentVectorStreams: options.maxConcurrentVectorStreams,
+          vectorMaxQueueSize: options.vectorMaxQueueSize,
+          vectorQueueTimeoutMs: options.vectorQueueTimeoutMs,
+          maxConcurrentEmbeddingRequests: options.maxConcurrentEmbeddingRequests,
+          embeddingMaxQueueSize: options.embeddingMaxQueueSize,
+          embeddingQueueTimeoutMs: options.embeddingQueueTimeoutMs
         };
 
         const authArgProvided = rawArgs.some(arg => arg.startsWith('--auth-'));

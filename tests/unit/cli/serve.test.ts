@@ -60,6 +60,20 @@ describe('llm_coordinator serve command', () => {
       '12',
       '--queue-timeout-ms',
       '13',
+      '--max-concurrent-vector-requests',
+      '20',
+      '--max-concurrent-vector-streams',
+      '21',
+      '--vector-max-queue-size',
+      '22',
+      '--vector-queue-timeout-ms',
+      '23',
+      '--max-concurrent-embedding-requests',
+      '30',
+      '--embedding-max-queue-size',
+      '31',
+      '--embedding-queue-timeout-ms',
+      '32',
       '--auth-enabled',
       '--auth-header-name',
       'x-my-key',
@@ -86,6 +100,13 @@ describe('llm_coordinator serve command', () => {
         maxConcurrentStreams: 11,
         maxQueueSize: 12,
         queueTimeoutMs: 13,
+        maxConcurrentVectorRequests: 20,
+        maxConcurrentVectorStreams: 21,
+        vectorMaxQueueSize: 22,
+        vectorQueueTimeoutMs: 23,
+        maxConcurrentEmbeddingRequests: 30,
+        embeddingMaxQueueSize: 31,
+        embeddingQueueTimeoutMs: 32,
         auth: expect.objectContaining({
           enabled: true,
           headerName: 'x-my-key',
@@ -146,6 +167,24 @@ describe('llm_coordinator serve command', () => {
     expect(deps.createServer).toHaveBeenCalledWith(
       expect.objectContaining({ pluginsPath: './plugins' })
     );
+  });
+
+  test('does not set vector/embedding limiter overrides unless provided', async () => {
+    const { deps } = createServeDeps();
+    const program = createProgram(deps);
+
+    await program.parseAsync(['node', 'llm-coordinator', 'serve']);
+
+    const createServer = deps.createServer as unknown as jest.Mock;
+    const options = createServer.mock.calls[0]?.[0] ?? {};
+
+    expect(options.maxConcurrentVectorRequests).toBeUndefined();
+    expect(options.maxConcurrentVectorStreams).toBeUndefined();
+    expect(options.vectorMaxQueueSize).toBeUndefined();
+    expect(options.vectorQueueTimeoutMs).toBeUndefined();
+    expect(options.maxConcurrentEmbeddingRequests).toBeUndefined();
+    expect(options.embeddingMaxQueueSize).toBeUndefined();
+    expect(options.embeddingQueueTimeoutMs).toBeUndefined();
   });
 
   test('registers signal handlers that close server then exit', async () => {
