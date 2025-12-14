@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 import { VectorStoreManager } from '@/managers/vector-store-manager.ts';
 import { EmbeddingManager } from '@/managers/embedding-manager.ts';
-import MemoryCompat from '@/plugins/vector-compat/memory.ts';
+import MemoryCompat from '@/plugins/vector-compat/memory/index.ts';
 import type { IVectorStoreCompat, VectorStoreConfig, EmbeddingPriorityItem } from '@/core/types.ts';
 
 describe('integration/vector/vector-store-manager', () => {

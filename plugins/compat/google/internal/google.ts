@@ -16,7 +16,7 @@ import {
   UsageStats,
   ParsedStreamChunk,
   ReasoningData
-} from '../../core/types.js';
+} from '../../../../core/types.js';
 
 type GooglePart = {
   text?: string;

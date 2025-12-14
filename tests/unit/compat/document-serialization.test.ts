@@ -1,9 +1,9 @@
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { DocumentContent, Message, Role } from '@/core/types.ts';
-import AnthropicCompat from '@/plugins/compat/anthropic.ts';
-import OpenAICompat from '@/plugins/compat/openai.ts';
-import GoogleCompat from '@/plugins/compat/google.ts';
-import OpenAIResponsesCompat from '@/plugins/compat/openai-responses.ts';
+import AnthropicCompat from '@/plugins/compat/anthropic/index.ts';
+import OpenAICompat from '@/plugins/compat/openai/index.ts';
+import GoogleCompat from '@/plugins/compat/google/index.ts';
+import OpenAIResponsesCompat from '@/plugins/compat/openai-responses/index.ts';
 
 describe('Document Serialization - Compat Modules', () => {
   describe('Anthropic', () => {

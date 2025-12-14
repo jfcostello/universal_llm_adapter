@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import AnthropicCompat from '@/plugins/compat/anthropic.ts';
+import AnthropicCompat from '@/plugins/compat/anthropic/index.ts';
 import { Role, ToolCallEventType } from '@/core/types.ts';
 import { aggregateSystemMessages } from '@/utils/messages/message-utils.ts';
 

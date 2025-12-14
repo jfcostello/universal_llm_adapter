@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import OpenAICompat from '@/plugins/compat/openai.ts';
+import OpenAICompat from '@/plugins/compat/openai/index.ts';
 import {
   Role,
   ToolCallEventType

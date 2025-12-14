@@ -57,6 +57,129 @@ export class PluginRegistry {
     // All loading is now lazy and on-demand
   }
 
+  private getPluginCodeCandidates(area: 'compat' | 'embedding-compat' | 'vector-compat'): string[] {
+    return [
+      path.resolve(distRoot, 'plugins', area),
+      path.join(this.rootPath, area),
+      path.resolve(process.cwd(), 'plugins', area),
+    ];
+  }
+
+  private resolvePluginCodeEntry(
+    area: 'compat' | 'embedding-compat' | 'vector-compat',
+    moduleName: string
+  ): string | undefined {
+    const candidates = this.getPluginCodeCandidates(area);
+    const visited = new Set<string>();
+
+    for (const candidateRoot of candidates) {
+      const root = path.resolve(candidateRoot);
+      if (visited.has(root)) continue;
+      visited.add(root);
+
+      if (!fs.existsSync(root)) continue;
+
+      // Prefer module directories: <root>/<name>/index.(js|ts)
+      const dir = path.join(root, moduleName);
+      const dirIndexJs = path.join(dir, 'index.js');
+      const dirIndexTs = path.join(dir, 'index.ts');
+
+      if (fs.existsSync(dirIndexJs)) return dirIndexJs;
+      if (fs.existsSync(dirIndexTs)) return dirIndexTs;
+
+      // Fall back to legacy single-file modules: <root>/<name>.(js|ts)
+      const fileJs = path.join(root, `${moduleName}.js`);
+      const fileTs = path.join(root, `${moduleName}.ts`);
+
+      if (fs.existsSync(fileJs)) return fileJs;
+      if (fs.existsSync(fileTs)) return fileTs;
+    }
+
+    return undefined;
+  }
+
+  private async importPluginCodeModule(modulePath: string): Promise<any> {
+    return import(pathToFileURL(modulePath).href);
+  }
+
+  private getDefaultOrFirstExport(imported: Record<string, any>): any {
+    return imported.default ?? imported[Object.keys(imported)[0]];
+  }
+
+  private async ensureCompatModuleLoaded(moduleName: string): Promise<void> {
+    if (this.compatModules.has(moduleName)) return;
+
+    this.compatModulesLoaded = true;
+
+    const modulePath = this.resolvePluginCodeEntry('compat', moduleName);
+    if (!modulePath) {
+      throw new ManifestError(`No compat module found for '${moduleName}'`);
+    }
+
+    try {
+      const imported = await this.importPluginCodeModule(modulePath);
+      const CompatClass = this.getDefaultOrFirstExport(imported);
+      if (typeof CompatClass !== 'function') {
+        throw new Error('module did not export a constructor');
+      }
+      this.compatModules.set(moduleName, new CompatClass());
+    } catch (error: any) {
+      console.warn(`Failed to load compat module ${moduleName}: ${error.message}`);
+      throw new ManifestError(`No compat module found for '${moduleName}'`);
+    }
+  }
+
+  private async ensureEmbeddingCompatLoaded(kind: string): Promise<void> {
+    if (this.embeddingCompats.has(kind)) return;
+
+    this.embeddingCompatsLoaded = true;
+
+    const modulePath = this.resolvePluginCodeEntry('embedding-compat', kind);
+    if (!modulePath) {
+      throw new ManifestError(`No embedding compat module found for '${kind}'`);
+    }
+
+    try {
+      const imported = await this.importPluginCodeModule(modulePath);
+      const CompatClass = this.getDefaultOrFirstExport(imported);
+      if (typeof CompatClass !== 'function') {
+        throw new Error('module did not export a constructor');
+      }
+      this.embeddingCompats.set(kind, new CompatClass());
+    } catch (error: any) {
+      console.warn(`Failed to load embedding compat module ${kind}: ${error.message}`);
+      throw new ManifestError(`No embedding compat module found for '${kind}'`);
+    }
+  }
+
+  private async ensureVectorStoreCompatLoaded(kind: string): Promise<void> {
+    if (this.vectorStoreCompats.has(kind)) return;
+
+    this.vectorStoreCompatsLoaded = true;
+
+    const modulePath = this.resolvePluginCodeEntry('vector-compat', kind);
+    if (!modulePath) {
+      throw new ManifestError(`No vector store compat module found for '${kind}'`);
+    }
+
+    try {
+      const imported = await this.importPluginCodeModule(modulePath);
+      const CompatClass = this.getDefaultOrFirstExport(imported);
+      if (typeof CompatClass !== 'function') {
+        console.warn(`Failed to load vector store compat module ${kind}: module did not export a constructor`);
+        throw new ManifestError(`No vector store compat module found for '${kind}'`);
+      }
+      this.vectorStoreCompats.set(kind, () => new (CompatClass as any)());
+    } catch (error: any) {
+      // If we already threw a ManifestError for non-constructors above, preserve that without duplicating warnings.
+      if (error instanceof ManifestError) {
+        throw error;
+      }
+      console.warn(`Failed to load vector store compat module ${kind}: ${error.message}`);
+      throw new ManifestError(`No vector store compat module found for '${kind}'`);
+    }
+  }
+
   private async loadProviders(): Promise<void> {
     if (this.providersLoaded) return;
 
@@ -142,60 +265,6 @@ export class PluginRegistry {
     this.processRoutesLoaded = true;
   }
 
-  private async loadCompatModules(): Promise<void> {
-    if (this.compatModulesLoaded) return;
-
-    const compatCandidates = [
-      path.resolve(distRoot, 'plugins', 'compat'),
-      path.join(this.rootPath, 'compat'),
-      path.resolve(process.cwd(), 'plugins', 'compat'),
-    ];
-    const visited = new Set<string>();
-
-    for (const compatDir of compatCandidates) {
-      if (!fs.existsSync(compatDir) || visited.has(compatDir)) {
-        continue;
-      }
-      visited.add(compatDir);
-
-      const files = fs
-        .readdirSync(compatDir)
-        .filter(f => {
-          // Load compiled JS files
-          if (f.endsWith('.js')) return true;
-          // When scanning source during dev, include .ts but never .d.ts declarations
-          if (compatDir.includes(path.join('plugins', 'compat')) && f.endsWith('.ts') && !f.endsWith('.d.ts')) {
-            return true;
-          }
-          return false;
-        });
-
-      for (const file of files) {
-        const moduleName = path.basename(file, path.extname(file));
-        const modulePath = path.join(compatDir, file);
-
-        // Prefer compiled JS modules; fall back to source when running in watch/dev mode.
-        if (file.endsWith('.ts') && fs.existsSync(path.join(compatDir, `${moduleName}.js`))) {
-          continue;
-        }
-
-        if (this.compatModules.has(moduleName)) {
-          continue;
-        }
-
-        try {
-          const imported = await import(pathToFileURL(modulePath).href);
-          const CompatClass = imported.default || imported[Object.keys(imported)[0]];
-          this.compatModules.set(moduleName, new CompatClass());
-        } catch (error: any) {
-          console.warn(`Failed to load compat module ${moduleName}: ${error.message}`);
-        }
-      }
-    }
-
-    this.compatModulesLoaded = true;
-  }
-
   private async loadEmbeddingProviders(): Promise<void> {
     if (this.embeddingProvidersLoaded) return;
 
@@ -210,112 +279,6 @@ export class PluginRegistry {
     }
 
     this.embeddingProvidersLoaded = true;
-  }
-
-  private async loadEmbeddingCompats(): Promise<void> {
-    if (this.embeddingCompatsLoaded) return;
-
-    const compatCandidates = [
-      path.resolve(distRoot, 'plugins', 'embedding-compat'),
-      path.join(this.rootPath, 'embedding-compat'),
-      path.resolve(process.cwd(), 'plugins', 'embedding-compat'),
-    ];
-    const visited = new Set<string>();
-
-    for (const compatDir of compatCandidates) {
-      if (!fs.existsSync(compatDir) || visited.has(compatDir)) {
-        continue;
-      }
-      visited.add(compatDir);
-
-      const files = fs
-        .readdirSync(compatDir)
-        .filter(f => {
-          if (f.endsWith('.js')) return true;
-          if (compatDir.includes(path.join('plugins', 'embedding-compat')) && f.endsWith('.ts') && !f.endsWith('.d.ts')) {
-            return true;
-          }
-          return false;
-        });
-
-      for (const file of files) {
-        const moduleName = path.basename(file, path.extname(file));
-        const modulePath = path.join(compatDir, file);
-
-        if (file.endsWith('.ts') && fs.existsSync(path.join(compatDir, `${moduleName}.js`))) {
-          continue;
-        }
-
-        if (this.embeddingCompats.has(moduleName)) {
-          continue;
-        }
-
-        try {
-          const imported = await import(pathToFileURL(modulePath).href);
-          const CompatClass = imported.default || imported[Object.keys(imported)[0]];
-          this.embeddingCompats.set(moduleName, new CompatClass());
-        } catch (error: any) {
-          console.warn(`Failed to load embedding compat module ${moduleName}: ${error.message}`);
-        }
-      }
-    }
-
-    this.embeddingCompatsLoaded = true;
-  }
-
-  private async loadVectorStoreCompats(): Promise<void> {
-    if (this.vectorStoreCompatsLoaded) return;
-
-    const compatCandidates = [
-      path.resolve(distRoot, 'plugins', 'vector-compat'),
-      path.join(this.rootPath, 'vector-compat'),
-      path.resolve(process.cwd(), 'plugins', 'vector-compat'),
-    ];
-    const visited = new Set<string>();
-
-    for (const compatDir of compatCandidates) {
-      if (!fs.existsSync(compatDir) || visited.has(compatDir)) {
-        continue;
-      }
-      visited.add(compatDir);
-
-      const files = fs
-        .readdirSync(compatDir)
-        .filter(f => {
-          if (f.endsWith('.js')) return true;
-          if (compatDir.includes(path.join('plugins', 'vector-compat')) && f.endsWith('.ts') && !f.endsWith('.d.ts')) {
-            return true;
-          }
-          return false;
-        });
-
-      for (const file of files) {
-        const moduleName = path.basename(file, path.extname(file));
-        const modulePath = path.join(compatDir, file);
-
-        if (file.endsWith('.ts') && fs.existsSync(path.join(compatDir, `${moduleName}.js`))) {
-          continue;
-        }
-
-        if (this.vectorStoreCompats.has(moduleName)) {
-          continue;
-        }
-
-        try {
-          const imported = await import(pathToFileURL(modulePath).href);
-          const CompatClass = imported.default || imported[Object.keys(imported)[0]];
-          if (typeof CompatClass !== 'function') {
-            console.warn(`Failed to load vector store compat module ${moduleName}: module did not export a constructor`);
-            continue;
-          }
-          this.vectorStoreCompats.set(moduleName, () => new (CompatClass as any)());
-        } catch (error: any) {
-          console.warn(`Failed to load vector store compat module ${moduleName}: ${error.message}`);
-        }
-      }
-    }
-
-    this.vectorStoreCompatsLoaded = true;
   }
 
   async getProvider(id: string): Promise<ProviderManifest> {
@@ -388,12 +351,8 @@ export class PluginRegistry {
   }
 
   async getCompatModule(compat: string): Promise<ICompatModule> {
-    await this.loadCompatModules();
-    const module = this.compatModules.get(compat);
-    if (!module) {
-      throw new ManifestError(`No compat module found for '${compat}'`);
-    }
-    return module;
+    await this.ensureCompatModuleLoaded(compat);
+    return this.compatModules.get(compat)!;
   }
 
   async getEmbeddingProvider(id: string): Promise<EmbeddingProviderConfig> {
@@ -406,20 +365,12 @@ export class PluginRegistry {
   }
 
   async getEmbeddingCompat(kind: string): Promise<IEmbeddingCompat> {
-    await this.loadEmbeddingCompats();
-    const compat = this.embeddingCompats.get(kind);
-    if (!compat) {
-      throw new ManifestError(`No embedding compat module found for '${kind}'`);
-    }
-    return compat;
+    await this.ensureEmbeddingCompatLoaded(kind);
+    return this.embeddingCompats.get(kind)!;
   }
 
   async getVectorStoreCompat(kind: string): Promise<IVectorStoreCompat> {
-    await this.loadVectorStoreCompats();
-    const factory = this.vectorStoreCompats.get(kind);
-    if (!factory) {
-      throw new ManifestError(`No vector store compat module found for '${kind}'`);
-    }
-    return factory();
+    await this.ensureVectorStoreCompatLoaded(kind);
+    return this.vectorStoreCompats.get(kind)!();
   }
 }

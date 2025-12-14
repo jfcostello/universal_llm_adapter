@@ -14,7 +14,8 @@ import {
   UsageStats,
   ReasoningData,
   ParsedStreamChunk
-} from '../../core/types.js';
+} from '../../../../core/types.js';
+
 
 export default class AnthropicCompat implements ICompatModule {
   // Track tool call state across stream chunks

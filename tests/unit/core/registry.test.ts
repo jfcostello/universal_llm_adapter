@@ -3,6 +3,7 @@ import path from 'path';
 import { jest } from '@jest/globals';
 import { PluginRegistry } from '@/core/registry.ts';
 import { ManifestError } from '@/core/errors.ts';
+import { PACKAGE_ROOT } from '@/modules/kernel/internal/paths.ts';
 import { withTempCwd } from '@tests/helpers/temp-files.ts';
 import { copyFixturePlugins } from '@tests/helpers/plugins.ts';
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
@@ -112,9 +113,9 @@ describe('core/registry', () => {
   });
 
   test('loadCompatModules handles duplicates, ts fallbacks, and import failures', async () => {
-    process.env.TEST_LLM_ENDPOINT = 'http://localhost';
+	    process.env.TEST_LLM_ENDPOINT = 'http://localhost';
 
-    await withTempCwd('registry-compat-load', async (dir) => {
+	    await withTempCwd('registry-compat-load', async (dir) => {
       const pluginsDir = path.join(dir, 'plugins');
       copyFixturePlugins(pluginsDir);
 
@@ -122,37 +123,46 @@ describe('core/registry', () => {
       const compatLocal = path.join(pluginsDir, 'compat');
       fs.mkdirSync(compatLocal, { recursive: true });
 
-      const files = {
-        js: path.join(compatRoot, 'registry-temp.js'),
-        ts: path.join(compatRoot, 'registry-temp.ts'),
-        broken: path.join(compatRoot, 'registry-broken.js'),
-        named: path.join(compatRoot, 'registry-named.js'),
-        duplicate: path.join(compatLocal, 'registry-temp.js'),
-        dts: path.join(compatRoot, 'registry-dts.d.ts')
-      };
+	      const dirRoot = path.join(compatRoot, 'registry-temp');
 
-      fs.writeFileSync(
-        files.js,
-        'export default class RegistryTemp { constructor() { this.kind = "js"; } }',
-        'utf-8'
-      );
-      fs.writeFileSync(
-        files.ts,
-        'export default class RegistryTempTs { constructor() { throw new Error("ts should be skipped when js exists"); } }',
-        'utf-8'
-      );
+	      const files = {
+	        js: path.join(compatRoot, 'registry-temp.js'),
+	        ts: path.join(compatRoot, 'registry-temp.ts'),
+	        dirIndexJs: path.join(dirRoot, 'index.js'),
+	        broken: path.join(compatRoot, 'registry-broken.js'),
+	        named: path.join(compatRoot, 'registry-named.js'),
+	        duplicate: path.join(compatLocal, 'registry-temp.js'),
+	        dts: path.join(compatRoot, 'registry-dts.d.ts')
+	      };
+
+	      fs.mkdirSync(dirRoot, { recursive: true });
+	      fs.writeFileSync(
+	        files.js,
+	        'export default class RegistryTemp { constructor() { this.kind = "js"; } }',
+	        'utf-8'
+	      );
+	      fs.writeFileSync(
+	        files.ts,
+	        'export default class RegistryTempTs { constructor() { throw new Error("ts should be skipped when js exists"); } }',
+	        'utf-8'
+	      );
+	      fs.writeFileSync(
+	        files.dirIndexJs,
+	        'export default class RegistryTempDir { constructor() { this.kind = "dir"; } }',
+	        'utf-8'
+	      );
       fs.writeFileSync(
         files.named,
         'export class RegistryNamed { constructor() { this.kind = "named"; } }',
         'utf-8'
       );
       fs.writeFileSync(files.broken, 'throw new Error("registry broken compat");', 'utf-8');
-      // Create duplicate in second compat directory to test line 150
-      fs.writeFileSync(
-        files.duplicate,
-        'export default class RegistryTempDuplicate { constructor() { this.kind = "duplicate"; } }',
-        'utf-8'
-      );
+	      // Create duplicate in second compat directory; first directory should win.
+	      fs.writeFileSync(
+	        files.duplicate,
+	        'export default class RegistryTempDuplicate { constructor() { this.kind = "duplicate"; } }',
+	        'utf-8'
+	      );
       // Create a declaration file that should be ignored by loader
       fs.writeFileSync(
         files.dts,
@@ -180,21 +190,70 @@ describe('core/registry', () => {
         expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('registry-broken'));
         // Ensure no warning was produced for the .d.ts file
         expect(warnSpy.mock.calls.some(([msg]) => String(msg).includes('registry-dts'))).toBe(false);
-        const tempCompat = await registry.getCompatModule('registry-temp');
-        // Should be 'js' from first directory, not 'duplicate' from second
-        expect(tempCompat.kind).toBe('js');
-        const namedCompat = await registry.getCompatModule('registry-named');
-        expect(namedCompat.kind).toBe('named');
-      } finally {
+	        const tempCompat = await registry.getCompatModule('registry-temp');
+	        // Directory-based modules should be preferred over legacy single-file modules.
+	        expect(tempCompat.kind).toBe('dir');
+	        const namedCompat = await registry.getCompatModule('registry-named');
+	        expect(namedCompat.kind).toBe('named');
+	      } finally {
         process.chdir(previousCwd);
         warnSpy.mockRestore();
-        for (const file of Object.values(files)) {
-          if (fs.existsSync(file)) {
-            fs.unlinkSync(file);
-          }
+	        for (const file of Object.values(files)) {
+	          if (fs.existsSync(file)) {
+	            fs.unlinkSync(file);
+	          }
+	        }
+	        if (fs.existsSync(dirRoot)) {
+	          fs.rmSync(dirRoot, { recursive: true, force: true });
+	        }
+	      }
+	    });
+  });
+
+  test('plugin code loader prefers dirs, supports .ts fallback, and errors on missing/non-constructors', async () => {
+    const previousCwd = process.cwd();
+    const compatRoot = path.join(ROOT_DIR, 'plugins', 'compat');
+    const embedCompatRoot = path.join(ROOT_DIR, 'plugins', 'embedding-compat');
+
+    const files = {
+      compatTsOnly: path.join(compatRoot, 'registry-ts-only.ts'),
+      compatObjectJs: path.join(compatRoot, 'registry-object.js'),
+      embedObjectJs: path.join(embedCompatRoot, 'embed-object.js'),
+    };
+
+    try {
+      process.chdir(PACKAGE_ROOT);
+
+      fs.writeFileSync(
+        files.compatTsOnly,
+        'export default class RegistryTsOnly { constructor() { this.kind = \"ts-only\"; } }',
+        'utf-8'
+      );
+      fs.writeFileSync(files.compatObjectJs, 'export default { kind: \"object\" };', 'utf-8');
+      fs.writeFileSync(files.embedObjectJs, 'export default { kind: \"object\" };', 'utf-8');
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const registry = new PluginRegistry('plugins');
+
+      const tsOnly = await registry.getCompatModule('registry-ts-only');
+      expect((tsOnly as any).kind).toBe('ts-only');
+
+      await expect(registry.getCompatModule('definitely-missing')).rejects.toThrow(ManifestError);
+      await expect(registry.getCompatModule('registry-object')).rejects.toThrow(ManifestError);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('registry-object'));
+
+      await expect(registry.getEmbeddingCompat('embed-object')).rejects.toThrow(ManifestError);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('embed-object'));
+
+      warnSpy.mockRestore();
+    } finally {
+      process.chdir(previousCwd);
+      for (const file of Object.values(files)) {
+        if (fs.existsSync(file)) {
+          fs.unlinkSync(file);
         }
       }
-    });
+    }
   });
 
   describe('embedding providers and compats', () => {
@@ -452,18 +511,21 @@ describe('core/registry', () => {
           await registry.getEmbeddingCompat('openrouter');
           await registry.getEmbeddingCompat('embed-test-temp');
 
-          const compatKeys = Array.from((registry as any).embeddingCompats.keys());
-          expect(compatKeys).toEqual(expect.arrayContaining(['openrouter', 'embed-test-temp', 'embed-test-named']));
-          expect(compatKeys).not.toContain('embed-test-dts');
-          await expect(registry.getEmbeddingCompat('embed-test-broken')).rejects.toThrow(ManifestError);
-          expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('embed-test-broken'));
-          expect(warnSpy.mock.calls.some(([msg]) => String(msg).includes('embed-test-dts'))).toBe(false);
-          const tempCompat = await registry.getEmbeddingCompat('embed-test-temp');
-          expect(tempCompat.kind).toBe('js');
-          // Test named export fallback
-          const namedCompat = await registry.getEmbeddingCompat('embed-test-named');
-          expect(namedCompat.kind).toBe('named');
-        } finally {
+	          let compatKeys = Array.from((registry as any).embeddingCompats.keys());
+	          expect(compatKeys).toEqual(expect.arrayContaining(['openrouter', 'embed-test-temp']));
+	          expect(compatKeys).not.toContain('embed-test-named');
+	          expect(compatKeys).not.toContain('embed-test-dts');
+	          await expect(registry.getEmbeddingCompat('embed-test-broken')).rejects.toThrow(ManifestError);
+	          expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('embed-test-broken'));
+	          expect(warnSpy.mock.calls.some(([msg]) => String(msg).includes('embed-test-dts'))).toBe(false);
+	          const tempCompat = await registry.getEmbeddingCompat('embed-test-temp');
+	          expect(tempCompat.kind).toBe('js');
+	          // Test named export fallback
+	          const namedCompat = await registry.getEmbeddingCompat('embed-test-named');
+	          expect(namedCompat.kind).toBe('named');
+	          compatKeys = Array.from((registry as any).embeddingCompats.keys());
+	          expect(compatKeys).toEqual(expect.arrayContaining(['openrouter', 'embed-test-temp', 'embed-test-named']));
+	        } finally {
           process.chdir(previousCwd);
           warnSpy.mockRestore();
           for (const file of Object.values(files)) {
@@ -532,20 +594,23 @@ describe('core/registry', () => {
           await registry.getVectorStoreCompat('memory');
           await registry.getVectorStoreCompat('vector-test-temp');
 
-          const compatKeys = Array.from((registry as any).vectorStoreCompats.keys());
-          expect(compatKeys).toEqual(expect.arrayContaining(['memory', 'vector-test-temp', 'vector-test-named']));
-          expect(compatKeys).not.toContain('vector-test-dts');
-          await expect(registry.getVectorStoreCompat('vector-test-object')).rejects.toThrow(ManifestError);
-          expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('vector-test-object'));
-          await expect(registry.getVectorStoreCompat('vector-test-broken')).rejects.toThrow(ManifestError);
-          expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('vector-test-broken'));
-          expect(warnSpy.mock.calls.some(([msg]) => String(msg).includes('vector-test-dts'))).toBe(false);
-          const tempCompat = await registry.getVectorStoreCompat('vector-test-temp');
-          expect(tempCompat.kind).toBe('js');
-          // Test named export fallback
-          const namedCompat = await registry.getVectorStoreCompat('vector-test-named');
-          expect(namedCompat.kind).toBe('named');
-        } finally {
+	          let compatKeys = Array.from((registry as any).vectorStoreCompats.keys());
+	          expect(compatKeys).toEqual(expect.arrayContaining(['memory', 'vector-test-temp']));
+	          expect(compatKeys).not.toContain('vector-test-named');
+	          expect(compatKeys).not.toContain('vector-test-dts');
+	          await expect(registry.getVectorStoreCompat('vector-test-object')).rejects.toThrow(ManifestError);
+	          expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('vector-test-object'));
+	          await expect(registry.getVectorStoreCompat('vector-test-broken')).rejects.toThrow(ManifestError);
+	          expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('vector-test-broken'));
+	          expect(warnSpy.mock.calls.some(([msg]) => String(msg).includes('vector-test-dts'))).toBe(false);
+	          const tempCompat = await registry.getVectorStoreCompat('vector-test-temp');
+	          expect(tempCompat.kind).toBe('js');
+	          // Test named export fallback
+	          const namedCompat = await registry.getVectorStoreCompat('vector-test-named');
+	          expect(namedCompat.kind).toBe('named');
+	          compatKeys = Array.from((registry as any).vectorStoreCompats.keys());
+	          expect(compatKeys).toEqual(expect.arrayContaining(['memory', 'vector-test-temp', 'vector-test-named']));
+	        } finally {
           process.chdir(previousCwd);
           warnSpy.mockRestore();
           for (const file of Object.values(files)) {

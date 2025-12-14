@@ -1,4 +1,4 @@
-import MemoryCompat from '@/plugins/vector-compat/memory.ts';
+import MemoryCompat from '@/plugins/vector-compat/memory/index.ts';
 import { VectorStoreError } from '@/core/errors.ts';
 import type { VectorStoreConfig, VectorPoint } from '@/core/types.ts';
 

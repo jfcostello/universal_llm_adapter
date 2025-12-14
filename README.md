@@ -409,7 +409,7 @@ LLM API
 - `utils/documents/document-loader.ts` - File loading and preprocessing
 - `utils/documents/mime-types.ts` - MIME type detection
 - `coordinator/coordinator.ts` - Message preprocessing integration
-- `plugins/compat/*.ts` - Provider-specific transformations
+- `plugins/compat/<compat-id>/index.ts` - Provider-specific transformations
 - `vector_store_coordinator.ts` - Vector Store CLI entry point
 - `coordinator/vector-coordinator.ts` - VectorStoreCoordinator class
 - `core/vector-spec-types.ts` - VectorCallSpec and related types
@@ -1056,10 +1056,10 @@ These serve different purposes and can coexist:
 
 #### Embedding Compat
 
-Create `plugins/embedding-compat/your-provider.ts`:
+Create `plugins/embedding-compat/<kind>/index.ts`:
 
 ```typescript
-import { IEmbeddingCompat, EmbeddingProviderConfig, EmbeddingResult } from '../../core/types';
+	import { IEmbeddingCompat, EmbeddingProviderConfig, EmbeddingResult } from '../../../core/types.js';
 
 export default class YourProviderEmbeddingCompat implements IEmbeddingCompat {
   async embed(
@@ -1083,10 +1083,10 @@ export default class YourProviderEmbeddingCompat implements IEmbeddingCompat {
 
 #### Vector Store Compat
 
-Create `plugins/vector-compat/your-provider.ts`:
+Create `plugins/vector-compat/<kind>/index.ts`:
 
 ```typescript
-import { IVectorStoreCompat, VectorStoreConfig, VectorPoint, VectorQueryResult } from '../../core/types';
+	import { IVectorStoreCompat, VectorStoreConfig, VectorPoint, VectorQueryResult } from '../../../core/types.js';
 
 export default class YourProviderCompat implements IVectorStoreCompat {
   async connect(config: VectorStoreConfig): Promise<void> { /* ... */ }

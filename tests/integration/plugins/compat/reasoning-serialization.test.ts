@@ -12,10 +12,10 @@
  * - Google: { thinkingConfig: { thinkingBudget } } (via SDK)
  */
 
-import OpenAICompat from '@/plugins/compat/openai.ts';
-import OpenAIResponsesCompat from '@/plugins/compat/openai-responses.ts';
-import AnthropicCompat from '@/plugins/compat/anthropic.ts';
-import GoogleCompat from '@/plugins/compat/google.ts';
+import OpenAICompat from '@/plugins/compat/openai/index.ts';
+import OpenAIResponsesCompat from '@/plugins/compat/openai-responses/index.ts';
+import AnthropicCompat from '@/plugins/compat/anthropic/index.ts';
+import GoogleCompat from '@/plugins/compat/google/index.ts';
 import { Role, Message } from '@/core/types.ts';
 
 const baseMessages: Message[] = [

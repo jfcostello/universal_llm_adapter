@@ -1,4 +1,4 @@
-import { handle } from '@/plugins/modules/test-random.ts';
+import { handle } from '@/plugins/modules/test-random/index.ts';
 
 describe('plugins/modules/test-random', () => {
   test('returns random value within default range', () => {

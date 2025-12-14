@@ -36,7 +36,7 @@ import './google-provider-extended.test.ts';
 
 // Additional integration tests that span multiple providers
 import { jest } from '@jest/globals';
-import OpenAICompat from '@/plugins/compat/openai.ts';
+import OpenAICompat from '@/plugins/compat/openai/index.ts';
 
 describe('integration/providers/cross-provider', () => {
   test('LLMManager maps provider retry words to rate-limit errors', async () => {

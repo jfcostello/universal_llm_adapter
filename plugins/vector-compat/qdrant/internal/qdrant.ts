@@ -8,8 +8,8 @@ import {
   VectorQueryOptions,
   JsonObject,
   IVectorOperationLogger
-} from '../../core/types.js';
-import { VectorStoreConnectionError, VectorStoreError } from '../../core/errors.js';
+} from '../../../../core/types.js';
+import { VectorStoreConnectionError, VectorStoreError } from '../../../../core/errors.js';
 
 // Factory type for creating Qdrant clients (allows test injection)
 export type QdrantClientFactory = (options: { host?: string; port?: number; url?: string; apiKey?: string }) => QdrantClient;

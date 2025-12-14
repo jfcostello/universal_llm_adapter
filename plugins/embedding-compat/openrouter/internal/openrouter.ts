@@ -4,9 +4,9 @@ import {
   EmbeddingProviderConfig,
   EmbeddingResult,
   IEmbeddingOperationLogger
-} from '../../core/types.js';
-import { EmbeddingProviderError } from '../../core/errors.js';
-import { getDefaults } from '../../core/defaults.js';
+} from '../../../../core/types.js';
+import { EmbeddingProviderError } from '../../../../core/errors.js';
+import { getDefaults } from '../../../../core/defaults.js';
 
 /**
  * OpenRouter Embeddings API Response format

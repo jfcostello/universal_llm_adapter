@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import OpenRouterEmbeddingCompat from '@/plugins/embedding-compat/openrouter.ts';
+import OpenRouterEmbeddingCompat from '@/plugins/embedding-compat/openrouter/index.ts';
 import { EmbeddingProviderError } from '@/core/errors.ts';
 import type { EmbeddingProviderConfig } from '@/core/types.ts';
 

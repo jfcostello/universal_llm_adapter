@@ -614,7 +614,7 @@ export type IOperationLogger = IEmbeddingOperationLogger & IVectorOperationLogge
 
 /**
  * Interface for embedding compat modules.
- * Implemented by: plugins/embedding-compat/openrouter.ts, etc.
+ * Implemented by: plugins/embedding-compat/openrouter/index.ts, etc.
  */
 export interface IEmbeddingCompat {
   embed(
@@ -631,7 +631,7 @@ export interface IEmbeddingCompat {
 
 /**
  * Interface for vector store compat modules.
- * Implemented by: plugins/vector-compat/qdrant.ts, etc.
+ * Implemented by: plugins/vector-compat/qdrant/index.ts, etc.
  */
 export interface IVectorStoreCompat {
   /** Optional method to inject a logger for operation logging */

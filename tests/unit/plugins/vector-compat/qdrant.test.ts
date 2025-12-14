@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import QdrantCompat from '@/plugins/vector-compat/qdrant.ts';
+import QdrantCompat from '@/plugins/vector-compat/qdrant/index.ts';
 import { VectorStoreConnectionError, VectorStoreError } from '@/core/errors.ts';
 import type { VectorStoreConfig } from '@/core/types.ts';
 

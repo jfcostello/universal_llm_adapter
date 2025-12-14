@@ -2,7 +2,7 @@ import { jest } from '@jest/globals';
 import { StreamCoordinator } from '@/coordinator/stream-coordinator.ts';
 import { StreamEventType, ToolCallEventType } from '@/core/types.ts';
 import { ToolCallBudget } from '@/utils/tools/tool-budget.ts';
-import OpenAICompat from '@/plugins/compat/openai.ts';
+import OpenAICompat from '@/plugins/compat/openai/index.ts';
 
 interface MockOptions {
   toolCountdownEnabled?: boolean;

@@ -15,7 +15,7 @@ import {
   UsageStats,
   ParsedStreamChunk,
   ReasoningData
-} from '../../core/types.js';
+} from '../../../../core/types.js';
 
 interface ResponsesAPIMessage {
   role?: string;
