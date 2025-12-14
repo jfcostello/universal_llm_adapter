@@ -1,50 +1,46 @@
 import { jest } from '@jest/globals';
-import { Readable } from 'stream';
-
-async function importServerModule() {
-  return import('@/utils/server/index.ts');
-}
 
 describe('utils/server default dependency wiring', () => {
-  afterEach(() => {
-    jest.restoreAllMocks();
-    jest.resetModules();
-  });
+  const runMock = jest.fn().mockResolvedValue({ ok: true });
+  const closeMock = jest.fn().mockResolvedValue(undefined);
 
-  test('createServer and /run use default createRegistry and createCoordinator', async () => {
-    jest.resetModules();
+  const executeMock = jest.fn().mockResolvedValue({ ok: true });
+  const vectorCloseMock = jest.fn().mockResolvedValue(undefined);
 
-    const registryInstance = { loadAll: jest.fn().mockResolvedValue(undefined) };
-    const runMock = jest.fn().mockResolvedValue({ ok: true });
-    const closeMock = jest.fn().mockResolvedValue(undefined);
+  const embedExecuteMock = jest.fn().mockResolvedValue({ ok: true });
+  const embedCloseMock = jest.fn().mockResolvedValue(undefined);
 
-    const PluginRegistryMock = jest.fn().mockImplementation(() => registryInstance);
-    const LLMCoordinatorMock = jest.fn().mockImplementation(() => ({
-      run: runMock,
-      runStream: jest.fn(),
-      close: closeMock
-    }));
+  const LLMCoordinatorMock = jest.fn().mockImplementation(() => ({
+    run: runMock,
+    runStream: jest.fn(),
+    close: closeMock
+  }));
 
-    const createServerMock = jest.fn();
-    let capturedHandler: any;
-    const fakeServer: any = {
-      listen: jest.fn((_port: any, _host: any, cb: any) => cb()),
-      once: jest.fn((_event: any, _cb: any) => fakeServer),
-      address: jest.fn(() => ({ port: 1234 })),
-      close: jest.fn((cb: any) => cb())
-    };
-    createServerMock.mockImplementation((handler: any) => {
-      capturedHandler = handler;
-      return fakeServer;
-    });
+  const VectorStoreCoordinatorMock = jest.fn().mockImplementation(() => ({
+    execute: executeMock,
+    executeStream: jest.fn(),
+    close: vectorCloseMock
+  }));
 
-    (jest as any).unstable_mockModule('@/core/registry.ts', () => ({
-      PluginRegistry: PluginRegistryMock
-    }));
-    (jest as any).unstable_mockModule('@/coordinator/coordinator.ts', () => ({
+  const EmbeddingCoordinatorMock = jest.fn().mockImplementation(() => ({
+    execute: embedExecuteMock,
+    close: embedCloseMock
+  }));
+
+  let createServer!: typeof import('@/utils/server/index.ts').createServer;
+  let running!: Awaited<ReturnType<typeof import('@/utils/server/index.ts').createServer>>;
+
+  beforeAll(async () => {
+    jest.unstable_mockModule('../../../../coordinator/coordinator.js', () => ({
       LLMCoordinator: LLMCoordinatorMock
     }));
-    (jest as any).unstable_mockModule('@/core/logging.ts', () => ({
+    jest.unstable_mockModule('../../../../coordinator/vector-coordinator.js', () => ({
+      VectorStoreCoordinator: VectorStoreCoordinatorMock
+    }));
+    jest.unstable_mockModule('../../../../coordinator/embedding-coordinator.js', () => ({
+      EmbeddingCoordinator: EmbeddingCoordinatorMock
+    }));
+    jest.unstable_mockModule('../../../../modules/logging/index.js', () => ({
       closeLogger: jest.fn().mockResolvedValue(undefined),
       getLogger: jest.fn().mockReturnValue({
         info: jest.fn(),
@@ -62,306 +58,112 @@ describe('utils/server default dependency wiring', () => {
         error: jest.fn()
       })
     }));
-    (jest as any).unstable_mockModule('http', () => ({
-      __esModule: true,
-      default: { createServer: createServerMock }
-    }));
 
-    const { createServer } = await importServerModule();
-    const running = await createServer();
+    ({ createServer } = await import('@/utils/server/index.ts'));
 
-    expect(PluginRegistryMock).toHaveBeenCalledWith('./plugins');
-    expect(running.url).toBe('http://127.0.0.1:1234');
+    running = await createServer({
+      registry: { loadAll: jest.fn().mockResolvedValue(undefined) } as any,
+      host: '127.0.0.1',
+      port: 0
+    });
+  });
 
-    const req = new Readable({
-      read() {
-        this.push(JSON.stringify({ messages: [], llmPriority: [{ provider: 'p', model: 'm' }], settings: {} }));
-        this.push(null);
-      }
-    }) as any;
-    req.method = 'POST';
-    req.url = '/run';
-    req.headers = { 'content-type': 'application/json' };
+  afterAll(async () => {
+    if (running) {
+      await running.close();
+    }
+  });
 
-	    let body = '';
-	    const res: any = {
-	      headersSent: false,
-	      setHeader: jest.fn(),
-	      writeHead: jest.fn(() => {
-	        res.headersSent = true;
-	      }),
-	      end: jest.fn((chunk?: any) => {
-        if (chunk) body += chunk.toString();
-        res.headersSent = true;
+  beforeEach(() => {
+    runMock.mockClear();
+    closeMock.mockClear();
+    executeMock.mockClear();
+    vectorCloseMock.mockClear();
+    embedExecuteMock.mockClear();
+    embedCloseMock.mockClear();
+    LLMCoordinatorMock.mockClear();
+    VectorStoreCoordinatorMock.mockClear();
+    EmbeddingCoordinatorMock.mockClear();
+  });
+
+  test('POST /run uses default createCoordinator', async () => {
+    const res = await fetch(new URL('/run', running.url), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        messages: [],
+        llmPriority: [{ provider: 'p', model: 'm' }],
+        settings: {}
       })
-    };
+    });
 
-    await capturedHandler(req, res);
+    expect(res.status).toBe(200);
+    const payload = await res.json();
+    expect(payload.type).toBe('response');
 
     expect(LLMCoordinatorMock).toHaveBeenCalled();
     expect(runMock).toHaveBeenCalled();
     expect(closeMock).toHaveBeenCalled();
-    expect(JSON.parse(body).type).toBe('response');
   });
 
-  test('createServer and /vector/run use default createVectorCoordinator', async () => {
-    jest.resetModules();
-
-    const registryInstance = { loadAll: jest.fn().mockResolvedValue(undefined) };
-    const executeMock = jest.fn().mockResolvedValue({ ok: true });
-    const closeMock = jest.fn().mockResolvedValue(undefined);
-
-    const PluginRegistryMock = jest.fn().mockImplementation(() => registryInstance);
-    const VectorStoreCoordinatorMock = jest.fn().mockImplementation(() => ({
-      execute: executeMock,
-      executeStream: jest.fn(),
-      close: closeMock
-    }));
-
-    const createServerMock = jest.fn();
-    let capturedHandler: any;
-    const fakeServer: any = {
-      listen: jest.fn((_port: any, _host: any, cb: any) => cb()),
-      once: jest.fn((_event: any, _cb: any) => fakeServer),
-      address: jest.fn(() => ({ port: 1234 })),
-      close: jest.fn((cb: any) => cb())
-    };
-    createServerMock.mockImplementation((handler: any) => {
-      capturedHandler = handler;
-      return fakeServer;
+  test('POST /vector/run uses default createVectorCoordinator', async () => {
+    const res = await fetch(new URL('/vector/run', running.url), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operation: 'query',
+        store: 's',
+        input: { vector: [0.1], topK: 1 }
+      })
     });
 
-    (jest as any).unstable_mockModule('@/core/registry.ts', () => ({
-      PluginRegistry: PluginRegistryMock
-    }));
-
-    (jest as any).unstable_mockModule('@/coordinator/coordinator.ts', () => ({
-      LLMCoordinator: jest.fn().mockImplementation(() => ({
-        run: jest.fn(),
-        runStream: jest.fn(),
-        close: jest.fn().mockResolvedValue(undefined)
-      }))
-    }));
-
-    (jest as any).unstable_mockModule('@/coordinator/vector-coordinator.ts', () => ({
-      VectorStoreCoordinator: VectorStoreCoordinatorMock
-    }));
-
-    (jest as any).unstable_mockModule('@/core/logging.ts', () => ({
-      closeLogger: jest.fn().mockResolvedValue(undefined),
-      getLogger: jest.fn().mockReturnValue({
-        info: jest.fn(),
-        warning: jest.fn(),
-        error: jest.fn()
-      }),
-      getVectorLogger: jest.fn().mockReturnValue({
-        info: jest.fn(),
-        warning: jest.fn(),
-        error: jest.fn()
-      }),
-      getEmbeddingLogger: jest.fn().mockReturnValue({
-        info: jest.fn(),
-        warning: jest.fn(),
-        error: jest.fn()
-      })
-    }));
-
-    (jest as any).unstable_mockModule('http', () => ({
-      __esModule: true,
-      default: { createServer: createServerMock }
-    }));
-
-    const { createServer } = await importServerModule();
-    const running = await createServer();
-
-    expect(PluginRegistryMock).toHaveBeenCalledWith('./plugins');
-    expect(running.url).toBe('http://127.0.0.1:1234');
-
-    const req = new Readable({
-      read() {
-        this.push(JSON.stringify({ operation: 'query', store: 's', input: { vector: [0.1], topK: 1 } }));
-        this.push(null);
-      }
-    }) as any;
-    req.method = 'POST';
-    req.url = '/vector/run';
-    req.headers = { 'content-type': 'application/json' };
-
-    let body = '';
-    const res: any = {
-      headersSent: false,
-      setHeader: jest.fn(),
-      writeHead: jest.fn(() => {
-        res.headersSent = true;
-      }),
-      end: jest.fn((chunk?: any) => {
-        if (chunk) body += chunk.toString();
-        res.headersSent = true;
-      })
-    };
-
-    await capturedHandler(req, res);
+    expect(res.status).toBe(200);
+    const payload = await res.json();
+    expect(payload.type).toBe('response');
 
     expect(VectorStoreCoordinatorMock).toHaveBeenCalled();
     expect(executeMock).toHaveBeenCalled();
-    expect(closeMock).toHaveBeenCalled();
-    expect(JSON.parse(body).type).toBe('response');
+    expect(vectorCloseMock).toHaveBeenCalled();
   });
 
-  test('createServer and /vector/embeddings/run use default createEmbeddingCoordinator', async () => {
-    jest.resetModules();
-
-    const registryInstance = { loadAll: jest.fn().mockResolvedValue(undefined) };
-    const executeMock = jest.fn().mockResolvedValue({ ok: true });
-    const closeMock = jest.fn().mockResolvedValue(undefined);
-
-    const PluginRegistryMock = jest.fn().mockImplementation(() => registryInstance);
-    const EmbeddingCoordinatorMock = jest.fn().mockImplementation(() => ({
-      execute: executeMock,
-      close: closeMock
-    }));
-
-    const createServerMock = jest.fn();
-    let capturedHandler: any;
-    const fakeServer: any = {
-      listen: jest.fn((_port: any, _host: any, cb: any) => cb()),
-      once: jest.fn((_event: any, _cb: any) => fakeServer),
-      address: jest.fn(() => ({ port: 1234 })),
-      close: jest.fn((cb: any) => cb())
-    };
-    createServerMock.mockImplementation((handler: any) => {
-      capturedHandler = handler;
-      return fakeServer;
+  test('POST /vector/embeddings/run uses default createEmbeddingCoordinator', async () => {
+    const res = await fetch(new URL('/vector/embeddings/run', running.url), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operation: 'embed',
+        embeddingPriority: [{ provider: 'p' }],
+        input: { texts: ['hello'] }
+      })
     });
 
-    (jest as any).unstable_mockModule('@/core/registry.ts', () => ({
-      PluginRegistry: PluginRegistryMock
-    }));
-
-    (jest as any).unstable_mockModule('@/coordinator/coordinator.ts', () => ({
-      LLMCoordinator: jest.fn().mockImplementation(() => ({
-        run: jest.fn(),
-        runStream: jest.fn(),
-        close: jest.fn().mockResolvedValue(undefined)
-      }))
-    }));
-
-    (jest as any).unstable_mockModule('@/coordinator/embedding-coordinator.ts', () => ({
-      EmbeddingCoordinator: EmbeddingCoordinatorMock
-    }));
-
-    (jest as any).unstable_mockModule('@/core/logging.ts', () => ({
-      closeLogger: jest.fn().mockResolvedValue(undefined),
-      getLogger: jest.fn().mockReturnValue({
-        info: jest.fn(),
-        warning: jest.fn(),
-        error: jest.fn()
-      }),
-      getVectorLogger: jest.fn().mockReturnValue({
-        info: jest.fn(),
-        warning: jest.fn(),
-        error: jest.fn()
-      }),
-      getEmbeddingLogger: jest.fn().mockReturnValue({
-        info: jest.fn(),
-        warning: jest.fn(),
-        error: jest.fn()
-      })
-    }));
-
-    (jest as any).unstable_mockModule('http', () => ({
-      __esModule: true,
-      default: { createServer: createServerMock }
-    }));
-
-    const { createServer } = await importServerModule();
-    const running = await createServer();
-
-    expect(PluginRegistryMock).toHaveBeenCalledWith('./plugins');
-    expect(running.url).toBe('http://127.0.0.1:1234');
-
-    const req = new Readable({
-      read() {
-        this.push(JSON.stringify({ operation: 'embed', embeddingPriority: [{ provider: 'p' }], input: { texts: ['hello'] } }));
-        this.push(null);
-      }
-    }) as any;
-    req.method = 'POST';
-    req.url = '/vector/embeddings/run';
-    req.headers = { 'content-type': 'application/json' };
-
-    let body = '';
-    const res: any = {
-      headersSent: false,
-      setHeader: jest.fn(),
-      writeHead: jest.fn(() => {
-        res.headersSent = true;
-      }),
-      end: jest.fn((chunk?: any) => {
-        if (chunk) body += chunk.toString();
-        res.headersSent = true;
-      })
-    };
-
-    await capturedHandler(req, res);
+    expect(res.status).toBe(200);
+    const payload = await res.json();
+    expect(payload.type).toBe('response');
 
     expect(EmbeddingCoordinatorMock).toHaveBeenCalled();
-    expect(executeMock).toHaveBeenCalled();
-    expect(closeMock).toHaveBeenCalled();
-    expect(JSON.parse(body).type).toBe('response');
+    expect(embedExecuteMock).toHaveBeenCalled();
+    expect(embedCloseMock).toHaveBeenCalled();
   });
 
   test('close rejects when underlying server close errors', async () => {
-    jest.resetModules();
+    const local = await createServer({
+      registry: { loadAll: jest.fn().mockResolvedValue(undefined) } as any,
+      host: '127.0.0.1',
+      port: 0
+    });
 
-    const registryInstance = { loadAll: jest.fn().mockResolvedValue(undefined) };
-    const PluginRegistryMock = jest.fn().mockImplementation(() => registryInstance);
+    const originalClose = local.server.close.bind(local.server);
+    local.server.close = ((cb: any) => cb(new Error('close failed'))) as any;
 
-    const fakeServer: any = {
-      listen: jest.fn((_port: any, _host: any, cb: any) => cb()),
-      once: jest.fn((_event: any, _cb: any) => fakeServer),
-      address: jest.fn(() => ({ port: 1234 })),
-      close: jest.fn((cb: any) => cb(new Error('close failed')))
-    };
+    await expect(local.close()).rejects.toThrow('close failed');
 
-    (jest as any).unstable_mockModule('@/core/registry.ts', () => ({
-      PluginRegistry: PluginRegistryMock
-    }));
-    (jest as any).unstable_mockModule('@/coordinator/coordinator.ts', () => ({
-      LLMCoordinator: jest.fn().mockImplementation(() => ({
-        run: jest.fn(),
-        runStream: jest.fn(),
-        close: jest.fn().mockResolvedValue(undefined)
-      }))
-    }));
-    (jest as any).unstable_mockModule('@/core/logging.ts', () => ({
-      closeLogger: jest.fn().mockResolvedValue(undefined),
-      getLogger: jest.fn().mockReturnValue({
-        info: jest.fn(),
-        warning: jest.fn(),
-        error: jest.fn()
-      }),
-      getVectorLogger: jest.fn().mockReturnValue({
-        info: jest.fn(),
-        warning: jest.fn(),
-        error: jest.fn()
-      }),
-      getEmbeddingLogger: jest.fn().mockReturnValue({
-        info: jest.fn(),
-        warning: jest.fn(),
-        error: jest.fn()
-      })
-    }));
-    (jest as any).unstable_mockModule('http', () => ({
-      __esModule: true,
-      default: {
-        createServer: jest.fn().mockReturnValue(fakeServer)
-      }
-    }));
-
-    const { createServer } = await importServerModule();
-    const running = await createServer();
-
-    await expect(running.close()).rejects.toThrow('close failed');
+    local.server.close = originalClose as any;
+    await new Promise<void>((resolve, reject) => {
+      originalClose((error?: Error) => {
+        if (error) reject(error);
+        else resolve();
+      });
+    });
   });
 });

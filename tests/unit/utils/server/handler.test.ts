@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import { Readable } from 'stream';
-import { createServerHandler } from '@/utils/server/internal/handler.ts';
+import { createServerHandler } from '@/modules/server/internal/handler.ts';
 
 function makeReq(method: string, url: string, body: string = ''): any {
   const req = new Readable({
@@ -1367,41 +1367,27 @@ describe('utils/server createServerHandler', () => {
   });
 
   test('swallows iterator.return promise rejections via catch callback', async () => {
-    jest.resetModules();
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
 
-    let createServerHandlerWithMock!: typeof createServerHandler;
-
-    (jest as any).unstable_mockModule('@/utils/coordinator-lifecycle/index.ts', () => ({
-      runWithCoordinatorLifecycle: jest.fn(),
-      streamWithCoordinatorLifecycle: jest.fn().mockImplementation(() => ({
-        [Symbol.asyncIterator]: () => ({
-          next: () => new Promise(() => {}),
-          return: () => ({
-            catch: (callback: any) => {
-              callback();
-            }
-          })
-        })
-      }))
-    }));
-
-    await jest.isolateModulesAsync(async () => {
-      ({ createServerHandler: createServerHandlerWithMock } = await import('@/utils/server/internal/handler.ts'));
-    });
-
-    const handler = createServerHandlerWithMock({
+    const handler = createServerHandler({
       registry,
       pluginsPath: './plugins',
       closeLoggerAfterRequest: false,
       deps: {
         createRegistry: jest.fn().mockResolvedValue(registry),
-        createCoordinator: jest.fn().mockResolvedValue({
-          run: jest.fn().mockResolvedValue({ ok: true }),
-          runStream: jest.fn(),
-          close: jest.fn().mockResolvedValue(undefined)
-        }),
+        createCoordinator: jest.fn(),
         closeLogger: jest.fn()
       } as any,
+      lifecycle: {
+        streamWithCoordinatorLifecycle: jest.fn().mockImplementation(() => ({
+          [Symbol.asyncIterator]: () => ({
+            next: () => new Promise(() => {}),
+            return: () => Promise.reject(new Error('return boom'))
+          })
+        }))
+      },
       config: { ...config, requestTimeoutMs: 5, streamIdleTimeoutMs: 1000 }
     });
 
@@ -1411,9 +1397,15 @@ describe('utils/server createServerHandler', () => {
       JSON.stringify({ messages: [], llmPriority: [{ provider: 'p', model: 'm' }], settings: {} })
     );
     const out = makeRes();
-    await handler(req, out.res);
+    try {
+      await handler(req, out.res);
+      await new Promise(resolve => setImmediate(resolve));
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
 
     expect(out.status).toBe(200);
     expect(out.body).toContain('timeout');
+    expect(unhandled).toHaveLength(0);
   });
 });

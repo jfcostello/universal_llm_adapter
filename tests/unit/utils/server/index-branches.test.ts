@@ -1,173 +1,137 @@
 import { jest } from '@jest/globals';
 
-async function importServer() {
-  return import('@/utils/server/index.ts');
-}
+import { createServer, createServerHandlerWithDefaults } from '@/utils/server/index.ts';
+
+const DEFAULTS_WITHOUT_NESTED = {
+  server: {
+    maxRequestBytes: 1,
+    bodyReadTimeoutMs: 1,
+    requestTimeoutMs: 0,
+    streamIdleTimeoutMs: 0,
+    maxConcurrentRequests: 1,
+    maxConcurrentStreams: 1,
+    maxQueueSize: 0,
+    queueTimeoutMs: 0,
+    securityHeadersEnabled: true
+  }
+} as any;
+
+const DEFAULTS_WITHOUT_SECURITY_HEADERS = {
+  server: {
+    maxRequestBytes: 1,
+    bodyReadTimeoutMs: 1,
+    requestTimeoutMs: 0,
+    streamIdleTimeoutMs: 0,
+    maxConcurrentRequests: 1,
+    maxConcurrentStreams: 1,
+    maxQueueSize: 0,
+    queueTimeoutMs: 0
+  }
+} as any;
 
 describe('utils/server index default branches', () => {
-  afterEach(() => {
-    jest.resetModules();
-    jest.restoreAllMocks();
-  });
-
   test('createServerHandlerWithDefaults tolerates missing nested defaults', async () => {
-    jest.resetModules();
-    (jest as any).unstable_mockModule('@/core/defaults.ts', () => ({
-      getDefaults: () => ({
-        retry: {
-          maxAttempts: 3,
-          baseDelayMs: 250,
-          multiplier: 2,
-          rateLimitDelays: [1]
-        },
-        tools: {
-          countdownEnabled: true,
-          finalPromptEnabled: true,
-          parallelExecution: false,
-          preserveResults: 3,
-          preserveReasoning: 3,
-          maxIterations: 10,
-          timeoutMs: 120000
-        },
-        vector: {
-          topK: 5,
-          injectTemplate: '',
-          resultFormat: '',
-          batchSize: 10,
-          includePayload: true,
-          includeVector: false,
-          defaultCollection: 'default',
-          queryConstruction: {
-            includeSystemPrompt: 'if-in-range',
-            includeAssistantMessages: true,
-            messagesToInclude: 1
-          }
-        },
-        chunking: { size: 500, overlap: 50 },
-        tokenEstimation: { textDivisor: 4, imageEstimate: 768, toolResultDivisor: 6 },
-        timeouts: { mcpRequest: 30000, llmHttp: 60000, embeddingHttp: 60000, loggerFlush: 2000 },
-        server: {
-          maxRequestBytes: 1,
-          bodyReadTimeoutMs: 1,
-          requestTimeoutMs: 0,
-          streamIdleTimeoutMs: 0,
-          maxConcurrentRequests: 1,
-          maxConcurrentStreams: 1,
-          maxQueueSize: 0,
-          queueTimeoutMs: 0
-        },
-        paths: { plugins: './plugins' }
-      })
-    }));
-
-    const { createServerHandlerWithDefaults } = await importServer();
     const handler = createServerHandlerWithDefaults({
-      registry: { loadAll: jest.fn() } as any
+      registry: { loadAll: jest.fn() } as any,
+      deps: {
+        getDefaults: () => DEFAULTS_WITHOUT_NESTED
+      } as any
     } as any);
     expect(typeof handler).toBe('function');
   });
 
-  test('createServer tolerates missing nested defaults and uses final fallback', async () => {
-    jest.resetModules();
+  test('createServerHandlerWithDefaults falls back to getDefaults when deps.getDefaults is missing', async () => {
+    const handler = createServerHandlerWithDefaults({
+      registry: { loadAll: jest.fn() } as any,
+      deps: { getDefaults: undefined } as any
+    } as any);
+    expect(typeof handler).toBe('function');
+  });
 
-    const fakeServer: any = {
-      listen: jest.fn((_p: any, _h: any, cb: any) => cb()),
-      once: jest.fn((_e: any, _cb: any) => fakeServer),
-      address: jest.fn(() => ({ port: 1234 })),
-      close: jest.fn((cb: any) => cb())
+  test('createServerHandlerWithDefaults falls back to enabling security headers when default is missing', async () => {
+    const handler = createServerHandlerWithDefaults({
+      registry: { loadAll: jest.fn() } as any,
+      deps: {
+        getDefaults: () => DEFAULTS_WITHOUT_SECURITY_HEADERS
+      } as any
+    } as any);
+
+    const req: any = { method: 'GET', url: '/' };
+    const res: any = {
+      setHeader: jest.fn(),
+      writeHead: jest.fn(),
+      end: jest.fn()
     };
 
-    (jest as any).unstable_mockModule('http', () => ({
-      __esModule: true,
-      default: { createServer: jest.fn().mockReturnValue(fakeServer) }
-    }));
+    await handler(req, res);
 
-    (jest as any).unstable_mockModule('@/core/defaults.ts', () => ({
-      getDefaults: () => ({
-        retry: {
-          maxAttempts: 3,
-          baseDelayMs: 250,
-          multiplier: 2,
-          rateLimitDelays: [1]
-        },
-        tools: {
-          countdownEnabled: true,
-          finalPromptEnabled: true,
-          parallelExecution: false,
-          preserveResults: 3,
-          preserveReasoning: 3,
-          maxIterations: 10,
-          timeoutMs: 120000
-        },
-        vector: {
-          topK: 5,
-          injectTemplate: '',
-          resultFormat: '',
-          batchSize: 10,
-          includePayload: true,
-          includeVector: false,
-          defaultCollection: 'default',
-          queryConstruction: {
-            includeSystemPrompt: 'if-in-range',
-            includeAssistantMessages: true,
-            messagesToInclude: 1
-          }
-        },
-        chunking: { size: 500, overlap: 50 },
-        tokenEstimation: { textDivisor: 4, imageEstimate: 768, toolResultDivisor: 6 },
-        timeouts: { mcpRequest: 30000, llmHttp: 60000, embeddingHttp: 60000, loggerFlush: 2000 },
-        server: {
-          maxRequestBytes: 1,
-          bodyReadTimeoutMs: 1,
-          requestTimeoutMs: 0,
-          streamIdleTimeoutMs: 0,
-          maxConcurrentRequests: 1,
-          maxConcurrentStreams: 1,
-          maxQueueSize: 0,
-          queueTimeoutMs: 0
-        },
-        paths: { plugins: './plugins' }
-      })
-    }));
+    expect(res.setHeader).toHaveBeenCalled();
+  });
 
-    const { createServer } = await importServer();
+  test('createServer tolerates missing nested defaults and uses final fallback', async () => {
     const running = await createServer({
       deps: {
+        getDefaults: () => DEFAULTS_WITHOUT_NESTED,
         createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
         createCoordinator: jest.fn(),
         closeLogger: jest.fn().mockResolvedValue(undefined)
       }
     } as any);
 
-    expect(running.url).toBe('http://127.0.0.1:1234');
+    expect(running.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+    await running.close();
+  });
+
+  test('createServer falls back to getDefaults when deps.getDefaults is missing', async () => {
+    const running = await createServer({
+      deps: {
+        getDefaults: undefined,
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    await running.close();
+  });
+
+  test('createServer falls back to enabling security headers when default is missing', async () => {
+    const running = await createServer({
+      deps: {
+        getDefaults: () => DEFAULTS_WITHOUT_SECURITY_HEADERS,
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    await running.close();
+  });
+
+  test('createServer uses default options when omitted', async () => {
+    const running = await createServer();
     await running.close();
   });
 
   test('createServer uses securityHeadersEnabled override when provided', async () => {
-    jest.resetModules();
-
-    const fakeServer: any = {
-      listen: jest.fn((_p: any, _h: any, cb: any) => cb()),
-      once: jest.fn((_e: any, _cb: any) => fakeServer),
-      address: jest.fn(() => ({ port: 1234 })),
-      close: jest.fn((cb: any) => cb())
-    };
-
-    (jest as any).unstable_mockModule('http', () => ({
-      __esModule: true,
-      default: { createServer: jest.fn().mockReturnValue(fakeServer) }
-    }));
-
-    const { createServer } = await importServer();
-    const running = await createServer({
+    const handler = createServerHandlerWithDefaults({
+      registry: { loadAll: jest.fn() } as any,
       securityHeadersEnabled: false,
       deps: {
-        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
-        createCoordinator: jest.fn(),
-        closeLogger: jest.fn().mockResolvedValue(undefined)
-      }
+        getDefaults: () => DEFAULTS_WITHOUT_NESTED
+      } as any
     } as any);
 
-    await running.close();
+    const req: any = { method: 'GET', url: '/' };
+    const res: any = {
+      setHeader: jest.fn(),
+      writeHead: jest.fn(),
+      end: jest.fn()
+    };
+
+    await handler(req, res);
+
+    // If security headers are disabled, we should not set any security headers.
+    expect(res.setHeader).not.toHaveBeenCalled();
   });
 });

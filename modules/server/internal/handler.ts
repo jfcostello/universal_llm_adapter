@@ -15,14 +15,17 @@ import { createRateLimiter, getClientIp } from './security/rate-limiter.js';
 import {
   runWithCoordinatorLifecycle,
   streamWithCoordinatorLifecycle
-} from '../../coordinator-lifecycle/index.js';
-import type { LLMCallSpec, LLMStreamEvent } from '../../../core/types.js';
-import type { VectorCallSpec, VectorStreamEvent } from '../../../core/vector-spec-types.js';
-import type { EmbeddingCallSpec } from '../../../core/embedding-spec-types.js';
-import type { PluginRegistryLike } from '../../coordinator-lifecycle/index.js';
+} from '../../lifecycle/index.js';
+import type {
+  EmbeddingCallSpec,
+  LLMCallSpec,
+  LLMStreamEvent,
+  VectorCallSpec,
+  VectorStreamEvent
+} from '../../kernel/index.js';
+import type { PluginRegistryLike } from '../../lifecycle/index.js';
 import type { ServerDependencies } from '../index.js';
-import { getEmbeddingLogger, getLogger, getVectorLogger } from '../../../modules/logging/index.js';
-import { runWithLiveTestContext } from '../../testing/live-test-context.js';
+import { runWithLiveTestContext } from '../../../utils/testing/live-test-context.js';
 
 interface HandlerOptions {
   registry: PluginRegistryLike;
@@ -30,6 +33,10 @@ interface HandlerOptions {
   batchId?: string;
   closeLoggerAfterRequest: boolean;
   deps: ServerDependencies;
+  lifecycle?: {
+    runWithCoordinatorLifecycle?: typeof runWithCoordinatorLifecycle;
+    streamWithCoordinatorLifecycle?: typeof streamWithCoordinatorLifecycle;
+  };
   config: {
     maxRequestBytes: number;
     bodyReadTimeoutMs: number;
@@ -60,7 +67,12 @@ function writeJson(res: http.ServerResponse, status: number, payload: any): void
 }
 
 export function createServerHandler(options: HandlerOptions): http.RequestListener {
-  const { registry, pluginsPath, batchId, closeLoggerAfterRequest, deps, config, authorize } = options;
+  const { registry, pluginsPath, batchId, closeLoggerAfterRequest, deps, config, authorize, lifecycle } = options;
+
+  const runWithCoordinatorLifecycleFn =
+    lifecycle?.runWithCoordinatorLifecycle ?? runWithCoordinatorLifecycle;
+  const streamWithCoordinatorLifecycleFn =
+    lifecycle?.streamWithCoordinatorLifecycle ?? streamWithCoordinatorLifecycle;
 
   const llmRunLimiter = createLimiter({
     maxConcurrent: config.maxConcurrentRequests,
@@ -222,6 +234,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
 
           assertValidSpec(spec);
           const correlationId = spec.metadata?.correlationId as string | undefined;
+          const { getLogger } = await import('../../logging/index.js');
           const logger = getLogger(correlationId);
           const startTime = Date.now();
 
@@ -232,7 +245,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           };
 
           await runWithLiveTestContext(liveContext, async () => {
-            const callPromise = runWithCoordinatorLifecycle<LLMCallSpec, any, any, any>({
+            const callPromise = runWithCoordinatorLifecycleFn<LLMCallSpec, any, any, any>({
               spec,
               pluginsPath,
               registry,
@@ -317,6 +330,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
 
           assertValidSpec(spec);
           const correlationId = spec.metadata?.correlationId as string | undefined;
+          const { getLogger } = await import('../../logging/index.js');
           const logger = getLogger(correlationId);
           const startTime = Date.now();
 
@@ -334,7 +348,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
             });
             (res as any).flushHeaders?.();
 
-            const lifecycleStream = streamWithCoordinatorLifecycle<
+            const lifecycleStream = streamWithCoordinatorLifecycleFn<
               LLMCallSpec,
               any,
               any,
@@ -399,6 +413,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           assertValidVectorSpec(spec);
 
           const correlationId = spec.metadata?.correlationId as string | undefined;
+          const { getVectorLogger } = await import('../../logging/index.js');
           const logger = getVectorLogger(correlationId);
           const startTime = Date.now();
 
@@ -420,7 +435,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
               throw error;
             }
 
-            const callPromise = runWithCoordinatorLifecycle<VectorCallSpec, any, any, any>({
+            const callPromise = runWithCoordinatorLifecycleFn<VectorCallSpec, any, any, any>({
               spec,
               pluginsPath,
               registry,
@@ -506,6 +521,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           assertValidVectorSpec(spec);
 
           const correlationId = spec.metadata?.correlationId as string | undefined;
+          const { getVectorLogger } = await import('../../logging/index.js');
           const logger = getVectorLogger(correlationId);
           const startTime = Date.now();
 
@@ -534,7 +550,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
               throw error;
             }
 
-            const lifecycleStream = streamWithCoordinatorLifecycle<
+            const lifecycleStream = streamWithCoordinatorLifecycleFn<
               VectorCallSpec,
               any,
               any,
@@ -597,6 +613,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           assertValidEmbeddingSpec(spec);
 
           const correlationId = spec.metadata?.correlationId as string | undefined;
+          const { getEmbeddingLogger } = await import('../../logging/index.js');
           const logger = getEmbeddingLogger(correlationId);
           const startTime = Date.now();
 
@@ -618,7 +635,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
               throw error;
             }
 
-            const callPromise = runWithCoordinatorLifecycle<EmbeddingCallSpec, any, any, any>({
+            const callPromise = runWithCoordinatorLifecycleFn<EmbeddingCallSpec, any, any, any>({
               spec,
               pluginsPath,
               registry,

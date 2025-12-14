@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { assertAuthorized, normalizeKeyList } from '@/utils/server/internal/security/auth.ts';
+import { assertAuthorized, normalizeKeyList } from '@/modules/server/internal/security/auth.ts';
 
 describe('utils/server auth', () => {
   function makeReq(headers: Record<string, string>): any {

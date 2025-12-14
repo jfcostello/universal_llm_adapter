@@ -1,5 +1,5 @@
 import { ProviderExecutionError, ToolExecutionError } from '@/core/errors.ts';
-import { mapErrorToHttp } from '@/utils/server/internal/transport/error-mapper.ts';
+import { mapErrorToHttp } from '@/modules/server/internal/transport/error-mapper.ts';
 
 describe('utils/server mapErrorToHttp', () => {
   test('maps validation errors to 400', () => {

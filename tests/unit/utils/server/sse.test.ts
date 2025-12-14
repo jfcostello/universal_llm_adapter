@@ -1,5 +1,5 @@
-import { writeSseEvent } from '@/utils/server/internal/streaming/sse.ts';
-import { writeSseEventWithBackpressure } from '@/utils/server/internal/streaming/sse.ts';
+import { writeSseEvent } from '@/modules/server/internal/streaming/sse.ts';
+import { writeSseEventWithBackpressure } from '@/modules/server/internal/streaming/sse.ts';
 
 describe('utils/server writeSseEvent', () => {
   test('writes SSE framed JSON event', () => {
