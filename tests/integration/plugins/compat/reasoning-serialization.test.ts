@@ -131,18 +131,20 @@ describe('integration/plugins/compat/reasoning-serialization', () => {
       expect(result.reasoning.effort).toBe('minimal');
     });
 
-    test('does NOT serialize unsupported effort value "none"', () => {
+    test('serializes reasoning.effort: "none" to { reasoning: { effort: "none" } }', () => {
       const settings = { reasoning: { effort: 'none' as const } };
       const result = (compat as any).serializeSettings(settings);
 
-      expect(result.reasoning).toBeUndefined();
+      expect(result.reasoning).toBeDefined();
+      expect(result.reasoning.effort).toBe('none');
     });
 
-    test('does NOT serialize unsupported effort value "xhigh"', () => {
+    test('serializes reasoning.effort: "xhigh" to { reasoning: { effort: "xhigh" } }', () => {
       const settings = { reasoning: { effort: 'xhigh' as const } };
       const result = (compat as any).serializeSettings(settings);
 
-      expect(result.reasoning).toBeUndefined();
+      expect(result.reasoning).toBeDefined();
+      expect(result.reasoning.effort).toBe('xhigh');
     });
 
     test('does NOT include reasoning when settings.reasoning is undefined', () => {
@@ -151,20 +153,20 @@ describe('integration/plugins/compat/reasoning-serialization', () => {
       expect(result.reasoning).toBeUndefined();
     });
 
-    test('does NOT include reasoning when only reasoning.enabled is set (no effort)', () => {
+    test('maps reasoning.enabled=true to a default reasoning.effort', () => {
       const settings = { reasoning: { enabled: true } };
       const result = (compat as any).serializeSettings(settings);
 
-      // OpenAI Responses API only uses effort, not enabled flag
-      expect(result.reasoning).toBeUndefined();
+      expect(result.reasoning).toBeDefined();
+      expect(result.reasoning.effort).toBe('medium');
     });
 
-    test('does NOT include reasoning when only reasoning.budget is set (no effort)', () => {
+    test('maps reasoning.budget to a derived reasoning.effort', () => {
       const settings = { reasoning: { budget: 2048 } };
       const result = (compat as any).serializeSettings(settings);
 
-      // OpenAI Responses API uses effort, not budget/max_tokens
-      expect(result.reasoning).toBeUndefined();
+      expect(result.reasoning).toBeDefined();
+      expect(result.reasoning.effort).toBe('medium');
     });
 
     test('preserves other settings alongside reasoning', () => {

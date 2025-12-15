@@ -5,6 +5,10 @@ Owns LLM orchestration (non-streaming + streaming), including:
 - `LLMManager` (provider execution + streaming)
 - `StreamCoordinator` (stream parsing + tool-loop coordination)
 
+## Compatibility Fallbacks
+- **Unsupported reasoning params:** if a provider returns an `unsupported_parameter` error for `reasoning`/`reasoning.*`, `LLMManager` retries once with reasoning stripped. For non-live runs, it caches the `(provider, model)` pair to avoid repeated failures.
+- **Rate limit detection:** treats HTTP `429` and `Retry-After` as rate limits, and scans response bodies for configured retry keywords.
+
 ## Import Rules
 - Runtime code must import only from `modules/llm/index.ts`.
 - Do not import from `modules/llm/internal/**` outside of this module.
@@ -23,4 +27,3 @@ Owns LLM orchestration (non-streaming + streaming), including:
 - `LLMCoordinator`
 - `LLMManager`
 - `StreamCoordinator` (primarily for tests)
-

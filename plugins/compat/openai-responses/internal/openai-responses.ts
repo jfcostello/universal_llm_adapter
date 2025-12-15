@@ -359,14 +359,42 @@ export default class OpenAIResponsesCompat implements ICompatModule {
     }
 
     // Add reasoning support for OpenAI Responses API
-    // OpenAI Responses API uses { reasoning: { effort: 'high' | 'medium' | 'low' | 'minimal' } }
-    // Note: Unlike Chat Completions, Responses API only supports effort, not max_tokens/budget
+    // OpenAI Responses API uses { reasoning: { effort: 'high' | 'medium' | 'low' | 'minimal' | 'none' | 'xhigh' } }
+    // The universal adapter exposes a provider-agnostic reasoning config (enabled/budget/effort).
+    // When a budget is provided (or reasoning is enabled without an effort), we map it to an effort level.
     if (settings.reasoning) {
-      const validEfforts = ['high', 'medium', 'low', 'minimal'];
-      if (settings.reasoning.effort && validEfforts.includes(settings.reasoning.effort)) {
-        result.reasoning = {
-          effort: settings.reasoning.effort
-        };
+      const { enabled, effort } = settings.reasoning;
+
+      // Respect explicit disable regardless of effort/budget.
+      if (enabled === false) {
+        return result;
+      }
+
+      const validEfforts = ['high', 'medium', 'low', 'minimal', 'none', 'xhigh'];
+      if (effort && validEfforts.includes(effort)) {
+        result.reasoning = { effort };
+      } else {
+        // If reasoning is enabled (or a budget is supplied), derive an effort level.
+        const budget = settings.reasoning.budget ?? settings.reasoningBudget;
+        const shouldDerive = enabled === true || budget !== undefined;
+
+        if (shouldDerive) {
+          let derived: 'high' | 'medium' | 'low' | 'minimal' = 'medium';
+
+          if (typeof budget === 'number' && Number.isFinite(budget)) {
+            if (budget <= 0) {
+              derived = 'minimal';
+            } else if (budget <= 1024) {
+              derived = 'low';
+            } else if (budget <= 4096) {
+              derived = 'medium';
+            } else {
+              derived = 'high';
+            }
+          }
+
+          result.reasoning = { effort: derived };
+        }
       }
     }
 

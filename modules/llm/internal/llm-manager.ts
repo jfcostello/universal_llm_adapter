@@ -14,6 +14,7 @@ import { buildFinalPayload } from './payload/payload-builder.js';
 
 export class LLMManager {
   private httpClient: AxiosInstance;
+  private reasoningUnsupportedByProviderModel = new Set<string>();
 
   constructor(private registry: any) {
     this.httpClient = axios.create({
@@ -126,7 +127,8 @@ export class LLMManager {
     }
 
     // HTTP-based providers: proceed with standard HTTP flow
-    const { payload: finalPayload, unconsumedExtras } = buildFinalPayload({
+    const cacheKey = `${provider.id}:${model}`;
+    const { payload: rawPayload, unconsumedExtras } = buildFinalPayload({
       provider,
       compat,
       model,
@@ -136,6 +138,9 @@ export class LLMManager {
       toolChoice,
       providerExtras
     });
+    const shouldStripReasoning =
+      process.env.LLM_LIVE !== '1' && this.reasoningUnsupportedByProviderModel.has(cacheKey);
+    const finalPayload = shouldStripReasoning ? this.stripReasoning(rawPayload) : rawPayload;
 
     if (logger) {
       for (const [field, value] of Object.entries(unconsumedExtras)) {
@@ -151,38 +156,45 @@ export class LLMManager {
     // Build request
     const url = provider.endpoint.urlTemplate.replace('{model}', model);
 
-    if (logger) {
-      // Log beautiful formatted LLM request to dedicated log file
-      logger.logLLMRequest({
-        url,
-        method: provider.endpoint.method,
-        headers: provider.endpoint.headers,
-        body: finalPayload
-      });
-    }
-
-    // Log raw request for live tests (always on when LLM_LIVE=1)
-    if (process.env.LLM_LIVE === '1') {
-      try {
-        const { logRequest } = await import('../../../tests/live/test-logger.js');
-        logRequest({
-          url,
-          method: provider.endpoint.method,
-          headers: provider.endpoint.headers,
-          body: finalPayload
-        }, context.metadata);
-      } catch (e) {
-        // Test logger not available, skip
-      }
-    }
-
     try {
-      const response = await this.httpClient.request({
-        method: provider.endpoint.method,
-        url,
-        headers: provider.endpoint.headers,
-        data: finalPayload
-      });
+      const sendRequest = async (payload: any) => {
+        // Log beautiful formatted LLM request to dedicated log file
+        if (logger) {
+          logger.logLLMRequest({
+            url,
+            method: provider.endpoint.method,
+            headers: provider.endpoint.headers,
+            body: payload
+          });
+        }
+
+        // Log raw request for live tests (always on when LLM_LIVE=1)
+        if (process.env.LLM_LIVE === '1') {
+          try {
+            const { logRequest } = await import('../../../tests/live/test-logger.js');
+            logRequest(
+              {
+                url,
+                method: provider.endpoint.method,
+                headers: provider.endpoint.headers,
+                body: payload
+              },
+              context.metadata
+            );
+          } catch (e) {
+            // Test logger not available, skip
+          }
+        }
+
+        return this.httpClient.request({
+          method: provider.endpoint.method,
+          url,
+          headers: provider.endpoint.headers,
+          data: payload
+        });
+      };
+
+      let response = await sendRequest(finalPayload);
 
       // Log beautiful formatted LLM response to dedicated log file
       if (logger) {
@@ -210,23 +222,66 @@ export class LLMManager {
       }
 
       if (response.status >= 400) {
-        const isRateLimit = this.isRateLimitResponse(provider, response);
+        // Retry once without reasoning if the provider rejects reasoning parameters.
+        // This keeps runs resilient when optional features are requested but unsupported by the target model.
+        if (this.isUnsupportedReasoningParamError(response.data) && finalPayload?.reasoning !== undefined) {
+          this.reasoningUnsupportedByProviderModel.add(cacheKey);
 
-        if (logger) {
-          logger.error('Provider call failed', {
+          logger?.warning('Provider rejected reasoning parameters; retrying without reasoning', {
             provider: provider.id,
-            model,
-            status: response.status,
-            isRateLimit
+            model
           });
+
+          const retryPayload = this.stripReasoning(finalPayload);
+          response = await sendRequest(retryPayload);
+
+          // Log response for retry attempt
+          if (logger) {
+            logger.logLLMResponse({
+              status: response.status,
+              statusText: response.statusText,
+              headers: response.headers,
+              body: response.data
+            });
+          }
+
+          if (process.env.LLM_LIVE === '1') {
+            try {
+              const { logResponse } = await import('../../../tests/live/test-logger.js');
+              logResponse(
+                {
+                  status: response.status,
+                  statusText: response.statusText,
+                  headers: response.headers,
+                  body: response.data
+                },
+                context.metadata
+              );
+            } catch (e) {
+              // Test logger not available, skip
+            }
+          }
         }
 
-        throw new ProviderExecutionError(
-          provider.id,
-          JSON.stringify(response.data),
-          response.status,
-          isRateLimit
-        );
+        if (response.status >= 400) {
+          const isRateLimit = this.isRateLimitResponse(provider, response);
+
+          if (logger) {
+            logger.error('Provider call failed', {
+              provider: provider.id,
+              model,
+              status: response.status,
+              isRateLimit
+            });
+          }
+
+          throw new ProviderExecutionError(
+            provider.id,
+            JSON.stringify(response.data),
+            response.status,
+            isRateLimit
+          );
+        }
       }
       
       const parsed = compat.parseResponse(response.data, model);
@@ -459,13 +514,60 @@ export class LLMManager {
     if (!provider.retryWords || provider.retryWords.length === 0) {
       return false;
     }
-    
+
+    // Treat HTTP 429 as rate limit regardless of body shape.
+    if (response?.status === 429) {
+      return true;
+    }
+
+    // A Retry-After header is a strong signal even when bodies are not standardized.
+    const retryAfter = response?.headers?.['retry-after'] ?? response?.headers?.['Retry-After'];
+    if (retryAfter !== undefined && retryAfter !== null && String(retryAfter).trim() !== '') {
+      return true;
+    }
+
     const keywords = provider.retryWords.map(w => w.toLowerCase());
     const responseText = JSON.stringify(response.data).toLowerCase();
-    const headersText = JSON.stringify(response.headers).toLowerCase();
-    const combined = responseText + ' ' + headersText;
-    
-    return keywords.some(keyword => combined.includes(keyword));
+    return keywords.some(keyword => responseText.includes(keyword));
+  }
+
+  private stripReasoning(payload: any): any {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return payload;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(payload, 'reasoning')) {
+      return payload;
+    }
+
+    const next = { ...payload };
+    delete next.reasoning;
+    return next;
+  }
+
+  private isUnsupportedReasoningParamError(data: any): boolean {
+    const error = data?.error;
+    if (!error || typeof error !== 'object') {
+      return false;
+    }
+
+    const code = (error as any).code;
+    if (code !== 'unsupported_parameter') {
+      return false;
+    }
+
+    const param = (error as any).param;
+    if (typeof param === 'string' && (param === 'reasoning' || param.startsWith('reasoning.'))) {
+      return true;
+    }
+
+    const message = (error as any).message;
+    if (typeof message === 'string') {
+      const normalized = message.toLowerCase();
+      return normalized.includes('unsupported parameter') && normalized.includes('reasoning');
+    }
+
+    return false;
   }
 
   private isHttpUrlTemplate(urlTemplate: unknown): boolean {

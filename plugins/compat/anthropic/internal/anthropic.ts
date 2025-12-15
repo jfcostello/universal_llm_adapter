@@ -46,7 +46,10 @@ export default class AnthropicCompat implements ICompatModule {
       .filter(m => m.role === Role.ASSISTANT)
       .every(m => m.reasoning && !m.reasoning.redacted);
 
-    const thinkingEnabled = thinkingRequested && allAssistantMessagesHaveReasoning;
+    const toolChoiceForcesToolUse =
+      typeof toolChoice === 'object' && (toolChoice.type === 'required' || toolChoice.type === 'single');
+
+    const thinkingEnabled = thinkingRequested && allAssistantMessagesHaveReasoning && !toolChoiceForcesToolUse;
 
     const anthropicMessages = serializeMessages(nonSystemMessages);
 
@@ -108,4 +111,3 @@ export default class AnthropicCompat implements ICompatModule {
     return extractReasoning(chunk);
   }
 }
-

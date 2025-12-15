@@ -11,6 +11,8 @@
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { filteredTestRuns as testRuns } from '../config.ts';
 import { withLiveEnv, makeSpec, mergeSettings, buildLogPathFor, parseLogBodies } from '@tests/helpers/live-v2.ts';
+import fs from 'fs';
+import path from 'path';
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
@@ -51,6 +53,10 @@ for (let i = 0; i < testRuns.length; i++) {
   const runCfg = testRuns[i];
   (runLive ? describe : describe.skip)(`11-reasoning-preservation-toggle — ${runCfg.name}`, () => {
     test('Call 1 — reasoning ON: verify request payload contains reasoning config', async () => {
+      const logPath = buildLogPathFor(TEST_FILE);
+      fs.mkdirSync(path.dirname(logPath), { recursive: true });
+      fs.writeFileSync(logPath, '');
+
       const spec = makeSpec({
         messages: [
           { role: 'system', content: [{ type: 'text', text: 'Answer concisely and include internal reasoning if supported.' }]},
@@ -71,16 +77,14 @@ for (let i = 0; i < testRuns.length; i++) {
 
       // CRITICAL: Verify the REQUEST payload contains reasoning configuration
       // This is the key check that was missing in the original test (issue #73)
-      const logPath = buildLogPathFor(TEST_FILE);
       const bodies = parseLogBodies(logPath);
 
-      // Find the outgoing request body (first body that has 'model' and 'messages')
-      const requestBody = bodies.find(b => b.model && b.messages);
+      // Find outgoing request bodies (supports both messages-based payloads and responses-style input payloads).
+      const requestBodies = bodies.filter(b => b?.model && (b?.messages || b?.input || b?.settings));
+      expect(requestBodies.length).toBeGreaterThan(0);
 
-      if (requestBody) {
-        // This is the fix for issue #73 - we now verify reasoning is SENT in the request
-        expect(requestHasReasoningConfig(requestBody)).toBe(true);
-      }
+      // This is the fix for issue #73 - we now verify reasoning is SENT in the request
+      expect(requestBodies.some(requestHasReasoningConfig)).toBe(true);
 
       // Also check the response (original test behavior, but now secondary)
       const payload = JSON.parse(result.stdout.trim());
@@ -114,4 +118,3 @@ for (let i = 0; i < testRuns.length; i++) {
     }, 120000);
   });
 }
-

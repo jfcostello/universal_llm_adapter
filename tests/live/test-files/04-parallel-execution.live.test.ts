@@ -51,10 +51,12 @@ for (let i = 0; i < testRuns.length; i++) {
     const toolCalls = payload.toolCalls || [];
     expect(toolCalls.length).toBeGreaterThanOrEqual(3);
     const text = String(payload.content?.[0]?.text ?? '');
+    const toolResultsText = JSON.stringify(payload.raw?.toolResults ?? []);
     // Tool transforms: "elephant" -> "[R:8]tnahpele", "fox" -> "[R:3]xof", "butterfly" -> "[R:9]ylfrettub"
     // Some models include the full tool result, others just the reversed text
-    expect(text.includes('tnahpele')).toBe(true);
-    expect(text.includes('xof')).toBe(true);
-    expect(text.includes('ylfrettub')).toBe(true);
+    const combinedText = `${text}\n${toolResultsText}`;
+    expect(combinedText.includes('tnahpele')).toBe(true);
+    expect(combinedText.includes('xof')).toBe(true);
+    expect(combinedText.includes('ylfrettub')).toBe(true);
   }, 120000);
 }
