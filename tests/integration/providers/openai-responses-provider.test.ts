@@ -219,7 +219,12 @@ describe('integration/providers/openai-responses-provider', () => {
         const params: any = (compat as any).buildSDKParams('gpt-4o', {}, imageMessages, [], undefined);
 
         expect(params.input).toBeDefined();
-        // Image format needs to be verified in implementation
+        if (Array.isArray(params.input)) {
+          const userMsg = params.input.find((m: any) => m.role === 'user');
+          expect(userMsg).toBeDefined();
+          expect(userMsg.content).toContainEqual({ type: 'input_text', text: 'What is this?' });
+          expect(userMsg.content).toContainEqual({ type: 'input_image', image_url: 'https://example.com/image.jpg' });
+        }
       });
 
       test('handles empty text', () => {
