@@ -109,8 +109,21 @@ Provider configurations live in `plugins/providers/*.json`:
 Provider compat implementations live in `plugins/compat/<provider>/index.ts` and implement `ICompatModule`:
 - `buildPayload()` - Transform unified spec to provider format
 - `parseResponse()` - Transform provider response to unified format
-- `parseStream()` - Parse streaming chunks
-- `validate()` - Validate configuration
+- `parseStreamChunk()` - Parse streaming chunks
+- `getStreamingFlags()` - Return provider streaming flags
+- `serializeTools()` - Serialize unified tools
+- `serializeToolChoice()` - Serialize tool choice
+- `applyProviderExtensions()` - Apply provider payload extensions (optional)
+- `callSDK()` / `streamSDK()` - Optional SDK-based overrides (when available)
+
+### Compat templates
+
+Compats are intentionally thin translation layers. Their `internal/` code is split by concern and treated as private to the plugin directory.
+
+- **A layout (default)**: `internal/<compat>.ts` (orchestration) + `messages.ts`, `settings.ts`, `tools.ts`, `response.ts`, `stream.ts`, `mappings.ts` (and `extensions.ts` only when needed).
+- **B layout (large vector stores)**: `internal/<compat>.ts` (orchestration) + `internal/{client,ids,filters,operations}/**` to keep concerns isolated.
+
+Provider-agnostic extraction/normalization (usage, tool results, safe parsing, vector math, etc.) lives in `modules/**` and is shared by all compats.
 
 ### Embedding Providers
 
