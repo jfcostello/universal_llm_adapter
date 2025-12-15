@@ -248,3 +248,93 @@ export function appendToolResult(
 
   messages.push(message);
 }
+
+export interface ExtractedToolResult {
+  toolCallId: string | null;
+  toolName: string | null;
+  toolNames: string[];
+  /**
+   * If the message contains a single tool_result part, this is that raw payload.
+   * If multiple tool_result parts exist, this will be an array of payloads.
+   */
+  result: unknown | null;
+  /** Raw payloads from all tool_result parts (empty if none). */
+  results: unknown[];
+  /**
+   * Canonical text output for the tool message.
+   * - If text parts exist, it concatenates them in order.
+   * - Otherwise, it derives text from tool_result payload(s) (string, content-part arrays, or JSON stringified).
+   */
+  text: string;
+}
+
+function stringifyToolResult(value: unknown): string {
+  try {
+    const json = JSON.stringify(value);
+    return json === undefined ? '' : json;
+  } catch {
+    return String(value);
+  }
+}
+
+function toolResultValueToText(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    const texts: string[] = [];
+    for (const item of value) {
+      if (
+        item &&
+        typeof item === 'object' &&
+        'type' in item &&
+        (item as any).type === 'text' &&
+        typeof (item as any).text === 'string'
+      ) {
+        texts.push((item as any).text);
+      }
+    }
+    if (texts.length > 0) {
+      return texts.join('');
+    }
+    return stringifyToolResult(value);
+  }
+
+  return stringifyToolResult(value);
+}
+
+export function extractToolResultFromMessage(message: Message): ExtractedToolResult | null {
+  if (!message || message.role !== Role.TOOL) {
+    return null;
+  }
+
+  const content = message.content ?? [];
+  const textParts = content.filter((c): c is TextContent => c.type === 'text');
+  const toolResultParts = content.filter((c): c is ToolResultContent => c.type === 'tool_result');
+
+  const toolNames = toolResultParts.map(p => p.toolName);
+  const toolName = toolNames.length > 0 ? toolNames[0] : null;
+
+  const results = toolResultParts.map(p => p.result);
+  let result: unknown | null = null;
+  if (results.length === 1) {
+    result = results[0];
+  } else if (results.length > 1) {
+    result = results;
+  }
+
+  let text = textParts.map(p => p.text ?? '').join('');
+  if (!text && toolResultParts.length > 0) {
+    text = toolResultParts.map(p => toolResultValueToText(p.result)).join('\n');
+  }
+
+  return {
+    toolCallId: message.toolCallId ?? null,
+    toolName,
+    toolNames,
+    result,
+    results,
+    text
+  };
+}

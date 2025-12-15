@@ -4,6 +4,7 @@ import {
   aggregateSystemMessages,
   appendAssistantToolCalls,
   appendToolResult,
+  extractToolResultFromMessage,
   prepareMessages
 } from '@/modules/messages/index.ts';
 
@@ -318,6 +319,177 @@ describe('utils/messages/message-utils', () => {
       { type: 'text', text: 'plain-text' },
       { type: 'tool_result', toolName: 'echo', result: 'plain-text' }
     ]);
+  });
+
+  test('extractToolResultFromMessage returns null for non-tool messages', () => {
+    const extracted = extractToolResultFromMessage({
+      role: Role.USER,
+      content: [{ type: 'text', text: 'hi' }]
+    } as any);
+
+    expect(extracted).toBeNull();
+  });
+
+  test('extractToolResultFromMessage extracts from text-only tool messages', () => {
+    const extracted = extractToolResultFromMessage({
+      role: Role.TOOL,
+      toolCallId: 'call-1',
+      content: [{ type: 'text', text: 'hello' }]
+    } as any);
+
+    expect(extracted).toEqual({
+      toolCallId: 'call-1',
+      toolName: null,
+      toolNames: [],
+      result: null,
+      results: [],
+      text: 'hello'
+    });
+  });
+
+  test('extractToolResultFromMessage extracts from tool_result-only messages', () => {
+    const extracted = extractToolResultFromMessage({
+      role: Role.TOOL,
+      toolCallId: 'call-2',
+      content: [{ type: 'tool_result', toolName: 'echo', result: 'ok' }]
+    } as any);
+
+    expect(extracted).toEqual({
+      toolCallId: 'call-2',
+      toolName: 'echo',
+      toolNames: ['echo'],
+      result: 'ok',
+      results: ['ok'],
+      text: 'ok'
+    });
+  });
+
+  test('extractToolResultFromMessage joins multi-part tool_result output', () => {
+    const extracted = extractToolResultFromMessage({
+      role: Role.TOOL,
+      toolCallId: 'call-3',
+      content: [
+        {
+          type: 'tool_result',
+          toolName: 'multi',
+          result: [
+            { type: 'text', text: 'a' },
+            { type: 'text', text: 'b' },
+            { type: 'image', imageUrl: 'ignored' }
+          ]
+        }
+      ]
+    } as any);
+
+    expect(extracted?.text).toBe('ab');
+    expect(extracted?.result).toEqual([
+      { type: 'text', text: 'a' },
+      { type: 'text', text: 'b' },
+      { type: 'image', imageUrl: 'ignored' }
+    ]);
+  });
+
+  test('extractToolResultFromMessage stringifies non-text tool_result payloads', () => {
+    const extracted = extractToolResultFromMessage({
+      role: Role.TOOL,
+      toolCallId: 'call-4',
+      content: [{ type: 'tool_result', toolName: 'obj', result: { a: 1 } }]
+    } as any);
+
+    expect(extracted?.text).toBe('{"a":1}');
+  });
+
+  test('extractToolResultFromMessage prefers message text parts when present (e.g., truncation/annotations)', () => {
+    const extracted = extractToolResultFromMessage({
+      role: Role.TOOL,
+      toolCallId: 'call-5',
+      content: [
+        { type: 'text', text: 'short' },
+        { type: 'tool_result', toolName: 'big', result: { a: 'very long' } },
+        { type: 'text', text: ' [truncated]' }
+      ]
+    } as any);
+
+    expect(extracted?.text).toBe('short [truncated]');
+    expect(extracted?.toolName).toBe('big');
+  });
+
+  test('extractToolResultFromMessage returns an array result for multiple tool_result parts', () => {
+    const extracted = extractToolResultFromMessage({
+      role: Role.TOOL,
+      toolCallId: 'call-6',
+      content: [
+        { type: 'tool_result', toolName: 'multi', result: 'a' },
+        { type: 'tool_result', toolName: 'multi', result: 'b' }
+      ]
+    } as any);
+
+    expect(extracted?.result).toEqual(['a', 'b']);
+    expect(extracted?.text).toBe('a\nb');
+  });
+
+  test('extractToolResultFromMessage handles undefined and non-serializable payloads safely', () => {
+    const extractedUndefined = extractToolResultFromMessage({
+      role: Role.TOOL,
+      toolCallId: 'call-7',
+      content: [{ type: 'tool_result', toolName: 'u', result: undefined }]
+    } as any);
+
+    expect(extractedUndefined?.text).toBe('');
+    expect(extractedUndefined?.results[0]).toBeUndefined();
+
+    const circular: any = {};
+    circular.self = circular;
+    const extractedCircular = extractToolResultFromMessage({
+      role: Role.TOOL,
+      toolCallId: 'call-8',
+      content: [{ type: 'tool_result', toolName: 'c', result: circular }]
+    } as any);
+
+    expect(extractedCircular?.text).toBe('[object Object]');
+  });
+
+  test('extractToolResultFromMessage stringifies array tool results without text parts', () => {
+    const extracted = extractToolResultFromMessage({
+      role: Role.TOOL,
+      toolCallId: 'call-9',
+      content: [
+        {
+          type: 'tool_result',
+          toolName: 'arr',
+          result: [{ type: 'image', imageUrl: 'x' }]
+        }
+      ]
+    } as any);
+
+    expect(extracted?.text).toBe('[{\"type\":\"image\",\"imageUrl\":\"x\"}]');
+  });
+
+  test('extractToolResultFromMessage handles missing content and toolCallId', () => {
+    const extracted = extractToolResultFromMessage({
+      role: Role.TOOL,
+      content: undefined
+    } as any);
+
+    expect(extracted).toEqual({
+      toolCallId: null,
+      toolName: null,
+      toolNames: [],
+      result: null,
+      results: [],
+      text: ''
+    });
+  });
+
+  test('extractToolResultFromMessage handles text parts with missing text fields', () => {
+    const extracted = extractToolResultFromMessage({
+      role: Role.TOOL,
+      toolCallId: 'call-10',
+      content: [{ type: 'text', text: undefined }]
+    } as any);
+
+    expect(extracted?.text).toBe('');
+    expect(extracted?.toolCallId).toBe('call-10');
   });
 
   test('appendAssistantToolCalls stores reasoning on new message when provided', () => {

@@ -11,4 +11,4 @@ Message preparation and mutation helpers used by coordinators and tool loops.
 - `aggregateSystemMessages(messages)` – merges multiple system messages into one.
 - `appendAssistantToolCalls(messages, toolCalls, options)` – appends an assistant message containing tool calls.
 - `appendToolResult(messages, payload, options)` – appends a tool result message.
-
+- `extractToolResultFromMessage(message)` – canonical extraction from `Role.TOOL` messages (tool name, raw payload, and combined text output).
