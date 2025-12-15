@@ -1232,6 +1232,57 @@ describe('utils/server createServerHandler', () => {
     expect(out.body).toContain('timeout');
   });
 
+  test('clears per-iteration SSE timeout timers when /stream completes', async () => {
+    const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+    const clearTimeoutSpy = jest.spyOn(global, 'clearTimeout');
+
+    try {
+      const handler = createServerHandler({
+        registry,
+        pluginsPath: './plugins',
+        closeLoggerAfterRequest: false,
+        deps: {
+          createRegistry: jest.fn().mockResolvedValue(registry),
+          createCoordinator: jest.fn().mockResolvedValue({
+            runStream: async function* () {
+              yield { type: 'delta', content: 'ok' } as any;
+            },
+            close: jest.fn().mockResolvedValue(undefined)
+          }),
+          closeLogger: jest.fn()
+        },
+        // Disable body read timeout to avoid unrelated timers in this test.
+        config: { ...config, bodyReadTimeoutMs: 0, requestTimeoutMs: 1000, streamIdleTimeoutMs: 1000 }
+      });
+
+      const req = makeReq(
+        'POST',
+        '/stream',
+        JSON.stringify({ messages: [], llmPriority: [{ provider: 'p', model: 'm' }], settings: {} })
+      );
+      const out = makeRes();
+      await handler(req, out.res);
+
+      expect(out.status).toBe(200);
+
+      // Ensure timers created for the stream timeout race are cleared when unused.
+      const timeoutHandles = setTimeoutSpy.mock.results
+        .map((result, idx) => ({
+          value: result.value,
+          ms: setTimeoutSpy.mock.calls[idx]?.[1]
+        }))
+        .filter(entry => entry.ms === 1000)
+        .map(entry => entry.value);
+
+      for (const handle of timeoutHandles) {
+        expect(clearTimeoutSpy).toHaveBeenCalledWith(handle);
+      }
+    } finally {
+      setTimeoutSpy.mockRestore();
+      clearTimeoutSpy.mockRestore();
+    }
+  });
+
   test('times out /stream on idle timeout', async () => {
     const handler = createServerHandler({
       registry,

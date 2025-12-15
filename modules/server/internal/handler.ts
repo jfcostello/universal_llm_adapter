@@ -174,13 +174,22 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
 
       const timeoutType = remainingRequestMs <= remainingIdleMs ? 'request' : 'idle';
 
+      let timeoutId: NodeJS.Timeout | undefined;
       const raced: any =
         waitMs === Number.POSITIVE_INFINITY
           ? { result: await iterator.next() }
-          : await Promise.race([
-              iterator.next().then(result => ({ result })),
-              new Promise(resolve => setTimeout(() => resolve({ timeout: true }), waitMs))
-            ]);
+          : await (async () => {
+              try {
+                return await Promise.race([
+                  iterator.next().then(result => ({ result })),
+                  new Promise(resolve => {
+                    timeoutId = setTimeout(() => resolve({ timeout: true }), waitMs);
+                  })
+                ]);
+              } finally {
+                if (timeoutId !== undefined) clearTimeout(timeoutId);
+              }
+            })();
 
       if (raced.timeout) {
         if (timeoutType === 'request') {
