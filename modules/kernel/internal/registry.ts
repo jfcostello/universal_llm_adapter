@@ -26,9 +26,9 @@ export class PluginRegistry {
   private mcpServers = new Map<string, MCPServerConfig>();
   private vectorStores = new Map<string, VectorStoreConfig>();
   private processRoutes: ProcessRouteManifest[] = [];
-  private compatModules = new Map<string, ICompatModule>();
+  private compatModules = new Map<string, () => ICompatModule>();
   private embeddingProviders = new Map<string, EmbeddingProviderConfig>();
-  private embeddingCompats = new Map<string, IEmbeddingCompat>();
+  private embeddingCompats = new Map<string, () => IEmbeddingCompat>();
   private vectorStoreCompats = new Map<string, () => IVectorStoreCompat>();
 
   // Lazy loading flags
@@ -122,7 +122,7 @@ export class PluginRegistry {
       if (typeof CompatClass !== 'function') {
         throw new Error('module did not export a constructor');
       }
-      this.compatModules.set(moduleName, new CompatClass());
+      this.compatModules.set(moduleName, () => new (CompatClass as any)());
     } catch (error: any) {
       console.warn(`Failed to load compat module ${moduleName}: ${error.message}`);
       throw new ManifestError(`No compat module found for '${moduleName}'`);
@@ -145,7 +145,7 @@ export class PluginRegistry {
       if (typeof CompatClass !== 'function') {
         throw new Error('module did not export a constructor');
       }
-      this.embeddingCompats.set(kind, new CompatClass());
+      this.embeddingCompats.set(kind, () => new (CompatClass as any)());
     } catch (error: any) {
       console.warn(`Failed to load embedding compat module ${kind}: ${error.message}`);
       throw new ManifestError(`No embedding compat module found for '${kind}'`);
@@ -352,7 +352,7 @@ export class PluginRegistry {
 
   async getCompatModule(compat: string): Promise<ICompatModule> {
     await this.ensureCompatModuleLoaded(compat);
-    return this.compatModules.get(compat)!;
+    return this.compatModules.get(compat)!();
   }
 
   async getEmbeddingProvider(id: string): Promise<EmbeddingProviderConfig> {
@@ -366,7 +366,7 @@ export class PluginRegistry {
 
   async getEmbeddingCompat(kind: string): Promise<IEmbeddingCompat> {
     await this.ensureEmbeddingCompatLoaded(kind);
-    return this.embeddingCompats.get(kind)!;
+    return this.embeddingCompats.get(kind)!();
   }
 
   async getVectorStoreCompat(kind: string): Promise<IVectorStoreCompat> {

@@ -71,8 +71,10 @@ describe('core/registry', () => {
       await expect(registry.getMCPServer('missing')).rejects.toThrow(ManifestError);
       await expect(registry.getVectorStore('missing')).rejects.toThrow(ManifestError);
 
-      const compat = await registry.getCompatModule('openai');
-      expect(typeof compat.buildPayload).toBe('function');
+      const compatA = await registry.getCompatModule('openai');
+      const compatB = await registry.getCompatModule('openai');
+      expect(compatA).not.toBe(compatB);
+      expect(typeof compatA.buildPayload).toBe('function');
     });
   });
 
@@ -312,10 +314,12 @@ describe('core/registry', () => {
         const registry = new PluginRegistry(pluginsDir);
 
         // The openrouter embedding compat is loaded from the project's dist/plugins/embedding-compat
-        const compat = await registry.getEmbeddingCompat('openrouter');
+        const compatA = await registry.getEmbeddingCompat('openrouter');
+        const compatB = await registry.getEmbeddingCompat('openrouter');
 
-        expect(typeof compat.embed).toBe('function');
-        expect(typeof compat.getDimensions).toBe('function');
+        expect(compatA).not.toBe(compatB);
+        expect(typeof compatA.embed).toBe('function');
+        expect(typeof compatA.getDimensions).toBe('function');
       });
     });
 
