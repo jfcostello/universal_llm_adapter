@@ -117,17 +117,27 @@ export class ToolCoordinator {
       context.logger.info('Routing tool call', logFields);
     }
 
-    const timeout = (route.timeoutMs || getDefaults().tools.timeoutMs) / 1000;
+    const timeoutMs = route.timeoutMs ?? getDefaults().tools.timeoutMs;
+    const timeoutSeconds = timeoutMs / 1000;
+
+    const timeoutCancel = new AbortController();
+    const invokeAbort = new AbortController();
 
     try {
       const result = await Promise.race([
-        this.invoke(route, ctx),
-        this.createTimeout(timeout)
+        this.invoke(route, ctx, { signal: invokeAbort.signal }),
+        this.createTimeout(timeoutSeconds, {
+          signal: timeoutCancel.signal,
+          onTimeout: () => invokeAbort.abort()
+        })
       ]);
 
       return result;
     } catch (error: any) {
       throw new ToolExecutionError(`Process route '${route.id}' failed: ${error.message}`);
+    } finally {
+      // Ensure the timeout timer is cleared when unused.
+      timeoutCancel.abort();
     }
   }
 
@@ -259,22 +269,30 @@ export class ToolCoordinator {
     return undefined;
   }
 
-  private async invoke(route: ProcessRouteManifest, ctx: ToolContext): Promise<any> {
+  private async invoke(
+    route: ProcessRouteManifest,
+    ctx: ToolContext,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<any> {
     switch (route.invoke.kind) {
       case 'module':
-        return this.invokeModule(route, ctx);
+        return this.invokeModule(route, ctx, options);
       case 'http':
-        return this.invokeHttp(route, ctx);
+        return this.invokeHttp(route, ctx, options);
       case 'command':
-        return this.invokeCommand(route, ctx);
+        return this.invokeCommand(route, ctx, options);
       case 'mcp':
-        return this.invokeMcp(route, ctx);
+        return this.invokeMcp(route, ctx, options);
       default:
         throw new ToolExecutionError(`Unsupported invoke kind '${route.invoke.kind}'`);
     }
   }
 
-  private async invokeModule(route: ProcessRouteManifest, ctx: ToolContext): Promise<any> {
+  private async invokeModule(
+    route: ProcessRouteManifest,
+    ctx: ToolContext,
+    options: { signal?: AbortSignal }
+  ): Promise<any> {
     if (!route.invoke.module) {
       throw new ToolExecutionError('Module route missing module field');
     }
@@ -287,14 +305,19 @@ export class ToolCoordinator {
     const fn = route.invoke.function || 'handle';
     const handler = module[fn] || module.default || module;
 
-    const invocation = await handler(ctx);
+    const invocationCtx = options.signal ? { ...ctx, abortSignal: options.signal } : ctx;
+    const invocation = await handler(invocationCtx);
     if (invocation && typeof invocation === 'object' && 'result' in invocation) {
       return invocation;
     }
     return { result: invocation };
   }
 
-  private async invokeHttp(route: ProcessRouteManifest, ctx: ToolContext): Promise<any> {
+  private async invokeHttp(
+    route: ProcessRouteManifest,
+    ctx: ToolContext,
+    options: { signal?: AbortSignal }
+  ): Promise<any> {
     if (!route.invoke.url) {
       throw new ToolExecutionError('HTTP route missing url');
     }
@@ -303,13 +326,18 @@ export class ToolCoordinator {
       method: route.invoke.method || 'POST',
       url: route.invoke.url,
       headers: route.invoke.headers || {},
-      data: ctx
+      data: ctx,
+      signal: options.signal
     });
 
     return response.data || { result: null };
   }
 
-  private async invokeCommand(route: ProcessRouteManifest, ctx: ToolContext): Promise<any> {
+  private async invokeCommand(
+    route: ProcessRouteManifest,
+    ctx: ToolContext,
+    options: { signal?: AbortSignal }
+  ): Promise<any> {
     if (!route.invoke.command) {
       throw new ToolExecutionError('Command route missing command');
     }
@@ -321,6 +349,30 @@ export class ToolCoordinator {
         env,
         stdio: ['pipe', 'pipe', 'pipe']
       });
+
+      const killProcess = () => {
+        try {
+          (proc as any).kill?.('SIGKILL');
+        } catch {
+          try {
+            (proc as any).kill?.();
+          } catch {
+            // ignore
+          }
+        }
+      };
+
+      const onAbort = () => {
+        killProcess();
+      };
+
+      if (options.signal) {
+        if (options.signal.aborted) {
+          onAbort();
+        } else {
+          options.signal.addEventListener('abort', onAbort, { once: true });
+        }
+      }
 
       let stdout = '';
       let stderr = '';
@@ -334,6 +386,9 @@ export class ToolCoordinator {
       });
 
       proc.on('close', (code) => {
+        if (options.signal) {
+          options.signal.removeEventListener('abort', onAbort);
+        }
         if (code !== 0) {
           reject(new Error(`Command exited with code ${code}: ${stderr}`));
         } else {
@@ -351,7 +406,11 @@ export class ToolCoordinator {
     });
   }
 
-  private async invokeMcp(route: ProcessRouteManifest, ctx: ToolContext): Promise<any> {
+  private async invokeMcp(
+    route: ProcessRouteManifest,
+    ctx: ToolContext,
+    _options: { signal?: AbortSignal }
+  ): Promise<any> {
     if (!this.mcpPool) {
       throw new ToolExecutionError('MCP route requested but no pool configured');
     }
@@ -377,11 +436,29 @@ export class ToolCoordinator {
     return spawn(command, args, options);
   }
 
-  private createTimeout(seconds: number): Promise<never> {
+  private createTimeout(
+    seconds: number,
+    options: {
+      signal?: AbortSignal;
+      onTimeout?: () => void;
+    } = {}
+  ): Promise<never> {
     return new Promise((_, reject) => {
-      setTimeout(() => {
+      if (options.signal?.aborted) {
+        return;
+      }
+
+      const timeoutId = setTimeout(() => {
+        options.onTimeout?.();
         reject(new Error(`Tool execution timeout after ${seconds}s`));
       }, seconds * 1000);
+
+      if (options.signal) {
+        const onAbort = () => {
+          clearTimeout(timeoutId);
+        };
+        options.signal.addEventListener('abort', onAbort, { once: true });
+      }
     });
   }
 

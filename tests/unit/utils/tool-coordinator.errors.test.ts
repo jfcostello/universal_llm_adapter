@@ -249,19 +249,22 @@ describe('ToolCoordinator edge cases', () => {
     await coordinator.routeAndInvoke('pref.tool', 'call', {}, { provider: 'p', model: 'm' });
     expect(invokeSpy).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: 'prefix-route' }),
-      expect.any(Object)
+      expect.any(Object),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
 
     await coordinator.routeAndInvoke('re5', 'call', {}, { provider: 'p', model: 'm' });
     expect(invokeSpy).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: 'regex-route' }),
-      expect.any(Object)
+      expect.any(Object),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
 
     await coordinator.routeAndInvoke('glob.match', 'call', {}, { provider: 'p', model: 'm' });
     expect(invokeSpy).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: 'glob-route' }),
-      expect.any(Object)
+      expect.any(Object),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
 
     invokeSpy.mockRestore();
