@@ -259,8 +259,40 @@ describe('modules/llm/internal/payload/provider-payload-utils', () => {
   test('returns payload unchanged when provider has no extensions', () => {
     const payload = { data: true };
     const [result, remaining] = applyProviderPayloadExtensions({ id: 'plain' } as any, payload);
-    expect(result).toEqual(payload);
+    expect(result).toBe(payload);
     expect(remaining).toEqual({});
+  });
+
+  test('does not clone payload when provider extensions do not apply', () => {
+    const provider = {
+      id: 'provider-noop',
+      payloadExtensions: [
+        {
+          name: 'optional',
+          settingsKey: 'optional',
+          targetPath: ['extra', 'optional'],
+          valueType: 'string'
+        }
+      ]
+    };
+
+    const payload = { extra: { base: true } };
+    const [result, remaining] = applyProviderPayloadExtensions(provider as any, payload, {
+      passthrough: 'keep'
+    });
+
+    expect(result).toBe(payload);
+    expect(remaining).toEqual({ passthrough: 'keep' });
+  });
+
+  test('clones payload only when at least one extension applies', () => {
+    const payload = { extra: { base: true } };
+    const [result] = applyProviderPayloadExtensions(baseProvider, payload, {
+      objectOption: { threshold: 1 }
+    });
+
+    expect(result).not.toBe(payload);
+    expect(payload).toEqual({ extra: { base: true } });
   });
 
   test('applies usage.include default for OpenRouter-style extensions', () => {

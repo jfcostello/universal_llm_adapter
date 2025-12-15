@@ -6,10 +6,17 @@ export function applyProviderPayloadExtensions(
   payload: any,
   settingsExtra?: Record<string, any>
 ): [any, Record<string, any>] {
-  const normalizedPayload = JSON.parse(JSON.stringify(payload));
+  const extensions = provider.payloadExtensions || [];
   const remainingExtra = { ...(settingsExtra || {}) };
 
-  for (const extension of (provider.payloadExtensions || [])) {
+  if (extensions.length === 0) {
+    return [payload, remainingExtra];
+  }
+
+  let normalizedPayload = payload;
+  let clonedPayload = false;
+
+  for (const extension of extensions) {
     const valuePresent = extension.settingsKey in remainingExtra;
     let value = valuePresent ? remainingExtra[extension.settingsKey] : null;
 
@@ -45,6 +52,11 @@ export function applyProviderPayloadExtensions(
     }
 
     validateExtensionValue(provider.id, extension, value);
+
+    if (!clonedPayload) {
+      normalizedPayload = JSON.parse(JSON.stringify(payload));
+      clonedPayload = true;
+    }
     applyExtension(normalizedPayload, extension, value);
   }
 
@@ -162,4 +174,3 @@ function validateExtensionValue(
     );
   }
 }
-
