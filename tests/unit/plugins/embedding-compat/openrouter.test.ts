@@ -106,6 +106,23 @@ describe('plugins/embedding-compat/openrouter', () => {
       await expect(compat.embed('test', createConfig())).rejects.toThrow(EmbeddingProviderError);
     });
 
+    test('does not mark rate limit when response has no rate signal', async () => {
+      const mockHttpClient = createMockHttpClient({
+        status: 500,
+        data: { error: {} }
+      });
+
+      const compat = new OpenRouterEmbeddingCompat(mockHttpClient as any);
+
+      try {
+        await compat.embed('test', createConfig());
+        fail('Should have thrown');
+      } catch (error: any) {
+        expect(error).toBeInstanceOf(EmbeddingProviderError);
+        expect(error.isRateLimit).toBe(false);
+      }
+    });
+
     test('detects rate limit from status 429', async () => {
       const mockHttpClient = createMockHttpClient({
         status: 429,

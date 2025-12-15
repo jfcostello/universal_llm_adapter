@@ -26,6 +26,7 @@ modules/kernel/
     embedding-spec-types.ts
     vector-spec-types.ts
     paths.ts
+    safe-data.ts
 ```
 
 ## Usage
@@ -35,5 +36,10 @@ import {
   getDefaults,
   ManifestError
 } from '@/modules/kernel/index.ts';
-```
 
+// Lazy by default (manifests + plugin code loaded on demand)
+const registry = new PluginRegistry('./plugins');
+
+// Optional fail-fast validation for long-lived processes
+await registry.validateAll();
+```

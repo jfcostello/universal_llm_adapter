@@ -88,14 +88,14 @@ Provider configurations live in `plugins/providers/*.json`:
 
 ```json
 {
-  "id": "anthropic",
-  "compat": "anthropic",
+  "id": "example-llm",
+  "compat": "example-llm",
   "endpoint": {
-    "urlTemplate": "https://api.anthropic.com/v1/messages",
+    "urlTemplate": "https://example.com/v1/messages",
     "method": "POST",
     "headers": {
-      "x-api-key": "${ANTHROPIC_API_KEY}",
-      "anthropic-version": "2023-06-01"
+      "Authorization": "Bearer ${LLM_API_KEY}",
+      "X-Example-Version": "2025-01-01"
     }
   },
   "retryWords": ["rate", "limit", "overloaded"],
@@ -109,8 +109,21 @@ Provider configurations live in `plugins/providers/*.json`:
 Provider compat implementations live in `plugins/compat/<provider>/index.ts` and implement `ICompatModule`:
 - `buildPayload()` - Transform unified spec to provider format
 - `parseResponse()` - Transform provider response to unified format
-- `parseStream()` - Parse streaming chunks
-- `validate()` - Validate configuration
+- `parseStreamChunk()` - Parse streaming chunks
+- `getStreamingFlags()` - Return provider streaming flags
+- `serializeTools()` - Serialize unified tools
+- `serializeToolChoice()` - Serialize tool choice
+- `applyProviderExtensions()` - Apply provider payload extensions (optional)
+- `callSDK()` / `streamSDK()` - Optional SDK-based overrides (when available)
+
+### Compat templates
+
+Compats are intentionally thin translation layers. Their `internal/` code is split by concern and treated as private to the plugin directory.
+
+- **A layout (default)**: `internal/<compat>.ts` (orchestration) + `messages.ts`, `settings.ts`, `tools.ts`, `response.ts`, `stream.ts`, `mappings.ts` (and `extensions.ts` only when needed).
+- **B layout (large vector stores)**: `internal/<compat>.ts` (orchestration) + `internal/{client,ids,filters,operations}/**` to keep concerns isolated.
+
+Provider-agnostic extraction/normalization (usage, tool results, safe parsing, vector math, etc.) lives in `modules/**` and is shared by all compats.
 
 ### Embedding Providers
 
@@ -118,15 +131,15 @@ Embedding configurations live in `plugins/embeddings/*.json`:
 
 ```json
 {
-  "id": "openrouter-embeddings",
-  "kind": "openrouter",
+  "id": "example-embeddings",
+  "kind": "example-embeddings",
   "endpoint": {
-    "urlTemplate": "https://openrouter.ai/api/v1/embeddings",
+    "urlTemplate": "https://example.com/v1/embeddings",
     "headers": {
-      "Authorization": "Bearer ${OPENROUTER_API_KEY}"
+      "Authorization": "Bearer ${EMBEDDINGS_API_KEY}"
     }
   },
-  "model": "openai/text-embedding-3-small",
+  "model": "example/embedding-model",
   "dimensions": 1536
 }
 ```
@@ -139,13 +152,9 @@ Vector store configurations live in `plugins/vector/*.json`:
 
 ```json
 {
-  "id": "qdrant-local",
-  "kind": "qdrant",
-  "connection": {
-    "host": "localhost",
-    "port": 6333
-  },
-  "defaultEmbeddingPriority": [{ "provider": "openrouter-embeddings" }],
+  "id": "memory-local",
+  "kind": "memory",
+  "defaultEmbeddingPriority": [{ "provider": "example-embeddings" }],
   "defaultCollection": "documents"
 }
 ```
@@ -401,11 +410,8 @@ console.log(defaults.tools.maxIterations); // 10
 | `LLM_ADAPTER_DISABLE_CONSOLE_LOGS` | Disable console logging ("1" or unset) |
 
 Provider-specific environment variables are defined in provider manifests with `${ENV_VAR}` syntax:
-- `${ANTHROPIC_API_KEY}`
-- `${OPENAI_API_KEY}`
-- `${GOOGLE_API_KEY}`
-- `${OPENROUTER_API_KEY}`
-- `${EMBEDDING_API_KEY}`
+- `${LLM_API_KEY}`
+- `${EMBEDDINGS_API_KEY}`
 - `${VECTOR_STORE_API_KEY}`
 
 ## Programmatic Usage
@@ -424,7 +430,7 @@ const response = await coordinator.run({
     { role: 'user', content: [{ type: 'text', text: 'Hello' }] }
   ],
   llmPriority: [
-    { provider: 'anthropic', model: 'claude-sonnet-4-20250514' }
+    { provider: 'example-llm', model: 'example-model' }
   ],
   settings: { temperature: 0.7 }
 });
@@ -440,7 +446,7 @@ const registry = new PluginRegistry('./plugins');
 const embeddingManager = new EmbeddingManager(registry);
 
 const result = await embeddingManager.embed('Hello world', [
-  { provider: 'openrouter-embeddings' }
+  { provider: 'example-embeddings' }
 ]);
 
 console.log(result.vectors);    // [[0.1, 0.2, ...]]
@@ -459,12 +465,12 @@ const embeddingManager = new EmbeddingManager(registry);
 const vectorStore = new VectorStoreManager(
   new Map(),
   new Map(),
-  embeddingManager.createEmbedderFn([{ provider: 'openrouter-embeddings' }]),
+  embeddingManager.createEmbedderFn([{ provider: 'example-embeddings' }]),
   registry
 );
 
 const { results } = await vectorStore.queryWithPriority(
-  ['qdrant-local'],
+  ['memory-local'],
   'What is machine learning?',
   5
 );
@@ -512,14 +518,8 @@ npm test -- --coverage
 # Run live tests (require API keys)
 npm run test:live
 
-# Run provider-specific live tests
-npm run test:live:anthropic
-npm run test:live:openai
-npm run test:live:embeddings
-npm run test:live:vector
-
-# Filter live tests by provider
-LLM_TEST_PROVIDERS=anthropic,openai npm run test:live
+# Filter live tests by provider id(s)
+LLM_TEST_PROVIDERS=provider-a,provider-b npm run test:live
 ```
 
 ### Sandbox (Manual Testing)

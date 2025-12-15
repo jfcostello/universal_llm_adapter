@@ -13,7 +13,7 @@ curl http://127.0.0.1:3000/run \
   -H "Content-Type: application/json" \
   -d '{
     "messages": [{"role":"user","content":[{"type":"text","text":"Hello"}]}],
-    "llmPriority": [{"provider":"anthropic","model":"claude-sonnet-4-20250514"}],
+    "llmPriority": [{"provider":"example-llm","model":"example-model"}],
     "settings": {}
   }'
 ```
@@ -191,7 +191,7 @@ curl http://127.0.0.1:3000/run \
   -H "Content-Type: application/json" \
   -d '{
     "messages": [{"role":"user","content":[{"type":"text","text":"Hello"}]}],
-    "llmPriority": [{"provider":"anthropic","model":"claude-sonnet-4-20250514"}],
+    "llmPriority": [{"provider":"example-llm","model":"example-model"}],
     "settings": {}
   }'
 ```
@@ -208,8 +208,8 @@ curl http://127.0.0.1:3000/run \
       "inputTokens": 10,
       "outputTokens": 15
     },
-    "model": "claude-sonnet-4-20250514",
-    "provider": "anthropic"
+    "model": "example-model",
+    "provider": "example-llm"
   }
 }
 ```
@@ -232,7 +232,7 @@ curl http://127.0.0.1:3000/stream \
   -H "Content-Type: application/json" \
   -d '{
     "messages": [{"role":"user","content":[{"type":"text","text":"Write a haiku"}]}],
-    "llmPriority": [{"provider":"anthropic","model":"claude-sonnet-4-20250514"}],
+    "llmPriority": [{"provider":"example-llm","model":"example-model"}],
     "settings": {}
   }'
 ```
@@ -240,7 +240,7 @@ curl http://127.0.0.1:3000/stream \
 **Response (SSE):**
 
 ```
-data: {"type":"message_start","message":{"id":"msg_...","model":"claude-sonnet-4-20250514"}}
+data: {"type":"message_start","message":{"id":"msg_...","model":"example-model"}}
 
 data: {"type":"delta","text":"Silent"}
 
@@ -269,8 +269,8 @@ curl http://127.0.0.1:3000/vector/run \
   -H "Content-Type: application/json" \
   -d '{
     "operation": "query",
-    "store": "qdrant-local",
-    "embeddingPriority": [{"provider": "openrouter-embeddings"}],
+    "store": "memory",
+    "embeddingPriority": [{"provider": "example-embeddings"}],
     "input": {"query": "machine learning", "topK": 5}
   }'
 ```
@@ -297,7 +297,7 @@ curl http://127.0.0.1:3000/vector/run \
   -H "Content-Type: application/json" \
   -d '{
     "operation": "upsert",
-    "store": "qdrant-local",
+    "store": "memory",
     "input": {
       "points": [
         {"id": "doc1", "vector": [0.1, 0.2, 0.3], "payload": {"text": "Hello"}}
@@ -313,7 +313,7 @@ curl http://127.0.0.1:3000/vector/run \
   -H "Content-Type: application/json" \
   -d '{
     "operation": "delete",
-    "store": "qdrant-local",
+    "store": "memory",
     "input": {"ids": ["doc1", "doc2"]}
   }'
 ```
@@ -325,7 +325,7 @@ curl http://127.0.0.1:3000/vector/run \
   -H "Content-Type: application/json" \
   -d '{
     "operation": "collections",
-    "store": "qdrant-local",
+    "store": "memory",
     "input": {"collectionOp": "list"}
   }'
 ```
@@ -369,7 +369,7 @@ curl http://127.0.0.1:3000/embeddings/run \
   -H "Content-Type: application/json" \
   -d '{
     "operation": "embed",
-    "embeddingPriority": [{"provider": "openrouter-embeddings"}],
+    "embeddingPriority": [{"provider": "example-embeddings"}],
     "input": {"texts": ["Hello world", "Machine learning"]}
   }'
 ```
@@ -383,7 +383,7 @@ curl http://127.0.0.1:3000/embeddings/run \
     "operation": "embed",
     "vectors": [[0.1, 0.2, ...], [0.3, 0.4, ...]],
     "dimensions": 1536,
-    "model": "openai/text-embedding-3-small"
+    "model": "example/embedding-model"
   }
 }
 ```
@@ -412,8 +412,8 @@ curl http://127.0.0.1:3000/embeddings/run \
   // Provider priority list (required)
   "llmPriority": [
     {
-      "provider": "anthropic",
-      "model": "claude-sonnet-4-20250514",
+      "provider": "example-llm",
+      "model": "example-model",
       "settings": {}  // Optional per-provider override
     }
   ],
@@ -439,10 +439,10 @@ curl http://127.0.0.1:3000/embeddings/run \
 
   // Vector/RAG (optional)
   "vectorContext": {
-    "stores": ["qdrant-local"],
+    "stores": ["memory"],
     "mode": "auto",
     "topK": 5,
-    "embeddingPriority": [{"provider": "openrouter-embeddings"}]
+    "embeddingPriority": [{"provider": "example-embeddings"}]
   },
 
   // Metadata (optional)
@@ -460,13 +460,13 @@ curl http://127.0.0.1:3000/embeddings/run \
   "operation": "embed" | "upsert" | "query" | "delete" | "collections",
 
   // Store ID (required)
-  "store": "qdrant-local",
+  "store": "memory",
 
   // Collection (optional)
   "collection": "my-docs",
 
   // Embedding priority (required for embed/query with text)
-  "embeddingPriority": [{"provider": "openrouter-embeddings"}],
+  "embeddingPriority": [{"provider": "example-embeddings"}],
 
   // Operation-specific input (required)
   "input": {...},
@@ -491,7 +491,7 @@ curl http://127.0.0.1:3000/embeddings/run \
   "operation": "embed",
 
   // Embedding priority (required)
-  "embeddingPriority": [{"provider": "openrouter-embeddings"}],
+  "embeddingPriority": [{"provider": "example-embeddings"}],
 
   // Input (required)
   "input": {
@@ -775,13 +775,13 @@ curl http://127.0.0.1:3000/run \
     ],
     "llmPriority": [
       {
-        "provider": "anthropic",
-        "model": "claude-sonnet-4-20250514",
+        "provider": "example-llm",
+        "model": "example-model",
         "settings": {"temperature": 0.3}
       },
       {
-        "provider": "openai",
-        "model": "gpt-4"
+        "provider": "example-llm-2",
+        "model": "example-model-2"
       }
     ],
     "settings": {
@@ -803,7 +803,7 @@ curl http://127.0.0.1:3000/stream \
     "messages": [
       {"role": "user", "content": [{"type": "text", "text": "Echo hello world"}]}
     ],
-    "llmPriority": [{"provider": "anthropic", "model": "claude-sonnet-4-20250514"}],
+    "llmPriority": [{"provider": "example-llm", "model": "example-model"}],
     "settings": {},
     "functionToolNames": ["test.echo"]
   }'
@@ -818,13 +818,13 @@ curl http://127.0.0.1:3000/run \
     "messages": [
       {"role": "user", "content": [{"type": "text", "text": "What is machine learning?"}]}
     ],
-    "llmPriority": [{"provider": "anthropic", "model": "claude-sonnet-4-20250514"}],
+    "llmPriority": [{"provider": "example-llm", "model": "example-model"}],
     "settings": {},
     "vectorContext": {
-      "stores": ["qdrant-local"],
+      "stores": ["memory"],
       "mode": "auto",
       "topK": 5,
-      "embeddingPriority": [{"provider": "openrouter-embeddings"}],
+      "embeddingPriority": [{"provider": "example-embeddings"}],
       "injectAs": "system",
       "injectTemplate": "Use this context:\n{{results}}"
     }
@@ -838,7 +838,7 @@ curl http://127.0.0.1:3000/embeddings/run \
   -H "Content-Type: application/json" \
   -d '{
     "operation": "embed",
-    "embeddingPriority": [{"provider": "openrouter-embeddings"}],
+    "embeddingPriority": [{"provider": "example-embeddings"}],
     "input": {
       "texts": [
         "First document text",
@@ -856,9 +856,9 @@ curl http://127.0.0.1:3000/vector/run \
   -H "Content-Type: application/json" \
   -d '{
     "operation": "embed",
-    "store": "qdrant-local",
+    "store": "memory",
     "collection": "my-docs",
-    "embeddingPriority": [{"provider": "openrouter-embeddings"}],
+    "embeddingPriority": [{"provider": "example-embeddings"}],
     "input": {
       "texts": ["Document 1", "Document 2"],
       "ids": ["doc1", "doc2"],
@@ -881,7 +881,7 @@ const response = await fetch('http://127.0.0.1:3000/run', {
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
     messages: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }],
-    llmPriority: [{ provider: 'anthropic', model: 'claude-sonnet-4-20250514' }],
+    llmPriority: [{ provider: 'example-llm', model: 'example-model' }],
     settings: {}
   })
 });
@@ -897,7 +897,7 @@ const response = await fetch('http://127.0.0.1:3000/stream', {
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
     messages: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }],
-    llmPriority: [{ provider: 'anthropic', model: 'claude-sonnet-4-20250514' }],
+    llmPriority: [{ provider: 'example-llm', model: 'example-model' }],
     settings: {}
   })
 });
@@ -931,7 +931,7 @@ import requests
 # Non-streaming
 response = requests.post('http://127.0.0.1:3000/run', json={
     'messages': [{'role': 'user', 'content': [{'type': 'text', 'text': 'Hello'}]}],
-    'llmPriority': [{'provider': 'anthropic', 'model': 'claude-sonnet-4-20250514'}],
+    'llmPriority': [{'provider': 'example-llm', 'model': 'example-model'}],
     'settings': {}
 })
 
@@ -946,7 +946,7 @@ import json
 # Streaming
 response = requests.post('http://127.0.0.1:3000/stream', json={
     'messages': [{'role': 'user', 'content': [{'type': 'text', 'text': 'Hello'}]}],
-    'llmPriority': [{'provider': 'anthropic', 'model': 'claude-sonnet-4-20250514'}],
+    'llmPriority': [{'provider': 'example-llm', 'model': 'example-model'}],
     'settings': {}
 }, stream=True)
 
@@ -969,11 +969,8 @@ for line in response.iter_lines():
 | `LLM_ADAPTER_BATCH_DIR` | Use batch-based directories ("1" or "0") |
 | `LLM_ADAPTER_DISABLE_FILE_LOGS` | Disable file logging ("1") |
 | `LLM_ADAPTER_DISABLE_CONSOLE_LOGS` | Disable console logging ("1") |
-| `ANTHROPIC_API_KEY` | Anthropic provider API key |
-| `OPENAI_API_KEY` | OpenAI provider API key |
-| `GOOGLE_API_KEY` | Google provider API key |
-| `OPENROUTER_API_KEY` | OpenRouter provider API key |
-| `EMBEDDING_API_KEY` | Embedding provider API key |
+| `LLM_API_KEY` | LLM provider API key |
+| `EMBEDDINGS_API_KEY` | Embedding provider API key |
 | `VECTOR_STORE_API_KEY` | Vector store API key |
 
 ---

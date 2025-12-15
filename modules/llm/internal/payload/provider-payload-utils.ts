@@ -1,20 +1,48 @@
 import type { JsonValue, ProviderManifest, ProviderPayloadExtension } from '../../../kernel/index.js';
 import { ProviderPayloadError } from '../../../kernel/index.js';
 
+function cloneJsonOrThrow(providerId: string, label: string, value: any): any {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  try {
+    const json = JSON.stringify(value);
+    if (json === undefined) {
+      throw new Error('value is not JSON-serializable');
+    }
+    return JSON.parse(json);
+  } catch {
+    throw new ProviderPayloadError(`[${providerId}] ${label} must be JSON-serializable`);
+  }
+}
+
 export function applyProviderPayloadExtensions(
   provider: ProviderManifest,
   payload: any,
   settingsExtra?: Record<string, any>
 ): [any, Record<string, any>] {
-  const normalizedPayload = JSON.parse(JSON.stringify(payload));
+  const extensions = provider.payloadExtensions || [];
   const remainingExtra = { ...(settingsExtra || {}) };
 
-  for (const extension of (provider.payloadExtensions || [])) {
-    const valuePresent = extension.settingsKey in remainingExtra;
+  if (extensions.length === 0) {
+    return [payload, remainingExtra];
+  }
+
+  let normalizedPayload = payload;
+  let clonedPayload = false;
+
+  for (const extension of extensions) {
+    const valuePresent = Object.prototype.hasOwnProperty.call(remainingExtra, extension.settingsKey);
     let value = valuePresent ? remainingExtra[extension.settingsKey] : null;
 
     if (valuePresent) {
       delete remainingExtra[extension.settingsKey];
+    }
+
+    // Treat explicit undefined as missing (so defaults/required behavior applies and we don't attempt JSON cloning).
+    if (value === undefined) {
+      value = null;
     }
 
     const hasDefault = Object.prototype.hasOwnProperty.call(extension, 'default');
@@ -39,13 +67,22 @@ export function applyProviderPayloadExtensions(
         continue;
       }
 
-      value = JSON.parse(JSON.stringify(defaultValue));
+      value = cloneJsonOrThrow(
+        provider.id,
+        `Default payload option '${extension.settingsKey}'`,
+        defaultValue
+      );
     } else if (hasDefault && defaultValue !== undefined && defaultValue !== null) {
-      value = mergeWithDefault(defaultValue as JsonValue, value);
+      value = mergeWithDefault(provider.id, extension, defaultValue as JsonValue, value);
     }
 
     validateExtensionValue(provider.id, extension, value);
-    applyExtension(normalizedPayload, extension, value);
+
+    if (!clonedPayload) {
+      normalizedPayload = cloneJsonOrThrow(provider.id, 'Base payload', payload);
+      clonedPayload = true;
+    }
+    applyExtension(normalizedPayload, provider.id, extension, value);
   }
 
   return [normalizedPayload, remainingExtra];
@@ -53,13 +90,18 @@ export function applyProviderPayloadExtensions(
 
 function applyExtension(
   payload: any,
+  providerId: string,
   extension: ProviderPayloadExtension,
   value: any
 ): void {
   const [targetContainer, finalKey] = resolveTargetPath(payload, extension.targetPath);
 
   if (extension.mergeStrategy === 'replace' || !(finalKey in targetContainer)) {
-    targetContainer[finalKey] = JSON.parse(JSON.stringify(value));
+    targetContainer[finalKey] = cloneJsonOrThrow(
+      providerId,
+      `Payload option '${extension.settingsKey}'`,
+      value
+    );
     return;
   }
 
@@ -70,9 +112,13 @@ function applyExtension(
     !Array.isArray(existing) &&
     !Array.isArray(value)
   ) {
-    targetContainer[finalKey] = deepMergeDicts(existing, value);
+    targetContainer[finalKey] = deepMergeDicts(providerId, extension, existing, value);
   } else {
-    targetContainer[finalKey] = JSON.parse(JSON.stringify(value));
+    targetContainer[finalKey] = cloneJsonOrThrow(
+      providerId,
+      `Payload option '${extension.settingsKey}'`,
+      value
+    );
   }
 }
 
@@ -92,7 +138,7 @@ function resolveTargetPath(payload: any, path: string[]): [any, string] {
   return [current, path[path.length - 1]];
 }
 
-function deepMergeDicts(base: any, updates: any): any {
+function deepMergeDicts(providerId: string, extension: ProviderPayloadExtension, base: any, updates: any): any {
   const merged = { ...base };
 
   for (const [key, value] of Object.entries(updates)) {
@@ -103,25 +149,34 @@ function deepMergeDicts(base: any, updates: any): any {
       !Array.isArray(merged[key]) &&
       !Array.isArray(value)
     ) {
-      merged[key] = deepMergeDicts(merged[key], value);
+      merged[key] = deepMergeDicts(providerId, extension, merged[key], value);
     } else {
-      merged[key] = JSON.parse(JSON.stringify(value));
+      merged[key] = cloneJsonOrThrow(
+        providerId,
+        `Payload option '${extension.settingsKey}'`,
+        value
+      );
     }
   }
 
   return merged;
 }
 
-function mergeWithDefault(defaultValue: JsonValue, value: any): any {
+function mergeWithDefault(
+  providerId: string,
+  extension: ProviderPayloadExtension,
+  defaultValue: JsonValue,
+  value: any
+): any {
   if (
     typeof defaultValue === 'object' &&
     typeof value === 'object' &&
     !Array.isArray(defaultValue) &&
     !Array.isArray(value)
   ) {
-    return deepMergeDicts(defaultValue, value);
+    return deepMergeDicts(providerId, extension, defaultValue, value);
   }
-  return JSON.parse(JSON.stringify(value));
+  return cloneJsonOrThrow(providerId, `Payload option '${extension.settingsKey}'`, value);
 }
 
 function validateExtensionValue(
@@ -162,4 +217,3 @@ function validateExtensionValue(
     );
   }
 }
-

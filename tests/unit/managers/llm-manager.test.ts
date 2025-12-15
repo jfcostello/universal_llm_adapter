@@ -370,6 +370,23 @@ describe('managers/llm-manager', () => {
     expect(result).toBe(false);
   });
 
+  test('isRateLimitResponse returns false when keywords only appear in x-ratelimit headers', () => {
+    const compat = createCompat();
+    const registry = { getCompatModule: jest.fn(() => compat) } as any;
+    const manager = new LLMManager(registry);
+
+    const result = (manager as any).isRateLimitResponse(
+      { ...provider, retryWords: ['rate', 'limit'] },
+      {
+        status: 400,
+        data: { error: { code: 'unsupported_parameter', param: 'reasoning.effort' } },
+        headers: { 'x-ratelimit-limit-requests': '10000', 'x-ratelimit-remaining-requests': '9999' }
+      }
+    );
+
+    expect(result).toBe(false);
+  });
+
   test('callProvider handles missing provider extras gracefully', async () => {
     const compat = {
       buildPayload: jest.fn(() => ({ base: true })),
@@ -416,16 +433,177 @@ describe('managers/llm-manager', () => {
     );
   });
 
-  test('isRateLimitResponse returns true when keywords appear in headers', () => {
+  test('isRateLimitResponse returns true for HTTP 429 responses', () => {
     const compat = createCompat();
     const registry = { getCompatModule: jest.fn(() => compat) } as any;
     const manager = new LLMManager(registry);
 
     const result = (manager as any).isRateLimitResponse(
       provider,
-      { data: { message: 'service ok' }, headers: { 'retry-after-info': 'Limit reached soon' } }
+      { status: 429, data: { message: 'rate limit exceeded' }, headers: { 'x-ratelimit-limit-requests': '10000' } }
     );
     expect(result).toBe(true);
+  });
+
+  test('isRateLimitResponse returns true when Retry-After header is present', () => {
+    const compat = createCompat();
+    const registry = { getCompatModule: jest.fn(() => compat) } as any;
+    const manager = new LLMManager(registry);
+
+    const result = (manager as any).isRateLimitResponse(
+      provider,
+      { status: 503, data: { error: 'overloaded' }, headers: { 'retry-after': '1' } }
+    );
+
+    expect(result).toBe(true);
+  });
+
+  test('stripReasoning returns payload unchanged for non-objects and objects without reasoning', () => {
+    const compat = createCompat();
+    const registry = { getCompatModule: jest.fn(() => compat) } as any;
+    const manager = new LLMManager(registry);
+
+    expect((manager as any).stripReasoning(null)).toBeNull();
+    expect((manager as any).stripReasoning([1, 2, 3])).toEqual([1, 2, 3]);
+    expect((manager as any).stripReasoning({ foo: 'bar' })).toEqual({ foo: 'bar' });
+  });
+
+  test('isUnsupportedReasoningParamError handles missing/partial error shapes', () => {
+    const compat = createCompat();
+    const registry = { getCompatModule: jest.fn(() => compat) } as any;
+    const manager = new LLMManager(registry);
+
+    expect((manager as any).isUnsupportedReasoningParamError({})).toBe(false);
+    expect((manager as any).isUnsupportedReasoningParamError({ error: { code: 'nope' } })).toBe(false);
+    expect(
+      (manager as any).isUnsupportedReasoningParamError({
+        error: { code: 'unsupported_parameter', param: 'temperature', message: 123 }
+      })
+    ).toBe(false);
+
+    expect(
+      (manager as any).isUnsupportedReasoningParamError({
+        error: {
+          code: 'unsupported_parameter',
+          message: "Unsupported parameter: 'reasoning.effort' is not supported with this model."
+        }
+      })
+    ).toBe(true);
+  });
+
+  test('callProvider retries once without reasoning when reasoning param is unsupported', async () => {
+    const originalLive = process.env.LLM_LIVE;
+    process.env.LLM_LIVE = '1';
+    try {
+      const compat = {
+        buildPayload: jest.fn(() => ({ metadata: {}, reasoning: { effort: 'low' } })),
+        parseResponse: jest.fn(() => ({ role: 'assistant', content: [] })),
+        applyProviderExtensions: jest.fn((payload: any) => payload)
+      };
+
+      const registry = { getCompatModule: jest.fn(() => compat) } as any;
+      const manager = new LLMManager(registry);
+
+      const httpClient = {
+        request: jest
+          .fn()
+          .mockResolvedValueOnce({
+            status: 400,
+            statusText: 'Bad Request',
+            headers: { 'x-ratelimit-limit-requests': '10000' },
+            data: {
+              error: {
+                message: "Unsupported parameter: 'reasoning.effort' is not supported with this model.",
+                type: 'invalid_request_error',
+                param: 'reasoning.effort',
+                code: 'unsupported_parameter'
+              }
+            }
+          })
+          .mockResolvedValueOnce({
+            status: 200,
+            statusText: 'OK',
+            headers: {},
+            data: { choices: [], usage: {} }
+          })
+      };
+      (manager as any).httpClient = httpClient;
+
+      const logger = {
+        logLLMRequest: jest.fn(),
+        logLLMResponse: jest.fn(),
+        warning: jest.fn(),
+        error: jest.fn(),
+        info: jest.fn()
+      } as any;
+
+      const response = await manager.callProvider(provider, 'model-x', {} as any, [], [], undefined, {}, logger);
+
+      expect(response.provider).toBe(provider.id);
+      expect(httpClient.request).toHaveBeenCalledTimes(2);
+      const firstPayload = httpClient.request.mock.calls[0][0].data;
+      const secondPayload = httpClient.request.mock.calls[1][0].data;
+      expect(firstPayload.reasoning).toBeDefined();
+      expect(secondPayload.reasoning).toBeUndefined();
+    } finally {
+      if (originalLive !== undefined) {
+        process.env.LLM_LIVE = originalLive;
+      } else {
+        delete process.env.LLM_LIVE;
+      }
+    }
+  });
+
+  test('callProvider strips reasoning upfront after caching unsupported reasoning for provider+model', async () => {
+    const compat = {
+      buildPayload: jest.fn(() => ({ metadata: {}, reasoning: { effort: 'low' } })),
+      parseResponse: jest.fn(() => ({ role: 'assistant', content: [] })),
+      applyProviderExtensions: jest.fn((payload: any) => payload)
+    };
+
+    const registry = { getCompatModule: jest.fn(() => compat) } as any;
+    const manager = new LLMManager(registry);
+
+    const httpClient = {
+      request: jest
+        .fn()
+        .mockResolvedValueOnce({
+          status: 400,
+          statusText: 'Bad Request',
+          headers: {},
+          data: {
+            error: {
+              message: "Unsupported parameter: 'reasoning.effort' is not supported with this model.",
+              type: 'invalid_request_error',
+              param: 'reasoning.effort',
+              code: 'unsupported_parameter'
+            }
+          }
+        })
+        .mockResolvedValueOnce({
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          data: { choices: [], usage: {} }
+        })
+        .mockResolvedValueOnce({
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          data: { choices: [], usage: {} }
+        })
+    };
+    (manager as any).httpClient = httpClient;
+
+    // First call: trigger cache + retry
+    await manager.callProvider(provider, 'model-x', {} as any, [], [], undefined, {});
+
+    // Second call: should strip reasoning before first request (no retry required)
+    await manager.callProvider(provider, 'model-x', {} as any, [], [], undefined, {});
+
+    expect(httpClient.request).toHaveBeenCalledTimes(3);
+    const thirdPayload = httpClient.request.mock.calls[2][0].data;
+    expect(thirdPayload.reasoning).toBeUndefined();
   });
 
   test('httpClient validateStatus always accepts response codes', () => {

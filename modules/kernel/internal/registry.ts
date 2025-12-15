@@ -26,9 +26,9 @@ export class PluginRegistry {
   private mcpServers = new Map<string, MCPServerConfig>();
   private vectorStores = new Map<string, VectorStoreConfig>();
   private processRoutes: ProcessRouteManifest[] = [];
-  private compatModules = new Map<string, ICompatModule>();
+  private compatModules = new Map<string, () => ICompatModule>();
   private embeddingProviders = new Map<string, EmbeddingProviderConfig>();
-  private embeddingCompats = new Map<string, IEmbeddingCompat>();
+  private embeddingCompats = new Map<string, () => IEmbeddingCompat>();
   private vectorStoreCompats = new Map<string, () => IVectorStoreCompat>();
 
   // Lazy loading flags
@@ -106,10 +106,20 @@ export class PluginRegistry {
     return imported.default ?? imported[Object.keys(imported)[0]];
   }
 
+  private assertSafePluginModuleName(area: 'compat' | 'embedding-compat' | 'vector-compat', moduleName: string): void {
+    // Module names come from manifests; harden against path traversal and invalid paths.
+    // Allow only simple names like "example-compat" or "example_store".
+    if (!/^[a-zA-Z0-9._-]+$/.test(moduleName)) {
+      throw new ManifestError(`Invalid ${area} module name '${moduleName}'`);
+    }
+  }
+
   private async ensureCompatModuleLoaded(moduleName: string): Promise<void> {
     if (this.compatModules.has(moduleName)) return;
 
     this.compatModulesLoaded = true;
+
+    this.assertSafePluginModuleName('compat', moduleName);
 
     const modulePath = this.resolvePluginCodeEntry('compat', moduleName);
     if (!modulePath) {
@@ -122,7 +132,7 @@ export class PluginRegistry {
       if (typeof CompatClass !== 'function') {
         throw new Error('module did not export a constructor');
       }
-      this.compatModules.set(moduleName, new CompatClass());
+      this.compatModules.set(moduleName, () => new (CompatClass as any)());
     } catch (error: any) {
       console.warn(`Failed to load compat module ${moduleName}: ${error.message}`);
       throw new ManifestError(`No compat module found for '${moduleName}'`);
@@ -133,6 +143,8 @@ export class PluginRegistry {
     if (this.embeddingCompats.has(kind)) return;
 
     this.embeddingCompatsLoaded = true;
+
+    this.assertSafePluginModuleName('embedding-compat', kind);
 
     const modulePath = this.resolvePluginCodeEntry('embedding-compat', kind);
     if (!modulePath) {
@@ -145,7 +157,7 @@ export class PluginRegistry {
       if (typeof CompatClass !== 'function') {
         throw new Error('module did not export a constructor');
       }
-      this.embeddingCompats.set(kind, new CompatClass());
+      this.embeddingCompats.set(kind, () => new (CompatClass as any)());
     } catch (error: any) {
       console.warn(`Failed to load embedding compat module ${kind}: ${error.message}`);
       throw new ManifestError(`No embedding compat module found for '${kind}'`);
@@ -156,6 +168,8 @@ export class PluginRegistry {
     if (this.vectorStoreCompats.has(kind)) return;
 
     this.vectorStoreCompatsLoaded = true;
+
+    this.assertSafePluginModuleName('vector-compat', kind);
 
     const modulePath = this.resolvePluginCodeEntry('vector-compat', kind);
     if (!modulePath) {
@@ -181,10 +195,20 @@ export class PluginRegistry {
   }
 
   private async loadProviders(): Promise<void> {
+    return this.loadProvidersInternal();
+  }
+
+  private async loadProvidersInternal(options: { strict?: boolean } = {}): Promise<void> {
     if (this.providersLoaded) return;
 
     const files = glob.sync('providers/*.json', { cwd: this.rootPath });
     for (const file of files) {
+      if (options.strict) {
+        const manifest = loadJsonFile(path.join(this.rootPath, file)) as ProviderManifest;
+        this.providers.set(manifest.id, manifest);
+        continue;
+      }
+
       try {
         const manifest = loadJsonFile(path.join(this.rootPath, file)) as ProviderManifest;
         this.providers.set(manifest.id, manifest);
@@ -197,10 +221,20 @@ export class PluginRegistry {
   }
 
   private async loadTools(): Promise<void> {
+    return this.loadToolsInternal();
+  }
+
+  private async loadToolsInternal(options: { strict?: boolean } = {}): Promise<void> {
     if (this.toolsLoaded) return;
 
     const files = glob.sync('tools/*.json', { cwd: this.rootPath });
     for (const file of files) {
+      if (options.strict) {
+        const tool = loadJsonFile(path.join(this.rootPath, file)) as UnifiedTool;
+        this.tools.set(tool.name, tool);
+        continue;
+      }
+
       try {
         const tool = loadJsonFile(path.join(this.rootPath, file)) as UnifiedTool;
         this.tools.set(tool.name, tool);
@@ -213,11 +247,25 @@ export class PluginRegistry {
   }
 
   private async loadMCPServers(): Promise<void> {
+    return this.loadMCPServersInternal();
+  }
+
+  private async loadMCPServersInternal(options: { strict?: boolean } = {}): Promise<void> {
     if (this.mcpServersLoaded) return;
 
     const { parseMCPManifest } = await import('../../mcp/index.js');
     const files = glob.sync('mcp/*.json', { cwd: this.rootPath });
     for (const file of files) {
+      if (options.strict) {
+        const manifestPath = path.join(this.rootPath, file);
+        const manifest = loadJsonFile(manifestPath);
+        const servers = parseMCPManifest(manifest, file);
+        for (const server of servers) {
+          this.mcpServers.set(server.id, server);
+        }
+        continue;
+      }
+
       try {
         const manifestPath = path.join(this.rootPath, file);
         const manifest = loadJsonFile(manifestPath);
@@ -234,10 +282,20 @@ export class PluginRegistry {
   }
 
   private async loadVectorStores(): Promise<void> {
+    return this.loadVectorStoresInternal();
+  }
+
+  private async loadVectorStoresInternal(options: { strict?: boolean } = {}): Promise<void> {
     if (this.vectorStoresLoaded) return;
 
     const files = glob.sync('vector/*.json', { cwd: this.rootPath });
     for (const file of files) {
+      if (options.strict) {
+        const store = loadJsonFile(path.join(this.rootPath, file)) as VectorStoreConfig;
+        this.vectorStores.set(store.id, store);
+        continue;
+      }
+
       try {
         const store = loadJsonFile(path.join(this.rootPath, file)) as VectorStoreConfig;
         this.vectorStores.set(store.id, store);
@@ -250,10 +308,20 @@ export class PluginRegistry {
   }
 
   private async loadProcessRoutes(): Promise<void> {
+    return this.loadProcessRoutesInternal();
+  }
+
+  private async loadProcessRoutesInternal(options: { strict?: boolean } = {}): Promise<void> {
     if (this.processRoutesLoaded) return;
 
     const files = glob.sync('processes/*.json', { cwd: this.rootPath });
     for (const file of files) {
+      if (options.strict) {
+        const route = loadJsonFile(path.join(this.rootPath, file)) as ProcessRouteManifest;
+        this.processRoutes.push(route);
+        continue;
+      }
+
       try {
         const route = loadJsonFile(path.join(this.rootPath, file)) as ProcessRouteManifest;
         this.processRoutes.push(route);
@@ -266,10 +334,20 @@ export class PluginRegistry {
   }
 
   private async loadEmbeddingProviders(): Promise<void> {
+    return this.loadEmbeddingProvidersInternal();
+  }
+
+  private async loadEmbeddingProvidersInternal(options: { strict?: boolean } = {}): Promise<void> {
     if (this.embeddingProvidersLoaded) return;
 
     const files = glob.sync('embeddings/*.json', { cwd: this.rootPath });
     for (const file of files) {
+      if (options.strict) {
+        const config = loadJsonFile(path.join(this.rootPath, file)) as EmbeddingProviderConfig;
+        this.embeddingProviders.set(config.id, config);
+        continue;
+      }
+
       try {
         const config = loadJsonFile(path.join(this.rootPath, file)) as EmbeddingProviderConfig;
         this.embeddingProviders.set(config.id, config);
@@ -279,6 +357,34 @@ export class PluginRegistry {
     }
 
     this.embeddingProvidersLoaded = true;
+  }
+
+  /**
+   * Opt-in: validate and preload all manifests + referenced plugin code.
+   * Useful for fail-fast startup checks in long-lived processes.
+   *
+   * Default usage remains lazy; callers must invoke this explicitly.
+   */
+  async validateAll(): Promise<void> {
+    await this.loadProvidersInternal({ strict: true });
+    await this.loadToolsInternal({ strict: true });
+    await this.loadMCPServersInternal({ strict: true });
+    await this.loadVectorStoresInternal({ strict: true });
+    await this.loadProcessRoutesInternal({ strict: true });
+    await this.loadEmbeddingProvidersInternal({ strict: true });
+
+    // Validate that referenced plugin code modules exist and can be imported.
+    for (const provider of this.providers.values()) {
+      await this.ensureCompatModuleLoaded(provider.compat);
+    }
+
+    for (const store of this.vectorStores.values()) {
+      await this.ensureVectorStoreCompatLoaded(store.kind);
+    }
+
+    for (const embedding of this.embeddingProviders.values()) {
+      await this.ensureEmbeddingCompatLoaded(embedding.kind);
+    }
   }
 
   async getProvider(id: string): Promise<ProviderManifest> {
@@ -352,7 +458,7 @@ export class PluginRegistry {
 
   async getCompatModule(compat: string): Promise<ICompatModule> {
     await this.ensureCompatModuleLoaded(compat);
-    return this.compatModules.get(compat)!;
+    return this.compatModules.get(compat)!();
   }
 
   async getEmbeddingProvider(id: string): Promise<EmbeddingProviderConfig> {
@@ -366,7 +472,7 @@ export class PluginRegistry {
 
   async getEmbeddingCompat(kind: string): Promise<IEmbeddingCompat> {
     await this.ensureEmbeddingCompatLoaded(kind);
-    return this.embeddingCompats.get(kind)!;
+    return this.embeddingCompats.get(kind)!();
   }
 
   async getVectorStoreCompat(kind: string): Promise<IVectorStoreCompat> {

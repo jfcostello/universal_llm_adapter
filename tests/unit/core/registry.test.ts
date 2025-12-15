@@ -71,8 +71,10 @@ describe('core/registry', () => {
       await expect(registry.getMCPServer('missing')).rejects.toThrow(ManifestError);
       await expect(registry.getVectorStore('missing')).rejects.toThrow(ManifestError);
 
-      const compat = await registry.getCompatModule('openai');
-      expect(typeof compat.buildPayload).toBe('function');
+      const compatA = await registry.getCompatModule('openai');
+      const compatB = await registry.getCompatModule('openai');
+      expect(compatA).not.toBe(compatB);
+      expect(typeof compatA.buildPayload).toBe('function');
     });
   });
 
@@ -258,6 +260,8 @@ describe('core/registry', () => {
 
   describe('embedding providers and compats', () => {
     test('loads embedding provider config from plugins/embeddings', async () => {
+      process.env.TEST_LLM_ENDPOINT = 'http://localhost';
+
       await withTempCwd('registry-embeddings', async (dir) => {
         const pluginsDir = path.join(dir, 'plugins');
         copyFixturePlugins(pluginsDir);
@@ -281,6 +285,7 @@ describe('core/registry', () => {
         );
 
         const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.validateAll()).resolves.toBeUndefined();
         const config = await registry.getEmbeddingProvider('test-embed');
 
         expect(config.id).toBe('test-embed');
@@ -312,10 +317,12 @@ describe('core/registry', () => {
         const registry = new PluginRegistry(pluginsDir);
 
         // The openrouter embedding compat is loaded from the project's dist/plugins/embedding-compat
-        const compat = await registry.getEmbeddingCompat('openrouter');
+        const compatA = await registry.getEmbeddingCompat('openrouter');
+        const compatB = await registry.getEmbeddingCompat('openrouter');
 
-        expect(typeof compat.embed).toBe('function');
-        expect(typeof compat.getDimensions).toBe('function');
+        expect(compatA).not.toBe(compatB);
+        expect(typeof compatA.embed).toBe('function');
+        expect(typeof compatA.getDimensions).toBe('function');
       });
     });
 
@@ -619,6 +626,65 @@ describe('core/registry', () => {
             }
           }
         }
+      });
+    });
+  });
+
+  describe('validation hardening', () => {
+    test('rejects invalid plugin module names (path traversal)', async () => {
+      await withTempCwd('registry-invalid-module-name', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.getCompatModule('../evil')).rejects.toThrow(ManifestError);
+        await expect(registry.getEmbeddingCompat('../evil')).rejects.toThrow(ManifestError);
+        await expect(registry.getVectorStoreCompat('../evil')).rejects.toThrow(ManifestError);
+      });
+    });
+
+    test('validateAll preloads manifests + plugin code (opt-in)', async () => {
+      process.env.TEST_LLM_ENDPOINT = 'http://localhost';
+
+      await withTempCwd('registry-validate-all', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const registry = new PluginRegistry(pluginsDir);
+
+        await expect((registry as any).validateAll()).resolves.toBeUndefined();
+
+        // validateAll should not change the semantics of getCompatModule: still returns fresh instances
+        const a = await registry.getCompatModule('openai');
+        const b = await registry.getCompatModule('openai');
+        expect(a).not.toBe(b);
+      });
+    });
+
+    test('validateAll fails fast when a provider references a missing compat', async () => {
+      process.env.TEST_LLM_ENDPOINT = 'http://localhost';
+
+      await withTempCwd('registry-validate-all-missing-compat', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const providersDir = path.join(pluginsDir, 'providers');
+        fs.writeFileSync(
+          path.join(providersDir, 'bad.json'),
+          JSON.stringify(
+            {
+              id: 'bad-provider',
+              compat: 'definitely-missing',
+              endpoint: { urlTemplate: 'http://localhost/{model}', method: 'POST', headers: {} }
+            },
+            null,
+            2
+          ),
+          'utf-8'
+        );
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect((registry as any).validateAll()).rejects.toThrow(ManifestError);
       });
     });
   });

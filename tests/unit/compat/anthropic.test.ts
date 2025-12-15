@@ -1209,6 +1209,36 @@ describe('compat/anthropic', () => {
       expect(payload.thinking).toBeUndefined();
     });
 
+    test('does not add thinking when tool_choice forces tool use', () => {
+      const payload = compat.buildPayload(
+        'claude-haiku-4-5',
+        {
+          maxTokens: 1000,
+          reasoning: { enabled: true, budget: 10000 }
+        },
+        [
+          {
+            role: Role.USER,
+            content: [{ type: 'text', text: 'Hello' }]
+          }
+        ],
+        [
+          {
+            name: 'test_tool',
+            description: 'A test tool',
+            parametersJsonSchema: { type: 'object', properties: {} }
+          }
+        ],
+        {
+          type: 'required',
+          allowed: ['test_tool']
+        }
+      );
+
+      expect(payload.tool_choice).toEqual({ type: 'any' });
+      expect(payload.thinking).toBeUndefined();
+    });
+
     test('ignores reasoning defined in deprecated extra.reasoning', () => {
       const payload = compat.buildPayload(
         'claude-haiku-4-5',

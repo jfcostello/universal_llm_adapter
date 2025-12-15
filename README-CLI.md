@@ -61,7 +61,7 @@ llm-adapter run --spec '{
     {"role": "user", "content": [{"type": "text", "text": "Hello, how are you?"}]}
   ],
   "llmPriority": [
-    {"provider": "anthropic", "model": "claude-sonnet-4-20250514"}
+    {"provider": "example-llm", "model": "example-model"}
   ],
   "settings": {"temperature": 0.7}
 }'
@@ -83,7 +83,7 @@ llm-adapter stream --file <path> [options]
 ```bash
 llm-adapter stream --spec '{
   "messages": [{"role": "user", "content": [{"type": "text", "text": "Write a poem"}]}],
-  "llmPriority": [{"provider": "openai", "model": "gpt-4"}],
+  "llmPriority": [{"provider": "example-llm", "model": "example-model"}],
   "settings": {}
 }'
 ```
@@ -145,16 +145,16 @@ llm-adapter vector embed --spec '<json>' [options]
 # Embed texts
 llm-adapter vector embed --spec '{
   "operation": "embed",
-  "store": "qdrant-local",
-  "embeddingPriority": [{"provider": "openrouter-embeddings"}],
+  "store": "memory",
+  "embeddingPriority": [{"provider": "example-embeddings"}],
   "input": {"texts": ["Hello world", "Machine learning is fascinating"]}
 }'
 
 # Embed with custom batch size
 llm-adapter vector embed --spec '{
   "operation": "embed",
-  "store": "qdrant-local",
-  "embeddingPriority": [{"provider": "openrouter-embeddings"}],
+  "store": "memory",
+  "embeddingPriority": [{"provider": "example-embeddings"}],
   "input": {"texts": ["Text 1", "Text 2", "Text 3", "Text 4", "Text 5"]},
   "settings": {"batchSize": 2}
 }'
@@ -162,8 +162,8 @@ llm-adapter vector embed --spec '{
 # Stream progress for large batches
 llm-adapter vector embed --stream --spec '{
   "operation": "embed",
-  "store": "qdrant-local",
-  "embeddingPriority": [{"provider": "openrouter-embeddings"}],
+  "store": "memory",
+  "embeddingPriority": [{"provider": "example-embeddings"}],
   "input": {"texts": ["Text 1", "Text 2", "Text 3", "Text 4", "Text 5"]}
 }'
 ```
@@ -192,23 +192,23 @@ llm-adapter vector query --spec '<json>' [options]
 # Query with text (auto-embedded)
 llm-adapter vector query --spec '{
   "operation": "query",
-  "store": "qdrant-local",
-  "embeddingPriority": [{"provider": "openrouter-embeddings"}],
+  "store": "memory",
+  "embeddingPriority": [{"provider": "example-embeddings"}],
   "input": {"query": "What is machine learning?", "topK": 5}
 }'
 
 # Query with pre-computed vector
 llm-adapter vector query --spec '{
   "operation": "query",
-  "store": "qdrant-local",
+  "store": "memory",
   "input": {"vector": [0.1, 0.2, 0.3], "topK": 5}
 }'
 
 # Query with metadata filter
 llm-adapter vector query --spec '{
   "operation": "query",
-  "store": "qdrant-local",
-  "embeddingPriority": [{"provider": "openrouter-embeddings"}],
+  "store": "memory",
+  "embeddingPriority": [{"provider": "example-embeddings"}],
   "input": {
     "query": "What is ML?",
     "topK": 10,
@@ -219,9 +219,9 @@ llm-adapter vector query --spec '{
 # Query specific collection
 llm-adapter vector query --spec '{
   "operation": "query",
-  "store": "qdrant-local",
+  "store": "memory",
   "collection": "my-docs",
-  "embeddingPriority": [{"provider": "openrouter-embeddings"}],
+  "embeddingPriority": [{"provider": "example-embeddings"}],
   "input": {"query": "search terms", "topK": 5}
 }'
 ```
@@ -241,7 +241,7 @@ llm-adapter vector upsert --spec '<json>' [options]
 ```bash
 llm-adapter vector upsert --spec '{
   "operation": "upsert",
-  "store": "qdrant-local",
+  "store": "memory",
   "input": {
     "points": [
       {"id": "doc1", "vector": [0.1, 0.2, 0.3], "payload": {"text": "Hello"}},
@@ -266,7 +266,7 @@ llm-adapter vector delete --spec '<json>' [options]
 ```bash
 llm-adapter vector delete --spec '{
   "operation": "delete",
-  "store": "qdrant-local",
+  "store": "memory",
   "input": {"ids": ["doc1", "doc2"]}
 }'
 ```
@@ -287,21 +287,21 @@ llm-adapter vector collections --spec '<json>' [options]
 # List collections
 llm-adapter vector collections --spec '{
   "operation": "collections",
-  "store": "qdrant-local",
+  "store": "memory",
   "input": {"collectionOp": "list"}
 }'
 
 # Check if collection exists
 llm-adapter vector collections --spec '{
   "operation": "collections",
-  "store": "qdrant-local",
+  "store": "memory",
   "input": {"collectionOp": "exists", "collection": "my-docs"}
 }'
 
 # Create collection
 llm-adapter vector collections --spec '{
   "operation": "collections",
-  "store": "qdrant-local",
+  "store": "memory",
   "input": {
     "collectionOp": "create",
     "collection": "my-docs",
@@ -313,7 +313,7 @@ llm-adapter vector collections --spec '{
 # Delete collection
 llm-adapter vector collections --spec '{
   "operation": "collections",
-  "store": "qdrant-local",
+  "store": "memory",
   "input": {"collectionOp": "delete", "collection": "my-docs"}
 }'
 ```
@@ -346,14 +346,14 @@ llm-adapter embeddings run --spec '<json>' [options]
 # Embed single text
 llm-adapter embeddings run --spec '{
   "operation": "embed",
-  "embeddingPriority": [{"provider": "openrouter-embeddings"}],
+  "embeddingPriority": [{"provider": "example-embeddings"}],
   "input": {"text": "Hello world"}
 }'
 
 # Embed multiple texts
 llm-adapter embeddings run --spec '{
   "operation": "embed",
-  "embeddingPriority": [{"provider": "openrouter-embeddings"}],
+  "embeddingPriority": [{"provider": "example-embeddings"}],
   "input": {"texts": ["Hello", "World"]}
 }'
 ```
@@ -411,13 +411,13 @@ The specification for LLM calls (`run` and `stream` commands).
   // Provider priority list (required) - tries in order until success
   "llmPriority": [
     {
-      "provider": "anthropic",
-      "model": "claude-sonnet-4-20250514",
+      "provider": "example-llm",
+      "model": "example-model",
       "settings": {}  // Optional per-provider settings override
     },
     {
-      "provider": "openai",
-      "model": "gpt-4"
+      "provider": "example-llm-2",
+      "model": "example-model-2"
     }
   ],
 
@@ -468,10 +468,10 @@ The specification for LLM calls (`run` and `stream` commands).
 
   // Vector/RAG (optional)
   "vectorContext": {
-    "stores": ["qdrant-local"],
+    "stores": ["memory"],
     "mode": "auto",
     "topK": 5,
-    "embeddingPriority": [{"provider": "openrouter-embeddings"}]
+    "embeddingPriority": [{"provider": "example-embeddings"}]
   },
 
   // Retry configuration (optional)
@@ -577,14 +577,14 @@ The specification for vector operations.
   "operation": "embed" | "upsert" | "query" | "delete" | "collections",
 
   // Vector store ID (required)
-  "store": "qdrant-local",
+  "store": "memory",
 
   // Collection name (optional, uses store default)
   "collection": "my-collection",
 
   // Embedding provider priority (required for operations that need embeddings)
   "embeddingPriority": [
-    {"provider": "openrouter-embeddings"}
+    {"provider": "example-embeddings"}
   ],
 
   // Operation-specific input (required)
@@ -671,7 +671,7 @@ The specification for embedding operations.
 
   // Embedding provider priority (required)
   "embeddingPriority": [
-    {"provider": "openrouter-embeddings"}
+    {"provider": "example-embeddings"}
   ],
 
   // Input (required)
@@ -703,7 +703,7 @@ When using LLM calls with vector stores for RAG:
   "settings": {},
   "vectorContext": {
     // Which stores to query (required)
-    "stores": ["qdrant-local"],
+    "stores": ["memory"],
 
     // Mode (required)
     "mode": "auto" | "tool" | "both",
@@ -713,7 +713,7 @@ When using LLM calls with vector stores for RAG:
     "scoreThreshold": 0.7,
     "filter": {"category": "tech"},
     "collection": "my-docs",
-    "embeddingPriority": [{"provider": "openrouter-embeddings"}],
+    "embeddingPriority": [{"provider": "example-embeddings"}],
 
     // Query construction (auto/both modes)
     "overrideEmbeddingQuery": "exact query to use",
@@ -742,7 +742,7 @@ When using LLM calls with vector stores for RAG:
 
     // Parameter locking (tool mode only)
     "locks": {
-      "store": "qdrant-local",
+      "store": "memory",
       "topK": 5,
       "filter": {"tenant": "acme"},
       "scoreThreshold": 0.7,
@@ -771,16 +771,16 @@ Override settings for specific providers:
   "messages": [...],
   "llmPriority": [
     {
-      "provider": "anthropic",
-      "model": "claude-sonnet-4-20250514",
+      "provider": "example-llm",
+      "model": "example-model",
       "settings": {
         "temperature": 0.3,
         "reasoning": {"enabled": true, "budget": 5000}
       }
     },
     {
-      "provider": "openai",
-      "model": "gpt-4"
+      "provider": "example-llm-2",
+      "model": "example-model-2"
     }
   ],
   "settings": {
@@ -790,8 +790,8 @@ Override settings for specific providers:
 }
 ```
 
-Anthropic gets `{temperature: 0.3, maxTokens: 4096, reasoning: {enabled: true, budget: 5000}}`.
-OpenAI gets `{temperature: 0.7, maxTokens: 4096}`.
+The first priority item gets `{temperature: 0.3, maxTokens: 4096, reasoning: {enabled: true, budget: 5000}}`.
+The default settings apply to all items unless overridden.
 
 ---
 
@@ -887,7 +887,7 @@ cat > my-spec.json << 'EOF'
     {"role": "user", "content": [{"type": "text", "text": "Hello"}]}
   ],
   "llmPriority": [
-    {"provider": "anthropic", "model": "claude-sonnet-4-20250514"}
+    {"provider": "example-llm", "model": "example-model"}
   ],
   "settings": {}
 }
@@ -916,11 +916,8 @@ llm-adapter stream --file my-spec.json
 Set in your environment or `.env` file:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-export OPENAI_API_KEY=sk-...
-export GOOGLE_API_KEY=...
-export OPENROUTER_API_KEY=sk-or-...
-export EMBEDDING_API_KEY=...
+export LLM_API_KEY=...
+export EMBEDDINGS_API_KEY=...
 export VECTOR_STORE_API_KEY=...
 ```
 
@@ -940,8 +937,8 @@ export VECTOR_STORE_API_KEY=...
       "inputTokens": 10,
       "outputTokens": 50
     },
-    "model": "claude-sonnet-4-20250514",
-    "provider": "anthropic"
+    "model": "example-model",
+    "provider": "example-llm"
   }
 }
 ```
@@ -996,7 +993,7 @@ Each event is a JSON object:
 ```bash
 llm-adapter run --spec '{
   "messages": [{"role": "user", "content": [{"type": "text", "text": "What is 2+2?"}]}],
-  "llmPriority": [{"provider": "anthropic", "model": "claude-sonnet-4-20250514"}],
+  "llmPriority": [{"provider": "example-llm", "model": "example-model"}],
   "settings": {}
 }'
 ```
@@ -1011,7 +1008,7 @@ llm-adapter run --spec '{
     {"role": "assistant", "content": [{"type": "text", "text": "Calculus is..."}]},
     {"role": "user", "content": [{"type": "text", "text": "Can you give an example?"}]}
   ],
-  "llmPriority": [{"provider": "openai", "model": "gpt-4"}],
+  "llmPriority": [{"provider": "example-llm", "model": "example-model"}],
   "settings": {"temperature": 0.5}
 }'
 ```
@@ -1029,7 +1026,7 @@ llm-adapter run --spec '{
       ]
     }
   ],
-  "llmPriority": [{"provider": "anthropic", "model": "claude-sonnet-4-20250514"}],
+  "llmPriority": [{"provider": "example-llm", "model": "example-model"}],
   "settings": {}
 }'
 ```
@@ -1039,7 +1036,7 @@ llm-adapter run --spec '{
 ```bash
 llm-adapter run --spec '{
   "messages": [{"role": "user", "content": [{"type": "text", "text": "Echo hello"}]}],
-  "llmPriority": [{"provider": "anthropic", "model": "claude-sonnet-4-20250514"}],
+  "llmPriority": [{"provider": "example-llm", "model": "example-model"}],
   "settings": {},
   "functionToolNames": ["test.echo"]
 }'
@@ -1050,13 +1047,13 @@ llm-adapter run --spec '{
 ```bash
 llm-adapter run --spec '{
   "messages": [{"role": "user", "content": [{"type": "text", "text": "What is machine learning?"}]}],
-  "llmPriority": [{"provider": "anthropic", "model": "claude-sonnet-4-20250514"}],
+  "llmPriority": [{"provider": "example-llm", "model": "example-model"}],
   "settings": {},
   "vectorContext": {
-    "stores": ["qdrant-local"],
+    "stores": ["memory"],
     "mode": "auto",
     "topK": 5,
-    "embeddingPriority": [{"provider": "openrouter-embeddings"}],
+    "embeddingPriority": [{"provider": "example-embeddings"}],
     "injectAs": "system",
     "injectTemplate": "Use this context to answer:\n{{results}}"
   }
@@ -1069,14 +1066,14 @@ llm-adapter run --spec '{
 llm-adapter run --spec '{
   "systemPrompt": "You can search the knowledge base when needed.",
   "messages": [{"role": "user", "content": [{"type": "text", "text": "Find info about neural networks"}]}],
-  "llmPriority": [{"provider": "anthropic", "model": "claude-sonnet-4-20250514"}],
+  "llmPriority": [{"provider": "example-llm", "model": "example-model"}],
   "settings": {},
   "vectorContext": {
-    "stores": ["qdrant-local"],
+    "stores": ["memory"],
     "mode": "tool",
     "toolName": "search_knowledge_base",
     "toolDescription": "Search the knowledge base for relevant information",
-    "embeddingPriority": [{"provider": "openrouter-embeddings"}]
+    "embeddingPriority": [{"provider": "example-embeddings"}]
   }
 }'
 ```
@@ -1087,9 +1084,9 @@ llm-adapter run --spec '{
 llm-adapter run --spec '{
   "messages": [{"role": "user", "content": [{"type": "text", "text": "Hello"}]}],
   "llmPriority": [
-    {"provider": "anthropic", "model": "claude-sonnet-4-20250514"},
-    {"provider": "openai", "model": "gpt-4"},
-    {"provider": "openrouter", "model": "anthropic/claude-3-opus"}
+    {"provider": "example-llm", "model": "example-model"},
+    {"provider": "example-llm-2", "model": "example-model-2"},
+    {"provider": "example-llm-3", "model": "example-model-3"}
   ],
   "settings": {}
 }'
@@ -1100,7 +1097,7 @@ llm-adapter run --spec '{
 ```bash
 llm-adapter run --spec '{
   "messages": [{"role": "user", "content": [{"type": "text", "text": "Solve this complex problem..."}]}],
-  "llmPriority": [{"provider": "anthropic", "model": "claude-sonnet-4-20250514"}],
+  "llmPriority": [{"provider": "example-llm", "model": "example-model"}],
   "settings": {
     "reasoning": {
       "enabled": true,

@@ -8,4 +8,4 @@ Helpers for normalizing and presenting usage/cost metadata.
 
 ## Exports
 - `usageStatsToJson(usage)` – normalizes optional usage fields to explicit `null`s.
-
+- `extractUsageStats(raw, spec)` – spec-driven extraction from provider-shaped usage payloads.

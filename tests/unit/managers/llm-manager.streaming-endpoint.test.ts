@@ -1,5 +1,6 @@
 import { jest } from '@jest/globals';
 import { Readable } from 'stream';
+import { withTempCwd } from '@tests/helpers/temp-files.ts';
 
 describe('unit/managers/llm-manager streaming endpoint selection', () => {
   test('uses streamingUrlTemplate when provided', async () => {
@@ -216,7 +217,7 @@ describe('unit/managers/llm-manager streaming endpoint selection', () => {
     stream.push('\n');
     stream.push('data: {"bad": [}\n');
     stream.push('data: [DONE]\n');
-    stream.push('data: {"ok": 1}\n');
+    stream.push('data:{"ok": 1}\n');
     stream.push(null);
 
     const chunks: any[] = [];
@@ -224,5 +225,194 @@ describe('unit/managers/llm-manager streaming endpoint selection', () => {
     expect(chunks).toEqual([{ ok: 1 }]);
 
     requestSpy.mockRestore();
+  });
+
+  test('SSE parser tolerates JSON fragments across multiple data lines', async () => {
+    const registry = {
+      getCompatModule: () => ({
+        buildPayload: () => ({}),
+        getStreamingFlags: () => ({}),
+        parseResponse: (d: any) => d,
+        parseStreamChunk: (c: any) => c,
+        serializeTools: () => ({}),
+        serializeToolChoice: () => ({})
+      })
+    } as any;
+
+    const { LLMManager } = await import('@/modules/llm/index.ts');
+    const manager = new LLMManager(registry);
+
+    const { Readable } = await import('stream');
+    const stream = new Readable({ read() {} });
+    const requestSpy = jest
+      .spyOn((manager as any).httpClient, 'request')
+      .mockResolvedValue({ status: 200, data: stream, headers: {}, statusText: 'OK' });
+
+    const provider: any = {
+      id: 'p',
+      compat: 'x',
+      endpoint: { urlTemplate: 'https://example.com/{model}', method: 'POST', headers: {} }
+    };
+
+    const itr = manager.streamProvider(provider, 'm', {}, [], [], undefined, {}, undefined);
+
+    stream.push('data: {"ok":\n');
+    stream.push('data: 2}\n');
+    stream.push(null);
+
+    const chunks: any[] = [];
+    for await (const ch of itr) chunks.push(ch);
+    expect(chunks).toEqual([{ ok: 2 }]);
+
+    requestSpy.mockRestore();
+  });
+
+  test('SSE parser accumulates invalid JSON fragments without throwing', async () => {
+    const registry = {
+      getCompatModule: () => ({
+        buildPayload: () => ({}),
+        getStreamingFlags: () => ({}),
+        parseResponse: (d: any) => d,
+        parseStreamChunk: (c: any) => c,
+        serializeTools: () => ({}),
+        serializeToolChoice: () => ({})
+      })
+    } as any;
+
+    const { LLMManager } = await import('@/modules/llm/index.ts');
+    const manager = new LLMManager(registry);
+
+    const { Readable } = await import('stream');
+    const stream = new Readable({ read() {} });
+    const requestSpy = jest
+      .spyOn((manager as any).httpClient, 'request')
+      .mockResolvedValue({ status: 200, data: stream, headers: {}, statusText: 'OK' });
+
+    const provider: any = {
+      id: 'p',
+      compat: 'x',
+      endpoint: { urlTemplate: 'https://example.com/{model}', method: 'POST', headers: {} }
+    };
+
+    const itr = manager.streamProvider(provider, 'm', {}, [], [], undefined, {}, undefined);
+
+    stream.push('data: {"partial":\n');
+    stream.push('data: not-json\n');
+    stream.push(null);
+
+    const chunks: any[] = [];
+    for await (const ch of itr) chunks.push(ch);
+    expect(chunks).toEqual([]);
+
+    requestSpy.mockRestore();
+  });
+
+  test('SSE fragment recovery logs chunks when LLM_LIVE=1', async () => {
+    const previousLive = process.env.LLM_LIVE;
+
+    try {
+      process.env.LLM_LIVE = '1';
+
+      await withTempCwd('llm-sse-live', async () => {
+        const registry = {
+          getCompatModule: () => ({
+            buildPayload: () => ({}),
+            getStreamingFlags: () => ({}),
+            parseResponse: (d: any) => d,
+            parseStreamChunk: (c: any) => c,
+            serializeTools: () => ({}),
+            serializeToolChoice: () => ({})
+          })
+        } as any;
+
+        const { LLMManager } = await import('@/modules/llm/index.ts');
+        const manager = new LLMManager(registry);
+
+        const { Readable } = await import('stream');
+        const stream = new Readable({ read() {} });
+        const requestSpy = jest
+          .spyOn((manager as any).httpClient, 'request')
+          .mockResolvedValue({ status: 200, data: stream, headers: {}, statusText: 'OK' });
+
+        const provider: any = {
+          id: 'p',
+          compat: 'x',
+          endpoint: { urlTemplate: 'https://example.com/{model}', method: 'POST', headers: {} }
+        };
+
+        const itr = manager.streamProvider(provider, 'm', {}, [], [], undefined, {}, undefined);
+
+        stream.push('data: {"ok":\n');
+        stream.push('data: 2}\n');
+        stream.push(null);
+
+        const chunks: any[] = [];
+        for await (const ch of itr) chunks.push(ch);
+        expect(chunks).toEqual([{ ok: 2 }]);
+
+        requestSpy.mockRestore();
+      });
+    } finally {
+      if (previousLive === undefined) {
+        delete process.env.LLM_LIVE;
+      } else {
+        process.env.LLM_LIVE = previousLive;
+      }
+    }
+  });
+
+  test('SSE parser drops overly-large pending data to avoid unbounded growth', async () => {
+    const previousLive = process.env.LLM_LIVE;
+
+    try {
+      delete process.env.LLM_LIVE;
+
+      await withTempCwd('llm-sse-cap', async () => {
+        const registry = {
+          getCompatModule: () => ({
+            buildPayload: () => ({}),
+            getStreamingFlags: () => ({}),
+            parseResponse: (d: any) => d,
+            parseStreamChunk: (c: any) => c,
+            serializeTools: () => ({}),
+            serializeToolChoice: () => ({})
+          })
+        } as any;
+
+        const { LLMManager } = await import('@/modules/llm/index.ts');
+        const manager = new LLMManager(registry);
+
+        const { Readable } = await import('stream');
+        const stream = new Readable({ read() {} });
+        const requestSpy = jest
+          .spyOn((manager as any).httpClient, 'request')
+          .mockResolvedValue({ status: 200, data: stream, headers: {}, statusText: 'OK' });
+
+        const provider: any = {
+          id: 'p',
+          compat: 'x',
+          endpoint: { urlTemplate: 'https://example.com/{model}', method: 'POST', headers: {} }
+        };
+
+        const itr = manager.streamProvider(provider, 'm', {}, [], [], undefined, {}, undefined);
+
+        const big = 'x'.repeat(1024 * 1024 + 5);
+        stream.push(`data: ${big}\n`);
+        stream.push('data: {"ok": 1}\n');
+        stream.push(null);
+
+        const chunks: any[] = [];
+        for await (const ch of itr) chunks.push(ch);
+        expect(chunks).toEqual([{ ok: 1 }]);
+
+        requestSpy.mockRestore();
+      });
+    } finally {
+      if (previousLive === undefined) {
+        delete process.env.LLM_LIVE;
+      } else {
+        process.env.LLM_LIVE = previousLive;
+      }
+    }
   });
 });

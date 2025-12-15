@@ -499,10 +499,11 @@ export class LLMCoordinator {
     let chunkCount = 0;
     logger.info('About to iterate follow-up stream');
 
+    const compat = await this.registry.getCompatModule(providerManifest.compat);
+
     try {
       for await (const chunk of followUpStream) {
         chunkCount++;
-        const compat = await this.registry.getCompatModule(providerManifest.compat);
         const parsed = compat.parseStreamChunk(chunk);
 
         logger.info('Follow-up chunk received', {

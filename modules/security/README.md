@@ -8,4 +8,4 @@ Small, dependency-free security helpers used across the library.
 
 ## Exports
 - `genericRedactHeaders(headers)` – masks sensitive values in commonly used headers.
-
+- `redactUrlCredentials(url)` – redacts basic-auth credentials in URLs (e.g. `https://user:pass@host`).

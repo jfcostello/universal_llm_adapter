@@ -57,11 +57,19 @@ describe('integration/providers/openai-responses-provider', () => {
       process.env.OPENAI_API_KEY = 'test-api-key-for-integration';
     });
 
-    test('HTTP methods throw errors (SDK-only compat)', () => {
-      expect(() => compat.buildPayload('gpt-4o', {}, baseMessages, [], undefined))
-        .toThrow('SDK-only');
-      expect(() => compat.parseResponse({}, 'gpt-4o'))
-        .toThrow('SDK-only');
+    test('HTTP methods are supported (buildPayload + parseResponse)', () => {
+      const payload = compat.buildPayload('gpt-4o', {}, baseMessages, [], undefined);
+      const params: any = (compat as any).buildSDKParams('gpt-4o', {}, baseMessages, [], undefined);
+      expect(payload).toEqual(params);
+
+      const mockResponse = {
+        output: [{ type: 'output_text', text: 'Hello there!' }],
+        usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 }
+      };
+
+      const parsedHttp = compat.parseResponse(mockResponse, 'gpt-4o');
+      const parsedSdk = (compat as any).parseSDKResponse(mockResponse, 'gpt-4o');
+      expect(parsedHttp).toEqual(parsedSdk);
     });
   });
 
@@ -211,7 +219,12 @@ describe('integration/providers/openai-responses-provider', () => {
         const params: any = (compat as any).buildSDKParams('gpt-4o', {}, imageMessages, [], undefined);
 
         expect(params.input).toBeDefined();
-        // Image format needs to be verified in implementation
+        if (Array.isArray(params.input)) {
+          const userMsg = params.input.find((m: any) => m.role === 'user');
+          expect(userMsg).toBeDefined();
+          expect(userMsg.content).toContainEqual({ type: 'input_text', text: 'What is this?' });
+          expect(userMsg.content).toContainEqual({ type: 'input_image', image_url: 'https://example.com/image.jpg' });
+        }
       });
 
       test('handles empty text', () => {
@@ -755,9 +768,9 @@ describe('integration/providers/openai-responses-provider', () => {
   });
 
   describe('5. Helper Methods', () => {
-    test('getStreamingFlags returns empty object for SDK', () => {
+    test('getStreamingFlags returns stream=true for HTTP streaming', () => {
       const flags = compat.getStreamingFlags();
-      expect(flags).toEqual({});
+      expect(flags).toEqual({ stream: true });
     });
 
     test('serializeTools works correctly', () => {
