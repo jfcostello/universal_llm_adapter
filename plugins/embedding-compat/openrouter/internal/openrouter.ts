@@ -1,29 +1,13 @@
-import axios, { AxiosInstance } from 'axios';
+import type { AxiosInstance } from 'axios';
 import {
   IEmbeddingCompat,
   EmbeddingProviderConfig,
   EmbeddingResult,
   IEmbeddingOperationLogger,
-  EmbeddingProviderError,
-  getDefaults
+  EmbeddingProviderError
 } from '../../../../modules/kernel/index.js';
-
-/**
- * OpenRouter Embeddings API Response format
- */
-interface OpenRouterEmbeddingResponse {
-  object: string;
-  data: Array<{
-    object: string;
-    index: number;
-    embedding: number[];
-  }>;
-  model: string;
-  usage?: {
-    prompt_tokens?: number;
-    total_tokens?: number;
-  };
-}
+import { createOpenRouterEmbeddingHttpClient } from './http.js';
+import { isRateLimitResponse, parseEmbeddingResponse } from './response.js';
 
 /**
  * OpenRouter Embedding Compat Module
@@ -38,10 +22,7 @@ export default class OpenRouterEmbeddingCompat implements IEmbeddingCompat {
   private httpClient: AxiosInstance;
 
   constructor(httpClient?: AxiosInstance) {
-    this.httpClient = httpClient || axios.create({
-      timeout: getDefaults().timeouts.embeddingHttp,
-      validateStatus: () => true
-    });
+    this.httpClient = httpClient || createOpenRouterEmbeddingHttpClient();
   }
 
   async embed(
@@ -86,9 +67,7 @@ export default class OpenRouterEmbeddingCompat implements IEmbeddingCompat {
           body: response.data
         });
 
-        const isRateLimit = response.status === 429 ||
-          (typeof response.data === 'string' && response.data.toLowerCase().includes('rate')) ||
-          (response.data?.error?.message?.toLowerCase().includes('rate'));
+        const isRateLimit = isRateLimitResponse(response.status, response.data);
 
         throw new EmbeddingProviderError(
           'openrouter',
@@ -98,43 +77,19 @@ export default class OpenRouterEmbeddingCompat implements IEmbeddingCompat {
         );
       }
 
-      const data = response.data as OpenRouterEmbeddingResponse;
-
-      // Validate response structure before processing
-      if (!data.data || !Array.isArray(data.data)) {
-        // Extract error message from response if available
-        const errorMsg = (data as any)?.error?.message ||
-          (typeof data === 'string' ? data : JSON.stringify(data));
-        throw new EmbeddingProviderError(
-          'openrouter',
-          `Invalid response structure: ${errorMsg}`,
-          response.status
-        );
-      }
-
-      // Sort by index to ensure correct order
-      const sortedData = [...data.data].sort((a, b) => a.index - b.index);
-      const vectors = sortedData.map(item => item.embedding);
-
-      // Dimensions come from the actual response or config - never hardcoded
-      const dimensions = vectors[0]?.length || config.dimensions || 0;
+      const result = parseEmbeddingResponse(response.data, response.status, config, effectiveModel);
 
       // Log successful response
       logger?.logEmbeddingResponse({
         status: response.status,
         statusText: response.statusText,
         headers: response.headers || {},
-        body: data,
-        dimensions,
-        tokenCount: data.usage?.total_tokens
+        body: response.data,
+        dimensions: result.dimensions,
+        tokenCount: result.tokenCount
       });
 
-      return {
-        vectors,
-        model: data.model || effectiveModel,
-        dimensions,
-        tokenCount: data.usage?.total_tokens
-      };
+      return result;
     } catch (error: any) {
       if (error instanceof EmbeddingProviderError) {
         throw error;
