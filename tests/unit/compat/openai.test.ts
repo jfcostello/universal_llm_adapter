@@ -455,6 +455,32 @@ describe('compat/openai', () => {
     });
   });
 
+  test('parseStreamChunk falls back to call_0 when tool call id and index are missing', () => {
+    const chunk = {
+      choices: [
+        {
+          delta: {
+            tool_calls: [
+              {
+                function: {
+                  name: 'missing',
+                  arguments: '{}'
+                }
+              }
+            ]
+          }
+        }
+      ]
+    };
+
+    const result = compat.parseStreamChunk(chunk);
+    expect(result.toolEvents?.[0]).toEqual({
+      type: ToolCallEventType.TOOL_CALL_START,
+      callId: 'call_0',
+      name: 'missing'
+    });
+  });
+
   test('serializeToolChoice handles required variants directly', () => {
     const direct = (compat as any).serializeToolChoice({ type: 'required', allowed: ['a', 'b'] });
     expect(direct).toEqual({ tool_choice: 'required', allowed_tools: ['a', 'b'] });
