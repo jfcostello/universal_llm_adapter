@@ -161,7 +161,7 @@ export class LLMCoordinator {
                       (spec.mcpServers && spec.mcpServers.length > 0) ||
                       (spec.vectorPriority && spec.vectorPriority.length > 0) ||
                       this.shouldCreateVectorTool(spec) ||
-                      typeof spec.toolChoice === 'object';
+                      (spec.toolChoice != null && typeof spec.toolChoice === 'object');
 
     let tools: UnifiedTool[] = [];
     let mcpServers: string[] = [];

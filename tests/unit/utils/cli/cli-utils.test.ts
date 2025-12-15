@@ -129,4 +129,20 @@ describe('utils/cli writeJsonToStdout', () => {
 
     expect(customWrite).toHaveBeenCalled();
   });
+
+  test('clears timeout timer when stdout write callback fires', async () => {
+    jest.useFakeTimers();
+
+    const writeSpy = jest
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((chunk: any, cb?: any) => {
+        if (cb) cb();
+        return true;
+      });
+
+    await writeJsonToStdout({ ok: true }, { pretty: false, timeoutMs: 100 });
+
+    expect(writeSpy).toHaveBeenCalled();
+    expect(jest.getTimerCount()).toBe(0);
+  });
 });

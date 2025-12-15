@@ -22,7 +22,7 @@ describe('integration/lazy-loading/import-evaluation (baseline run)', () => {
     };
   }
 
-  test('does not evaluate optional tools/MCP/vector/embeddings/logging modules', async () => {
+  test('does not evaluate optional tools/MCP/vector/embeddings/logging modules (including toolChoice=null)', async () => {
     await jest.isolateModulesAsync(async () => {
       jest.unstable_mockModule('../../../modules/logging/index.js', () => {
         throw new Error('logging module should not be imported in baseline');
@@ -46,16 +46,31 @@ describe('integration/lazy-loading/import-evaluation (baseline run)', () => {
         .spyOn(LLMManager.prototype, 'callProvider')
         .mockResolvedValue(mockResponse() as any);
 
-      const coordinator = new LLMCoordinator(createRegistry() as any);
-
-      await coordinator.run({
+      const coordinatorA = new LLMCoordinator(createRegistry() as any);
+      await coordinatorA.run({
         messages: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }],
         llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
         settings: {}
       } as any);
+      await coordinatorA.close();
 
-      await coordinator.close();
+      const coordinatorB = new LLMCoordinator(createRegistry() as any);
+      await coordinatorB.run({
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }],
+        llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
+        toolChoice: null,
+        settings: {}
+      } as any);
+      await coordinatorB.close();
+
+      const coordinatorC = new LLMCoordinator(createRegistry() as any);
+      await coordinatorC.run({
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }],
+        llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
+        toolChoice: 'auto',
+        settings: {}
+      } as any);
+      await coordinatorC.close();
     });
   });
 });
-

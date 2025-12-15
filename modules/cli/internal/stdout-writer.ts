@@ -18,8 +18,14 @@ export async function writeJsonToStdout(
     (stdout as any).write(output + '\n', () => resolve());
   });
 
-  await Promise.race([
-    writeComplete,
-    new Promise<void>(resolve => setTimeout(resolve, timeoutMs))
-  ]);
+  let timeoutId: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<void>(resolve => {
+    timeoutId = setTimeout(resolve, timeoutMs);
+  });
+
+  try {
+    await Promise.race([writeComplete, timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 }
