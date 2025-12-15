@@ -2,20 +2,53 @@
   "name": "llm-adapter",
   "version": "1.0.0",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/modules/kernel/index.js",
+  "types": "./dist/modules/kernel/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./dist/modules/kernel/index.d.ts",
+      "import": "./dist/modules/kernel/index.js"
+    },
+    "./llm": {
+      "types": "./dist/modules/llm/index.d.ts",
+      "import": "./dist/modules/llm/index.js"
+    },
+    "./server": {
+      "types": "./dist/modules/server/index.d.ts",
+      "import": "./dist/modules/server/index.js"
+    },
+    "./logging": {
+      "types": "./dist/modules/logging/index.d.ts",
+      "import": "./dist/modules/logging/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/modules/mcp/index.d.ts",
+      "import": "./dist/modules/mcp/index.js"
+    },
+    "./vector": {
+      "types": "./dist/modules/vector/index.d.ts",
+      "import": "./dist/modules/vector/index.js"
+    },
+    "./embeddings": {
+      "types": "./dist/modules/embeddings/index.d.ts",
+      "import": "./dist/modules/embeddings/index.js"
+    },
+    "./tools": {
+      "types": "./dist/modules/tools/index.d.ts",
+      "import": "./dist/modules/tools/index.js"
+    },
+    "./cli": {
+      "types": "./dist/modules/cli/index.d.ts",
+      "import": "./dist/modules/cli/index.js"
     }
   },
   "bin": {
-    "llm-coordinator": "./dist/llm_coordinator.js"
+    "llm-adapter": "./dist/bin/cli.js"
   },
   "scripts": {
+    "prebuild": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "tsc",
-    "dev": "tsx watch llm_coordinator.ts",
+    "dev": "tsx watch bin/cli.ts serve",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand --forceExit",
     "test:all": "tsx tests/live/run-all.ts",
     "test:live": "tsx tests/live/run-live.ts",
@@ -25,7 +58,7 @@
     "test:live:google": "tsx tests/live/run-live.ts google",
     "test:live:embeddings": "tsx tests/live/run-live.ts --testPathPattern=15-embeddings",
     "test:live:vector": "tsx tests/live/run-live.ts --testPathPattern=16-vector-store",
-    "start": "node dist/llm_coordinator.js",
+    "start": "node dist/bin/cli.js serve",
     "sandbox:cli": "tsx tests/sandbox/index.ts"
   },
   "dependencies": {

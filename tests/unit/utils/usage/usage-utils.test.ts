@@ -1,4 +1,4 @@
-import { usageStatsToJson } from '@/utils/usage/usage-utils.ts';
+import { usageStatsToJson } from '@/modules/usage/index.ts';
 
 describe('utils/usage/usage-utils', () => {
   test('usageStatsToJson normalizes optional values to null', () => {

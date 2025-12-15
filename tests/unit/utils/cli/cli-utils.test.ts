@@ -2,7 +2,8 @@ import { PassThrough, Readable } from 'stream';
 import fs from 'fs';
 import path from 'path';
 import { jest } from '@jest/globals';
-import { loadSpec, writeJsonToStdout } from '@/utils/cli/index.ts';
+import { loadSpec } from '@/modules/cli/internal/spec-loader.ts';
+import { writeJsonToStdout } from '@/modules/cli/internal/stdout-writer.ts';
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
 
 describe('utils/cli loadSpec', () => {
@@ -127,5 +128,21 @@ describe('utils/cli writeJsonToStdout', () => {
     await writeJsonToStdout({ ok: true }, { pretty: false, stdout: fakeStdout, timeoutMs: 5 });
 
     expect(customWrite).toHaveBeenCalled();
+  });
+
+  test('clears timeout timer when stdout write callback fires', async () => {
+    jest.useFakeTimers();
+
+    const writeSpy = jest
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((chunk: any, cb?: any) => {
+        if (cb) cb();
+        return true;
+      });
+
+    await writeJsonToStdout({ ok: true }, { pretty: false, timeoutMs: 100 });
+
+    expect(writeSpy).toHaveBeenCalled();
+    expect(jest.getTimerCount()).toBe(0);
   });
 });

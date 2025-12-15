@@ -1,4 +1,4 @@
-import { handle } from '@/plugins/modules/test-echo.ts';
+import { handle } from '@/plugins/modules/test-echo/index.ts';
 
 describe('plugins/modules/test-echo', () => {
   test('echoes back the provided message', () => {

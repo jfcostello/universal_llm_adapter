@@ -1,10 +1,10 @@
-# LLM Coordinator
+# LLM Adapter
 
-Universal LLM adapter providing a unified interface across multiple AI providers (Anthropic, OpenAI, Google Gemini, OpenRouter) with support for text, images, documents, tool calls, MCPs, and vector stores.
+Provider-agnostic LLM adapter with a unified interface across multiple providers via a plugin architecture. Supports text, images, documents, tool calls, MCP, and vector stores.
 
 ## Features
 
-- **Multi-Provider Support**: Seamless integration with Anthropic Claude, OpenAI GPT, Google Gemini, and OpenRouter
+- **Plugin-Based Providers**: Add/remove providers via `plugins/**` manifests + compats
 - **Per-Provider Settings**: Configure different settings (temperature, maxTokens, etc.) for each provider in your priority list
 - **Document Processing**: Universal file support with automatic format detection and conversion
 - **Tool Calling**: Unified tool calling interface across providers
@@ -21,7 +21,7 @@ All LLM logic remains in the coordinator; the server is transport‑only.
 ### Start via CLI
 
 ```bash
-llm-coordinator serve [options]
+llm-adapter serve [options]
 ```
 
 Common options:
@@ -39,6 +39,13 @@ Operational knobs (all optional; override `server.*` defaults):
 - `--max-concurrent-streams <n>`
 - `--max-queue-size <n>`
 - `--queue-timeout-ms <n>`
+- `--max-concurrent-vector-requests <n>`
+- `--max-concurrent-vector-streams <n>`
+- `--vector-max-queue-size <n>`
+- `--vector-queue-timeout-ms <n>`
+- `--max-concurrent-embedding-requests <n>`
+- `--embedding-max-queue-size <n>`
+- `--embedding-queue-timeout-ms <n>`
 - `--auth-enabled`, `--no-auth-allow-bearer`, `--no-auth-allow-api-key-header`, `--auth-header-name <name>`, `--auth-realm <realm>`
 - `--rate-limit-enabled`, `--rate-limit-requests-per-minute <n>`, `--rate-limit-burst <n>`, `--rate-limit-trust-proxy-headers`
 - `--cors-enabled`
@@ -49,7 +56,7 @@ Operational knobs (all optional; override `server.*` defaults):
 ### Start programmatically
 
 ```ts
-import { createServer } from 'llm-adapter';
+import { createServer } from 'llm-adapter/server';
 
 const server = await createServer({ port: 3000 });
 console.log(server.url);
@@ -62,6 +69,10 @@ This is only for embedding server startup in a Node process; consumers still cal
 
 ### Endpoints
 
+- `GET /health`
+  - Response: `{ "ok": true }`.
+- `GET /ready`
+  - Response: `{ "ok": true }` when ready, `{ "ok": false }` with `503` when not ready.
 - `POST /run`
   - Body: `LLMCallSpec` JSON.
   - Response: `{ "type": "response", "data": <LLMResponse> }`.
@@ -74,7 +85,7 @@ This is only for embedding server startup in a Node process; consumers still cal
 - `POST /vector/stream`
   - Body: `VectorCallSpec` JSON.
   - Response: SSE `text/event-stream` where each event is a raw `VectorStreamEvent` framed as `data: <json>\n\n`.
-- `POST /vector/embeddings/run`
+- `POST /embeddings/run`
   - Body: `EmbeddingCallSpec` JSON.
   - Response: `{ "type": "response", "data": <EmbeddingOperationResult> }`.
 
@@ -109,8 +120,8 @@ Settings apply to all providers in the priority list:
 const response = await coordinator.run({
   messages: [...],
   llmPriority: [
-    { provider: 'anthropic', model: 'claude-3-5-sonnet-20241022' },
-    { provider: 'openai', model: 'gpt-4o' }
+    { provider: '<provider-a>', model: '<model-a>' },
+    { provider: '<provider-b>', model: '<model-b>' }
   ],
   settings: {
     temperature: 0.7,
@@ -129,13 +140,13 @@ const response = await coordinator.run({
   messages: [...],
   llmPriority: [
     {
-      provider: 'anthropic',
-      model: 'claude-3-5-sonnet-20241022',
-      settings: { temperature: 0.3 }  // Override for Anthropic
+      provider: '<provider-a>',
+      model: '<model-a>',
+      settings: { temperature: 0.3 }  // Override for first provider
     },
     {
-      provider: 'openai',
-      model: 'gpt-4o'
+      provider: '<provider-b>',
+      model: '<model-b>'
       // No override - uses global settings
     }
   ],
@@ -144,8 +155,8 @@ const response = await coordinator.run({
     maxTokens: 1000
   }
 });
-// Anthropic gets: { temperature: 0.3, maxTokens: 1000 }
-// OpenAI gets: { temperature: 0.7, maxTokens: 1000 }
+// Provider A gets: { temperature: 0.3, maxTokens: 1000 }
+// Provider B gets: { temperature: 0.7, maxTokens: 1000 }
 ```
 
 ### Merge Behavior
@@ -163,8 +174,8 @@ Per-provider settings use **deep merge** with global settings:
 {
   llmPriority: [
     {
-      provider: 'anthropic',
-      model: 'claude-sonnet-4-20250514',
+      provider: '<provider-a>',
+      model: '<model-a>',
       settings: {
         reasoning: { budget: 2000 }  // Override only budget
       }
@@ -175,7 +186,7 @@ Per-provider settings use **deep merge** with global settings:
     reasoning: { enabled: true, budget: 1000 }
   }
 }
-// Anthropic gets: {
+// Provider A gets: {
 //   temperature: 0.7,
 //   reasoning: { enabled: true, budget: 2000 }  // enabled preserved, budget overridden
 // }
@@ -205,8 +216,8 @@ The LLM coordinator supports sending files (PDFs, CSVs, text files, images, etc.
 Provide a file path and the coordinator will automatically load, encode, and detect the MIME type:
 
 ```typescript
-import { LLMCoordinator } from './llm_coordinator';
-import { Role } from './core/types';
+	import { LLMCoordinator } from 'llm-adapter/llm';
+	import { Role } from 'llm-adapter';
 
 const coordinator = new LLMCoordinator();
 
@@ -225,7 +236,7 @@ const response = await coordinator.run({
     }
   ],
   llmPriority: [
-    { provider: 'anthropic', model: 'claude-3-5-sonnet-20241022' }
+    { provider: '<provider-id>', model: '<model-id>' }
   ]
 });
 ```
@@ -256,11 +267,7 @@ For publicly accessible files:
 }
 ```
 
-**Note**: URL support varies by provider:
-- ✅ Anthropic: Supported
-- ✅ Google Gemini: Supported (gs:// URLs for Google Cloud Storage)
-- ✅ OpenAI Responses API: Supported
-- ❌ OpenAI Chat Completions: Not supported (use base64 or file_id instead)
+**Note**: Source-type support varies by provider plugin. If you use `url` or `file_id`, ensure the active provider plugin supports that source type.
 
 #### File ID Sources
 
@@ -275,39 +282,23 @@ For provider-uploaded files:
 }
 ```
 
-### Provider-Specific Options
+### Plugin-Specific Options
 
-#### Anthropic Cache Control
-
-Enable prompt caching for large documents:
-
-```typescript
-{
-  type: 'document',
-  source: { type: 'filepath', path: '/path/to/large-doc.pdf' },
-  providerOptions: {
-    anthropic: {
-      cacheControl: { type: 'ephemeral' }
-    }
-  }
-}
-```
-
-#### OpenRouter Plugins
-
-Use OpenRouter's document processing plugins:
+Some provider plugins accept additional document options. Pass them through via `providerOptions`; the structure is defined by the provider plugin.
 
 ```typescript
 {
   type: 'document',
   source: { type: 'filepath', path: '/path/to/document.pdf' },
   providerOptions: {
-    openrouter: {
-      plugin: 'pdf-text'  // or 'mistral-ocr' or 'native'
+    '<provider-id>': {
+      '<optionName>': '<optionValue>'
     }
   }
 }
 ```
+
+See the relevant docs under `plugins/**` for supported options.
 
 ### Implementation Details
 
@@ -320,50 +311,9 @@ The coordinator automatically:
 4. Extracts filenames from paths
 5. Converts to provider-specific formats
 
-#### Provider Format Transformations
+#### Compat Transformations
 
-**Anthropic**:
-```json
-{
-  "type": "document",
-  "source": {
-    "type": "base64",
-    "media_type": "application/pdf",
-    "data": "..."
-  }
-}
-```
-
-**OpenAI Chat Completions**:
-```json
-{
-  "type": "file",
-  "file": {
-    "filename": "doc.pdf",
-    "file_data": "data:application/pdf;base64,..."
-  }
-}
-```
-
-**Google Gemini** (base64):
-```json
-{
-  "inlineData": {
-    "mimeType": "application/pdf",
-    "data": "..."
-  }
-}
-```
-
-**Google Gemini** (URLs/file IDs):
-```json
-{
-  "fileData": {
-    "fileUri": "gs://bucket/file.pdf",
-    "mimeType": "application/pdf"
-  }
-}
-```
+After preprocessing, the active provider compat/plugin converts `DocumentContent` into the request format required by the provider API.
 
 #### MIME Type Detection
 
@@ -405,16 +355,16 @@ LLM API
 ```
 
 **Key Files**:
-- `core/types.ts` - DocumentContent type definitions
-- `utils/documents/document-loader.ts` - File loading and preprocessing
-- `utils/documents/mime-types.ts` - MIME type detection
-- `coordinator/coordinator.ts` - Message preprocessing integration
-- `plugins/compat/*.ts` - Provider-specific transformations
-- `vector_store_coordinator.ts` - Vector Store CLI entry point
-- `coordinator/vector-coordinator.ts` - VectorStoreCoordinator class
-- `core/vector-spec-types.ts` - VectorCallSpec and related types
-- `utils/vector/vector-chunker.ts` - Text chunking utility
-- `utils/vector/vector-context-injector.ts` - RAG context injection
+- `modules/kernel/index.ts` - DocumentContent type definitions
+- `modules/documents/index.ts` - File loading and preprocessing
+- `modules/documents/index.ts` - MIME type detection
+- `modules/llm/index.ts` - Message preprocessing integration
+- `plugins/compat/<compat-id>/index.ts` - Provider-specific transformations
+- `bin/cli.ts` - Unified CLI entry point (llm-adapter command)
+- `modules/vector/index.ts` - VectorStoreCoordinator class
+- `modules/kernel/index.ts` - VectorCallSpec and related types
+- `modules/vector/index.ts` - Text chunking utility
+- `modules/vector/index.ts` - RAG context injection
 
 ## Vector Stores & Embeddings
 
@@ -426,17 +376,17 @@ The coordinator provides unified vector store and embedding support for RAG (Ret
 
 ### Two Ways to Use Vector Stores
 
-1. **Vector Store CLI** (`vector_store_coordinator.ts`): Batch operations for managing vector data (embed, upsert, query, delete, collections)
+1. **Unified CLI** (`llm-adapter vector ...`): Batch operations for managing vector data (embed, upsert, query, delete, collections)
 2. **VectorContextConfig** in `LLMCallSpec`: RAG context injection during LLM calls (auto-inject, tool mode, or both)
 
 ### Architecture
 
 ```
-User Query → EmbeddingManager (agnostic) → embedding-compat (provider-specific) → OpenRouter/OpenAI
+User Query → EmbeddingManager (agnostic) → embedding-compat (provider-specific) → provider API
                     ↓
               Vector (numbers)
                     ↓
-         VectorStoreManager (agnostic) → vector-compat (provider-specific) → Qdrant/Memory
+         VectorStoreManager (agnostic) → vector-compat (provider-specific) → store backend
 ```
 
 ### Embedding Providers
@@ -446,18 +396,18 @@ User Query → EmbeddingManager (agnostic) → embedding-compat (provider-specif
 Create JSON configs in `plugins/embeddings/`:
 
 ```json
-// plugins/embeddings/openrouter.json
+// plugins/embeddings/<embedding-provider-id>.json
 {
-  "id": "openrouter-embeddings",
-  "kind": "openrouter",
+  "id": "<embedding-provider-id>",
+  "kind": "<embedding-compat-id>",
   "endpoint": {
-    "urlTemplate": "https://openrouter.ai/api/v1/embeddings",
+    "urlTemplate": "<url-template>",
     "headers": {
-      "Authorization": "Bearer ${OPENROUTER_API_KEY}",
+      "Authorization": "Bearer ${EMBEDDING_API_KEY}",
       "Content-Type": "application/json"
     }
   },
-  "model": "openai/text-embedding-3-small",
+  "model": "<embedding-model-id>",
   "dimensions": 1536
 }
 ```
@@ -465,61 +415,60 @@ Create JSON configs in `plugins/embeddings/`:
 #### Usage
 
 ```typescript
-import { EmbeddingManager } from './managers/embedding-manager';
-import { Registry } from './core/registry';
+import { EmbeddingManager } from 'llm-adapter/embeddings';
+import { PluginRegistry } from 'llm-adapter';
 
-const registry = new Registry();
+const registry = new PluginRegistry('./plugins');
 const embeddingManager = new EmbeddingManager(registry);
 
 // Embed text with priority fallback
 const result = await embeddingManager.embed('Hello world', [
-  { provider: 'openrouter-embeddings' },
-  { provider: 'backup-embeddings' }  // Falls back if first fails
+  { provider: '<embedding-provider-id>' },
+  { provider: '<embedding-provider-id-2>' }  // Falls back if first fails
 ]);
 
 console.log(result.vectors);    // [[0.1, 0.2, ...]]
 console.log(result.dimensions); // 1536
-console.log(result.model);      // 'openai/text-embedding-3-small'
+console.log(result.model);      // '<embedding-model-id>'
 
 // Get dimensions for a provider
-const dims = await embeddingManager.getDimensions('openrouter-embeddings');
+const dims = await embeddingManager.getDimensions('<embedding-provider-id>');
 
 // Create embedder function for VectorStoreManager
 const embedFn = embeddingManager.createEmbedderFn([
-  { provider: 'openrouter-embeddings' }
+  { provider: '<embedding-provider-id>' }
 ]);
 ```
 
 ### Vector Stores
 
-#### Supported Providers
+#### Supported Stores
 
-- **Qdrant**: Production-ready vector database
-- **Memory**: In-memory store for testing
+Supported vector stores depend on the installed `plugins/vector-compat/**` implementations.
 
 #### Configuration
 
 Create JSON configs in `plugins/vector/`:
 
 ```json
-// plugins/vector/qdrant-local.json
+// plugins/vector/<vector-store-id-local>.json
 {
-  "id": "qdrant-local",
-  "kind": "qdrant",
+  "id": "<vector-store-id-local>",
+  "kind": "<vector-compat-id>",
   "connection": {
     "host": "localhost",
-    "port": 6333
+    "port": 1234
   },
   "defaultCollection": "documents"
 }
 
-// plugins/vector/qdrant-cloud.json
+// plugins/vector/<vector-store-id-remote>.json
 {
-  "id": "qdrant-cloud",
-  "kind": "qdrant",
+  "id": "<vector-store-id-remote>",
+  "kind": "<vector-compat-id>",
   "connection": {
-    "url": "https://your-cluster.qdrant.io",
-    "apiKey": "${QDRANT_API_KEY}"
+    "url": "<url>",
+    "apiKey": "${VECTOR_STORE_API_KEY}"
   },
   "defaultCollection": "documents"
 }
@@ -528,38 +477,38 @@ Create JSON configs in `plugins/vector/`:
 #### Usage
 
 ```typescript
-import { VectorStoreManager } from './managers/vector-store-manager';
-import { EmbeddingManager } from './managers/embedding-manager';
-import { Registry } from './core/registry';
+import { VectorStoreManager } from 'llm-adapter/vector';
+import { EmbeddingManager } from 'llm-adapter/embeddings';
+import { PluginRegistry } from 'llm-adapter';
 
-const registry = new Registry();
+const registry = new PluginRegistry('./plugins');
 const embeddingManager = new EmbeddingManager(registry);
 const vectorStore = new VectorStoreManager(
   new Map(),  // configs
   new Map(),  // adapters
-  embeddingManager.createEmbedderFn([{ provider: 'openrouter-embeddings' }]),
+  embeddingManager.createEmbedderFn([{ provider: '<embedding-provider-id>' }]),
   registry
 );
 
 // Query with priority fallback
 const { store, results } = await vectorStore.queryWithPriority(
-  ['qdrant-local', 'qdrant-cloud'],  // Priority list
+  ['<vector-store-id-local>', '<vector-store-id-remote>'],  // Priority list
   'What is machine learning?',        // Query text (auto-embedded)
   5,                                   // Top K
   { category: 'tech' }                 // Optional filter
 );
 
 // Upsert points
-await vectorStore.upsert('qdrant-local', [
+await vectorStore.upsert('<vector-store-id-local>', [
   { id: 'doc1', vector: [0.1, 0.2, ...], payload: { text: 'Hello' } },
   { id: 'doc2', vector: [0.3, 0.4, ...], payload: { text: 'World' } }
 ]);
 
 // Delete points
-await vectorStore.deleteByIds('qdrant-local', ['doc1', 'doc2']);
+await vectorStore.deleteByIds('<vector-store-id-local>', ['doc1', 'doc2']);
 
 // Access underlying compat for advanced operations
-const compat = await vectorStore.getCompat('qdrant-local');
+const compat = await vectorStore.getCompat('<vector-store-id-local>');
 if (compat) {
   const exists = await compat.collectionExists('documents');
   if (!exists) {
@@ -571,81 +520,107 @@ if (compat) {
 await vectorStore.closeAll();
 ```
 
-### Vector Store CLI
+### Unified CLI
 
-The Vector Store CLI (`vector_store_coordinator.ts`) provides batch operations for managing vector data outside of LLM calls.
+The unified CLI (`llm-adapter`) provides a single command-line interface for all LLM, vector, and embedding operations.
 
-#### Commands
+#### LLM Commands
+
+```bash
+# Non-streaming LLM call
+llm-adapter run --spec '{...}'
+
+# Streaming LLM call
+llm-adapter stream --spec '{...}'
+```
+
+#### Vector Commands
 
 | Command | Description |
 |---------|-------------|
-| `run` | Execute any vector operation from a `VectorCallSpec` |
-| `stream` | Stream `VectorStreamEvent` for an operation (batch embed yields progress) |
-| `embed` | Embed texts and optionally upsert to a vector store |
-| `upsert` | Upsert pre-computed vectors to a store |
-| `query` | Query a vector store |
-| `delete` | Delete vectors by ID |
-| `collections` | Manage collections (list, create, delete, exists) |
-
-#### Usage
+| `vector run` | Execute any vector operation from a `VectorCallSpec` |
+| `vector stream` | Stream `VectorStreamEvent` for an operation (batch embed yields progress) |
+| `vector embed` | Embed texts and optionally upsert to a vector store |
+| `vector upsert` | Upsert pre-computed vectors to a store |
+| `vector query` | Query a vector store |
+| `vector delete` | Delete vectors by ID |
+| `vector collections` | Manage collections (list, create, delete, exists) |
 
 ```bash
 # Run any vector operation (preferred for CLI/server parity)
-npx ts-node vector_store_coordinator.ts run --spec '{...}'
+llm-adapter vector run --spec '{...}'
 
 # Stream any operation (preferred for CLI/server parity)
-npx ts-node vector_store_coordinator.ts stream --spec '{...}'
+llm-adapter vector stream --spec '{...}'
 
 # Embed texts and upsert
-npx ts-node vector_store_coordinator.ts embed --spec '{
+llm-adapter vector embed --spec '{
   "operation": "embed",
-  "store": "qdrant-local",
-  "embeddingPriority": [{ "provider": "openrouter-embeddings" }],
+  "store": "<vector-store-id>",
+  "embeddingPriority": [{ "provider": "<embedding-provider-id>" }],
   "input": { "texts": ["Hello world", "Machine learning is..."] }
 }'
 
 # Embed with custom batch size (default: 10)
 # The batchSize setting controls how many texts are embedded per API call.
 # This applies to both streaming and non-streaming embed operations.
-npx ts-node vector_store_coordinator.ts embed --spec '{
+llm-adapter vector embed --spec '{
   "operation": "embed",
-  "store": "qdrant-local",
-  "embeddingPriority": [{ "provider": "openrouter-embeddings" }],
+  "store": "<vector-store-id>",
+  "embeddingPriority": [{ "provider": "<embedding-provider-id>" }],
   "input": { "texts": ["Text 1", "Text 2", "Text 3", "Text 4", "Text 5"] },
   "settings": { "batchSize": 2 }
 }'
 
 # Query with a text query (auto-embedded)
-npx ts-node vector_store_coordinator.ts query --spec '{
+llm-adapter vector query --spec '{
   "operation": "query",
-  "store": "qdrant-local",
-  "embeddingPriority": [{ "provider": "openrouter-embeddings" }],
+  "store": "<vector-store-id>",
+  "embeddingPriority": [{ "provider": "<embedding-provider-id>" }],
   "input": { "query": "What is ML?", "topK": 5 }
 }'
 
 # Query with pre-computed vector
-npx ts-node vector_store_coordinator.ts query --spec '{
+llm-adapter vector query --spec '{
   "operation": "query",
-  "store": "qdrant-local",
+  "store": "<vector-store-id>",
   "input": { "vector": [0.1, 0.2, ...], "topK": 5 }
 }'
 
 # Delete vectors
-npx ts-node vector_store_coordinator.ts delete --spec '{
+llm-adapter vector delete --spec '{
   "operation": "delete",
-  "store": "qdrant-local",
+  "store": "<vector-store-id>",
   "input": { "ids": ["doc1", "doc2"] }
 }'
 
 # List collections
-npx ts-node vector_store_coordinator.ts collections --spec '{
+llm-adapter vector collections --spec '{
   "operation": "collections",
-  "store": "qdrant-local",
+  "store": "<vector-store-id>",
   "input": { "collectionOp": "list" }
 }'
 
 # Stream progress for batch operations
-npx ts-node vector_store_coordinator.ts embed --stream --spec '{...}'
+llm-adapter vector embed --stream --spec '{...}'
+```
+
+#### Embedding Commands
+
+```bash
+# Execute an embedding operation
+llm-adapter embeddings run --spec '{
+  "operation": "embed",
+  "embeddingPriority": [{ "provider": "<embedding-provider-id>" }],
+  "input": { "texts": ["Hello world"] }
+}'
+```
+
+#### Server Command
+
+```bash
+# Start the HTTP/SSE server
+llm-adapter serve --port 3000
 ```
 
 #### CLI Options
@@ -678,13 +653,13 @@ const response = await coordinator.run({
   messages: [
     { role: 'user', content: [{ type: 'text', text: 'What is machine learning?' }] }
   ],
-  llmPriority: [{ provider: 'anthropic', model: 'claude-3-5-sonnet-20241022' }],
+  llmPriority: [{ provider: '<provider-id>', model: '<model-id>' }],
   vectorContext: {
-    stores: ['qdrant-local'],
+    stores: ['<vector-store-id>'],
     mode: 'auto',
     topK: 5,
     scoreThreshold: 0.7,
-    embeddingPriority: [{ provider: 'openrouter-embeddings' }],
+    embeddingPriority: [{ provider: '<embedding-provider-id>' }],
     injectAs: 'system',  // or 'user_context'
     injectTemplate: 'Relevant context:\n\n{{results}}'
   }
@@ -700,11 +675,11 @@ const response = await coordinator.run({
   messages: [...],
   llmPriority: [...],
   vectorContext: {
-    stores: ['qdrant-local'],
+    stores: ['<vector-store-id>'],
     mode: 'tool',
     toolName: 'search_knowledge_base',  // default: 'vector_search'
     toolDescription: 'Search the knowledge base for relevant information',
-    embeddingPriority: [{ provider: 'openrouter-embeddings' }],
+    embeddingPriority: [{ provider: '<embedding-provider-id>' }],
     // Optional: allow the LLM to pass a metadata filter when not locked
     // The tool schema will include `filter` when `locks.filter` is not set
     locks: {
@@ -731,7 +706,7 @@ const response = await coordinator.run({
   messages: [...],
   llmPriority: [...],
   vectorContext: {
-    stores: ['qdrant-local'],
+    stores: ['<vector-store-id>'],
     mode: 'both',
     topK: 3,
     injectAs: 'system',
@@ -907,7 +882,7 @@ const response = await coordinator.run({
 const response = await coordinator.run({
   messages: [...],
   vectorContext: {
-    stores: ['qdrant-cloud'],
+    stores: ['<vector-store-id>'],
     mode: 'tool',
     locks: {
       collection: `tenant-${tenantId}`,  // Tenant-specific collection
@@ -1056,10 +1031,10 @@ These serve different purposes and can coexist:
 
 #### Embedding Compat
 
-Create `plugins/embedding-compat/your-provider.ts`:
+Create `plugins/embedding-compat/<kind>/index.ts`:
 
 ```typescript
-import { IEmbeddingCompat, EmbeddingProviderConfig, EmbeddingResult } from '../../core/types';
+	import { IEmbeddingCompat, EmbeddingProviderConfig, EmbeddingResult } from '../../../modules/kernel/index.js';
 
 export default class YourProviderEmbeddingCompat implements IEmbeddingCompat {
   async embed(
@@ -1083,10 +1058,10 @@ export default class YourProviderEmbeddingCompat implements IEmbeddingCompat {
 
 #### Vector Store Compat
 
-Create `plugins/vector-compat/your-provider.ts`:
+Create `plugins/vector-compat/<kind>/index.ts`:
 
 ```typescript
-import { IVectorStoreCompat, VectorStoreConfig, VectorPoint, VectorQueryResult } from '../../core/types';
+	import { IVectorStoreCompat, VectorStoreConfig, VectorPoint, VectorQueryResult } from '../../../modules/kernel/index.js';
 
 export default class YourProviderCompat implements IVectorStoreCompat {
   async connect(config: VectorStoreConfig): Promise<void> { /* ... */ }
@@ -1104,7 +1079,7 @@ export default class YourProviderCompat implements IVectorStoreCompat {
 ```typescript
 interface EmbeddingProviderConfig {
   id: string;
-  kind: string;  // 'openrouter' | 'openai' | etc
+  kind: string;  // '<embedding-compat-id>'
   endpoint: { urlTemplate: string; headers: Record<string, string> };
   model: string;
   dimensions?: number;
@@ -1112,7 +1087,7 @@ interface EmbeddingProviderConfig {
 
 interface VectorStoreConfig {
   id: string;
-  kind: string;  // 'qdrant' | 'memory' | etc
+  kind: string;  // '<vector-compat-id>'
   connection: JsonObject;
   defaultCollection?: string;
 }
@@ -1138,86 +1113,20 @@ interface EmbeddingResult {
 }
 ```
 
-## OpenRouter Usage Accounting
+## Usage Accounting
 
-OpenRouter provides detailed usage accounting including token counts, costs, and cache statistics. This is enabled by default for all OpenRouter requests.
-
-### Automatic Usage Tracking
-
-When using OpenRouter, the adapter automatically includes `usage: { include: true }` in all requests. This returns extended usage information in responses:
+Some provider plugins return extended usage metrics (token counts, cache hits, cost, audio tokens, etc.). When available, these appear in `response.usage`.
 
 ```typescript
 const response = await coordinator.run({
   messages: [...],
-  llmPriority: [
-    { provider: 'openrouter', model: 'openai/gpt-4o' }
-  ]
+  llmPriority: [{ provider: '<provider-id>', model: '<model-id>' }]
 });
 
-// response.usage contains extended fields:
 console.log(response.usage);
-// {
-//   promptTokens: 100,
-//   completionTokens: 50,
-//   totalTokens: 150,
-//   reasoningTokens: 25,        // If using reasoning models
-//   cost: 0.00125,              // Cost in credits
-//   cachedTokens: 75,           // Tokens read from cache
-//   audioTokens: 10             // Audio tokens (if applicable)
-// }
 ```
 
-### Extended Usage Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `promptTokens` | number | Tokens in the input/prompt |
-| `completionTokens` | number | Tokens in the response |
-| `totalTokens` | number | Combined token count |
-| `reasoningTokens` | number | Tokens used for reasoning (supported models) |
-| `cost` | number | Total cost in credits |
-| `cachedTokens` | number | Tokens read from prompt cache |
-| `audioTokens` | number | Audio tokens (if using audio features) |
-
-### Disabling Usage Accounting
-
-If you need to disable usage accounting (e.g., to reduce latency), you can override the default:
-
-```typescript
-const response = await coordinator.run({
-  messages: [...],
-  llmPriority: [
-    { provider: 'openrouter', model: 'openai/gpt-4o' }
-  ],
-  extra: {
-    usage: { include: false }
-  }
-});
-```
-
-### Logging
-
-Extended usage stats are included in both console and file logs:
-
-```json
-{
-  "type": "log",
-  "level": "info",
-  "message": "Provider response processed",
-  "data": {
-    "provider": "openrouter",
-    "model": "openai/gpt-4o",
-    "usage": {
-      "promptTokens": 100,
-      "completionTokens": 50,
-      "reasoningTokens": null,
-      "cost": 0.00125,
-      "cachedTokens": 75,
-      "audioTokens": null
-    }
-  }
-}
-```
+If supported by the provider plugin, you can pass through provider-specific request fields via the call spec (e.g., `extra`) or plugin defaults; see the relevant docs under `plugins/**`.
 
 ## Configuration
 
@@ -1275,7 +1184,7 @@ All non-provider-specific defaults are centralized in `/plugins/configs/defaults
 #### Accessing Defaults in Code
 
 ```typescript
-import { getDefaults } from './core/defaults';
+import { getDefaults } from 'llm-adapter';
 
 const defaults = getDefaults();
 console.log(defaults.retry.maxAttempts);  // 3
@@ -1287,9 +1196,9 @@ console.log(defaults.tools.maxIterations); // 10
 Provider-specific defaults live in their respective JSON manifests under the `defaults` field:
 
 ```json
-// plugins/providers/anthropic.json
+// plugins/providers/<provider-id>.json
 {
-  "id": "anthropic",
+  "id": "<provider-id>",
   "defaults": {
     "maxTokens": 8192,
     "reasoningBudget": 51200
@@ -1338,7 +1247,7 @@ Ad-hoc CLI runner for scripted or interactive conversations that write transcrip
 
 ## Logging
 
-- Use factory helpers from `core/logging.ts`:
+- Use factory helpers from `llm-adapter/logging`:
   - `getLLMLogger()` (also available via `getLogger()`) for LLM HTTP + console logs
   - `getEmbeddingLogger()` for embedding requests/responses
   - `getVectorLogger()` for vector store operations
@@ -1384,19 +1293,19 @@ const response = await coordinator.run({
 
 2. **Detail Logs**: LLM, Embedding, and Vector detail logs include `CorrelationId:` line
    ```
-   >>> OUTGOING REQUEST >>>
-   Timestamp: 2025-12-06T07:30:00.000Z
-   CorrelationId: req-123, user-456
-   Provider: anthropic
-   ...
-   ```
+	   >>> OUTGOING REQUEST >>>
+	   Timestamp: 2025-12-06T07:30:00.000Z
+	   CorrelationId: req-123, user-456
+	   Provider: <provider-id>
+	   ...
+	   ```
 
 #### Direct Logger Usage
 
 You can also use correlationId directly with loggers:
 
 ```typescript
-import { getLLMLogger } from './core/logging';
+import { getLLMLogger } from 'llm-adapter/logging';
 
 // Create logger with correlationId
 const logger = getLLMLogger().withCorrelation('request-123');
@@ -1415,25 +1324,14 @@ Live tests make real API calls to test actual integrations. They require API key
 
 Set required environment variables:
 ```bash
-# For LLM providers
-export ANTHROPIC_API_KEY=your-key
-export OPENAI_API_KEY=your-key
-export OPENROUTER_API_KEY=your-key
-export GOOGLE_API_KEY=your-key
-
-# For Qdrant Cloud (optional)
-export QDRANT_CLOUD_URL=https://your-cluster.qdrant.io
-export QDRANT_API_KEY=your-key
+export PROVIDER_API_KEY=your-key
+export EMBEDDING_API_KEY=your-key
+export VECTOR_STORE_URL=<url>
+export VECTOR_STORE_API_KEY=your-key
 ```
 
-Qdrant notes:
-- Point IDs must be UUIDs or integers (e.g., `11111111-1111-1111-1111-111111111111`). Non-UUID strings will be rejected by the API.
-- Filtering by payload fields on Qdrant Cloud requires creating a payload index first (e.g., add `payloadIndexes: [{ field: 'category', type: 'keyword' }]` when creating the collection).
-
-For local Qdrant, start the server:
-```bash
-docker run -p 6333:6333 qdrant/qdrant
-```
+The exact variables you need depend on the plugin manifests you’re using (via `${ENV}` placeholders in `plugins/**`).
+Backend-specific requirements vary by plugin; see the relevant docs under `plugins/**`.
 
 #### Running Live Tests
 
@@ -1441,19 +1339,16 @@ docker run -p 6333:6333 qdrant/qdrant
 # Run ALL tests (unit + integration + live) - for CI
 npm run test:all
 
-# Run only live tests (all providers)
+# Run only live tests
 npm run test:live
 
-# Run live tests for a specific LLM provider
-npm run test:live:anthropic    # Anthropic only
-npm run test:live:openai       # OpenAI only
-npm run test:live:openrouter   # OpenRouter only
-npm run test:live:google       # Google only
+# Run provider-scoped live tests (see package.json scripts)
+npm run test:live:<provider-id>
 
 # Run embedding live tests only
 npm run test:live:embeddings
 
-# Run vector store live tests (Qdrant Cloud)
+# Run vector store live tests only
 npm run test:live:vector
 ```
 
@@ -1463,16 +1358,16 @@ You can run live tests for specific providers using the `LLM_TEST_PROVIDERS` env
 
 ```bash
 # Single provider
-LLM_TEST_PROVIDERS=anthropic npm run test:live
+LLM_TEST_PROVIDERS=<provider-id> npm run test:live
 
 # Multiple providers (comma-separated)
-LLM_TEST_PROVIDERS=anthropic,google npm run test:live
+LLM_TEST_PROVIDERS=<provider-a>,<provider-b> npm run test:live
 
 # Case-insensitive
-LLM_TEST_PROVIDERS=ANTHROPIC npm run test:live
+LLM_TEST_PROVIDERS=<PROVIDER-ID> npm run test:live
 ```
 
-Available provider names: `anthropic`, `openai-responses`, `openrouter`, `google`
+Provider IDs are defined by the live test runner; see `tests/live/README.md` and `package.json` scripts.
 
 This is useful for:
 - Faster iteration when debugging a specific provider
@@ -1483,9 +1378,9 @@ This is useful for:
 
 | Test File | Description |
 |-----------|-------------|
-| `15-embeddings.live.test.ts` | OpenRouter embeddings API |
-| `16-vector-store.live.test.ts` | Qdrant vector store operations |
+| `15-embeddings.live.test.ts` | Embedding integration tests |
+| `16-vector-store.live.test.ts` | Vector store integration tests |
 | `17-vector-cli.live.test.ts` | Vector Store CLI operations |
 | `18-vector-auto-inject.live.test.ts` | VectorContext RAG integration |
 | `19-vector-search-locks.live.test.ts` | Vector search parameter locking |
-| `00-14-*.live.test.ts` | LLM provider tests |
+| `00-14-*.live.test.ts` | LLM provider integration tests |

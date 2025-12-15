@@ -1,8 +1,8 @@
 import { jest, describe, test, expect, beforeAll, afterEach } from '@jest/globals';
-import { VectorContextConfig, VectorQueryResult } from '@/core/types.ts';
-import { PluginRegistry } from '@/core/registry.ts';
+import { VectorContextConfig, VectorQueryResult } from '@/modules/kernel/index.ts';
+import { PluginRegistry } from '@/modules/kernel/index.ts';
 
-let ToolCoordinator: typeof import('@/utils/tools/tool-coordinator.ts').ToolCoordinator;
+let ToolCoordinator: typeof import('@/modules/tools/index.ts').ToolCoordinator;
 
 // Mock the vector-search-handler module
 const mockExecuteVectorSearch = jest.fn();
@@ -10,12 +10,12 @@ const mockFormatVectorSearchResults = jest.fn();
 
 beforeAll(async () => {
   // Mock the vector-search-handler
-  await (jest as any).unstable_mockModule('@/utils/tools/vector-search-handler.ts', () => ({
+  await (jest as any).unstable_mockModule('@/modules/vector/index.ts', () => ({
     executeVectorSearch: mockExecuteVectorSearch,
     formatVectorSearchResults: mockFormatVectorSearchResults
   }));
 
-  ({ ToolCoordinator } = await import('@/utils/tools/tool-coordinator.ts'));
+  ({ ToolCoordinator } = await import('@/modules/tools/index.ts'));
 });
 
 describe('utils/tools/tool-coordinator vector search integration', () => {

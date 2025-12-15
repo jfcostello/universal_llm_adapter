@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
-import { LLMManager } from '@/managers/llm-manager.ts';
-import { ProviderExecutionError } from '@/core/errors.ts';
-import { partitionSettings } from '@/utils/settings/settings-partitioner.ts';
+import { LLMManager } from '@/modules/llm/index.ts';
+import { ProviderExecutionError } from '@/modules/kernel/index.ts';
+import { partitionSettings } from '@/modules/settings/index.ts';
 
 const provider = {
   id: 'test-openai',

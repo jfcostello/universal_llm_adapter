@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
-import { VectorStoreManager } from '@/managers/vector-store-manager.ts';
-import type { IVectorStoreCompat, VectorStoreConfig } from '@/core/types.ts';
+import { VectorStoreManager } from '@/modules/vector/index.ts';
+import type { IVectorStoreCompat, VectorStoreConfig } from '@/modules/kernel/index.ts';
 
 function createAdapter(returnResults: any[]) {
   return {

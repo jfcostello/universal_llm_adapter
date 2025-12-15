@@ -5,14 +5,14 @@ import { withTempCwd } from '@tests/helpers/temp-files.ts';
 
 describe('utils/logging/retention', () => {
   test('enforceRetention handles missing directory gracefully', async () => {
-    const mod = await import('@/utils/logging/retention.ts');
+    const mod = await import('@/modules/logging/index.ts');
     const deleted = mod.enforceRetention(path.join(process.cwd(), 'nope'), { maxFiles: 2 });
     expect(deleted).toEqual([]);
   });
 
   test('enforceRetention keeps newest N files and deletes older', async () => {
     await withTempCwd('retention-basic', async (cwd) => {
-      const mod = await import('@/utils/logging/retention.ts');
+      const mod = await import('@/modules/logging/index.ts');
       const dir = path.join(cwd, 'logs');
       fs.mkdirSync(dir, { recursive: true });
 
@@ -40,7 +40,7 @@ describe('utils/logging/retention', () => {
   });
 
   test('readEnvInt and readEnvFloat parse valid values and fallback on invalid', async () => {
-    const mod = await import('@/utils/logging/retention.ts');
+    const mod = await import('@/modules/logging/index.ts');
     const prev = { ...process.env };
     try {
       process.env.MY_INT = '42';
@@ -59,7 +59,7 @@ describe('utils/logging/retention', () => {
 
   test('enforceRetention tolerates rmSync failures (catch path)', async () => {
     await withTempCwd('retention-rm-fail', async (cwd) => {
-      const mod = await import('@/utils/logging/retention.ts');
+      const mod = await import('@/modules/logging/index.ts');
       const dir = path.join(cwd, 'logs');
       fs.mkdirSync(dir, { recursive: true });
       const f1 = path.join(dir, 'old.log');
@@ -90,7 +90,7 @@ describe('utils/logging/retention', () => {
 
   test('time-based retention deletes entries older than maxAgeDays', async () => {
     await withTempCwd('retention-time-based', async (cwd) => {
-      const mod = await import('@/utils/logging/retention.ts');
+      const mod = await import('@/modules/logging/index.ts');
       const dir = path.join(cwd, 'logs');
       fs.mkdirSync(dir, { recursive: true });
 
@@ -118,7 +118,7 @@ describe('utils/logging/retention', () => {
 
   test('default matcher (files only) works when includeDirs omitted', async () => {
     await withTempCwd('retention-default-match', async (cwd) => {
-      const mod = await import('@/utils/logging/retention.ts');
+      const mod = await import('@/modules/logging/index.ts');
       const dir = path.join(cwd, 'logs');
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, 'a.log'), 'a');
@@ -130,7 +130,7 @@ describe('utils/logging/retention', () => {
 
   test('time-based retention respects exclude list', async () => {
     await withTempCwd('retention-time-exclude', async (cwd) => {
-      const mod = await import('@/utils/logging/retention.ts');
+      const mod = await import('@/modules/logging/index.ts');
       const dir = path.join(cwd, 'logs');
       fs.mkdirSync(dir, { recursive: true });
       const keep = path.join(dir, 'keep.log');
@@ -154,7 +154,7 @@ describe('utils/logging/retention', () => {
 
   test('sort fallback by name kicks in when mtimes are equal', async () => {
     await withTempCwd('retention-sort-fallback', async (cwd) => {
-      const mod = await import('@/utils/logging/retention.ts');
+      const mod = await import('@/modules/logging/index.ts');
       const dir = path.join(cwd, 'logs');
       fs.mkdirSync(dir, { recursive: true });
       const a = path.join(dir, 'a.log');
@@ -171,7 +171,7 @@ describe('utils/logging/retention', () => {
 
   test('includeDirs=true prunes oldest directories and honors exclude', async () => {
     await withTempCwd('retention-dirs', async (cwd) => {
-      const mod = await import('@/utils/logging/retention.ts');
+      const mod = await import('@/modules/logging/index.ts');
       const root = path.join(cwd, 'logs');
       fs.mkdirSync(root, { recursive: true });
 
@@ -203,7 +203,7 @@ describe('utils/logging/retention', () => {
 
   test('enforceRetention tolerates ENOENT statSync races', async () => {
     await withTempCwd('retention-enoent-stat', async (cwd) => {
-      const mod = await import('@/utils/logging/retention.ts');
+      const mod = await import('@/modules/logging/index.ts');
       const dir = path.join(cwd, 'logs');
       fs.mkdirSync(dir, { recursive: true });
 
@@ -239,7 +239,7 @@ describe('utils/logging/retention', () => {
 
   test('enforceRetention rethrows non-ENOENT statSync errors (initial scan)', async () => {
     await withTempCwd('retention-stat-rethrow-initial', async (cwd) => {
-      const mod = await import('@/utils/logging/retention.ts');
+      const mod = await import('@/modules/logging/index.ts');
       const dir = path.join(cwd, 'logs');
       fs.mkdirSync(dir, { recursive: true });
 
@@ -261,7 +261,7 @@ describe('utils/logging/retention', () => {
 
   test('enforceRetention rethrows non-ENOENT statSync errors (refresh scan)', async () => {
     await withTempCwd('retention-stat-rethrow-refresh', async (cwd) => {
-      const mod = await import('@/utils/logging/retention.ts');
+      const mod = await import('@/modules/logging/index.ts');
       const dir = path.join(cwd, 'logs');
       fs.mkdirSync(dir, { recursive: true });
 
@@ -292,7 +292,7 @@ describe('utils/logging/retention', () => {
 describe('utils/logging/retention-manager', () => {
   test('applyRetentionOnce dedupes repeated calls when directory is unchanged', async () => {
     await withTempCwd('retention-manager-dedupe', async (cwd) => {
-      const manager = await import('@/utils/logging/retention-manager.ts');
+      const manager = await import('@/modules/logging/index.ts');
       manager.resetRetentionState();
 
       const dir = path.join(cwd, 'logs');
@@ -357,7 +357,7 @@ describe('utils/logging/retention-manager', () => {
 
   test('applyRetentionOnce uses default matcher when match is omitted', async () => {
     await withTempCwd('retention-manager-default-match', async (cwd) => {
-      const manager = await import('@/utils/logging/retention-manager.ts');
+      const manager = await import('@/modules/logging/index.ts');
       manager.resetRetentionState();
 
       const dir = path.join(cwd, 'logs');
@@ -382,7 +382,7 @@ describe('utils/logging/retention-manager', () => {
 
   test('applyRetentionOnce default match supports includeDirs=true', async () => {
     await withTempCwd('retention-manager-default-match-dirs', async (cwd) => {
-      const manager = await import('@/utils/logging/retention-manager.ts');
+      const manager = await import('@/modules/logging/index.ts');
       manager.resetRetentionState();
 
       const dir = path.join(cwd, 'logs');
@@ -406,7 +406,7 @@ describe('utils/logging/retention-manager', () => {
 
   test('applyRetentionOnce handles match toString throwing (policy key)', async () => {
     await withTempCwd('retention-manager-match-key-throws', async (cwd) => {
-      const manager = await import('@/utils/logging/retention-manager.ts');
+      const manager = await import('@/modules/logging/index.ts');
       manager.resetRetentionState();
 
       const dir = path.join(cwd, 'logs');
@@ -439,7 +439,7 @@ describe('utils/logging/retention-manager', () => {
 
   test('applyRetentionOnce re-runs within the interval when entry count changes', async () => {
     await withTempCwd('retention-manager-count-change', async (cwd) => {
-      const manager = await import('@/utils/logging/retention-manager.ts');
+      const manager = await import('@/modules/logging/index.ts');
       manager.resetRetentionState();
 
       const dir = path.join(cwd, 'logs');
@@ -487,7 +487,7 @@ describe('utils/logging/retention-manager', () => {
 
   test('applyRetentionOnce does not collide across different matchers', async () => {
     await withTempCwd('retention-manager-no-collide', async (cwd) => {
-      const manager = await import('@/utils/logging/retention-manager.ts');
+      const manager = await import('@/modules/logging/index.ts');
       manager.resetRetentionState();
 
       const dir = path.join(cwd, 'logs');

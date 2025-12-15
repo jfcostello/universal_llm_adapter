@@ -5,5 +5,8 @@
     "url": "${QDRANT_CLOUD_URL}",
     "apiKey": "${QDRANT_API_KEY}"
   },
+  "defaultEmbeddingPriority": [
+    { "provider": "openrouter-embeddings" }
+  ],
   "defaultCollection": "documents"
 }

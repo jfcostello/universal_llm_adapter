@@ -3,8 +3,8 @@ import {
   pruneReasoning,
   TOOL_REDACTION_PLACEHOLDER,
   TOOL_REDACTION_REASON
-} from '@/utils/context/context-manager.ts';
-import { Message, Role, TextContent, ToolResultContent } from '@/core/types.ts';
+} from '@/modules/context/index.ts';
+import { Message, Role, TextContent, ToolResultContent } from '@/modules/kernel/index.ts';
 
 const isRedactedToolMessage = (message: Message): boolean => {
   if (message.role !== Role.TOOL) {

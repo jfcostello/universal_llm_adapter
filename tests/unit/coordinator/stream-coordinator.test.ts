@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
-import { StreamCoordinator } from '@/coordinator/stream-coordinator.ts';
-import { StreamEventType, ToolCallEventType, Role } from '@/core/types.ts';
+import { StreamCoordinator } from '@/modules/llm/index.ts';
+import { StreamEventType, ToolCallEventType, Role } from '@/modules/kernel/index.ts';
 
 function createCoordinator(overrides: Partial<any> = {}) {
   const compatModule = {

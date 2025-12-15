@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { MCPManager } from '@/managers/mcp-manager.ts';
+import { MCPManager } from '@/modules/mcp/index.ts';
 
 const servers = [
   { id: 'auto', autoStart: true } as any,

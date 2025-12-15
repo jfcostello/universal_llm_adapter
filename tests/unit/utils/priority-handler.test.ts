@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { withRetries } from '@/utils/retry/priority-handler.ts';
+import { withRetries } from '@/modules/retry/index.ts';
 
 describe('utils/retry/priority-handler', () => {
   afterEach(() => {

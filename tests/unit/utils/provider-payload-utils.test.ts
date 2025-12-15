@@ -1,5 +1,5 @@
-import { applyProviderPayloadExtensions } from '@/utils/provider-payload-utils.ts';
-import { ProviderPayloadError } from '@/core/errors.ts';
+import { applyProviderPayloadExtensions } from '@/modules/llm/internal/payload/provider-payload-utils.ts';
+import { ProviderPayloadError } from '@/modules/kernel/index.ts';
 
 const baseProvider: any = {
   id: 'provider-x',
@@ -29,7 +29,7 @@ const baseProvider: any = {
   ]
 };
 
-describe('utils/provider-payload-utils', () => {
+describe('modules/llm/internal/payload/provider-payload-utils', () => {
   test('applies defaults, merges objects, and returns remaining extras', () => {
     const payload = { extra: { object: { enabled: false } } };
     const [result, remaining] = applyProviderPayloadExtensions(baseProvider, payload, {

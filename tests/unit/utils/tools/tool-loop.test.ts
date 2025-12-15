@@ -1,7 +1,7 @@
 import { describe, expect, jest, test } from '@jest/globals';
-import { runToolLoop, __toolLoopTestUtils__ } from '@/utils/tools/tool-loop.ts';
-import { ToolCallBudget } from '@/utils/tools/tool-budget.ts';
-import { Role, StreamEventType, ToolCallEventType } from '@/core/types.ts';
+import { runToolLoop, __toolLoopTestUtils__ } from '@/modules/tools/index.ts';
+import { ToolCallBudget } from '@/modules/tools/index.ts';
+import { Role, StreamEventType, ToolCallEventType } from '@/modules/kernel/index.ts';
 
 const providerManifest: any = {
   id: 'provider',

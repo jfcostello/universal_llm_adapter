@@ -1,5 +1,5 @@
-import { LLMCoordinator } from '@/coordinator/coordinator.ts';
-import { sanitizeToolChoice } from '@/utils/tools/tool-names.ts';
+import { LLMCoordinator } from '@/modules/llm/index.ts';
+import { sanitizeToolChoice } from '@/modules/kernel/index.ts';
 
 function instance(): any {
   return new LLMCoordinator({
@@ -11,6 +11,14 @@ function instance(): any {
 }
 
 describe('coordinator utility helpers', () => {
+  test('toolCoordinator proxy throws before initialization', async () => {
+    const coordinator = instance();
+
+    await expect(
+      (coordinator as any).toolCoordinator.routeAndInvoke('t', 'c1', {}, { provider: 'p', model: 'm' })
+    ).rejects.toThrow('ToolCoordinator not initialized (no active spec)');
+  });
+
   test('sanitizeToolName handles invalid and long names', () => {
     const coordinator = instance();
     const sanitize = (coordinator as any).sanitizeToolName.bind(coordinator);

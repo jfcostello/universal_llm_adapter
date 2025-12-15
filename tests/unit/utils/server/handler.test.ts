@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import { Readable } from 'stream';
-import { createServerHandler } from '@/utils/server/internal/handler.ts';
+import { createServerHandler } from '@/modules/server/internal/handler.ts';
 
 function makeReq(method: string, url: string, body: string = ''): any {
   const req = new Readable({
@@ -115,7 +115,7 @@ describe('utils/server createServerHandler', () => {
     expect(JSON.parse(out.body).error.code).toBe('not_implemented');
   });
 
-  test('handles /vector/embeddings/run with embedding coordinator', async () => {
+  test('handles /embeddings/run with embedding coordinator', async () => {
     const embeddingExecute = jest.fn().mockResolvedValue({ ok: true });
     const handler = createServerHandler({
       registry,
@@ -135,7 +135,7 @@ describe('utils/server createServerHandler', () => {
 
     const req = makeReq(
       'POST',
-      '/vector/embeddings/run',
+      '/embeddings/run',
       JSON.stringify({ operation: 'embed', embeddingPriority: [{ provider: 'p' }], input: { texts: ['hello'] } })
     );
     const out = makeRes();
@@ -148,7 +148,7 @@ describe('utils/server createServerHandler', () => {
     expect(embeddingExecute).toHaveBeenCalled();
   });
 
-  test('returns 501 when /vector/embeddings/run is requested but embedding coordinator is missing', async () => {
+  test('returns 501 when /embeddings/run is requested but embedding coordinator is missing', async () => {
     const handler = createServerHandler({
       registry,
       pluginsPath: './plugins',
@@ -161,7 +161,7 @@ describe('utils/server createServerHandler', () => {
       config
     });
 
-    const req = makeReq('POST', '/vector/embeddings/run', JSON.stringify({ operation: 'embed' }));
+    const req = makeReq('POST', '/embeddings/run', JSON.stringify({ operation: 'embed' }));
     const out = makeRes();
     await handler(req, out.res);
 
@@ -981,7 +981,7 @@ describe('utils/server createServerHandler', () => {
     expect(JSON.parse(out.body).error.message).toContain('boom-vector');
   });
 
-  test('times out /vector/embeddings/run when requestTimeoutMs exceeded', async () => {
+  test('times out /embeddings/run when requestTimeoutMs exceeded', async () => {
     const handler = createServerHandler({
       registry,
       pluginsPath: './plugins',
@@ -1001,7 +1001,7 @@ describe('utils/server createServerHandler', () => {
       config: { ...config, requestTimeoutMs: 5 }
     });
 
-    const req = makeReq('POST', '/vector/embeddings/run', JSON.stringify({ operation: 'embed' }));
+    const req = makeReq('POST', '/embeddings/run', JSON.stringify({ operation: 'embed' }));
     const out = makeRes();
     await handler(req, out.res);
     await new Promise(r => setTimeout(r, 30));
@@ -1010,7 +1010,7 @@ describe('utils/server createServerHandler', () => {
     expect(JSON.parse(out.body).error.code).toBe('timeout');
   });
 
-  test('completes /vector/embeddings/run before timeout when requestTimeoutMs set', async () => {
+  test('completes /embeddings/run before timeout when requestTimeoutMs set', async () => {
     const handler = createServerHandler({
       registry,
       pluginsPath: './plugins',
@@ -1029,7 +1029,7 @@ describe('utils/server createServerHandler', () => {
 
     const req = makeReq(
       'POST',
-      '/vector/embeddings/run',
+      '/embeddings/run',
       JSON.stringify({ operation: 'embed', embeddingPriority: [{ provider: 'p' }], input: { texts: ['hello'] } })
     );
     const out = makeRes();
@@ -1039,7 +1039,7 @@ describe('utils/server createServerHandler', () => {
     expect(JSON.parse(out.body).type).toBe('response');
   });
 
-  test('timeout path handles later /vector/embeddings/run coordinator rejection', async () => {
+  test('timeout path handles later /embeddings/run coordinator rejection', async () => {
     const handler = createServerHandler({
       registry,
       pluginsPath: './plugins',
@@ -1059,7 +1059,7 @@ describe('utils/server createServerHandler', () => {
       config: { ...config, requestTimeoutMs: 5 }
     });
 
-    const req = makeReq('POST', '/vector/embeddings/run', JSON.stringify({ operation: 'embed' }));
+    const req = makeReq('POST', '/embeddings/run', JSON.stringify({ operation: 'embed' }));
     const out = makeRes();
     await handler(req, out.res);
     await new Promise(r => setTimeout(r, 30));
@@ -1068,7 +1068,7 @@ describe('utils/server createServerHandler', () => {
     expect(JSON.parse(out.body).error.code).toBe('timeout');
   });
 
-  test('handles /vector/embeddings/run coordinator error within timeout branch', async () => {
+  test('handles /embeddings/run coordinator error within timeout branch', async () => {
     const handler = createServerHandler({
       registry,
       pluginsPath: './plugins',
@@ -1085,7 +1085,7 @@ describe('utils/server createServerHandler', () => {
       config: { ...config, requestTimeoutMs: 50 }
     });
 
-    const req = makeReq('POST', '/vector/embeddings/run', JSON.stringify({ operation: 'embed' }));
+    const req = makeReq('POST', '/embeddings/run', JSON.stringify({ operation: 'embed' }));
     const out = makeRes();
     await handler(req, out.res);
 
@@ -1093,7 +1093,7 @@ describe('utils/server createServerHandler', () => {
     expect(JSON.parse(out.body).error.message).toContain('boom-embeddings-timeout-branch');
   });
 
-  test('handles /vector/embeddings/run coordinator error when requestTimeoutMs disabled', async () => {
+  test('handles /embeddings/run coordinator error when requestTimeoutMs disabled', async () => {
     const handler = createServerHandler({
       registry,
       pluginsPath: './plugins',
@@ -1110,7 +1110,7 @@ describe('utils/server createServerHandler', () => {
       config: { ...config, requestTimeoutMs: 0 }
     });
 
-    const req = makeReq('POST', '/vector/embeddings/run', JSON.stringify({ operation: 'embed' }));
+    const req = makeReq('POST', '/embeddings/run', JSON.stringify({ operation: 'embed' }));
     const out = makeRes();
     await handler(req, out.res);
 
@@ -1230,6 +1230,57 @@ describe('utils/server createServerHandler', () => {
 
     expect(out.status).toBe(200);
     expect(out.body).toContain('timeout');
+  });
+
+  test('clears per-iteration SSE timeout timers when /stream completes', async () => {
+    const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+    const clearTimeoutSpy = jest.spyOn(global, 'clearTimeout');
+
+    try {
+      const handler = createServerHandler({
+        registry,
+        pluginsPath: './plugins',
+        closeLoggerAfterRequest: false,
+        deps: {
+          createRegistry: jest.fn().mockResolvedValue(registry),
+          createCoordinator: jest.fn().mockResolvedValue({
+            runStream: async function* () {
+              yield { type: 'delta', content: 'ok' } as any;
+            },
+            close: jest.fn().mockResolvedValue(undefined)
+          }),
+          closeLogger: jest.fn()
+        },
+        // Disable body read timeout to avoid unrelated timers in this test.
+        config: { ...config, bodyReadTimeoutMs: 0, requestTimeoutMs: 1000, streamIdleTimeoutMs: 1000 }
+      });
+
+      const req = makeReq(
+        'POST',
+        '/stream',
+        JSON.stringify({ messages: [], llmPriority: [{ provider: 'p', model: 'm' }], settings: {} })
+      );
+      const out = makeRes();
+      await handler(req, out.res);
+
+      expect(out.status).toBe(200);
+
+      // Ensure timers created for the stream timeout race are cleared when unused.
+      const timeoutHandles = setTimeoutSpy.mock.results
+        .map((result, idx) => ({
+          value: result.value,
+          ms: setTimeoutSpy.mock.calls[idx]?.[1]
+        }))
+        .filter(entry => entry.ms === 1000)
+        .map(entry => entry.value);
+
+      for (const handle of timeoutHandles) {
+        expect(clearTimeoutSpy).toHaveBeenCalledWith(handle);
+      }
+    } finally {
+      setTimeoutSpy.mockRestore();
+      clearTimeoutSpy.mockRestore();
+    }
   });
 
   test('times out /stream on idle timeout', async () => {
@@ -1367,41 +1418,27 @@ describe('utils/server createServerHandler', () => {
   });
 
   test('swallows iterator.return promise rejections via catch callback', async () => {
-    jest.resetModules();
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
 
-    let createServerHandlerWithMock!: typeof createServerHandler;
-
-    (jest as any).unstable_mockModule('@/utils/coordinator-lifecycle/index.ts', () => ({
-      runWithCoordinatorLifecycle: jest.fn(),
-      streamWithCoordinatorLifecycle: jest.fn().mockImplementation(() => ({
-        [Symbol.asyncIterator]: () => ({
-          next: () => new Promise(() => {}),
-          return: () => ({
-            catch: (callback: any) => {
-              callback();
-            }
-          })
-        })
-      }))
-    }));
-
-    await jest.isolateModulesAsync(async () => {
-      ({ createServerHandler: createServerHandlerWithMock } = await import('@/utils/server/internal/handler.ts'));
-    });
-
-    const handler = createServerHandlerWithMock({
+    const handler = createServerHandler({
       registry,
       pluginsPath: './plugins',
       closeLoggerAfterRequest: false,
       deps: {
         createRegistry: jest.fn().mockResolvedValue(registry),
-        createCoordinator: jest.fn().mockResolvedValue({
-          run: jest.fn().mockResolvedValue({ ok: true }),
-          runStream: jest.fn(),
-          close: jest.fn().mockResolvedValue(undefined)
-        }),
+        createCoordinator: jest.fn(),
         closeLogger: jest.fn()
       } as any,
+      lifecycle: {
+        streamWithCoordinatorLifecycle: jest.fn().mockImplementation(() => ({
+          [Symbol.asyncIterator]: () => ({
+            next: () => new Promise(() => {}),
+            return: () => Promise.reject(new Error('return boom'))
+          })
+        }))
+      },
       config: { ...config, requestTimeoutMs: 5, streamIdleTimeoutMs: 1000 }
     });
 
@@ -1411,9 +1448,15 @@ describe('utils/server createServerHandler', () => {
       JSON.stringify({ messages: [], llmPriority: [{ provider: 'p', model: 'm' }], settings: {} })
     );
     const out = makeRes();
-    await handler(req, out.res);
+    try {
+      await handler(req, out.res);
+      await new Promise(resolve => setImmediate(resolve));
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
 
     expect(out.status).toBe(200);
     expect(out.body).toContain('timeout');
+    expect(unhandled).toHaveLength(0);
   });
 });

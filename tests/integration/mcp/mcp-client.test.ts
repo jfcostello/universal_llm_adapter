@@ -1,5 +1,5 @@
 import path from 'path';
-import { MCPConnection, MCPClientPool } from '@/mcp/mcp-client.ts';
+import { MCPConnection, MCPClientPool } from '@/modules/mcp/index.ts';
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
 
 const config = {

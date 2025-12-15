@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { ToolCoordinator } from '@/utils/tools/tool-coordinator.ts';
+import { ToolCoordinator } from '@/modules/tools/index.ts';
 import { startStubServer } from '@tests/helpers/http-server.ts';
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
 

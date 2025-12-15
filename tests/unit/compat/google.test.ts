@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import GoogleCompat from '@/plugins/compat/google.ts';
+import GoogleCompat from '@/plugins/compat/google/index.ts';
 
 describe('unit/compat/google', () => {
   let originalApiKey: string | undefined;

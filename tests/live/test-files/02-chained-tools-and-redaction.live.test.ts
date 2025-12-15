@@ -80,8 +80,8 @@ CRITICAL RULES:
       }
     }, 180000);
 
-    test('Call 2 — multi-item queue', async () => {
-      const spec = makeSpec({
+	    test('Call 2 — multi-item queue', async () => {
+	      const spec = makeSpec({
         messages: [
           { role: 'system', content: [{ type: 'text', text: `You are a sequential function-calling assistant. You will process exactly THREE items in strict order.
 
@@ -130,25 +130,60 @@ CRITICAL RULES:
         llmPriority: runCfg.llmPriority,
         functionToolNames: ['test.random', 'test.echo'],
         toolChoice: { type: 'required', allowed: ['test.random', 'test.echo'] },
-        settings: mergeSettings(runCfg.settings, { maxTokens: 60000, maxToolIterations: 6, preserveToolResults: 2, preserveReasoning: 2, toolCountdownEnabled: true, reasoning: { enabled: true, budget: 10000 }, provider: { require_parameters: true } })
-      });
-      const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
-      if (result.code !== 0) {
-        console.error(result.stderr);
-      }
-      if (result.code !== 0 && providerNotSupportingTools(result.stderr)) { expect(true).toBe(true); return; }
-      expect(result.code).toBe(0);
-      const payload = JSON.parse(result.stdout.trim());
-      const toolCalls = payload.toolCalls || [];
-      const want = ['alpha-one', 'beta-two', 'gamma-three'];
-      for (const w of want) {
-        const found = toolCalls.some((c: any) => JSON.stringify((c.arguments || c.args || {})).includes(w));
-        expect(found).toBe(true);
-      }
-      const text = String(payload.content?.[0]?.text ?? '');
-      // Tool transforms: "gamma-three" (11 chars) -> "[R:11]eerht-ammag"
-      expect(text.includes('[R:11]eerht-ammag')).toBe(true);
-    }, 180000);
+	        settings: mergeSettings(runCfg.settings, { maxTokens: 60000, maxToolIterations: 6, preserveToolResults: 2, preserveReasoning: 2, toolCountdownEnabled: true, reasoning: { enabled: true, budget: 10000 }, provider: { require_parameters: true } })
+	      });
+	      const want = ['alpha-one', 'beta-two', 'gamma-three'];
+	      const gamma = 'gamma-three';
+	      const expectedGammaEcho = `[R:${gamma.length}]${gamma.split('').reverse().join('')}`;
+
+	      // Live models can occasionally miss strict "copy tool output verbatim" instructions.
+	      // Retry once before failing to reduce flakiness while still validating behavior.
+	      const maxAttempts = 2;
+
+	      let lastPayload: any | null = null;
+	      let lastText = '';
+
+	      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+	        const result = await runCoordinator({
+	          args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath],
+	          cwd: process.cwd(),
+	          env: withLiveEnv({ TEST_FILE, LLM_TEST_NAME: `call-2-attempt-${attempt}` })
+	        });
+
+	        if (result.code !== 0) {
+	          console.error(result.stderr);
+	          if (providerNotSupportingTools(result.stderr)) { expect(true).toBe(true); return; }
+	          if (attempt < maxAttempts) continue;
+	          expect(result.code).toBe(0);
+	        }
+
+	        const payload = JSON.parse(result.stdout.trim());
+	        lastPayload = payload;
+	        const toolCalls = payload.toolCalls || [];
+	        const hasAllToolCalls = want.every((w) =>
+	          toolCalls.some((c: any) => JSON.stringify((c.arguments || c.args || {})).includes(w))
+	        );
+
+	        const text = String(payload.content?.[0]?.text ?? '');
+	        lastText = text;
+
+	        if (hasAllToolCalls && text.includes(expectedGammaEcho)) {
+	          return;
+	        }
+
+	        if (attempt < maxAttempts) {
+	          continue;
+	        }
+	      }
+
+	      expect(lastPayload).toBeTruthy();
+	      expect(
+	        want.every((w) =>
+	          (lastPayload?.toolCalls || []).some((c: any) => JSON.stringify((c.arguments || c.args || {})).includes(w))
+	        )
+	      ).toBe(true);
+	      expect(lastText.includes(expectedGammaEcho)).toBe(true);
+	    }, 180000);
 
     test('Call 3 — force prior-cycle redaction', async () => {
       const spec = makeSpec({

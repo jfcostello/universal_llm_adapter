@@ -5,7 +5,7 @@ import { withTempCwd } from '@tests/helpers/temp-files.ts';
 
 async function loadLoggingModule() {
   jest.resetModules();
-  return await import('@/core/logging.ts');
+  return await import('@/modules/logging/index.ts');
 }
 
 describe('core/logging retention', () => {
@@ -155,7 +155,7 @@ describe('core/logging retention', () => {
       process.env.LLM_ADAPTER_BATCH_ID = 'missing';
 
       jest.resetModules();
-      const { AdapterLogger, LogLevel } = await import('@/core/logging.ts');
+      const { AdapterLogger, LogLevel } = await import('@/modules/logging/index.ts');
 
       const logger: any = new AdapterLogger(LogLevel.INFO);
       // Call retention directly before any LLM log file is created to hit the undefined exclude path
@@ -171,7 +171,7 @@ describe('core/logging retention', () => {
       process.env.LLM_ADAPTER_BATCH_ID = 'missing-vector';
 
       jest.resetModules();
-      const { VectorLogger, LogLevel } = await import('@/core/logging.ts');
+      const { VectorLogger, LogLevel } = await import('@/modules/logging/index.ts');
 
       const logger: any = new VectorLogger(LogLevel.INFO);
       expect(() => logger.applyVectorRetentionOnce()).not.toThrow();

@@ -1,12 +1,12 @@
 import { jest } from '@jest/globals';
-import { PluginRegistry } from '@/core/registry.ts';
-import { LLMCoordinator } from '@/coordinator/coordinator.ts';
-import { Role, LLMResponse } from '@/core/types.ts';
-import { LLMManager } from '@/managers/llm-manager.ts';
-import { ProviderExecutionError } from '@/core/errors.ts';
-import { ToolCoordinator } from '@/utils/tools/tool-coordinator.ts';
-import { MCPManager } from '@/managers/mcp-manager.ts';
-import { AdapterLogger } from '@/core/logging.ts';
+import { PluginRegistry } from '@/modules/kernel/index.ts';
+import { LLMCoordinator } from '@/modules/llm/index.ts';
+import { Role, LLMResponse } from '@/modules/kernel/index.ts';
+import { LLMManager } from '@/modules/llm/index.ts';
+import { ProviderExecutionError } from '@/modules/kernel/index.ts';
+import { ToolCoordinator } from '@/modules/tools/index.ts';
+import { MCPManager } from '@/modules/mcp/index.ts';
+import { AdapterLogger, createLoggingDeps } from '@/modules/logging/index.ts';
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
 
 describe('integration/errors/error-propagation', () => {
@@ -29,7 +29,7 @@ describe('integration/errors/error-propagation', () => {
     const pluginsDir = (await import('@tests/helpers/paths.ts')).resolveFixture('plugins', 'basic');
     const registry = new PluginRegistry(pluginsDir);
     await registry.loadAll();
-    return new LLMCoordinator(registry);
+    return new LLMCoordinator(registry, { logging: createLoggingDeps() });
   }
 
   test('falls back to next provider after rate-limit errors (no extra retries)', async () => {

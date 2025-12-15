@@ -5,7 +5,7 @@ import { withTempCwd } from '@tests/helpers/temp-files.ts';
 
 async function loadLoggingModule() {
   jest.resetModules();
-  return await import('@/core/logging.ts');
+  return await import('@/modules/logging/index.ts');
 }
 
 describe('integration/logging/logging-flow', () => {

@@ -1,8 +1,8 @@
 import { jest } from '@jest/globals';
 
 // Type imports - will exist after implementation
-import type { VectorStoreCoordinator } from '@/coordinator/vector-coordinator.ts';
-import type { VectorCallSpec, VectorOperationResult } from '@/core/vector-spec-types.ts';
+import type { VectorStoreCoordinator } from '@/modules/vector/index.ts';
+import type { VectorCallSpec, VectorOperationResult } from '@/modules/kernel/index.ts';
 
 // Mock registry helper
 function createMockRegistry(options: {
@@ -71,7 +71,7 @@ describe('coordinator/vector-coordinator', () => {
 
   beforeAll(async () => {
     try {
-      const module = await import('@/coordinator/vector-coordinator.ts');
+      const module = await import('@/modules/vector/index.ts');
       VectorStoreCoordinator = module.VectorStoreCoordinator;
     } catch {
       // Module doesn't exist yet - tests document expected behavior
@@ -1398,6 +1398,85 @@ describe('coordinator/vector-coordinator', () => {
         operation: 'collections',
         store: 'test-store',
         input: { collectionOp: 'list' }
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Vector store not found');
+    });
+
+    test('embed returns error when vectorManager.getCompat returns null', async () => {
+      const registry = {
+        ...createMockRegistry(),
+        getVectorStoreCompat: jest.fn().mockResolvedValue(null)
+      };
+
+      const coordinator = new VectorStoreCoordinator(registry as any);
+
+      const result = await coordinator.execute({
+        operation: 'embed',
+        store: 'test-store',
+        embeddingPriority: [{ provider: 'openrouter' }],
+        input: { texts: ['hello'] }
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Vector store not found');
+    });
+
+    test('executeStream(embed) yields error when vectorManager.getCompat returns null', async () => {
+      const registry = {
+        ...createMockRegistry(),
+        getVectorStoreCompat: jest.fn().mockResolvedValue(null)
+      };
+
+      const coordinator = new VectorStoreCoordinator(registry as any);
+
+      const events: any[] = [];
+      for await (const event of coordinator.executeStream({
+        operation: 'embed',
+        store: 'test-store',
+        embeddingPriority: [{ provider: 'openrouter' }],
+        input: { texts: ['hello'] }
+      })) {
+        events.push(event);
+      }
+
+      const errorEvent = events.find(e => e.type === 'error');
+      expect(errorEvent?.error).toContain('Vector store not found');
+    });
+
+    test('upsert returns error when vectorManager.getCompat returns null', async () => {
+      const registry = {
+        ...createMockRegistry(),
+        getVectorStoreCompat: jest.fn().mockResolvedValue(null)
+      };
+
+      const coordinator = new VectorStoreCoordinator(registry as any);
+
+      const result = await coordinator.execute({
+        operation: 'upsert',
+        store: 'test-store',
+        input: {
+          points: [{ id: 'doc1', vector: [0.1, 0.2], payload: { text: 'hi' } }]
+        }
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Vector store not found');
+    });
+
+    test('delete returns error when vectorManager.getCompat returns null', async () => {
+      const registry = {
+        ...createMockRegistry(),
+        getVectorStoreCompat: jest.fn().mockResolvedValue(null)
+      };
+
+      const coordinator = new VectorStoreCoordinator(registry as any);
+
+      const result = await coordinator.execute({
+        operation: 'delete',
+        store: 'test-store',
+        input: { ids: ['doc1'] }
       });
 
       expect(result.success).toBe(false);

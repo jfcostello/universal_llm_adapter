@@ -1,8 +1,8 @@
 import { jest } from '@jest/globals';
-import { PluginRegistry } from '@/core/registry.ts';
-import { AdapterLogger } from '@/core/logging.ts';
-import { LLMManager } from '@/managers/llm-manager.ts';
-import { LLMResponse } from '@/core/types.ts';
+import { PluginRegistry } from '@/modules/kernel/index.ts';
+import { AdapterLogger } from '@/modules/logging/index.ts';
+import { LLMManager } from '@/modules/llm/index.ts';
+import { LLMResponse } from '@/modules/kernel/index.ts';
 import { ROOT_DIR, resolveFixture } from '@tests/helpers/paths.ts';
 
 type PartialLLMManager = Pick<LLMManager, 'callProvider' | 'streamProvider'>;

@@ -2,7 +2,7 @@ import { jest } from '@jest/globals';
 import { EventEmitter } from 'events';
 
 const mockRequest = jest.fn();
-let ToolCoordinator: typeof import('@/utils/tools/tool-coordinator.ts').ToolCoordinator;
+let ToolCoordinator: typeof import('@/modules/tools/index.ts').ToolCoordinator;
 
 beforeAll(async () => {
   await (jest as any).unstable_mockModule('axios', () => ({
@@ -10,7 +10,7 @@ beforeAll(async () => {
     default: { request: mockRequest }
   }));
 
-  ({ ToolCoordinator } = await import('@/utils/tools/tool-coordinator.ts'));
+  ({ ToolCoordinator } = await import('@/modules/tools/index.ts'));
 });
 
 describe('utils/tools/tool-coordinator success paths', () => {
@@ -42,9 +42,44 @@ describe('utils/tools/tool-coordinator success paths', () => {
       method: 'POST',
       url: 'http://local/tool',
       headers: { 'x-test': '1' },
-      data: expect.objectContaining({ toolName: 'http.echo', callId: 'call-1' })
+      data: expect.objectContaining({ toolName: 'http.echo', callId: 'call-1' }),
+      signal: expect.any(AbortSignal)
     });
     expect(result).toEqual({ result: { echoed: 'http' } });
+  });
+
+  test('invokeHttp aborts axios request when tool timeout fires', async () => {
+    jest.useFakeTimers();
+
+    try {
+      let capturedSignal: AbortSignal | undefined;
+      mockRequest.mockImplementation(async (config: any) => {
+        capturedSignal = config.signal;
+        await new Promise(() => {});
+        return { data: { result: null } };
+      });
+
+      const httpRoute = {
+        id: 'http-timeout',
+        match: { type: 'prefix', pattern: 'http.' },
+        invoke: { kind: 'http', url: 'http://local/tool', method: 'POST' },
+        timeoutMs: 5
+      };
+
+      const coordinator = new ToolCoordinator([httpRoute as any]);
+      const promise = coordinator.routeAndInvoke('http.never', 'call-timeout', {}, { provider: 'p', model: 'm' });
+
+      const assertion = expect(promise).rejects.toThrow(
+        "Process route 'http-timeout' failed: Tool execution timeout after 0.005s"
+      );
+      await jest.advanceTimersByTimeAsync(10);
+
+      await assertion;
+      expect(capturedSignal).toBeDefined();
+      expect(capturedSignal?.aborted).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test('invokeMcp calls pool and wraps result', async () => {
@@ -170,7 +205,8 @@ describe('utils/tools/tool-coordinator success paths', () => {
       method: 'POST',
       url: 'http://local/tool',
       headers: {},
-      data: expect.objectContaining({ callId: 'call-4' })
+      data: expect.objectContaining({ callId: 'call-4' }),
+      signal: expect.any(AbortSignal)
     });
     expect(result).toEqual({ result: null });
   });

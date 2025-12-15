@@ -1,6 +1,6 @@
-import { prepareMessages, appendAssistantToolCalls, appendToolResult } from '@/utils/messages/message-utils.ts';
-import { Role } from '@/core/types.ts';
-import { trimConversationToBudget } from '@/utils/context/context-manager.ts';
+import { prepareMessages, appendAssistantToolCalls, appendToolResult } from '@/modules/messages/index.ts';
+import { Role } from '@/modules/kernel/index.ts';
+import { trimConversationToBudget } from '@/modules/context/index.ts';
 
 describe('integration/messages/message-processing', () => {
   test('prepareMessages normalizes system prompt and preserves existing history', () => {

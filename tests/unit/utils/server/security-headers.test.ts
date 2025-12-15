@@ -1,4 +1,4 @@
-import { applySecurityHeaders } from '@/utils/server/internal/security/security-headers.ts';
+import { applySecurityHeaders } from '@/modules/server/internal/security/security-headers.ts';
 
 describe('utils/server security headers', () => {
   function makeRes() {

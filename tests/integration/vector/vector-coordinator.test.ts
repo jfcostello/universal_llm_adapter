@@ -3,9 +3,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 // Type imports
-import type { VectorStoreCoordinator } from '@/coordinator/vector-coordinator.ts';
-import type { VectorCallSpec } from '@/core/vector-spec-types.ts';
-import type { PluginRegistry } from '@/core/registry.ts';
+import type { VectorStoreCoordinator } from '@/modules/vector/index.ts';
+import type { VectorCallSpec } from '@/modules/kernel/index.ts';
+import type { PluginRegistry } from '@/modules/kernel/index.ts';
 
 // Integration tests use real plugin loading with memory compat
 const __filename = fileURLToPath(import.meta.url);
@@ -20,8 +20,8 @@ describe('integration/vector/vector-coordinator', () => {
 
   beforeAll(async () => {
     try {
-      const coordinatorModule = await import('@/coordinator/vector-coordinator.ts');
-      const registryModule = await import('@/core/registry.ts');
+      const coordinatorModule = await import('@/modules/vector/index.ts');
+      const registryModule = await import('@/modules/kernel/index.ts');
       VectorStoreCoordinatorClass = coordinatorModule.VectorStoreCoordinator;
       PluginRegistryClass = registryModule.PluginRegistry;
     } catch {

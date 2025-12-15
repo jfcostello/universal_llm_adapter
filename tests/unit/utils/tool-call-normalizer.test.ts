@@ -1,5 +1,5 @@
-import { normalizeToolCalls } from '@/utils/tools/tool-call-normalizer.ts';
-import { ToolCall } from '@/core/types.ts';
+import { normalizeToolCalls } from '@/modules/tools/index.ts';
+import { ToolCall } from '@/modules/kernel/index.ts';
 
 describe('utils/tools/tool-call-normalizer', () => {
   test('mirrors arguments onto args alias when missing', () => {

@@ -1,6 +1,6 @@
 import { PassThrough, Writable } from 'stream';
 import { jest } from '@jest/globals';
-import { JSONRPCSession } from '@/mcp/mcp-client.ts';
+import { JSONRPCSession } from '@/modules/mcp/index.ts';
 
 describe('mcp/JSONRPCSession', () => {
   test('resolves and rejects pending requests based on responses', async () => {

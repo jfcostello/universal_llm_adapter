@@ -1,9 +1,9 @@
 import path from 'path';
 import { jest } from '@jest/globals';
-import { PluginRegistry } from '@/core/registry.ts';
-import { LLMCoordinator } from '@/coordinator/coordinator.ts';
-import { Role, LLMResponse, LLMCallSettings } from '@/core/types.ts';
-import { LLMManager } from '@/managers/llm-manager.ts';
+import { PluginRegistry } from '@/modules/kernel/index.ts';
+import { LLMCoordinator } from '@/modules/llm/index.ts';
+import { Role, LLMResponse, LLMCallSettings } from '@/modules/kernel/index.ts';
+import { LLMManager } from '@/modules/llm/index.ts';
 import { ROOT_DIR, resolveFixture } from '@tests/helpers/paths.ts';
 
 const specBase = {
@@ -46,7 +46,7 @@ describe('coordinator/coordinator integration', () => {
     jest.restoreAllMocks();
   });
 
-  async function createCoordinator(): Promise<LLMCoordinator> {
+  async function createCoordinator(options: { enableLogging?: boolean } = {}): Promise<LLMCoordinator> {
     const pluginsDir = resolveFixture('plugins', 'basic');
     const registry = new PluginRegistry(pluginsDir);
     await registry.loadAll();
@@ -54,7 +54,10 @@ describe('coordinator/coordinator integration', () => {
     processRoutes.forEach(route => {
       route.timeoutMs = 10;
     });
-    return new LLMCoordinator(registry);
+    const logging = options.enableLogging
+      ? (await import('@/modules/logging/index.ts')).createLoggingDeps()
+      : undefined;
+    return new LLMCoordinator(registry, logging ? { logging } : undefined);
   }
 
   test('runs tool call workflow and aggregates tool results', async () => {
@@ -278,7 +281,7 @@ describe('coordinator/coordinator integration', () => {
 
   describe('per-provider settings', () => {
     test('uses per-provider settings when specified', async () => {
-      const coordinator = await createCoordinator();
+      const coordinator = await createCoordinator({ enableLogging: true });
       const mockResponse: LLMResponse = {
         provider: 'test-openai',
         model: 'stub-model',
@@ -316,7 +319,7 @@ describe('coordinator/coordinator integration', () => {
     });
 
     test('uses global settings when no per-provider settings specified', async () => {
-      const coordinator = await createCoordinator();
+      const coordinator = await createCoordinator({ enableLogging: true });
       const mockResponse: LLMResponse = {
         provider: 'test-openai',
         model: 'stub-model',
@@ -353,7 +356,7 @@ describe('coordinator/coordinator integration', () => {
     });
 
     test('deep merges nested objects like reasoning', async () => {
-      const coordinator = await createCoordinator();
+      const coordinator = await createCoordinator({ enableLogging: true });
       const mockResponse: LLMResponse = {
         provider: 'test-openai',
         model: 'stub-model',
@@ -502,13 +505,13 @@ describe('coordinator/coordinator integration', () => {
   describe('vector context auto mode logging', () => {
     test('EmbeddingLogger.logEmbeddingRequest is called when using auto mode with embeddings', async () => {
       // Import logging module to spy on the logger
-      const loggingModule = await import('@/core/logging.ts');
+      const loggingModule = await import('@/modules/logging/index.ts');
       const { EmbeddingLogger } = loggingModule;
 
       // Spy on logEmbeddingRequest method
       const logEmbeddingRequestSpy = jest.spyOn(EmbeddingLogger.prototype, 'logEmbeddingRequest');
 
-      const coordinator = await createCoordinator();
+      const coordinator = await createCoordinator({ enableLogging: true });
 
       // Mock embedding provider
       const mockEmbeddingCompat = {

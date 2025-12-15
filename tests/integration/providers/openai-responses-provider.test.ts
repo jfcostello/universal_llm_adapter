@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
-import OpenAIResponsesCompat from '@/plugins/compat/openai-responses.ts';
-import { ToolCallEventType, Role } from '@/core/types.ts';
+import OpenAIResponsesCompat from '@/plugins/compat/openai-responses/index.ts';
+import { ToolCallEventType, Role } from '@/modules/kernel/index.ts';
 import {
   baseMessages,
   baseTools,

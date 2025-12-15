@@ -3,7 +3,7 @@ import {
   assertValidVectorSpec,
   assertValidEmbeddingSpec,
   resolveAjvConstructor
-} from '@/utils/server/internal/transport/spec-validator.ts';
+} from '@/modules/server/internal/transport/spec-validator.ts';
 
 describe('utils/server assertValidSpec', () => {
   test('accepts minimal valid spec', () => {

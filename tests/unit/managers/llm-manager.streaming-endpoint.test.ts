@@ -14,7 +14,7 @@ describe('unit/managers/llm-manager streaming endpoint selection', () => {
       })
     } as any;
 
-    const { LLMManager } = await import('@/managers/llm-manager.ts');
+    const { LLMManager } = await import('@/modules/llm/index.ts');
     const manager = new LLMManager(registry);
 
     const provider: any = {
@@ -77,7 +77,7 @@ describe('unit/managers/llm-manager streaming endpoint selection', () => {
       })
     } as any;
 
-    const { LLMManager } = await import('@/managers/llm-manager.ts');
+    const { LLMManager } = await import('@/modules/llm/index.ts');
     const manager = new LLMManager(registry);
 
     const provider: any = {
@@ -124,7 +124,7 @@ describe('unit/managers/llm-manager streaming endpoint selection', () => {
       })
     } as any;
 
-    const { LLMManager } = await import('@/managers/llm-manager.ts');
+    const { LLMManager } = await import('@/modules/llm/index.ts');
     const manager = new LLMManager(registry);
 
     const provider: any = {
@@ -167,7 +167,7 @@ describe('unit/managers/llm-manager streaming endpoint selection', () => {
       })
     } as any;
 
-    const { LLMManager } = await import('@/managers/llm-manager.ts');
+    const { LLMManager } = await import('@/modules/llm/index.ts');
     const manager = new LLMManager(registry);
     const { Readable } = await import('stream');
     const body = new Readable({ read() {} });
@@ -194,7 +194,7 @@ describe('unit/managers/llm-manager streaming endpoint selection', () => {
       })
     } as any;
 
-    const { LLMManager } = await import('@/managers/llm-manager.ts');
+    const { LLMManager } = await import('@/modules/llm/index.ts');
     const manager = new LLMManager(registry);
 
     const { Readable } = await import('stream');

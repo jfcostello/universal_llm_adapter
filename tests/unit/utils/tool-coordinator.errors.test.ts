@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import path from 'path';
-import { ToolCoordinator } from '@/utils/tools/tool-coordinator.ts';
+import { ToolCoordinator } from '@/modules/tools/index.ts';
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
 
 const rawModulePath = path.join(ROOT_DIR, 'tests/fixtures/modules/raw-return.mjs');
@@ -249,19 +249,22 @@ describe('ToolCoordinator edge cases', () => {
     await coordinator.routeAndInvoke('pref.tool', 'call', {}, { provider: 'p', model: 'm' });
     expect(invokeSpy).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: 'prefix-route' }),
-      expect.any(Object)
+      expect.any(Object),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
 
     await coordinator.routeAndInvoke('re5', 'call', {}, { provider: 'p', model: 'm' });
     expect(invokeSpy).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: 'regex-route' }),
-      expect.any(Object)
+      expect.any(Object),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
 
     await coordinator.routeAndInvoke('glob.match', 'call', {}, { provider: 'p', model: 'm' });
     expect(invokeSpy).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: 'glob-route' }),
-      expect.any(Object)
+      expect.any(Object),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
 
     invokeSpy.mockRestore();

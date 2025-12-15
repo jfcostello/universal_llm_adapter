@@ -1,9 +1,9 @@
 import { jest } from '@jest/globals';
-import OpenAICompat from '@/plugins/compat/openai.ts';
+import OpenAICompat from '@/plugins/compat/openai/index.ts';
 import {
   Role,
   ToolCallEventType
-} from '@/core/types.ts';
+} from '@/modules/kernel/index.ts';
 
 describe('compat/openai', () => {
   const compat = new OpenAICompat();

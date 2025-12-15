@@ -1,4 +1,4 @@
-import { partitionSettings, mergeRuntimeSettings, mergeProviderSettings } from '@/utils/settings/settings-partitioner.ts';
+import { partitionSettings, mergeRuntimeSettings, mergeProviderSettings } from '@/modules/settings/index.ts';
 
 describe('settings-partitioner', () => {
   test('separates runtime keys from provider settings', () => {

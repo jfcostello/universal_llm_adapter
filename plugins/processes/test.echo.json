@@ -6,7 +6,7 @@
   },
   "invoke": {
     "kind": "module",
-    "module": "./dist/plugins/modules/test-echo.js",
+    "module": "./dist/plugins/modules/test-echo/index.js",
     "function": "handle"
   },
   "timeoutMs": 5000

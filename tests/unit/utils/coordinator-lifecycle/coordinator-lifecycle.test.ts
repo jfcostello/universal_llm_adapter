@@ -1,9 +1,9 @@
 import { jest } from '@jest/globals';
-import type { PluginRegistryLike } from '@/utils/coordinator-lifecycle/index.ts';
+import type { PluginRegistryLike } from '@/modules/lifecycle/index.ts';
 import {
   runWithCoordinatorLifecycle,
   streamWithCoordinatorLifecycle
-} from '@/utils/coordinator-lifecycle/index.ts';
+} from '@/modules/lifecycle/index.ts';
 
 interface FakeSpec {
   foo: string;
@@ -163,6 +163,30 @@ describe('utils/coordinator-lifecycle streamWithCoordinatorLifecycle', () => {
   afterEach(() => {
     jest.restoreAllMocks();
     delete process.env.LLM_ADAPTER_BATCH_ID;
+  });
+
+  test('sets LLM_ADAPTER_BATCH_ID when batchId is provided', async () => {
+    const { deps } = createDeps();
+
+    async function* fakeStream() {
+      yield { type: 'one' };
+    }
+
+    const events: any[] = [];
+    for await (const ev of streamWithCoordinatorLifecycle<FakeSpec, any, any, any>({
+      spec: { foo: 'bar' },
+      batchId: 'batch-stream-1',
+      deps,
+      closeLoggerAfter: false,
+      stream: async function* () {
+        yield* fakeStream();
+      }
+    })) {
+      events.push(ev);
+    }
+
+    expect(events).toEqual([{ type: 'one' }]);
+    expect(process.env.LLM_ADAPTER_BATCH_ID).toBe('batch-stream-1');
   });
 
   test('streams events and cleans up after completion', async () => {

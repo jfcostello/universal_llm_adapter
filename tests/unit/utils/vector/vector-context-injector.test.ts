@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { Message, Role, VectorContextConfig, EmbeddingPriorityItem } from '@/core/types.ts';
+import { Message, Role, VectorContextConfig, EmbeddingPriorityItem } from '@/modules/kernel/index.ts';
 
 // Module imports - will exist after implementation
 let VectorContextInjector: any;
@@ -43,7 +43,8 @@ function createMockRegistry(options: {
         id: 'test-store',
         kind: 'memory',
         connection: {},
-        defaultCollection: 'test'
+        defaultCollection: 'test',
+        defaultEmbeddingPriority: [{ provider: 'test-embeddings' }]
       }
     ),
     getVectorStoreCompat: jest.fn().mockResolvedValue(
@@ -69,7 +70,7 @@ function createMessages(texts: string[]): Message[] {
 describe('utils/vector/vector-context-injector', () => {
   beforeAll(async () => {
     try {
-      const module = await import('@/utils/vector/vector-context-injector.ts');
+      const module = await import('@/modules/vector/index.ts');
       VectorContextInjector = module.VectorContextInjector;
     } catch {
       // Module doesn't exist yet - mock for TDD
@@ -1227,7 +1228,7 @@ describe('utils/vector/vector-context-injector', () => {
 
       // Store config without defaultCollection
       const registry = createMockRegistry({
-        vectorStore: { id: 'test-store', kind: 'memory' }, // No defaultCollection
+        vectorStore: { id: 'test-store', kind: 'memory', defaultEmbeddingPriority: [{ provider: 'test-embeddings' }] }, // No defaultCollection
         vectorCompat,
         embeddingCompat
       });

@@ -1,6 +1,6 @@
-import { pruneToolResults, pruneReasoning } from '@/utils/context/context-manager.ts';
-import { Message, Role } from '@/core/types.ts';
-import { estimateMessageTokens, calculateConversationTokens, trimConversationToBudget } from '@/utils/context/context-manager.ts';
+import { pruneToolResults, pruneReasoning } from '@/modules/context/index.ts';
+import { Message, Role } from '@/modules/kernel/index.ts';
+import { estimateMessageTokens, calculateConversationTokens, trimConversationToBudget } from '@/modules/context/index.ts';
 
 describe('integration/context/context-management', () => {
   function buildToolCycle(id: number, reasoning?: string): Message[] {
