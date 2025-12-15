@@ -75,7 +75,7 @@ export class LLMManager {
       // Log raw request for live tests
       if (process.env.LLM_LIVE === '1') {
         try {
-          const { logRequest } = await import('../../../tests/live/test-logger.js');
+          const { logRequest } = await import('./live-test-logger.js');
           logRequest({
             url: `SDK:${provider.id}/${model}`,
             method: 'SDK_CALL',
@@ -83,7 +83,7 @@ export class LLMManager {
             body: { model, messages: normalizedMessages, tools, toolChoice, settings, providerExtras }
           }, context.metadata);
         } catch (e) {
-          // Test logger not available, skip
+          // Live logger not available, skip
         }
       }
 
@@ -105,7 +105,7 @@ export class LLMManager {
         // Log raw response for live tests
         if (process.env.LLM_LIVE === '1') {
           try {
-            const { logResponse } = await import('../../../tests/live/test-logger.js');
+            const { logResponse } = await import('./live-test-logger.js');
             logResponse({
               status: 200,
               statusText: 'SDK_SUCCESS',
@@ -113,7 +113,7 @@ export class LLMManager {
               body: response
             }, context.metadata);
           } catch (e) {
-            // Test logger not available, skip
+            // Live logger not available, skip
           }
         }
 
@@ -171,7 +171,7 @@ export class LLMManager {
         // Log raw request for live tests (always on when LLM_LIVE=1)
         if (process.env.LLM_LIVE === '1') {
           try {
-            const { logRequest } = await import('../../../tests/live/test-logger.js');
+            const { logRequest } = await import('./live-test-logger.js');
             logRequest(
               {
                 url,
@@ -182,7 +182,7 @@ export class LLMManager {
               context.metadata
             );
           } catch (e) {
-            // Test logger not available, skip
+            // Live logger not available, skip
           }
         }
 
@@ -209,7 +209,7 @@ export class LLMManager {
       // Log raw response for live tests (always on when LLM_LIVE=1)
       if (process.env.LLM_LIVE === '1') {
         try {
-          const { logResponse } = await import('../../../tests/live/test-logger.js');
+          const { logResponse } = await import('./live-test-logger.js');
           logResponse({
             status: response.status,
             statusText: response.statusText,
@@ -217,7 +217,7 @@ export class LLMManager {
             body: response.data
           }, context.metadata);
         } catch (e) {
-          // Test logger not available, skip
+          // Live logger not available, skip
         }
       }
 
@@ -247,7 +247,7 @@ export class LLMManager {
 
           if (process.env.LLM_LIVE === '1') {
             try {
-              const { logResponse } = await import('../../../tests/live/test-logger.js');
+              const { logResponse } = await import('./live-test-logger.js');
               logResponse(
                 {
                   status: response.status,
@@ -258,7 +258,7 @@ export class LLMManager {
                 context.metadata
               );
             } catch (e) {
-              // Test logger not available, skip
+              // Live logger not available, skip
             }
           }
         }
@@ -325,7 +325,7 @@ export class LLMManager {
       // Log raw request for live tests
       if (process.env.LLM_LIVE === '1') {
         try {
-          const { logRequest } = await import('../../../tests/live/test-logger.js');
+          const { logRequest } = await import('./live-test-logger.js');
           logRequest({
             url: `SDK:${provider.id}/${model}`,
             method: 'SDK_STREAM',
@@ -333,7 +333,7 @@ export class LLMManager {
             body: { model, messages: normalizedMessages, tools, toolChoice, settings, providerExtras }
           }, context.metadata);
         } catch (e) {
-          // test-logger not available (not in test environment), skip logging
+          // live-test logger not available, skip logging
         }
       }
 
@@ -351,7 +351,7 @@ export class LLMManager {
         // Log the complete streamed response for live tests
         if (shouldLogLive) {
           try {
-            const { logResponse } = await import('../../../tests/live/test-logger.js');
+            const { logResponse } = await import('./live-test-logger.js');
             logResponse({
               status: 200,
               statusText: 'SDK_SUCCESS',
@@ -359,7 +359,7 @@ export class LLMManager {
               body: { chunks: streamedChunks, totalChunks: streamedChunks.length }
             }, context.metadata);
           } catch (e) {
-            // test-logger not available (not in test environment), skip logging
+            // live-test logger not available, skip logging
           }
         }
 
@@ -403,7 +403,7 @@ export class LLMManager {
     // Log raw request for live tests (always on when LLM_LIVE=1)
     if (process.env.LLM_LIVE === '1') {
       try {
-        const { logRequest } = await import('../../../tests/live/test-logger.js');
+        const { logRequest } = await import('./live-test-logger.js');
         logRequest({
           url,
           method: provider.endpoint.method,
@@ -411,7 +411,7 @@ export class LLMManager {
           body: finalPayload
         }, context.metadata);
       } catch (e) {
-        // test-logger not available (not in test environment), skip logging
+        // live-test logger not available, skip logging
       }
     }
 
@@ -457,6 +457,7 @@ export class LLMManager {
 
     let buffer = '';
     let chunkCount = 0;
+    let pendingData = '';
 
     for await (const chunk of response.data) {
       chunkCount++;
@@ -466,20 +467,54 @@ export class LLMManager {
       buffer = lines.pop() || '';
 
       for (const line of lines) {
-        if (!line.trim() || line === ':') continue;
+        const trimmed = line.trim();
+        if (!trimmed) {
+          // SSE event boundary; drop any partial data accumulation.
+          pendingData = '';
+          continue;
+        }
 
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === '[DONE]') continue;
+        // SSE comments / keepalive lines
+        if (trimmed.startsWith(':')) {
+          continue;
+        }
+
+        if (trimmed.startsWith('data:')) {
+          const data = trimmed.slice(5).trimStart();
+          if (data === '[DONE]') {
+            pendingData = '';
+            continue;
+          }
 
           try {
             const parsed = JSON.parse(data);
             if (shouldLogLive) {
               streamedChunks.push(parsed);
             }
+            pendingData = '';
             yield parsed;
           } catch (e) {
-            // Invalid JSON, skip
+            // Try to recover from JSON split across multiple data lines.
+            if (pendingData) {
+              const combined = `${pendingData}\n${data}`;
+              try {
+                const parsed = JSON.parse(combined);
+                if (shouldLogLive) {
+                  streamedChunks.push(parsed);
+                }
+                pendingData = '';
+                yield parsed;
+                continue;
+              } catch {
+                // Fall through and continue accumulating.
+              }
+            }
+
+            // Keep any partial payload, but avoid unbounded growth.
+            pendingData = pendingData ? `${pendingData}\n${data}` : data;
+            if (pendingData.length > 1024 * 1024) {
+              pendingData = '';
+            }
           }
         }
       }
@@ -488,7 +523,7 @@ export class LLMManager {
     // Log the complete streamed response for live tests
     if (shouldLogLive) {
       try {
-        const { logResponse } = await import('../../../tests/live/test-logger.js');
+        const { logResponse } = await import('./live-test-logger.js');
         logResponse({
           status: response.status,
           statusText: response.statusText,
@@ -496,7 +531,7 @@ export class LLMManager {
           body: { chunks: streamedChunks, totalChunks: streamedChunks.length }
         }, context.metadata);
       } catch (e) {
-        // test-logger not available (not in test environment), skip logging
+        // live-test logger not available, skip logging
       }
     }
   }

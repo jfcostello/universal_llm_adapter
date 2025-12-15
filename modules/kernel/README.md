@@ -36,4 +36,10 @@ import {
   getDefaults,
   ManifestError
 } from '@/modules/kernel/index.ts';
+
+// Lazy by default (manifests + plugin code loaded on demand)
+const registry = new PluginRegistry('./plugins');
+
+// Optional fail-fast validation for long-lived processes
+await registry.validateAll();
 ```

@@ -321,6 +321,34 @@ describe('utils/messages/message-utils', () => {
     ]);
   });
 
+  test('appendToolResult handles circular and undefined results safely', () => {
+    const messages: any[] = [];
+
+    const circular: any = {};
+    circular.self = circular;
+
+    expect(() =>
+      appendToolResult(messages, {
+        toolName: 'circular',
+        callId: 'call-circ',
+        result: circular
+      })
+    ).not.toThrow();
+
+    expect(messages[0].content[0]).toEqual({ type: 'text', text: '[object Object]' });
+
+    const messages2: any[] = [];
+    expect(() =>
+      appendToolResult(messages2, {
+        toolName: 'undef',
+        callId: 'call-undef',
+        result: undefined
+      } as any)
+    ).not.toThrow();
+
+    expect(messages2[0].content[0]).toEqual({ type: 'text', text: '' });
+  });
+
   test('extractToolResultFromMessage returns null for non-tool messages', () => {
     const extracted = extractToolResultFromMessage({
       role: Role.USER,

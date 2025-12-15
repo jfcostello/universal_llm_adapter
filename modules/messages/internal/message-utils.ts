@@ -204,6 +204,19 @@ export interface AppendToolResultOptions {
   maxLength?: number | null;
 }
 
+function safeStringifyContent(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  try {
+    const json = JSON.stringify(value);
+    return json === undefined ? '' : json;
+  } catch {
+    return String(value);
+  }
+}
+
 export function appendToolResult(
   messages: Message[],
   payload: ToolResultPayload,
@@ -213,9 +226,7 @@ export function appendToolResult(
   const resultText =
     payload.resultText !== undefined
       ? payload.resultText
-      : typeof result === 'string'
-        ? result
-        : JSON.stringify(result);
+      : safeStringifyContent(result);
 
   let finalText = resultText;
   let truncated = false;
@@ -269,12 +280,7 @@ export interface ExtractedToolResult {
 }
 
 function stringifyToolResult(value: unknown): string {
-  try {
-    const json = JSON.stringify(value);
-    return json === undefined ? '' : json;
-  } catch {
-    return String(value);
-  }
+  return safeStringifyContent(value);
 }
 
 function toolResultValueToText(value: unknown): string {

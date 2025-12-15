@@ -244,6 +244,84 @@ describe('modules/llm/internal/payload/provider-payload-utils', () => {
     expect(remaining).toEqual({ untouched: 'value' });
   });
 
+  test('treats undefined extension values as missing (no throw, no apply)', () => {
+    const provider = {
+      id: 'provider-any',
+      payloadExtensions: [
+        {
+          name: 'any-extension',
+          settingsKey: 'anyOption',
+          targetPath: ['extra', 'any'],
+          valueType: 'any'
+        }
+      ]
+    };
+
+    const payload = { extra: { base: true } };
+    const [result, remaining] = applyProviderPayloadExtensions(provider as any, payload, {
+      anyOption: undefined,
+      untouched: 'value'
+    });
+
+    expect(result).toBe(payload);
+    expect(result.extra.any).toBeUndefined();
+    expect(remaining).toEqual({ untouched: 'value' });
+  });
+
+  test('throws ProviderPayloadError for non-JSON-serializable extension values', () => {
+    const provider = {
+      id: 'provider-any',
+      payloadExtensions: [
+        {
+          name: 'any-extension',
+          settingsKey: 'anyOption',
+          targetPath: ['extra', 'any'],
+          valueType: 'any'
+        }
+      ]
+    };
+
+    expect(() =>
+      applyProviderPayloadExtensions(provider as any, {}, { anyOption: 1n as any })
+    ).toThrow(ProviderPayloadError);
+  });
+
+  test('throws ProviderPayloadError when JSON.stringify returns undefined (e.g. function values)', () => {
+    const provider = {
+      id: 'provider-any',
+      payloadExtensions: [
+        {
+          name: 'any-extension',
+          settingsKey: 'anyOption',
+          targetPath: ['extra', 'any'],
+          valueType: 'any'
+        }
+      ]
+    };
+
+    expect(() =>
+      applyProviderPayloadExtensions(provider as any, {}, { anyOption: () => 'nope' })
+    ).toThrow(ProviderPayloadError);
+  });
+
+  test('deep merges allow undefined leaf values (treated as JSON-omitted)', () => {
+    const provider = {
+      id: 'provider-undef-leaf',
+      payloadExtensions: [
+        {
+          name: 'nested-object',
+          settingsKey: 'nested',
+          targetPath: ['extra', 'nested'],
+          valueType: 'object',
+          default: { a: 1, b: 2 }
+        }
+      ]
+    };
+
+    const [result] = applyProviderPayloadExtensions(provider as any, {}, { nested: { a: undefined } });
+    expect(result.extra.nested).toEqual({ a: undefined, b: 2 });
+  });
+
   test('applyProviderPayloadExtensions does not mutate original payload', () => {
     const payload = { extra: { base: true } };
     const clone = JSON.parse(JSON.stringify(payload));
