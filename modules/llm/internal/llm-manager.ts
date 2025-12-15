@@ -9,6 +9,7 @@ import type {
   AdapterLogger
 } from '../../kernel/index.js';
 import { ProviderExecutionError, getDefaults } from '../../kernel/index.js';
+import { aggregateSystemMessages } from '../../messages/index.js';
 import { buildFinalPayload } from './payload/payload-builder.js';
 
 export class LLMManager {
@@ -32,6 +33,7 @@ export class LLMManager {
     logger?: AdapterLogger,
     context: any = {}
   ): Promise<LLMResponse> {
+    const normalizedMessages = aggregateSystemMessages(messages);
     const compat = await this.registry.getCompatModule(provider.compat);
 
     // SDK-based providers: if compat has callSDK method, use it instead of HTTP
@@ -64,7 +66,7 @@ export class LLMManager {
           url: `SDK:${provider.id}/${model}`,
           method: 'SDK_CALL',
           headers: {},
-          body: { model, messages, tools, toolChoice, settings, providerExtras }
+          body: { model, messages: normalizedMessages, tools, toolChoice, settings, providerExtras }
         });
       }
 
@@ -76,7 +78,7 @@ export class LLMManager {
             url: `SDK:${provider.id}/${model}`,
             method: 'SDK_CALL',
             headers: {},
-            body: { model, messages, tools, toolChoice, settings, providerExtras }
+            body: { model, messages: normalizedMessages, tools, toolChoice, settings, providerExtras }
           }, context.metadata);
         } catch (e) {
           // Test logger not available, skip
@@ -84,7 +86,7 @@ export class LLMManager {
       }
 
       try {
-        const response = await compat.callSDK(model, settings, messages, tools, toolChoice, logger, provider.endpoint.headers);
+        const response = await compat.callSDK(model, settings, normalizedMessages, tools, toolChoice, logger, provider.endpoint.headers);
         response.toolCalls = await this.normalizeToolCallsIfPresent(response.toolCalls);
         response.provider = provider.id;
 
@@ -128,7 +130,7 @@ export class LLMManager {
       compat,
       model,
       settings,
-      messages,
+      messages: normalizedMessages,
       tools,
       toolChoice,
       providerExtras
@@ -250,6 +252,7 @@ export class LLMManager {
     logger?: AdapterLogger,
     context: any = {}
   ): AsyncGenerator<any> {
+    const normalizedMessages = aggregateSystemMessages(messages);
     const compat = await this.registry.getCompatModule(provider.compat);
 
     logger?.info('streamProvider called', { provider: provider.id, model, messagesCount: messages.length });
@@ -268,7 +271,7 @@ export class LLMManager {
             url: `SDK:${provider.id}/${model}`,
             method: 'SDK_STREAM',
             headers: {},
-            body: { model, messages, tools, toolChoice, settings, providerExtras }
+            body: { model, messages: normalizedMessages, tools, toolChoice, settings, providerExtras }
           }, context.metadata);
         } catch (e) {
           // test-logger not available (not in test environment), skip logging
@@ -279,7 +282,7 @@ export class LLMManager {
       const shouldLogLive = process.env.LLM_LIVE === '1';
 
       try {
-        for await (const chunk of compat.streamSDK(model, settings, messages, tools, toolChoice, logger, provider.endpoint.headers)) {
+        for await (const chunk of compat.streamSDK(model, settings, normalizedMessages, tools, toolChoice, logger, provider.endpoint.headers)) {
           if (shouldLogLive) {
             streamedChunks.push(chunk);
           }
@@ -316,7 +319,7 @@ export class LLMManager {
       compat,
       model,
       settings,
-      messages,
+      messages: normalizedMessages,
       tools,
       toolChoice,
       providerExtras,

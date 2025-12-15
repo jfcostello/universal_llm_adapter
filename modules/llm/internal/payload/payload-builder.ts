@@ -6,7 +6,6 @@ import type {
   ToolChoice,
   UnifiedTool
 } from '../../../kernel/index.js';
-import { aggregateSystemMessages } from '../../../messages/index.js';
 import { applyProviderPayloadExtensions } from './provider-payload-utils.js';
 
 export interface BuildPayloadOptions {
@@ -37,9 +36,7 @@ export function buildFinalPayload({
   providerExtras = {},
   streaming = false
 }: BuildPayloadOptions): BuildPayloadResult {
-  const normalizedMessages = aggregateSystemMessages(messages);
-
-  let payload = compat.buildPayload(model, settings, normalizedMessages, tools, toolChoice);
+  let payload = compat.buildPayload(model, settings, messages, tools, toolChoice);
 
   if (streaming) {
     payload = {
@@ -89,4 +86,3 @@ export function buildFinalPayload({
     unconsumedExtras
   };
 }
-
