@@ -26,6 +26,7 @@ modules/kernel/
     embedding-spec-types.ts
     vector-spec-types.ts
     paths.ts
+    safe-data.ts
 ```
 
 ## Usage
@@ -36,4 +37,3 @@ import {
   ManifestError
 } from '@/modules/kernel/index.ts';
 ```
-
