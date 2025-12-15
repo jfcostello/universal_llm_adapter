@@ -18,3 +18,6 @@ export function genericRedactHeaders(headers: Record<string, any>): Record<strin
   return redacted;
 }
 
+export function redactUrlCredentials(url: string): string {
+  return url.replace(/\/\/[^:]+:[^@]+@/, '//***:***@');
+}
