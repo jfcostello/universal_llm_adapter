@@ -8,6 +8,18 @@ import {
   IVectorOperationLogger,
   VectorStoreError
 } from '../../../../modules/kernel/index.js';
+import { queryCollection } from './query.js';
+import {
+  clearCollections,
+  collectionExists as collectionExistsInStore,
+  createCollection as createCollectionInStore,
+  deleteCollection as deleteCollectionInStore,
+  deletePointsByIds,
+  getCollection,
+  getCollectionPoints as getCollectionPointsFromStore,
+  listCollections as listCollectionsInStore,
+  upsertPoints
+} from './store.js';
 
 /**
  * In-Memory Vector Store Compat Module
@@ -32,7 +44,7 @@ export default class MemoryCompat implements IVectorStoreCompat {
   }
 
   async close(): Promise<void> {
-    this.collections.clear();
+    clearCollections(this.collections);
     this.connected = false;
     this.config = null;
   }
@@ -45,63 +57,27 @@ export default class MemoryCompat implements IVectorStoreCompat {
   ): Promise<VectorQueryResult[]> {
     this.requireConnected();
 
-    const coll = this.collections.get(collection);
+    const coll = getCollection(this.collections, collection);
     if (!coll || coll.size === 0) {
       return [];
     }
 
-    // Calculate similarity scores for all points
-    const scored: Array<{ id: string; score: number; point: VectorPoint }> = [];
-
-    for (const [id, point] of coll.entries()) {
-      // Apply filter if provided
-      if (options?.filter && !this.matchesFilter(point.payload, options.filter)) {
-        continue;
-      }
-
-      const score = this.cosineSimilarity(vector, point.vector);
-      scored.push({ id, score, point });
-    }
-
-    // Sort by score descending and take topK
-    scored.sort((a, b) => b.score - a.score);
-    const topResults = scored.slice(0, topK);
-
-    return topResults.map(item => ({
-      id: item.id,
-      score: item.score,
-      payload: options?.includePayload !== false ? item.point.payload : undefined,
-      vector: options?.includeVector ? item.point.vector : undefined
-    }));
+    return queryCollection(coll, vector, topK, options);
   }
 
   async upsert(collection: string, points: VectorPoint[]): Promise<void> {
     this.requireConnected();
-
-    if (!this.collections.has(collection)) {
-      this.collections.set(collection, new Map());
-    }
-
-    const coll = this.collections.get(collection)!;
-    for (const point of points) {
-      coll.set(point.id, { ...point });
-    }
+    upsertPoints(this.collections, collection, points);
   }
 
   async deleteByIds(collection: string, ids: string[]): Promise<void> {
     this.requireConnected();
-
-    const coll = this.collections.get(collection);
-    if (!coll) return;
-
-    for (const id of ids) {
-      coll.delete(id);
-    }
+    deletePointsByIds(this.collections, collection, ids);
   }
 
   async collectionExists(collection: string): Promise<boolean> {
     this.requireConnected();
-    return this.collections.has(collection);
+    return collectionExistsInStore(this.collections, collection);
   }
 
   async createCollection(
@@ -110,60 +86,17 @@ export default class MemoryCompat implements IVectorStoreCompat {
     _options?: JsonObject
   ): Promise<void> {
     this.requireConnected();
-
-    if (!this.collections.has(collection)) {
-      this.collections.set(collection, new Map());
-    }
+    createCollectionInStore(this.collections, collection);
   }
 
   async deleteCollection(collection: string): Promise<void> {
     this.requireConnected();
-    this.collections.delete(collection);
+    deleteCollectionInStore(this.collections, collection);
   }
 
   async listCollections(): Promise<string[]> {
     this.requireConnected();
-    return Array.from(this.collections.keys());
-  }
-
-  /**
-   * Calculate cosine similarity between two vectors
-   */
-  private cosineSimilarity(a: number[], b: number[]): number {
-    if (a.length !== b.length) {
-      return 0;
-    }
-
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
-
-    for (let i = 0; i < a.length; i++) {
-      dotProduct += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
-    }
-
-    if (normA === 0 || normB === 0) {
-      return 0;
-    }
-
-    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
-  }
-
-  /**
-   * Check if payload matches filter conditions
-   */
-  private matchesFilter(payload: JsonObject | undefined, filter: JsonObject): boolean {
-    if (!payload) return false;
-
-    for (const [key, value] of Object.entries(filter)) {
-      if (payload[key] !== value) {
-        return false;
-      }
-    }
-
-    return true;
+    return listCollectionsInStore(this.collections);
   }
 
   private requireConnected(): void {
@@ -176,15 +109,13 @@ export default class MemoryCompat implements IVectorStoreCompat {
    * Utility method for tests - get all points in a collection
    */
   getCollectionPoints(collection: string): VectorPoint[] {
-    const coll = this.collections.get(collection);
-    if (!coll) return [];
-    return Array.from(coll.values());
+    return getCollectionPointsFromStore(this.collections, collection);
   }
 
   /**
    * Utility method for tests - clear all data
    */
   clear(): void {
-    this.collections.clear();
+    clearCollections(this.collections);
   }
 }
