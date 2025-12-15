@@ -7,7 +7,7 @@
  *
  * Each compat has a different format:
  * - OpenAI: { reasoning: { enabled, effort, max_tokens, exclude } }
- * - OpenAI Responses: SDK-only, needs reasoning support added
+ * - OpenAI Responses: { reasoning: { effort } }
  * - Anthropic: { thinking: { type: 'enabled', budget_tokens } }
  * - Google: { thinkingConfig: { thinkingBudget } } (via SDK)
  */
@@ -78,8 +78,6 @@ describe('integration/plugins/compat/reasoning-serialization', () => {
   });
 
   describe('OpenAI Responses Compat - reasoning serialization', () => {
-    // OpenAI Responses compat is SDK-only (buildPayload throws).
-    // Reasoning is serialized via the private serializeSettings() method.
     // OpenAI Responses API uses { reasoning: { effort: 'high' | 'medium' | 'low' | 'minimal' } }
 
     let compat: OpenAIResponsesCompat;
@@ -88,9 +86,17 @@ describe('integration/plugins/compat/reasoning-serialization', () => {
       compat = new OpenAIResponsesCompat();
     });
 
-    test('buildPayload throws error (OpenAI Responses uses SDK methods)', () => {
-      expect(() => compat.buildPayload('o1', {}, baseMessages, [], undefined))
-        .toThrow('OpenAI Responses compat is SDK-only');
+    test('buildPayload includes reasoning.effort when provided', () => {
+      const payload = compat.buildPayload(
+        'o1',
+        { reasoning: { effort: 'high' as const } },
+        baseMessages,
+        [],
+        undefined
+      );
+
+      expect(payload.reasoning).toBeDefined();
+      expect(payload.reasoning.effort).toBe('high');
     });
 
     test('serializes reasoning.effort: "high" to { reasoning: { effort: "high" } }', () => {
@@ -244,35 +250,37 @@ describe('integration/plugins/compat/reasoning-serialization', () => {
   describe('Cross-compat consistency', () => {
     test('HTTP-based compats handle undefined reasoning without errors', () => {
       const openai = new OpenAICompat();
+      const openaiResponses = new OpenAIResponsesCompat();
       const anthropic = new AnthropicCompat();
 
       expect(() => openai.buildPayload('gpt-4', {}, baseMessages, [], undefined)).not.toThrow();
+      expect(() => openaiResponses.buildPayload('o1', {}, baseMessages, [], undefined)).not.toThrow();
       expect(() => anthropic.buildPayload('claude-3', {}, baseMessages, [], undefined)).not.toThrow();
-      // Google and OpenAI Responses use SDK methods, so buildPayload throws - tested separately
+      // Google uses SDK methods, so buildPayload throws - tested separately
     });
 
     test('HTTP-based compats handle reasoning.enabled = false without errors', () => {
       const openai = new OpenAICompat();
+      const openaiResponses = new OpenAIResponsesCompat();
       const anthropic = new AnthropicCompat();
       const settings = { reasoning: { enabled: false } };
 
       expect(() => openai.buildPayload('gpt-4', settings, baseMessages, [], undefined)).not.toThrow();
+      expect(() => openaiResponses.buildPayload('o1', settings, baseMessages, [], undefined)).not.toThrow();
       expect(() => anthropic.buildPayload('claude-3', settings, baseMessages, [], undefined)).not.toThrow();
-      // Google and OpenAI Responses use SDK methods, so buildPayload throws - tested separately
+      // Google uses SDK methods, so buildPayload throws - tested separately
     });
 
     test('SDK-based compats throw on buildPayload (they use SDK methods instead)', () => {
       const google = new GoogleCompat();
-      const openaiResponses = new OpenAIResponsesCompat();
 
       expect(() => google.buildPayload('gemini-pro', {}, baseMessages, [], undefined)).toThrow();
-      expect(() => openaiResponses.buildPayload('o1', {}, baseMessages, [], undefined)).toThrow();
     });
 
     test('All compats are accounted for in this test suite', () => {
       // This test documents all 4 compats and verifies we have tests for each:
       // 1. OpenAI - HTTP-based, reasoning serialization tested above
-      // 2. OpenAI Responses - SDK-based, reasoning support TODO documented
+      // 2. OpenAI Responses - HTTP-based, reasoning serialization tested above
       // 3. Anthropic - HTTP-based, thinking serialization tested above
       // 4. Google - SDK-based, thinkingConfig serialization via SDK
       //

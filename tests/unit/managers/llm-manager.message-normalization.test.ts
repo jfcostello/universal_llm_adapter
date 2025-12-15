@@ -14,8 +14,18 @@ describe('LLMManager message normalization', () => {
 
     const expected = aggregateSystemMessages(messages as any);
 
-    const provider: any = {
-      id: 'test-provider',
+    const providerSdk: any = {
+      id: 'test-provider-sdk',
+      compat: 'test-compat',
+      endpoint: {
+        urlTemplate: 'SDK_BASED_NOT_USED',
+        method: 'POST',
+        headers: {}
+      }
+    };
+
+    const providerHttp: any = {
+      id: 'test-provider-http',
       compat: 'test-compat',
       endpoint: {
         urlTemplate: 'http://service/{model}',
@@ -33,7 +43,7 @@ describe('LLMManager message normalization', () => {
     } as any;
 
     const sdkManager = new LLMManager(sdkRegistry);
-    await sdkManager.callProvider(provider, 'model-x', {}, messages as any, []);
+    await sdkManager.callProvider(providerSdk, 'model-x', {}, messages as any, []);
 
     expect(sdkCompat.callSDK).toHaveBeenCalled();
     expect(sdkCompat.callSDK.mock.calls[0][2]).toEqual(expected);
@@ -55,7 +65,7 @@ describe('LLMManager message normalization', () => {
       request: jest.fn().mockResolvedValue({ status: 200, statusText: 'OK', headers: {}, data: {} })
     };
 
-    await httpManager.callProvider(provider, 'model-x', {}, messages as any, []);
+    await httpManager.callProvider(providerHttp, 'model-x', {}, messages as any, []);
 
     expect(httpCompat.buildPayload).toHaveBeenCalled();
     expect(httpCompat.buildPayload.mock.calls[0][2]).toEqual(expected);
@@ -70,8 +80,18 @@ describe('LLMManager message normalization', () => {
 
     const expected = aggregateSystemMessages(messages as any);
 
-    const provider: any = {
-      id: 'test-provider',
+    const providerSdk: any = {
+      id: 'test-provider-sdk',
+      compat: 'test-compat',
+      endpoint: {
+        urlTemplate: 'SDK_BASED_NOT_USED',
+        method: 'POST',
+        headers: {}
+      }
+    };
+
+    const providerHttp: any = {
+      id: 'test-provider-http',
       compat: 'test-compat',
       endpoint: {
         urlTemplate: 'http://service/{model}',
@@ -93,7 +113,7 @@ describe('LLMManager message normalization', () => {
     } as any;
 
     const sdkManager = new LLMManager(sdkRegistry);
-    const sdkIterator = sdkManager.streamProvider(provider, 'model-x', {}, messages as any, []);
+    const sdkIterator = sdkManager.streamProvider(providerSdk, 'model-x', {}, messages as any, []);
     await sdkIterator.next();
 
     expect(sdkCompat.streamSDK).toHaveBeenCalled();
@@ -124,11 +144,10 @@ describe('LLMManager message normalization', () => {
       })
     };
 
-    const httpIterator = httpManager.streamProvider(provider, 'model-x', {}, messages as any, []);
+    const httpIterator = httpManager.streamProvider(providerHttp, 'model-x', {}, messages as any, []);
     await httpIterator.next();
 
     expect(httpCompat.buildPayload).toHaveBeenCalled();
     expect(httpCompat.buildPayload.mock.calls[0][2]).toEqual(expected);
   });
 });
-

@@ -591,10 +591,10 @@ export default class OpenAIResponsesCompat implements ICompatModule {
   }
 
   /**
-   * Get streaming flags (empty for SDK-based)
+   * Get streaming flags for HTTP streaming
    */
   getStreamingFlags(): any {
-    return {};
+    return { stream: true };
   }
 
   /**
@@ -614,14 +614,20 @@ export default class OpenAIResponsesCompat implements ICompatModule {
   }
 
   /**
-   * HTTP methods throw errors (this is SDK-only compat)
+   * Build HTTP payload for Responses API
    */
-  buildPayload(): any {
-    throw new Error('OpenAI Responses compat is SDK-only. Use callSDK() instead of HTTP methods.');
+  buildPayload(
+    model: string,
+    settings: LLMCallSettings,
+    messages: Message[],
+    tools: UnifiedTool[],
+    toolChoice?: ToolChoice
+  ): any {
+    return this.buildSDKParams(model, settings, messages, tools, toolChoice);
   }
 
-  parseResponse(): LLMResponse {
-    throw new Error('OpenAI Responses compat is SDK-only. Use parseSDKResponse() instead of HTTP methods.');
+  parseResponse(raw: any, model: string): LLMResponse {
+    return this.parseSDKResponse(raw, model);
   }
 
   applyProviderExtensions(payload: any, _extensions: any): any {

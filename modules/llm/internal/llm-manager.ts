@@ -35,9 +35,10 @@ export class LLMManager {
   ): Promise<LLMResponse> {
     const normalizedMessages = aggregateSystemMessages(messages);
     const compat = await this.registry.getCompatModule(provider.compat);
+    const providerRequestsHttp = this.isHttpUrlTemplate(provider.endpoint?.urlTemplate);
 
     // SDK-based providers: if compat has callSDK method, use it instead of HTTP
-    if (typeof compat.callSDK === 'function') {
+    if (!providerRequestsHttp && typeof compat.callSDK === 'function') {
       if (logger) {
         logger.info('Using SDK-based compat', { provider: provider.id, model });
 
@@ -254,11 +255,14 @@ export class LLMManager {
   ): AsyncGenerator<any> {
     const normalizedMessages = aggregateSystemMessages(messages);
     const compat = await this.registry.getCompatModule(provider.compat);
+    const providerRequestsHttp = this.isHttpUrlTemplate(
+      provider.endpoint?.streamingUrlTemplate || provider.endpoint?.urlTemplate
+    );
 
     logger?.info('streamProvider called', { provider: provider.id, model, messagesCount: messages.length });
 
     // SDK-based providers: if compat has streamSDK method, use it instead of HTTP
-    if (typeof compat.streamSDK === 'function') {
+    if (!providerRequestsHttp && typeof compat.streamSDK === 'function') {
       if (logger) {
         logger.info('Using SDK-based streaming compat', { provider: provider.id, model });
       }
@@ -462,5 +466,13 @@ export class LLMManager {
     const combined = responseText + ' ' + headersText;
     
     return keywords.some(keyword => combined.includes(keyword));
+  }
+
+  private isHttpUrlTemplate(urlTemplate: unknown): boolean {
+    if (typeof urlTemplate !== 'string') {
+      return false;
+    }
+    const normalized = urlTemplate.trim().toLowerCase();
+    return normalized.startsWith('http://') || normalized.startsWith('https://');
   }
 }
