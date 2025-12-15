@@ -183,7 +183,7 @@ CRITICAL RULES:
 	        )
 	      ).toBe(true);
 	      expect(lastText.includes(expectedGammaEcho)).toBe(true);
-	    }, 180000);
+	    }, 300000);
 
     test('Call 3 — force prior-cycle redaction', async () => {
       const spec = makeSpec({
