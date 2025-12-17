@@ -57,7 +57,7 @@ describe('integration/vector/vector-coordinator', () => {
         operation: 'embed',
         store: 'memory', // Use in-memory store for testing
         collection: 'test-integration',
-        embeddingPriority: [{ provider: 'openrouter-embeddings' }],
+        embeddingPriority: [{ provider: 'test-embeddings' }],
         input: {
           chunks: [
             { id: 'doc1', text: 'Machine learning is a subset of artificial intelligence', metadata: { topic: 'ml' } },
@@ -75,7 +75,7 @@ describe('integration/vector/vector-coordinator', () => {
         operation: 'query',
         store: 'memory',
         collection: 'test-integration',
-        embeddingPriority: [{ provider: 'openrouter-embeddings' }],
+        embeddingPriority: [{ provider: 'test-embeddings' }],
         input: {
           query: 'What is deep learning?',
           topK: 2
@@ -100,7 +100,7 @@ describe('integration/vector/vector-coordinator', () => {
         operation: 'embed',
         store: 'memory',
         collection: 'test-filter',
-        embeddingPriority: [{ provider: 'openrouter-embeddings' }],
+        embeddingPriority: [{ provider: 'test-embeddings' }],
         input: {
           chunks: [
             { id: 'ml-1', text: 'Machine learning algorithms', metadata: { category: 'ml' } },
@@ -115,7 +115,7 @@ describe('integration/vector/vector-coordinator', () => {
         operation: 'query',
         store: 'memory',
         collection: 'test-filter',
-        embeddingPriority: [{ provider: 'openrouter-embeddings' }],
+        embeddingPriority: [{ provider: 'test-embeddings' }],
         input: {
           query: 'programming techniques',
           topK: 10,
@@ -140,7 +140,7 @@ describe('integration/vector/vector-coordinator', () => {
         operation: 'embed',
         store: 'memory',
         collection: 'test-delete',
-        embeddingPriority: [{ provider: 'openrouter-embeddings' }],
+        embeddingPriority: [{ provider: 'test-embeddings' }],
         input: {
           chunks: [
             { id: 'to-keep', text: 'Keep this document' },
@@ -265,7 +265,7 @@ describe('integration/vector/vector-coordinator', () => {
         operation: 'embed',
         store: 'memory',
         collection: 'test-batch',
-        embeddingPriority: [{ provider: 'openrouter-embeddings' }],
+        embeddingPriority: [{ provider: 'test-embeddings' }],
         input: { texts },
         settings: { batchSize: 5 }
       })) {
