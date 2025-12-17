@@ -52,6 +52,7 @@
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand --forceExit",
     "test:all": "tsx tests/live/run-all.ts",
     "test:live": "tsx tests/live/run-live.ts",
+    "test:live:realtime": "tsx tests/live/run-live.ts --testPathPattern=20-realtime",
     "test:live:anthropic": "tsx tests/live/run-live.ts anthropic",
     "test:live:openai": "tsx tests/live/run-live.ts openai-responses",
     "test:live:openrouter": "tsx tests/live/run-live.ts openrouter",
