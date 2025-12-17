@@ -10,6 +10,16 @@ async function startWsServer() {
   let socket: any | undefined;
   wss.on('connection', (ws: any) => {
     socket = ws;
+    ws.on('message', (data: any) => {
+      try {
+        const parsed = JSON.parse(data.toString());
+        if (parsed?.type === 'session.update') {
+          ws.send(JSON.stringify({ type: 'session.updated', session: { type: 'realtime' } }));
+        }
+      } catch {
+        // ignore
+      }
+    });
   });
 
   const address = wss.address();
@@ -52,4 +62,3 @@ describe('integration/realtime-compat/openai compat class', () => {
     }
   });
 });
-

@@ -1,5 +1,6 @@
 #!/usr/bin/env tsx
 import { spawn } from 'child_process';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -44,6 +45,8 @@ async function buildDistOnce(): Promise<void> {
 async function startLiveServer(options: {
   env: NodeJS.ProcessEnv;
   batchId: string;
+  enableRealtimeWs?: boolean;
+  enableAuth?: boolean;
 }): Promise<{ url: string; logPath: string; close: () => Promise<void> }> {
   const script = path.join(rootDir, 'dist', 'bin', 'cli.js');
   const logsDir = path.join(rootDir, 'tests', 'live', 'logs');
@@ -62,7 +65,9 @@ async function startLiveServer(options: {
       '--port',
       '0',
       '--plugins',
-      './plugins'
+      './plugins',
+      ...(options.enableAuth ? ['--auth-enabled'] : []),
+      ...(options.enableRealtimeWs ? ['--realtime-enabled'] : [])
     ],
     {
       cwd: rootDir,
@@ -148,6 +153,14 @@ async function startLiveServer(options: {
   return { url, logPath, close };
 }
 
+function isRealtimeSuite(passthrough: string[]): boolean {
+  return passthrough.some(arg => /20-realtime/i.test(String(arg)));
+}
+
+function generateTestApiKey(): string {
+  return `live_test_${crypto.randomBytes(24).toString('hex')}`;
+}
+
 async function main() {
   const { provider, maxWorkers, transport, passthrough } = parseLaunchConfig(
     process.argv.slice(2),
@@ -159,6 +172,11 @@ async function main() {
 
   const baseEnv: NodeJS.ProcessEnv = { ...process.env, LLM_LIVE: '1' };
   if (provider) baseEnv.LLM_TEST_PROVIDERS = provider;
+
+  const realtimeSuite = isRealtimeSuite(passthrough);
+  const realtimeTestApiKey = realtimeSuite
+    ? (process.env.LLM_TEST_REALTIME_API_KEY ?? generateTestApiKey())
+    : undefined;
 
   const runJest = async (extraEnv: NodeJS.ProcessEnv): Promise<number> => {
     return spawnAndWait(process.execPath, [...nodeArgs, ...jestArgs], {
@@ -178,7 +196,10 @@ async function main() {
   dotenv.config({ path: path.join(rootDir, '.env') });
   await buildDistOnce();
 
-  const commonJestEnv = { LLM_SKIP_TS_BUILD: '1' };
+  const commonJestEnv: NodeJS.ProcessEnv = {
+    LLM_SKIP_TS_BUILD: '1',
+    ...(realtimeSuite && realtimeTestApiKey ? { LLM_TEST_REALTIME_API_KEY: realtimeTestApiKey } : {})
+  };
 
   if (transport === 'both') {
     const cliCode = await runJest({ ...commonJestEnv, LLM_LIVE_TRANSPORT: 'cli' });
@@ -189,7 +210,17 @@ async function main() {
   }
 
   const batchId = createRunId('live-server');
-  const server = await startLiveServer({ env: process.env, batchId });
+  const server = await startLiveServer({
+    env: {
+      ...process.env,
+      ...(realtimeSuite && realtimeTestApiKey
+        ? { LLM_ADAPTER_API_KEYS: realtimeTestApiKey, LLM_TEST_REALTIME_API_KEY: realtimeTestApiKey }
+        : {})
+    },
+    batchId,
+    enableAuth: realtimeSuite,
+    enableRealtimeWs: realtimeSuite
+  });
 
   try {
     process.exitCode = await runJest({

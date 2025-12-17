@@ -1,3 +1,4 @@
+import { createRequire } from 'module';
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -71,6 +72,14 @@ function getTransport(env: NodeJS.ProcessEnv | undefined): Transport {
     .trim()
     .toLowerCase();
   return raw === 'server' ? 'server' : 'cli';
+}
+
+function withDefaultRealtimeModel(spec: any, env: NodeJS.ProcessEnv | undefined): any {
+  if (!spec || typeof spec !== 'object') return spec;
+  if (typeof spec.model === 'string' && spec.model.trim()) return spec;
+  const model = String(env?.LLM_REALTIME_MODEL || process.env.LLM_REALTIME_MODEL || '').trim();
+  if (!model) return spec;
+  return { ...spec, model };
 }
 
 function getUnifiedCliScript(): string {
@@ -149,23 +158,28 @@ class EnvelopeQueue {
 async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealtimeScenarioResult> {
   const script = getUnifiedCliScript();
   const args = ['realtime', '--plugins', options.pluginsPath ?? './plugins'];
+  const env = options.env || process.env;
+  const spec = withDefaultRealtimeModel(options.spec, env);
 
   const child = spawn(process.execPath, [script, ...args], {
     cwd: options.cwd || DIST_DIR,
-    env: options.env || process.env,
+    env,
     stdio: ['pipe', 'pipe', 'pipe']
   });
 
   const envelopes: RealtimeServerEnvelope[] = [];
   const q = new EnvelopeQueue();
   let stdout = '';
+  let stdoutLineBuf = '';
   let stderr = '';
 
   child.stdout.on('data', (data) => {
     const chunk = data.toString();
     stdout += chunk;
-    const lines = chunk.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    for (const line of lines) {
+    stdoutLineBuf += chunk;
+    const lines = stdoutLineBuf.split(/\r?\n/);
+    stdoutLineBuf = lines.pop() ?? '';
+    for (const line of lines.map(l => l.trim()).filter(Boolean)) {
       try {
         const parsed = JSON.parse(line) as RealtimeServerEnvelope;
         if (parsed && (parsed.type === 'event' || parsed.type === 'error')) {
@@ -192,7 +206,7 @@ async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealti
   };
 
   const timeoutMs = options.timeoutMs ?? 30000;
-  await writeLine({ type: 'open', protocolVersion: 1, spec: options.spec });
+  await writeLine({ type: 'open', protocolVersion: 1, spec });
 
   // Wait for ready or error
   while (true) {
@@ -277,42 +291,34 @@ async function runViaServer(options: RunRealtimeScenarioOptions): Promise<RunRea
   const authToken = options.authToken ?? env.LLM_TEST_REALTIME_API_KEY;
   const wsUrl = toWsUrl(serverUrl, '/realtime/ws');
 
-  const WS: any = (globalThis as any).WebSocket;
-  if (!WS) {
-    return {
-      code: 1,
-      stdout: '',
-      stderr: JSON.stringify({ error: 'WebSocket not available in this Node runtime' }),
-      envelopes: []
-    };
-  }
-
   const headers = authToken ? { [authHeaderName]: authToken } : undefined;
-
-  const ws = new WS(wsUrl, [], headers ? { headers } : undefined);
+  // Use the `ws` client so we can reliably attach auth headers. Node's built-in
+  // WebSocket (undici) does not support custom headers in the constructor.
+  const require = createRequire(import.meta.url);
+  const wsLib = require('ws');
+  const ws = new wsLib.WebSocket(wsUrl, headers ? { headers } : undefined);
   const envelopes: RealtimeServerEnvelope[] = [];
   const q = new EnvelopeQueue();
   let stdout = '';
   let stderr = '';
 
   const timeoutMs = options.timeoutMs ?? 30000;
+  const spec = withDefaultRealtimeModel(options.spec, env);
 
-  const ready = await new Promise<void>((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`Timed out connecting to ${wsUrl}`)), timeoutMs);
-
-    ws.onopen = () => {
+    ws.once('open', () => {
       clearTimeout(timer);
       resolve();
-    };
-    ws.onerror = (err: any) => {
+    });
+    ws.once('error', (err: any) => {
       clearTimeout(timer);
       reject(err);
-    };
+    });
   });
-  void ready;
 
-  ws.onmessage = (evt: any) => {
-    const text = typeof evt.data === 'string' ? evt.data : Buffer.from(evt.data).toString('utf-8');
+  ws.on('message', (data: any) => {
+    const text = Buffer.from(data as any).toString('utf-8');
     stdout += `${text}\n`;
     try {
       const parsed = JSON.parse(text) as RealtimeServerEnvelope;
@@ -323,15 +329,15 @@ async function runViaServer(options: RunRealtimeScenarioOptions): Promise<RunRea
     } catch {
       // ignore
     }
-  };
+  });
 
-  ws.onclose = () => {
-    // no-op
-  };
+  ws.on('error', (err: any) => {
+    stderr += String(err);
+  });
 
   const send = (msg: RealtimeClientMessage) => ws.send(JSON.stringify(msg));
 
-  send({ type: 'open', protocolVersion: 1, spec: options.spec });
+  send({ type: 'open', protocolVersion: 1, spec });
 
   while (true) {
     const env = await q.next(timeoutMs);
@@ -386,11 +392,11 @@ async function runViaServer(options: RunRealtimeScenarioOptions): Promise<RunRea
 
   await new Promise<void>((resolve) => {
     const timer = setTimeout(resolve, 250);
+    ws.once('close', () => {
+      clearTimeout(timer);
+      resolve();
+    });
     try {
-      ws.onclose = () => {
-        clearTimeout(timer);
-        resolve();
-      };
       ws.close();
     } catch {
       clearTimeout(timer);

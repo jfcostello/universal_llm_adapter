@@ -14,9 +14,18 @@ function fixturePath(name: string): string {
 }
 
 function getFinalTranscript(events: any[], type: 'user' | 'assistant'): string {
-  const want = `${type}_transcript.final`;
-  const finals = events.filter(e => e?.type === want);
-  const last = finals[finals.length - 1];
+  if (type === 'assistant') {
+    const textFinals = events.filter(e => e?.type === 'assistant_text.final');
+    const lastText = textFinals[textFinals.length - 1];
+    if (lastText?.text) return String(lastText.text).trim();
+
+    const transcriptFinals = events.filter(e => e?.type === 'assistant_transcript.final');
+    const lastTranscript = transcriptFinals[transcriptFinals.length - 1];
+    return String(lastTranscript?.text ?? '').trim();
+  }
+
+  const transcriptFinals = events.filter(e => e?.type === 'user_transcript.final');
+  const last = transcriptFinals[transcriptFinals.length - 1];
   return String(last?.text ?? '').trim();
 }
 
@@ -110,6 +119,7 @@ describeMaybe('20-realtime — realtime session contract', () => {
         systemPrompt:
           'When the user says `ECHO:<token>`, you MUST call tool `test.echo` with {message:<token>} and then speak ONLY the tool result.',
         functionToolNames: ['test.echo'],
+        toolChoice: { type: 'single', name: 'test.echo' },
         transcription: { enabled: true },
         turnDetection: { mode: 'manual_commit' },
         audio: {
@@ -119,9 +129,10 @@ describeMaybe('20-realtime — realtime session contract', () => {
         timeout: { maxDurationMs: 60000, idleTimeoutMs: 20000, onTimeout: 'close' }
       },
       steps: [
-        { type: 'send_text', text: 'ECHO:Tokyo', role: 'user' },
+        { type: 'send_text', text: 'ECHO:level', role: 'user' },
         { type: 'commit' },
         { type: 'wait_for_event', eventType: 'tool_call.end', timeoutMs: 30000 },
+        { type: 'wait_for_event', eventType: 'tool_result.sent', timeoutMs: 30000 },
         { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 30000 },
         { type: 'close' }
       ],
@@ -130,9 +141,15 @@ describeMaybe('20-realtime — realtime session contract', () => {
 
     expect(result.code).toBe(0);
     const events = result.envelopes.filter(e => e.type === 'event').map(e => (e as any).event);
-    expect(Boolean(findToolCallEnd(events, 'test.echo'))).toBe(true);
+    const toolCall = findToolCallEnd(events, 'test.echo');
+    expect(Boolean(toolCall)).toBe(true);
+    expect(String(toolCall?.arguments?.message ?? '').toLowerCase()).toBe('level');
+
+    expect(events.some(e => e?.type === 'tool_result.sent')).toBe(true);
+
+    // `test.echo` returns `[R:<len>]<reversed>`. Using a palindrome token keeps the output stable to assert on via transcripts.
     const text = getFinalTranscript(events, 'assistant').toLowerCase();
-    expect(text.includes('tokyo')).toBe(true);
+    expect(text.includes('level')).toBe(true);
   }, 120000);
 
   test('In-session memory (audio then text)', async () => {
@@ -204,6 +221,9 @@ describeMaybe('20-realtime — realtime session contract', () => {
         { type: 'wait_for_event', eventType: 'assistant_audio.chunk', timeoutMs: 30000 },
         { type: 'interrupt', reason: 'interrupt' },
         { type: 'wait_for_event', eventType: 'playback.clear_requested', timeoutMs: 30000 },
+        // Ensure the interrupted response has fully completed so we don't accidentally
+        // match its transcript final when verifying the follow-up question.
+        { type: 'wait_for_event', eventType: 'usage', timeoutMs: 30000 },
         { type: 'send_text', text: 'What is 2 + 2? Reply digits only.', role: 'user' },
         { type: 'commit' },
         { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 30000 },
@@ -214,8 +234,12 @@ describeMaybe('20-realtime — realtime session contract', () => {
 
     expect(result.code).toBe(0);
     const events = result.envelopes.filter(e => e.type === 'event').map(e => (e as any).event);
-    const text = getFinalTranscript(events, 'assistant').trim();
-    expect(text.includes('4')).toBe(true);
+    const assistantFinals = events
+      .filter(e => e?.type === 'assistant_text.final' || e?.type === 'assistant_transcript.final')
+      .map(e => String(e?.text ?? '').trim())
+      .filter(Boolean)
+      .join('\n');
+    expect(assistantFinals.includes('4')).toBe(true);
   }, 120000);
 
   test('Telephony mode (g711_ulaw @ 8k)', async () => {
@@ -269,7 +293,7 @@ describeMaybe('20-realtime — realtime session contract', () => {
         env,
         spec: {
           provider,
-          systemPrompt: `Answer with exactly one word: ${token}.`,
+          systemPrompt: `Session token: ${token}. When the user says \"GO\", reply with exactly: ${token}. No other words or punctuation.`,
           transcription: { enabled: true },
           turnDetection: { mode: 'manual_commit' },
           audio: {
@@ -279,7 +303,7 @@ describeMaybe('20-realtime — realtime session contract', () => {
           timeout: { maxDurationMs: 60000, idleTimeoutMs: 20000, onTimeout: 'close' }
         },
         steps: [
-          { type: 'send_text', text: 'Reply now.', role: 'user' },
+          { type: 'send_text', text: 'GO', role: 'user' },
           { type: 'commit' },
           { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 30000 },
           { type: 'close' }
@@ -289,7 +313,17 @@ describeMaybe('20-realtime — realtime session contract', () => {
 
       expect(result.code).toBe(0);
       const events = result.envelopes.filter(e => e.type === 'event').map(e => (e as any).event);
-      const text = getFinalTranscript(events, 'assistant').toLowerCase();
+      const text = events
+        .filter(
+          e =>
+            e?.type === 'assistant_transcript.delta' ||
+            e?.type === 'assistant_transcript.final' ||
+            e?.type === 'assistant_text.delta' ||
+            e?.type === 'assistant_text.final'
+        )
+        .map(e => String(e?.textDelta ?? e?.text ?? ''))
+        .join('')
+        .toLowerCase();
       expect(text.includes(token.toLowerCase())).toBe(true);
     };
 

@@ -2,6 +2,19 @@ import type { JsonValue, RealtimeAudioFrame, RealtimeSessionSpec, UnifiedTool } 
 
 type OpenAIRealtimeClientEvent = Record<string, any>;
 
+function toProviderToolName(originalName: string, used: Set<string>): string {
+  const base = String(originalName).replace(/[^a-zA-Z0-9_-]/g, '_');
+  const normalized = base.length > 0 ? base : 'tool';
+
+  let candidate = normalized;
+  let i = 2;
+  while (used.has(candidate)) {
+    candidate = `${normalized}_${i++}`;
+  }
+  used.add(candidate);
+  return candidate;
+}
+
 function assertValidAudioFrame(config: NonNullable<RealtimeAudioFrame>): void {
   if (config.channels !== 1) {
     throw new Error('Only mono audio (channels=1) is supported');
@@ -30,20 +43,45 @@ function toOpenAIAudioFormat(format: RealtimeAudioFrame['format']): any {
   return { type: 'audio/pcma' };
 }
 
-function serializeTools(tools?: UnifiedTool[]): any[] | undefined {
-  if (!tools || tools.length === 0) return undefined;
-  return tools.map(tool => ({
-    type: 'function',
-    name: tool.name,
-    description: tool.description,
-    parameters: tool.parametersJsonSchema || { type: 'object', properties: {} }
-  }));
+function serializeTools(tools?: UnifiedTool[]): {
+  toolsForSession?: any[];
+  toolNameByProviderName: Map<string, string>;
+  providerNameByToolName: Map<string, string>;
+} {
+  const toolNameByProviderName = new Map<string, string>();
+  const providerNameByToolName = new Map<string, string>();
+  if (!tools || tools.length === 0) {
+    return { toolsForSession: undefined, toolNameByProviderName, providerNameByToolName };
+  }
+
+  const used = new Set<string>();
+  const mapped = tools.map(tool => {
+    const providerName = toProviderToolName(tool.name, used);
+    toolNameByProviderName.set(providerName, tool.name);
+    providerNameByToolName.set(tool.name, providerName);
+    return { ...tool, name: providerName };
+  });
+
+  return {
+    toolsForSession: mapped.map(tool => ({
+      type: 'function',
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parametersJsonSchema || { type: 'object', properties: {} }
+    })),
+    toolNameByProviderName,
+    providerNameByToolName
+  };
 }
 
-function serializeToolChoice(choice: RealtimeSessionSpec['toolChoice']): any {
+function serializeToolChoice(choice: RealtimeSessionSpec['toolChoice'], providerNameByToolName: Map<string, string>): any {
   if (!choice) return undefined;
   if (typeof choice === 'string') return choice;
-  if (choice.type === 'single') return { type: 'function', name: choice.name };
+  if (choice.type === 'single') {
+    // Prefer per-response forcing (see `response.create` tool_choice override) to avoid
+    // trapping the session in an infinite function-call loop after tool results.
+    return undefined;
+  }
   if (choice.type === 'required') return 'required';
   return undefined;
 }
@@ -59,7 +97,11 @@ function resolveAudioConfig(spec: RealtimeSessionSpec): { input: RealtimeAudioFr
 export function buildSessionUpdateEvent(options: {
   spec: RealtimeSessionSpec;
   tools?: UnifiedTool[];
-}): { event: OpenAIRealtimeClientEvent; audio: { input: RealtimeAudioFrame; output: RealtimeAudioFrame } } {
+}): {
+  event: OpenAIRealtimeClientEvent;
+  audio: { input: RealtimeAudioFrame; output: RealtimeAudioFrame };
+  toolNameByProviderName: Map<string, string>;
+} {
   const audio = resolveAudioConfig(options.spec);
 
   const transcriptionEnabled = options.spec.transcription?.enabled === true;
@@ -76,8 +118,39 @@ export function buildSessionUpdateEvent(options: {
         }
       : null;
 
-  const toolsForSession = serializeTools(options.tools);
-  const toolChoice = serializeToolChoice(options.spec.toolChoice);
+  const { toolsForSession: allToolsForSession, toolNameByProviderName, providerNameByToolName } = serializeTools(options.tools);
+
+  const toolChoice = serializeToolChoice(options.spec.toolChoice, providerNameByToolName);
+  let toolsForSession = allToolsForSession;
+
+  if (options.spec.toolChoice && typeof options.spec.toolChoice === 'object') {
+    const type = options.spec.toolChoice.type;
+    if (type === 'single' || type === 'required') {
+      if (!toolsForSession || toolsForSession.length === 0) {
+        throw new Error('toolChoice provided but no tools are configured');
+      }
+
+      if (type === 'single') {
+        const providerName = providerNameByToolName.get(options.spec.toolChoice.name) ?? options.spec.toolChoice.name;
+        toolsForSession = toolsForSession.filter(tool => tool.name === providerName);
+        if (toolsForSession.length === 0) {
+          throw new Error(`toolChoice refers to unknown tool: ${options.spec.toolChoice.name}`);
+        }
+      }
+
+      if (type === 'required' && Array.isArray(options.spec.toolChoice.allowed) && options.spec.toolChoice.allowed.length > 0) {
+        const allowedProviderNames = new Set(
+          options.spec.toolChoice.allowed.map(name => providerNameByToolName.get(name) ?? name)
+        );
+        toolsForSession = toolsForSession.filter(tool => allowedProviderNames.has(tool.name));
+        if (toolsForSession.length === 0) {
+          throw new Error('toolChoice.required provided but no allowed tools are configured');
+        }
+      }
+    }
+  }
+
+  const resolvedToolChoice = toolChoice ?? (toolsForSession ? 'auto' : undefined);
 
   const event: OpenAIRealtimeClientEvent = {
     type: 'session.update',
@@ -103,11 +176,11 @@ export function buildSessionUpdateEvent(options: {
         }
       },
       ...(toolsForSession ? { tools: toolsForSession } : {}),
-      ...(toolChoice ? { tool_choice: toolChoice } : {})
+      ...(resolvedToolChoice ? { tool_choice: resolvedToolChoice } : {})
     }
   };
 
-  return { event, audio };
+  return { event, audio, toolNameByProviderName };
 }
 
 export function buildConversationItemCreateEvent(options: {
@@ -132,7 +205,10 @@ export function buildInputAudioCommitEvent(): OpenAIRealtimeClientEvent {
   return { type: 'input_audio_buffer.commit' };
 }
 
-export function buildResponseCreateEvent(): OpenAIRealtimeClientEvent {
+export function buildResponseCreateEvent(options: { toolChoice?: any } = {}): OpenAIRealtimeClientEvent {
+  if (options.toolChoice !== undefined) {
+    return { type: 'response.create', response: { tool_choice: options.toolChoice } };
+  }
   return { type: 'response.create' };
 }
 

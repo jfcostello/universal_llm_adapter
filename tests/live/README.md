@@ -70,15 +70,16 @@ Notes:
 Realtime live tests validate the provider-agnostic realtime session contract (audio/text in, audio/transcripts out, tools, barge-in). These tests are skipped unless:
 - `LLM_LIVE=1`
 - `LLM_REALTIME_PROVIDER` is set to a provider id that supports realtime sessions
+- A model is provided (either `spec.model` or `LLM_REALTIME_MODEL`)
 
 Examples:
 
 ```bash
 # CLI transport (default)
-LLM_LIVE=1 LLM_REALTIME_PROVIDER=... npm run test:live:realtime
+LLM_LIVE=1 LLM_REALTIME_PROVIDER=... LLM_REALTIME_MODEL=... npm run test:live:realtime
 
 # Enforce CLI/server parity (runs twice)
-LLM_LIVE=1 LLM_REALTIME_PROVIDER=... npm run test:live:realtime -- --transport=both
+LLM_LIVE=1 LLM_REALTIME_PROVIDER=... LLM_REALTIME_MODEL=... npm run test:live:realtime -- --transport=both
 ```
 
 Server transport notes:

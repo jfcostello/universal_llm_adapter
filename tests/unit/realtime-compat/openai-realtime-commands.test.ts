@@ -49,8 +49,9 @@ describe('realtime-compat/openai — commands', () => {
     expect(event.session.audio.input.transcription.language).toBe('en');
     expect(event.session.audio.input.turn_detection.type).toBe('server_vad');
     expect(Array.isArray(event.session.tools)).toBe(true);
-    expect(event.session.tools[0].name).toBe('test.echo');
-    expect(event.session.tool_choice).toEqual({ type: 'function', name: 'test.echo' });
+    expect(event.session.tools).toHaveLength(1);
+    expect(event.session.tools[0].name).toBe('test_echo');
+    expect(event.session.tool_choice).toBe('auto');
   });
 
   test('buildSessionUpdateEvent supplies default JSON schema when tool parameters are missing', () => {
@@ -60,6 +61,7 @@ describe('realtime-compat/openai — commands', () => {
       tools
     });
     expect(event.session.tools[0].parameters).toEqual({ type: 'object', properties: {} });
+    expect(event.session.tool_choice).toBe('auto');
   });
 
   test('buildSessionUpdateEvent supports transcription without language', () => {
@@ -153,14 +155,17 @@ describe('realtime-compat/openai — commands', () => {
   });
 
   test('buildSessionUpdateEvent serializes required tool choice', () => {
+    const tools: UnifiedTool[] = [{ name: 'test.echo' }];
     const { event } = buildSessionUpdateEvent({
       spec: {
         provider: 'openai',
         model: 'm',
         toolChoice: { type: 'required', allowed: ['test.echo'] }
-      }
+      },
+      tools
     });
     expect(event.session.tool_choice).toBe('required');
+    expect(event.session.tools.map((t: any) => t.name)).toEqual(['test_echo']);
   });
 
   test('buildSessionUpdateEvent serializes string tool choices', () => {
@@ -175,6 +180,70 @@ describe('realtime-compat/openai — commands', () => {
       spec: { provider: 'openai', model: 'm', toolChoice: { type: 'weird' } as any }
     });
     expect(event.session.tool_choice).toBeUndefined();
+  });
+
+  test('buildSessionUpdateEvent rejects toolChoice objects when no tools are configured', () => {
+    expect(() =>
+      buildSessionUpdateEvent({
+        spec: { provider: 'openai', model: 'm', toolChoice: { type: 'single', name: 'unmapped_tool' } }
+      })
+    ).toThrow('no tools');
+  });
+
+  test('buildSessionUpdateEvent sanitizes tool names and de-dupes collisions', () => {
+    const tools: UnifiedTool[] = [
+      { name: 'a.b' },
+      { name: 'a_b' },
+      { name: '' }
+    ];
+
+    const { event, toolNameByProviderName } = buildSessionUpdateEvent({
+      spec: { provider: 'openai', model: 'm' },
+      tools
+    });
+
+    expect(event.session.tools.map((t: any) => t.name)).toEqual(['a_b', 'a_b_2', 'tool']);
+    expect(toolNameByProviderName.get('a_b')).toBe('a.b');
+    expect(toolNameByProviderName.get('a_b_2')).toBe('a_b');
+    expect(toolNameByProviderName.get('tool')).toBe('');
+  });
+
+  test('buildSessionUpdateEvent filters tools for toolChoice.required allowed list', () => {
+    const tools: UnifiedTool[] = [{ name: 'test.one' }, { name: 'test.two' }];
+
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        toolChoice: { type: 'required', allowed: ['test.one'] }
+      },
+      tools
+    });
+
+    expect(event.session.tool_choice).toBe('required');
+    expect(event.session.tools.map((t: any) => t.name)).toEqual(['test_one']);
+  });
+
+  test('buildSessionUpdateEvent rejects toolChoice.single when tool is missing from configured tools', () => {
+    const tools: UnifiedTool[] = [{ name: 'test.present' }];
+
+    expect(() =>
+      buildSessionUpdateEvent({
+        spec: { provider: 'openai', model: 'm', toolChoice: { type: 'single', name: 'test.missing' } },
+        tools
+      })
+    ).toThrow('unknown tool');
+  });
+
+  test('buildSessionUpdateEvent rejects toolChoice.required allowed list when none match configured tools', () => {
+    const tools: UnifiedTool[] = [{ name: 'test.present' }];
+
+    expect(() =>
+      buildSessionUpdateEvent({
+        spec: { provider: 'openai', model: 'm', toolChoice: { type: 'required', allowed: ['test.missing'] } },
+        tools
+      })
+    ).toThrow('no allowed tools');
   });
 
   test('buildSessionUpdateEvent rejects unsupported audio formats', () => {
@@ -203,6 +272,7 @@ describe('realtime-compat/openai — commands', () => {
     );
     expect(buildInputAudioCommitEvent().type).toBe('input_audio_buffer.commit');
     expect(buildResponseCreateEvent().type).toBe('response.create');
+    expect(buildResponseCreateEvent({ toolChoice: 'required' })).toEqual({ type: 'response.create', response: { tool_choice: 'required' } });
     expect(buildResponseCancelEvent().type).toBe('response.cancel');
   });
 

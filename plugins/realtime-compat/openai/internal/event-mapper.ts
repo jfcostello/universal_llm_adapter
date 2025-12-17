@@ -3,6 +3,7 @@ import type { JsonObject, RealtimeAudioFrame, RealtimeEvent } from '../../../../
 export interface OpenAIRealtimeMapperState {
   audio: { input: RealtimeAudioFrame; output: RealtimeAudioFrame };
   functionNameByCallId: Map<string, string>;
+  toolNameByProviderName: Map<string, string>;
 }
 
 function parseJsonObject(text: string): JsonObject {
@@ -80,7 +81,8 @@ export function mapOpenAIRealtimeServerEvent(
       const item = evt?.item;
       if (item?.type !== 'function_call') return [];
       const callId = String(item?.call_id ?? item?.id ?? '');
-      const name = String(item?.name ?? '');
+      const providerName = String(item?.name ?? '');
+      const name = state.toolNameByProviderName.get(providerName) ?? providerName;
       if (!callId || !name) return [];
       state.functionNameByCallId.set(callId, name);
       return [{ type: 'tool_call.start', toolCallId: callId, name }];
@@ -115,4 +117,3 @@ export function mapOpenAIRealtimeServerEvent(
       return [];
   }
 }
-

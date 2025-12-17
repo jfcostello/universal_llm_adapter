@@ -3,7 +3,11 @@ import { mapOpenAIRealtimeServerEvent } from '@/plugins/realtime-compat/openai/i
 
 function makeState(): any {
   const base: RealtimeAudioFrame = { format: 'pcm16', sampleRateHz: 24000, channels: 1, dataBase64: '' };
-  return { audio: { input: base, output: base }, functionNameByCallId: new Map<string, string>() };
+  return {
+    audio: { input: base, output: base },
+    functionNameByCallId: new Map<string, string>(),
+    toolNameByProviderName: new Map([['test_echo', 'test.echo']])
+  };
 }
 
 describe('realtime-compat/openai — event mapper', () => {
@@ -104,16 +108,22 @@ describe('realtime-compat/openai — event mapper', () => {
     ).toEqual([]);
 
     const start = mapOpenAIRealtimeServerEvent(
-      { type: 'response.output_item.added', item: { type: 'function_call', call_id: 'c1', name: 'test.echo' } },
+      { type: 'response.output_item.added', item: { type: 'function_call', call_id: 'c1', name: 'test_echo' } },
       state
     )[0];
     expect(start).toEqual({ type: 'tool_call.start', toolCallId: 'c1', name: 'test.echo' });
 
     const startWithItemId = mapOpenAIRealtimeServerEvent(
-      { type: 'response.output_item.added', item: { type: 'function_call', id: 'i1', name: 'test.echo' } },
+      { type: 'response.output_item.added', item: { type: 'function_call', id: 'i1', name: 'test_echo' } },
       state
     )[0];
     expect(startWithItemId).toEqual({ type: 'tool_call.start', toolCallId: 'i1', name: 'test.echo' });
+
+    const unmappedStart = mapOpenAIRealtimeServerEvent(
+      { type: 'response.output_item.added', item: { type: 'function_call', call_id: 'c2', name: 'unmapped_tool' } },
+      state
+    )[0];
+    expect(unmappedStart).toEqual({ type: 'tool_call.start', toolCallId: 'c2', name: 'unmapped_tool' });
 
     expect(mapOpenAIRealtimeServerEvent({ type: 'response.function_call_arguments.delta', call_id: '', delta: '{}' }, state)).toEqual([]);
     expect(mapOpenAIRealtimeServerEvent({ type: 'response.function_call_arguments.delta', call_id: 'c1', delta: '' }, state)).toEqual([]);
