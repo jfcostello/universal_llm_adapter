@@ -227,7 +227,14 @@ describe('integration/realtime-compat/openai session', () => {
       await session.sendAudio({ format: 'pcm16', sampleRateHz: 24000, channels: 1, dataBase64: 'AAA=' });
       // Simulate server-side commit (e.g., VAD path) so local bookkeeping resets.
       server.sendToClient({ type: 'input_audio_buffer.committed' });
-      await new Promise(res => setTimeout(res, 0));
+      // Force a deterministic wait for the server message to be processed by
+      // waiting for a subsequent mapped event (messages are processed in-order).
+      server.sendToClient({ type: 'response.output_text.delta', delta: 'x' });
+      while (true) {
+        const evt = await it.next();
+        if (evt.done) throw new Error('Expected assistant_text.delta');
+        if (evt.value.type === 'assistant_text.delta') break;
+      }
 
       await session.commit();
       await waitForMessage(server.messages, m => m?.type === 'response.create', 2000);

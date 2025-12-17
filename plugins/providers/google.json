@@ -9,6 +9,16 @@
       "Authorization": "${GEMINI_API_KEY}"
     }
   },
+  "realtime": {
+    "compat": "gemini",
+    "endpoint": {
+      "urlTemplate": "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService/BidiGenerateContent",
+      "headers": {},
+      "query": {
+        "key": "${GEMINI_API_KEY}"
+      }
+    }
+  },
   "retryWords": [
     "rate limit",
     "quota",
