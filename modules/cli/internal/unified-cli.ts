@@ -60,6 +60,10 @@ export const defaultDependencies: UnifiedCliDependencies = {
     const { createServer } = await import('../../server/index.js');
     return createServer(options);
   },
+  createRealtimeSession: async (registry: PluginRegistryLike, spec: any) => {
+    const { createRealtimeSession } = await import('../../realtime/index.js');
+    return createRealtimeSession(registry as any, spec as any);
+  },
   getRealtimeStdio: () => ({
     stdin: process.stdin,
     stdout: process.stdout,

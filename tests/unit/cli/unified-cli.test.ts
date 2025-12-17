@@ -1538,6 +1538,23 @@ describe('cli/internal/unified-cli', () => {
       await server.close();
     });
 
+    test('createRealtimeSession calls realtime createRealtimeSession', async () => {
+      jest.resetModules();
+
+      const createRealtimeSessionMock = jest.fn().mockResolvedValue({ ok: true });
+      (jest as any).unstable_mockModule('../../../modules/realtime/index.js', () => ({
+        createRealtimeSession: createRealtimeSessionMock
+      }));
+
+      const module = await import('@/modules/cli/internal/unified-cli.ts');
+      const deps = module.defaultDependencies;
+
+      const result = await deps.createRealtimeSession?.({ registry: true } as any, { provider: 'p' } as any);
+
+      expect(result).toEqual({ ok: true });
+      expect(createRealtimeSessionMock).toHaveBeenCalledWith({ registry: true }, { provider: 'p' });
+    });
+
     test('closeLogger calls lifecycle closeLogger', async () => {
       // This exercises the dynamic import path
       await expect(defaultDependencies.closeLogger()).resolves.toBeUndefined();

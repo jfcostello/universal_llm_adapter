@@ -13,6 +13,10 @@
       "types": "./dist/modules/llm/index.d.ts",
       "import": "./dist/modules/llm/index.js"
     },
+    "./realtime": {
+      "types": "./dist/modules/realtime/index.d.ts",
+      "import": "./dist/modules/realtime/index.js"
+    },
     "./server": {
       "types": "./dist/modules/server/index.d.ts",
       "import": "./dist/modules/server/index.js"

@@ -110,6 +110,10 @@ const defaultDependencies: ServerDependencies = {
     const { createEmbeddingCoordinator } = await import('../lifecycle/index.js');
     return createEmbeddingCoordinator(registry);
   },
+  createRealtimeSession: async (registry: PluginRegistryLike, spec: any) => {
+    const { createRealtimeSession } = await import('../realtime/index.js');
+    return createRealtimeSession(registry as any, spec as any);
+  },
   closeLogger: async () => {
     const { closeLogger } = await import('../lifecycle/index.js');
     return closeLogger();

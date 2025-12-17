@@ -75,6 +75,7 @@ describe('utils/server index default branches', () => {
         getDefaults: () => DEFAULTS_WITHOUT_NESTED,
         createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
         createCoordinator: jest.fn(),
+        createRealtimeSession: undefined,
         closeLogger: jest.fn().mockResolvedValue(undefined)
       }
     } as any);
@@ -218,6 +219,7 @@ describe('utils/server index default branches', () => {
         getDefaults: () => DEFAULTS_WITHOUT_NESTED,
         createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
         createCoordinator: jest.fn(),
+        createRealtimeSession: undefined,
         closeLogger: jest.fn().mockResolvedValue(undefined)
       }
     } as any);
