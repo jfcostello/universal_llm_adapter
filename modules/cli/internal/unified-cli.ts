@@ -22,6 +22,12 @@ export interface UnifiedCliDependencies {
   createVectorCoordinator: (registry: PluginRegistryLike) => PromiseLike<VectorCoordinatorLike> | VectorCoordinatorLike;
   createEmbeddingCoordinator: (registry: PluginRegistryLike) => PromiseLike<EmbeddingCoordinatorLike> | EmbeddingCoordinatorLike;
   createServer?: (options: ServerOptions) => PromiseLike<RunningServer> | RunningServer;
+  createRealtimeSession?: (registry: PluginRegistryLike, spec: any) => PromiseLike<any> | any;
+  getRealtimeStdio: () => {
+    stdin: NodeJS.ReadableStream;
+    stdout: NodeJS.WritableStream;
+    stderr: NodeJS.WritableStream;
+  };
   closeLogger: () => Promise<void>;
   log: (message: string) => void;
   error: (message: string) => void;
@@ -54,6 +60,11 @@ export const defaultDependencies: UnifiedCliDependencies = {
     const { createServer } = await import('../../server/index.js');
     return createServer(options);
   },
+  getRealtimeStdio: () => ({
+    stdin: process.stdin,
+    stdout: process.stdout,
+    stderr: process.stderr
+  }),
   closeLogger: async () => {
     const { closeLogger } = await import('../../lifecycle/index.js');
     return closeLogger();
@@ -334,6 +345,10 @@ export function createUnifiedProgram(
     .option('--max-concurrent-embedding-requests <n>', 'Concurrent /embeddings/run executions', parseNumber)
     .option('--embedding-max-queue-size <n>', 'Queued embedding requests per limiter', parseNumber)
     .option('--embedding-queue-timeout-ms <ms>', 'Max time an embedding request waits in queue', parseNumber)
+    .option('--realtime-enabled', 'Enable realtime WebSocket endpoint')
+    .option('--realtime-ws-path <path>', 'WebSocket path for realtime sessions')
+    .option('--realtime-max-ws-message-bytes <bytes>', 'Maximum realtime WebSocket message size', parseNumber)
+    .option('--realtime-ws-idle-timeout-ms <ms>', 'Realtime WebSocket idle timeout', parseNumber)
     .option('--auth-enabled', 'Enable API key/token auth')
     .option('--no-auth-allow-bearer', 'Disable Authorization: Bearer header support')
     .option('--no-auth-allow-api-key-header', 'Disable API key header support')
@@ -414,6 +429,16 @@ export function createUnifiedProgram(
           serverOptions.cors = { enabled: true };
         }
 
+        const realtimeArgProvided = rawArgs?.some(arg => arg.startsWith('--realtime-'));
+        if (realtimeArgProvided) {
+          serverOptions.realtime = {
+            enabled: rawArgs.includes('--realtime-enabled'),
+            wsPath: options.realtimeWsPath,
+            maxWsMessageBytes: options.realtimeMaxWsMessageBytes,
+            wsIdleTimeoutMs: options.realtimeWsIdleTimeoutMs
+          };
+        }
+
         // Parse security headers options
         if (
           rawArgs?.includes('--security-headers-enabled') ||
@@ -444,6 +469,161 @@ export function createUnifiedProgram(
         process.on('SIGTERM', shutdown);
       } catch (error: any) {
         deps.error(JSON.stringify({ error: error?.message ?? String(error) }));
+        deps.exit(1);
+      }
+    });
+
+  // ==================== Realtime Command ====================
+
+  type RealtimeClientMessage =
+    | { type: 'open'; protocolVersion: 1; spec: any }
+    | { type: 'send_text'; text: string; role?: 'system' | 'user' }
+    | { type: 'send_audio'; frame: { format: string; sampleRateHz: number; channels: 1 | 2; dataBase64: string; timestampMs?: number } }
+    | { type: 'commit' }
+    | { type: 'interrupt'; reason?: string }
+    | { type: 'close' };
+
+  type RealtimeServerEnvelope =
+    | { type: 'event'; event: any }
+    | { type: 'error'; error: { message: string; code?: string } };
+
+  const writeEnvelope = (stdout: NodeJS.WritableStream, env: RealtimeServerEnvelope) => {
+    stdout.write(`${JSON.stringify(env)}\n`);
+  };
+
+  program
+    .command('realtime')
+    .description('Realtime session over stdin/stdout JSON protocol')
+    .option('-p, --plugins <path>', 'Path to plugins directory', './plugins')
+    .action(async (options) => {
+      const { stdin, stdout, stderr } = deps.getRealtimeStdio();
+
+      try {
+        const { createInterface } = await import('readline');
+        const rl = createInterface({ input: stdin, crlfDelay: Infinity });
+
+        let exitCode = 0;
+        let registry: PluginRegistryLike | undefined;
+        let session: any | undefined;
+        let eventsTask: Promise<void> | undefined;
+        let openSeen = false;
+
+        const fail = (message: string, code?: string) => {
+          exitCode = 1;
+          writeEnvelope(stdout, { type: 'error', error: { message, ...(code ? { code } : {}) } });
+          try { void session?.close?.(); } catch {}
+          try { rl.close(); } catch {}
+        };
+
+        const ensureOpen = () => {
+          if (!openSeen || !session) {
+            throw new Error('Session not open (expected open first)');
+          }
+        };
+
+        const startEventPump = async () => {
+          const localSession = session as any;
+          const iterator = (localSession.events?.() as AsyncIterable<any>)[Symbol.asyncIterator]();
+
+          const first = await iterator.next();
+          if (first.done) {
+            fail('Realtime session closed before ready', 'closed_before_ready');
+            return;
+          }
+          if (first.value?.type !== 'ready') {
+            fail('Realtime session did not emit ready first', 'missing_ready');
+            return;
+          }
+          writeEnvelope(stdout, { type: 'event', event: first.value });
+
+          for await (const event of { [Symbol.asyncIterator]: () => iterator } as AsyncIterable<any>) {
+            writeEnvelope(stdout, { type: 'event', event });
+          }
+        };
+
+	        inputLoop: for await (const line of rl as any) {
+	          const trimmed = String(line).trim();
+	          if (!trimmed) continue;
+
+          let msg: RealtimeClientMessage;
+          try {
+            msg = JSON.parse(trimmed);
+          } catch {
+            fail('Invalid JSON message', 'invalid_json');
+            break inputLoop;
+          }
+
+          try {
+            switch (msg.type) {
+              case 'open': {
+                if (openSeen) {
+                  fail('Session already open', 'already_open');
+                  break;
+                }
+                if (msg.protocolVersion !== 1) {
+                  fail('Unsupported protocolVersion', 'unsupported_protocol');
+                  break;
+                }
+                if (!deps.createRealtimeSession) {
+                  fail('Realtime session factory unavailable', 'realtime_unavailable');
+                  break;
+                }
+                registry = await deps.createRegistry(options.plugins);
+                if (typeof (registry as any).loadAll === 'function') {
+                  await (registry as any).loadAll();
+                }
+                session = await deps.createRealtimeSession(registry, msg.spec);
+                openSeen = true;
+                eventsTask = startEventPump()
+                  .catch(err => {
+                    fail(err?.message ?? String(err), err?.code);
+                  })
+                  .finally(() => {
+                    try { rl.close(); } catch {}
+                  });
+                break;
+              }
+              case 'send_text': {
+                ensureOpen();
+                await session.sendText({ text: msg.text, role: msg.role });
+                break;
+              }
+              case 'send_audio': {
+                ensureOpen();
+                await session.sendAudio(msg.frame);
+                break;
+              }
+              case 'commit': {
+                ensureOpen();
+                await session.commit();
+                break;
+              }
+              case 'interrupt': {
+                ensureOpen();
+                await session.interrupt({ reason: msg.reason });
+                break;
+              }
+              case 'close': {
+                ensureOpen();
+                await session.close();
+                try { rl.close(); } catch {}
+                break;
+              }
+              default: {
+                fail('Unknown message type', 'unknown_type');
+                break;
+              }
+            }
+          } catch (err: any) {
+            fail(err?.message ?? String(err), err?.code);
+            break inputLoop;
+          }
+        }
+
+        await eventsTask;
+        deps.exit(exitCode);
+      } catch (error: any) {
+        writeEnvelope(stdout, { type: 'error', error: { message: error?.message ?? String(error) } });
         deps.exit(1);
       }
     });

@@ -113,6 +113,137 @@ describe('utils/server index default branches', () => {
     await running.close();
   });
 
+  test('createServer attaches realtime WS when enabled', async () => {
+    let closeResolve: (() => void) | undefined;
+    const closed = new Promise<void>((resolve) => {
+      closeResolve = resolve;
+    });
+
+    const session = {
+      close: jest.fn().mockImplementation(async () => closeResolve?.()),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+        await closed;
+        yield { type: 'closed', reason: 'client_close' };
+      }
+    };
+
+    const createRealtimeSession = jest.fn().mockResolvedValue(session);
+
+    const running = await createServer({
+      realtime: { enabled: true, wsIdleTimeoutMs: 0, maxWsMessageBytes: 1024 },
+      deps: {
+        getDefaults: () => DEFAULTS_WITHOUT_NESTED,
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn(),
+        createRealtimeSession,
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    const url = new URL(running.url);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    url.pathname = '/realtime/ws';
+    url.search = '';
+
+    const ws = new WebSocket(url.toString());
+    const messages: any[] = [];
+    const closePromise = new Promise<void>((resolve) => {
+      ws.onclose = () => resolve();
+    });
+
+    ws.onmessage = (evt: any) => {
+      try {
+        const text = typeof evt.data === 'string' ? evt.data : Buffer.from(evt.data).toString('utf-8');
+        messages.push(JSON.parse(text));
+      } catch {
+        // ignore
+      }
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      ws.onerror = (err: any) => reject(err);
+      ws.onopen = () => resolve();
+    });
+
+    ws.send(JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }));
+
+    const start = Date.now();
+    let readySeen = false;
+    while (Date.now() - start < 2000) {
+      const found = messages.find(m => m?.type === 'event' && m?.event?.type === 'ready');
+      if (found) {
+        readySeen = true;
+        break;
+      }
+      await new Promise(res => setTimeout(res, 10));
+    }
+
+    expect(createRealtimeSession).toHaveBeenCalled();
+    expect(readySeen).toBe(true);
+
+    ws.send(JSON.stringify({ type: 'close' }));
+    await closePromise;
+    try { ws.close(); } catch {}
+
+    await running.close();
+  });
+
+  test('realtime WS errors when session factory is missing', async () => {
+    const running = await createServer({
+      realtime: { enabled: true, wsIdleTimeoutMs: 0, maxWsMessageBytes: 1024 },
+      deps: {
+        getDefaults: () => DEFAULTS_WITHOUT_NESTED,
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    const url = new URL(running.url);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    url.pathname = '/realtime/ws';
+    url.search = '';
+
+    const ws = new WebSocket(url.toString());
+    const messages: any[] = [];
+    const closePromise = new Promise<void>((resolve) => {
+      ws.onclose = () => resolve();
+    });
+
+    ws.onmessage = (evt: any) => {
+      try {
+        const text = typeof evt.data === 'string' ? evt.data : Buffer.from(evt.data).toString('utf-8');
+        messages.push(JSON.parse(text));
+      } catch {
+        // ignore
+      }
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      ws.onerror = (err: any) => reject(err);
+      ws.onopen = () => resolve();
+    });
+
+    ws.send(JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }));
+
+    const start = Date.now();
+    let found: any | undefined;
+    while (Date.now() - start < 2000) {
+      found = messages.find(m => m?.type === 'error');
+      if (found) {
+        break;
+      }
+      await new Promise(res => setTimeout(res, 10));
+    }
+    expect(found).toBeDefined();
+    expect(String(found.error.message)).toContain('Realtime session factory unavailable');
+
+    await closePromise;
+    try { ws.close(); } catch {}
+    await running.close();
+  });
+
   test('createServer uses securityHeadersEnabled override when provided', async () => {
     const handler = createServerHandlerWithDefaults({
       registry: { loadAll: jest.fn() } as any,

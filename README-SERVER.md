@@ -92,6 +92,15 @@ await server.close();
 | `embeddingMaxQueueSize` | `--embedding-max-queue-size <n>` | `1000` | Max queued embedding requests |
 | `embeddingQueueTimeoutMs` | `--embedding-queue-timeout-ms <n>` | `30000` | Timeout for queued embedding requests |
 
+### Realtime (WebSocket)
+
+| Option | CLI Flag | Default | Description |
+|--------|----------|---------|-------------|
+| `realtime.enabled` | `--realtime-enabled` | `false` | Enable realtime WebSocket endpoint |
+| `realtime.wsPath` | `--realtime-ws-path <path>` | `/realtime/ws` | WebSocket path for realtime sessions |
+| `realtime.maxWsMessageBytes` | `--realtime-max-ws-message-bytes <n>` | `262144` | Maximum WebSocket message size |
+| `realtime.wsIdleTimeoutMs` | `--realtime-ws-idle-timeout-ms <n>` | `60000` | WebSocket idle timeout |
+
 ### Security: Authentication
 
 | Option | CLI Flag | Default | Description |
@@ -172,6 +181,22 @@ curl http://127.0.0.1:3000/ready
 ```json
 {"ok": false}
 ```
+
+### Realtime WebSocket
+
+```
+GET /realtime/ws
+```
+
+Realtime sessions over WebSocket using the same message/envelope contract as `llm-adapter realtime`:
+
+- Client messages: `open`, `send_text`, `send_audio`, `commit`, `interrupt`, `close`
+- Server envelopes: `{ "type": "event", ... }` and `{ "type": "error", ... }`
+
+**Contract notes:**
+
+- The first emitted event must be `{ "type": "ready", ... }`.
+- Configure message size and idle timeout via the `realtime.*` options.
 
 ### LLM Run (Non-Streaming)
 

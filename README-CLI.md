@@ -29,6 +29,7 @@ llm-adapter <command> [options]
 | `vector collections` | Manage collections |
 | `embeddings run` | Execute embedding operation |
 | `serve` | Start HTTP/SSE server |
+| `realtime` | Realtime session over stdin/stdout JSON protocol |
 
 ---
 
@@ -384,6 +385,43 @@ llm-adapter serve [options]
 ```bash
 llm-adapter serve --port 3000
 ```
+
+---
+
+## Realtime Command
+
+### `llm-adapter realtime`
+
+Run a realtime session over a newline-delimited JSON protocol on stdin/stdout.
+
+```bash
+llm-adapter realtime [options]
+```
+
+**Options:**
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-p, --plugins <path>` | Path to plugins directory | `./plugins` |
+
+**Input messages (stdin):**
+
+- `open`: `{ "type": "open", "protocolVersion": 1, "spec": { ... } }`
+- `send_text`: `{ "type": "send_text", "text": "…", "role": "system" | "user" }`
+- `send_audio`: `{ "type": "send_audio", "frame": { "format": "…", "sampleRateHz": 24000, "channels": 1, "dataBase64": "…", "timestampMs": 0 } }`
+- `commit`: `{ "type": "commit" }`
+- `interrupt`: `{ "type": "interrupt", "reason": "…" }`
+- `close`: `{ "type": "close" }`
+
+**Output envelopes (stdout):**
+
+- Events: `{ "type": "event", "event": { ... } }`
+- Errors: `{ "type": "error", "error": { "message": "…", "code": "…" } }`
+
+**Contract notes:**
+
+- The first emitted event must be `{ "type": "ready", ... }`.
+- The `spec` field is passed through to the realtime session factory and is treated as an opaque object by the CLI.
 
 ---
 

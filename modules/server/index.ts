@@ -15,6 +15,7 @@ export interface ServerDependencies
   closeLogger: () => Promise<void>;
   createVectorCoordinator?: (registry: PluginRegistryLike) => PromiseLike<any> | any;
   createEmbeddingCoordinator?: (registry: PluginRegistryLike) => PromiseLike<any> | any;
+  createRealtimeSession?: (registry: PluginRegistryLike, spec: any) => PromiseLike<any> | any;
 }
 
 export interface ServerAuthOptions {
@@ -47,6 +48,12 @@ export interface ServerOptions {
   pluginsPath?: string;
   batchId?: string;
   closeLoggerAfterRequest?: boolean;
+  realtime?: {
+    enabled?: boolean;
+    wsPath?: string;
+    maxWsMessageBytes?: number;
+    wsIdleTimeoutMs?: number;
+  };
   maxRequestBytes?: number;
   bodyReadTimeoutMs?: number;
   requestTimeoutMs?: number;
@@ -210,6 +217,32 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
 
   const server = http.createServer(handler);
 
+  const realtimeEnabled = options.realtime?.enabled === true;
+  const realtimeWsPath = options.realtime?.wsPath ?? '/realtime/ws';
+  const realtimeMaxWsMessageBytes = options.realtime?.maxWsMessageBytes ?? 262144;
+  const realtimeWsIdleTimeoutMs = options.realtime?.wsIdleTimeoutMs ?? 60000;
+
+  let closeRealtimeWs: (() => Promise<void>) | undefined;
+  if (realtimeEnabled) {
+    const { attachRealtimeWsServer } = await import('./internal/realtime/ws.js');
+    const realtime = await attachRealtimeWsServer({
+      server,
+      registry,
+      createSession: async ({ registry, spec }) => {
+        if (!deps.createRealtimeSession) {
+          throw new Error('Realtime session factory unavailable');
+        }
+        return deps.createRealtimeSession(registry, spec);
+      },
+      config: {
+        path: realtimeWsPath,
+        maxMessageBytes: realtimeMaxWsMessageBytes,
+        idleTimeoutMs: realtimeWsIdleTimeoutMs
+      }
+    });
+    closeRealtimeWs = realtime.close;
+  }
+
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, resolve);
@@ -223,13 +256,18 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
     server,
     close: () =>
       new Promise<void>((resolve, reject) => {
-        server.close(async (error) => {
-          if (error) reject(error);
-          else {
-            await deps.closeLogger();
-            resolve();
-          }
-        });
+        (async () => {
+          try {
+            await closeRealtimeWs?.();
+          } catch {}
+          server.close(async (error) => {
+            if (error) reject(error);
+            else {
+              await deps.closeLogger();
+              resolve();
+            }
+          });
+        })().catch(reject);
       })
   };
 }
