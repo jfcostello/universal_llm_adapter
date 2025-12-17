@@ -41,7 +41,7 @@ describe('integration/realtime-compat/openai compat class', () => {
     const server = await startWsServer();
     try {
       const compat = new (OpenAIRealtimeCompat as any)();
-      const session = compat.createSession({
+      const session = await Promise.resolve(compat.createSession({
         provider: {
           id: 'openai',
           compat: 'openai',
@@ -49,7 +49,7 @@ describe('integration/realtime-compat/openai compat class', () => {
           realtime: { compat: 'openai', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
         },
         spec: { provider: 'openai', model: 'm' }
-      });
+      }));
 
       const it = session.events()[Symbol.asyncIterator]();
       const first = await it.next();

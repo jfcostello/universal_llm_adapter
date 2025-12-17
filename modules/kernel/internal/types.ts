@@ -441,9 +441,18 @@ export interface RealtimeEndpointConfig {
   query?: Record<string, string>;
 }
 
+export interface RealtimeWebrtcEndpointConfig {
+  urlTemplate: string;
+  headers?: Record<string, string>;
+  query?: Record<string, string>;
+}
+
 export interface ProviderRealtimeConfig {
   compat: string;
   endpoint: RealtimeEndpointConfig;
+  webrtc?: {
+    endpoint: RealtimeWebrtcEndpointConfig;
+  };
   metadata?: JsonObject;
 }
 

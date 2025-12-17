@@ -16,6 +16,14 @@
       "headers": {
         "Authorization": "Bearer ${OPENAI_API_KEY}"
       }
+    },
+    "webrtc": {
+      "endpoint": {
+        "urlTemplate": "https://api.openai.com/v1/realtime?model={model}",
+        "headers": {
+          "Content-Type": "application/sdp"
+        }
+      }
     }
   },
   "retryWords": [

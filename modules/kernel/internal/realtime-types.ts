@@ -67,10 +67,54 @@ export interface RealtimeSessionAudioConfig {
   output?: Omit<RealtimeAudioFrame, 'dataBase64' | 'timestampMs'>;
 }
 
+export type RealtimeTransportType = 'ws' | 'webrtc';
+
+export interface RealtimeTransportConfig {
+  /**
+   * Realtime connection transport.
+   *
+   * Defaults to `ws`.
+   */
+  type?: RealtimeTransportType;
+}
+
+export interface RealtimeWebrtcConfig {
+  /**
+   * Short-lived client credential used for WebRTC SDP exchange.
+   *
+   * This must NOT be a long-lived provider API key.
+   */
+  clientSecret?: string;
+
+  /**
+   * Optional input stream for WebRTC microphone capture (browser/mobile).
+   *
+   * This is intentionally typed as `unknown` to avoid requiring DOM libs in the core package.
+   */
+  inputStream?: unknown;
+
+  /**
+   * Optional callback invoked when a remote audio stream is available.
+   *
+   * This is intentionally typed as `unknown` to avoid requiring DOM libs in the core package.
+   */
+  onRemoteStream?: (stream: unknown) => void;
+
+  /**
+   * Optional data channel label override.
+   *
+   * Defaults to the provider's recommended label when omitted.
+   */
+  dataChannelLabel?: string;
+}
+
 export interface RealtimeSessionSpec {
   /** Provider id from plugins/providers/*.json */
   provider: string;
   model?: string;
+
+  transport?: RealtimeTransportConfig;
+  webrtc?: RealtimeWebrtcConfig;
 
   // prompt/context
   systemPrompt?: string;

@@ -20,6 +20,15 @@ Enable realtime for the provider by adding a `realtime` block to `plugins/provid
       "headers": {
         "Authorization": "Bearer ${OPENAI_API_KEY}"
       }
+    },
+    "webrtc": {
+      "endpoint": {
+        "urlTemplate": "https://api.openai.com/v1/realtime?model={model}",
+        "headers": {
+          "Authorization": "Bearer ${OPENAI_API_KEY}",
+          "Content-Type": "application/sdp"
+        }
+      }
     }
   }
 }
@@ -59,6 +68,7 @@ const registry = new PluginRegistry({ pluginsPath: './plugins' });
 const session = await createRealtimeSession(registry, {
   provider: 'openai',
   model: 'gpt-realtime',
+  transport: { type: 'ws' },
   systemPrompt: 'Be concise and helpful.',
   transcription: { enabled: true },
   bargeIn: { enabled: true, triggers: ['user_speech.started'] },
@@ -80,6 +90,34 @@ await session.commit();
 
 await session.close();
 await eventsTask;
+```
+
+## WebRTC transport
+
+When `spec.transport.type === 'webrtc'`, this compat connects using WebRTC SDP exchange + a data channel for JSON events.
+
+Key points:
+- You must provide `spec.webrtc.clientSecret` (short-lived client credential for WebRTC). Do not put long-lived API keys in browsers.
+- Remote audio is delivered via the WebRTC media track. Provide `spec.webrtc.onRemoteStream(stream)` to attach it to playback.
+
+Example (browser-style pseudocode):
+
+```ts
+const pcStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+const session = await createRealtimeSession(registry, {
+  provider: 'openai',
+  model: 'gpt-realtime',
+  transport: { type: 'webrtc' },
+  webrtc: {
+    clientSecret: '<short-lived-secret>',
+    inputStream: pcStream,
+    onRemoteStream: (stream) => {
+      // attach to an <audio> element, etc.
+    }
+  },
+  transcription: { enabled: true }
+});
 ```
 
 ## Notes / caveats

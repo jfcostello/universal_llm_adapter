@@ -60,6 +60,12 @@ The spec is intentionally provider-agnostic. Not all providers emit all events; 
 Key fields:
 
 - `provider` / `model`: provider id from `plugins/providers/*.json` and an optional model override.
+- `transport`: transport selection (default `ws`). `type: 'webrtc'` enables WebRTC when supported by the selected provider compat.
+- `webrtc`: WebRTC-only options:
+  - `clientSecret`: short-lived client credential used for SDP exchange (required for `transport.type: 'webrtc'`).
+  - `inputStream`: optional local media stream to attach as microphone input before offer creation.
+  - `onRemoteStream`: callback invoked with the remote media stream for playback.
+  - `dataChannelLabel`: override the data-channel label used for JSON events.
 - `systemPrompt`: optional system prompt for the session.
 - `functionToolNames` / `toolChoice`: enable tool calling within the session.
 - `audio`: negotiated session audio input/output formats.
@@ -138,6 +144,8 @@ These events are the stable contract that:
   - `{ type: 'assistant_audio.chunk', frame: RealtimeAudioFrame }`
 - `assistant_audio.end`
   - `{ type: 'assistant_audio.end' }`
+
+Note: in WebRTC mode, remote audio may be delivered as a media track/stream via `spec.webrtc.onRemoteStream` instead of normalized `assistant_audio.chunk` events.
 
 Optional (provider-dependent):
 
