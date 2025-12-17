@@ -435,6 +435,18 @@ export interface EndpointConfig {
   streamingQuery?: Record<string, string>;
 }
 
+export interface RealtimeEndpointConfig {
+  urlTemplate: string;
+  headers: Record<string, string>;
+  query?: Record<string, string>;
+}
+
+export interface ProviderRealtimeConfig {
+  compat: string;
+  endpoint: RealtimeEndpointConfig;
+  metadata?: JsonObject;
+}
+
 export interface ProviderPayloadExtension {
   name: string;
   settingsKey: string;
@@ -451,6 +463,7 @@ export interface ProviderManifest {
   id: string;
   compat: string;
   endpoint: EndpointConfig;
+  realtime?: ProviderRealtimeConfig;
   retryWords?: string[];
   metadata?: JsonObject;
   payloadExtensions?: ProviderPayloadExtension[];
