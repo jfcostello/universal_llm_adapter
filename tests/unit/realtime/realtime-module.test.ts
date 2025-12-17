@@ -359,11 +359,214 @@ describe('modules/realtime/internal/realtime-session', () => {
 
     await session.close();
     await expect(session.sendText({ text: 'x' })).rejects.toThrow('Realtime session is closed');
+    await expect(session.sendDTMF('5')).rejects.toThrow('Realtime session is closed');
     await expect(session.sendAudio({ format: 'pcm16', sampleRateHz: 24000, channels: 1, dataBase64: '' })).rejects.toThrow(
       'Realtime session is closed'
     );
     await expect(session.commit()).rejects.toThrow('Realtime session is closed');
     await expect(session.interrupt()).rejects.toThrow('Realtime session is closed');
+  });
+
+  test('sendDTMF forwards digit mode to the compat and emits normalized events', async () => {
+    const closed = createDeferred<void>();
+    const compat: RealtimeCompatSession = {
+      sendText: jest.fn(),
+      sendAudio: jest.fn(),
+      commit: jest.fn(),
+      interrupt: jest.fn(),
+      sendToolResult: jest.fn(),
+      close: jest.fn().mockImplementation(() => closed.resolve()),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+        await closed.promise;
+      }
+    };
+
+    const session = createRealtimeSessionController({
+      registry: { getProcessRoutes: jest.fn().mockResolvedValue([]) },
+      provider: { id: 'p' } as any,
+      spec: {
+        provider: 'p',
+        dtmf: { mode: 'digit' },
+        timeout: { maxDurationMs: 0, idleTimeoutMs: 0, onTimeout: 'close' }
+      },
+      compatSession: compat
+    });
+
+    const eventsPromise = collectAll(session.events());
+    await new Promise(res => setTimeout(res, 0));
+
+    await session.sendDTMF('5');
+    await session.close();
+
+    await expect(eventsPromise).resolves.toEqual([
+      { type: 'ready', sessionId: 's' },
+      { type: 'user_dtmf.digit', digit: '5' },
+      { type: 'closed', reason: 'client_close' }
+    ]);
+
+    expect(compat.sendText).toHaveBeenCalledWith({ text: 'DTMF: 5', role: 'user' });
+    expect(compat.commit).toHaveBeenCalled();
+  });
+
+  test('sendDTMF sequence mode buffers digits until a terminator then forwards a sequence turn', async () => {
+    const closed = createDeferred<void>();
+    const compat: RealtimeCompatSession = {
+      sendText: jest.fn(),
+      sendAudio: jest.fn(),
+      commit: jest.fn(),
+      interrupt: jest.fn(),
+      sendToolResult: jest.fn(),
+      close: jest.fn().mockImplementation(() => closed.resolve()),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+        await closed.promise;
+      }
+    };
+
+    const session = createRealtimeSessionController({
+      registry: { getProcessRoutes: jest.fn().mockResolvedValue([]) },
+      provider: { id: 'p' } as any,
+      spec: {
+        provider: 'p',
+        dtmf: { mode: 'sequence', terminators: ['#'] },
+        timeout: { maxDurationMs: 0, idleTimeoutMs: 0, onTimeout: 'close' }
+      },
+      compatSession: compat
+    });
+
+    const eventsPromise = collectAll(session.events());
+    await new Promise(res => setTimeout(res, 0));
+
+    await session.sendDTMF('1');
+    expect(compat.sendText).not.toHaveBeenCalled();
+    expect(compat.commit).not.toHaveBeenCalled();
+
+    await session.sendDTMF('#');
+    await session.close();
+
+    await expect(eventsPromise).resolves.toEqual([
+      { type: 'ready', sessionId: 's' },
+      { type: 'user_dtmf.digit', digit: '1' },
+      { type: 'user_dtmf.digit', digit: '#' },
+      { type: 'user_dtmf.sequence', digits: '1#', terminator: '#' },
+      { type: 'closed', reason: 'client_close' }
+    ]);
+
+    expect(compat.sendText).toHaveBeenCalledWith({ text: 'DTMF sequence: 1#', role: 'user' });
+    expect(compat.commit).toHaveBeenCalledTimes(1);
+  });
+
+  test('sendDTMF rejects empty digits', async () => {
+    const closed = createDeferred<void>();
+    const compat: RealtimeCompatSession = {
+      sendText: jest.fn(),
+      sendAudio: jest.fn(),
+      commit: jest.fn(),
+      interrupt: jest.fn(),
+      sendToolResult: jest.fn(),
+      close: jest.fn().mockImplementation(() => closed.resolve()),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+        await closed.promise;
+      }
+    };
+
+    const session = createRealtimeSessionController({
+      registry: { getProcessRoutes: jest.fn().mockResolvedValue([]) },
+      provider: { id: 'p' } as any,
+      spec: { provider: 'p', timeout: { maxDurationMs: 0, idleTimeoutMs: 0, onTimeout: 'close' } },
+      compatSession: compat
+    });
+
+    await new Promise(res => setTimeout(res, 0));
+    await expect(session.sendDTMF('')).rejects.toThrow('DTMF digit must be a non-empty string');
+    await expect(session.sendDTMF(undefined as any)).rejects.toThrow('DTMF digit must be a non-empty string');
+    await session.close();
+  });
+
+  test('sendDTMF sequence mode can flush on maxDigits (no terminator field)', async () => {
+    const closed = createDeferred<void>();
+    const compat: RealtimeCompatSession = {
+      sendText: jest.fn(),
+      sendAudio: jest.fn(),
+      commit: jest.fn(),
+      interrupt: jest.fn(),
+      sendToolResult: jest.fn(),
+      close: jest.fn().mockImplementation(() => closed.resolve()),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+        await closed.promise;
+      }
+    };
+
+    const session = createRealtimeSessionController({
+      registry: { getProcessRoutes: jest.fn().mockResolvedValue([]) },
+      provider: { id: 'p' } as any,
+      spec: {
+        provider: 'p',
+        dtmf: { mode: 'sequence', terminators: ['#'], maxDigits: 2 },
+        timeout: { maxDurationMs: 0, idleTimeoutMs: 0, onTimeout: 'close' }
+      },
+      compatSession: compat
+    });
+
+    const eventsPromise = collectAll(session.events());
+    await new Promise(res => setTimeout(res, 0));
+
+    await session.sendDTMF('1');
+    await session.sendDTMF('2');
+    await session.close();
+
+    await expect(eventsPromise).resolves.toEqual([
+      { type: 'ready', sessionId: 's' },
+      { type: 'user_dtmf.digit', digit: '1' },
+      { type: 'user_dtmf.digit', digit: '2' },
+      { type: 'user_dtmf.sequence', digits: '12' },
+      { type: 'closed', reason: 'client_close' }
+    ]);
+
+    expect(compat.sendText).toHaveBeenCalledWith({ text: 'DTMF sequence: 12', role: 'user' });
+    expect(compat.commit).toHaveBeenCalledTimes(1);
+  });
+
+  test('DTMF can trigger barge-in when enabled (digit mode)', async () => {
+    const closed = createDeferred<void>();
+    const compatInterrupt = jest.fn();
+    const compat: RealtimeCompatSession = {
+      sendText: jest.fn(),
+      sendAudio: jest.fn(),
+      commit: jest.fn(),
+      interrupt: compatInterrupt,
+      sendToolResult: jest.fn(),
+      close: jest.fn().mockImplementation(() => closed.resolve()),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+        await closed.promise;
+      }
+    };
+
+    const session = createRealtimeSessionController({
+      registry: { getProcessRoutes: jest.fn().mockResolvedValue([]) },
+      provider: { id: 'p' } as any,
+      spec: {
+        provider: 'p',
+        bargeIn: { enabled: true },
+        dtmf: { mode: 'digit' },
+        timeout: { maxDurationMs: 0, idleTimeoutMs: 0, onTimeout: 'close' }
+      },
+      compatSession: compat
+    });
+
+    const eventsPromise = collectAll(session.events());
+    await new Promise(res => setTimeout(res, 0));
+
+    await session.sendDTMF('5');
+    await session.close();
+
+    const events = await eventsPromise;
+    expect(compatInterrupt).toHaveBeenCalledWith({ reason: 'barge_in' });
+    expect(events.map(e => e.type)).toEqual(['ready', 'playback.clear_requested', 'user_dtmf.digit', 'closed']);
   });
 
   test('barge-in triggers interrupt on user_speech.started and emits playback.clear_requested', async () => {

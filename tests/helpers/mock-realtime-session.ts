@@ -5,6 +5,7 @@ import type { RealtimeSession } from '@/modules/realtime/index.ts';
 
 export class MockRealtimeSession implements RealtimeSession {
   sendText = jest.fn(async (_options: { text: string; role?: 'system' | 'user' }) => {});
+  sendDTMF = jest.fn(async (_digit: string) => {});
   sendAudio = jest.fn(async (_frame: RealtimeAudioFrame) => {});
   commit = jest.fn(async () => {});
   interrupt = jest.fn(async (_options?: { reason?: string }) => {});

@@ -565,9 +565,92 @@ describe('plugins/modules/twilio-media-streams — bridge coverage cases', () =>
     await flush();
 
     expect(onDtmf).toHaveBeenCalledWith(expect.objectContaining({ digit: '9' }));
+    expect(session.sendDTMF).toHaveBeenCalledWith('9');
 
     ws.emitMessage(stopMessage({}));
     await task;
+    jest.useRealTimers();
+  });
+
+  test('session sendDTMF failure closes with session_send_dtmf_failed', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+    const secret = 'secret';
+    const token = makeToken(secret);
+    const onError = jest.fn();
+
+    const session = new MockRealtimeSession();
+    session.sendDTMF.mockImplementation(async () => { throw new Error('boom'); });
+    session.push({ type: 'ready', sessionId: 's1' });
+
+    const bridge = createTwilioMediaStreamsBridge({
+      createSession: async () => session,
+      security: { tokenSecret: secret },
+      limits: { startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0 },
+      callbacks: { onError }
+    });
+
+    const ws = new MockWebSocket();
+    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+    ws.emitMessage(startMessage({ customParameters: { from: 'x', to: 'y' } }));
+    await flush();
+    ws.emitMessage(dtmfMessage({ digit: '5' }));
+
+    await task;
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'session_send_dtmf_failed' }));
+    jest.useRealTimers();
+  });
+
+  test('session sendDTMF failure stringifies non-Error throwables', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+    const secret = 'secret';
+    const token = makeToken(secret);
+    const onError = jest.fn();
+
+    const session = new MockRealtimeSession();
+    session.sendDTMF.mockImplementation(async () => { throw {}; });
+    session.push({ type: 'ready', sessionId: 's1' });
+
+    const bridge = createTwilioMediaStreamsBridge({
+      createSession: async () => session,
+      security: { tokenSecret: secret },
+      limits: { startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0 },
+      callbacks: { onError }
+    });
+
+    const ws = new MockWebSocket();
+    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+    ws.emitMessage(startMessage({ customParameters: { from: 'x', to: 'y' } }));
+    await flush();
+    ws.emitMessage(dtmfMessage({ digit: '5' }));
+
+    await task;
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'session_send_dtmf_failed', message: '[object Object]' }));
+    jest.useRealTimers();
+  });
+
+  test('session sendDTMF failure closes even without onError callback', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+    const secret = 'secret';
+    const token = makeToken(secret);
+
+    const session = new MockRealtimeSession();
+    session.sendDTMF.mockImplementation(async () => { throw new Error('boom'); });
+    session.push({ type: 'ready', sessionId: 's1' });
+
+    const bridge = createTwilioMediaStreamsBridge({
+      createSession: async () => session,
+      security: { tokenSecret: secret },
+      limits: { startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0 }
+    });
+
+    const ws = new MockWebSocket();
+    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+    ws.emitMessage(startMessage({ customParameters: { from: 'x', to: 'y' } }));
+    await flush();
+    ws.emitMessage(dtmfMessage({ digit: '5' }));
+
+    await task;
+    expect(ws.closed.length).toBeGreaterThan(0);
     jest.useRealTimers();
   });
 

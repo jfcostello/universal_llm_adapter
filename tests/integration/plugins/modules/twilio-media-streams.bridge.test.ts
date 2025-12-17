@@ -1,9 +1,12 @@
 import { jest } from '@jest/globals';
 import { bytesToBase64, base64ToBytes } from '@/modules/audio/index.ts';
+import { createRealtimeSessionController } from '@/modules/realtime/internal/realtime-session.ts';
 import { createSignedWsToken } from '@/modules/security/index.ts';
 import { createTwilioMediaStreamsBridge } from '@/plugins/modules/twilio-media-streams/index.ts';
 import { MockRealtimeSession } from '@tests/helpers/mock-realtime-session.ts';
 import { MockWebSocket } from '@tests/helpers/mock-ws.ts';
+
+import type { RealtimeCompatSession } from '@/modules/kernel/index.ts';
 
 function makeToken(secret: string): string {
   const nowSeconds = Math.floor(Date.now() / 1000);
@@ -47,6 +50,14 @@ function markMessage(options: { streamSid?: string; name: string }) {
   });
 }
 
+function dtmfMessage(options: { streamSid?: string; digit: string }) {
+  return JSON.stringify({
+    event: 'dtmf',
+    streamSid: options.streamSid ?? 'MZ123',
+    dtmf: { digit: options.digit }
+  });
+}
+
 function stopMessage(options: { streamSid?: string }) {
   return JSON.stringify({
     event: 'stop',
@@ -59,6 +70,63 @@ function flush(): Promise<void> {
 }
 
 describe('plugins/modules/twilio-media-streams (bridge integration)', () => {
+  test('forwards DTMF to session (sequence mode) as a model-visible turn', async () => {
+    const secret = 'secret';
+    const token = makeToken(secret);
+
+    let closeCompat: (() => void) | undefined;
+    const compatClosed = new Promise<void>(resolve => {
+      closeCompat = resolve;
+    });
+
+    const compatSession: RealtimeCompatSession = {
+      sendText: jest.fn(),
+      sendAudio: jest.fn(),
+      commit: jest.fn(),
+      interrupt: jest.fn(),
+      sendToolResult: jest.fn(),
+      close: jest.fn().mockImplementation(() => closeCompat?.()),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's1' };
+        await compatClosed;
+      }
+    };
+
+    const session = createRealtimeSessionController({
+      registry: { getProcessRoutes: jest.fn().mockResolvedValue([]) },
+      provider: { id: 'p' } as any,
+      spec: {
+        provider: 'p',
+        timeout: { maxDurationMs: 0, idleTimeoutMs: 0, onTimeout: 'close' },
+        dtmf: { mode: 'sequence', terminators: ['#'] }
+      },
+      compatSession
+    });
+
+    const bridge = createTwilioMediaStreamsBridge({
+      createSession: async () => session,
+      security: { tokenSecret: secret },
+      limits: { startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0 },
+      audio: { pacing: { enabled: false } }
+    });
+
+    const ws = new MockWebSocket();
+    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+    ws.emitMessage(startMessage({}));
+    await flush();
+
+    ws.emitMessage(dtmfMessage({ digit: '1' }));
+    ws.emitMessage(dtmfMessage({ digit: '2' }));
+    ws.emitMessage(dtmfMessage({ digit: '#' }));
+    await flush();
+
+    expect(compatSession.sendText).toHaveBeenCalledWith({ text: 'DTMF sequence: 12#', role: 'user' });
+    expect(compatSession.commit).toHaveBeenCalledTimes(1);
+
+    ws.emitMessage(stopMessage({}));
+    await task;
+  });
+
   test('bridges inbound media to realtime session and returns assistant audio', async () => {
     const secret = 'secret';
     const token = makeToken(secret);

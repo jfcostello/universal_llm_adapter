@@ -20,7 +20,13 @@ export interface RealtimeTurnDetectionConfig {
 
 export interface RealtimeBargeInConfig {
   enabled?: boolean;
-  triggers?: Array<'user_speech.started' | 'user_transcript.delta' | 'explicit_interrupt'>;
+  triggers?: Array<
+    | 'user_speech.started'
+    | 'user_transcript.delta'
+    | 'user_dtmf.digit'
+    | 'user_dtmf.sequence'
+    | 'explicit_interrupt'
+  >;
 }
 
 export interface RealtimeTimeoutConfig {
@@ -32,6 +38,28 @@ export interface RealtimeTimeoutConfig {
 export interface RealtimeTranscriptionConfig {
   enabled?: boolean;
   language?: string;
+}
+
+export interface RealtimeDTMFConfig {
+  /**
+   * Controls whether DTMF is treated as individual digits or buffered into sequences.
+   *
+   * - `digit`: each digit is forwarded to the model immediately.
+   * - `sequence`: digits are buffered until a terminator/max-length flush.
+   */
+  mode?: 'digit' | 'sequence';
+
+  /**
+   * Sequence mode: digits that trigger a flush (commonly `#` or `*`).
+   * Defaults to `['#']`.
+   */
+  terminators?: string[];
+
+  /**
+   * Sequence mode: max buffered digit count before flushing.
+   * Defaults to 32.
+   */
+  maxDigits?: number;
 }
 
 export interface RealtimeSessionAudioConfig {
@@ -58,6 +86,9 @@ export interface RealtimeSessionSpec {
   // turn detection + barge-in
   turnDetection?: RealtimeTurnDetectionConfig;
   bargeIn?: RealtimeBargeInConfig;
+
+  // DTMF (touch tones)
+  dtmf?: RealtimeDTMFConfig;
 
   // timeouts
   timeout?: RealtimeTimeoutConfig;
@@ -106,6 +137,17 @@ export interface UserTranscriptDeltaEvent {
 export interface UserTranscriptFinalEvent {
   type: 'user_transcript.final';
   text: string;
+}
+
+export interface UserDTMFDigitEvent {
+  type: 'user_dtmf.digit';
+  digit: string;
+}
+
+export interface UserDTMFSequenceEvent {
+  type: 'user_dtmf.sequence';
+  digits: string;
+  terminator?: string;
 }
 
 export interface AssistantTranscriptDeltaEvent {
@@ -188,6 +230,8 @@ export type RealtimeEvent =
   | UserSpeechStoppedEvent
   | UserTranscriptDeltaEvent
   | UserTranscriptFinalEvent
+  | UserDTMFDigitEvent
+  | UserDTMFSequenceEvent
   | AssistantTranscriptDeltaEvent
   | AssistantTranscriptFinalEvent
   | AssistantTextDeltaEvent

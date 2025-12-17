@@ -12,6 +12,7 @@ import { AsyncQueue } from '../../kernel/index.js';
 
 export interface RealtimeSession {
   sendText: (options: { text: string; role?: 'system' | 'user' }) => Promise<void>;
+  sendDTMF: (digit: string) => Promise<void>;
   sendAudio: (frame: RealtimeAudioFrame) => Promise<void>;
   commit: () => Promise<void>;
   interrupt: (options?: { reason?: string }) => Promise<void>;
@@ -55,11 +56,22 @@ class RealtimeSessionController implements RealtimeSession {
   private enabledToolNames: Set<string> | undefined;
   private toolCoordinatorPromise: Promise<ToolCoordinatorLike> | undefined;
 
+  private dtmfMode: NonNullable<RealtimeSessionSpec['dtmf']>['mode'];
+  private dtmfTerminators: Set<string>;
+  private dtmfMaxDigits: number;
+  private dtmfBuffer = '';
+  private dtmfBargedInThisBuffer = false;
+
   constructor(private options: RealtimeSessionControllerOptions) {
     const timeoutCfg = options.spec.timeout ?? {};
     this.maxDurationMs = timeoutCfg.maxDurationMs ?? DEFAULT_MAX_DURATION_MS;
     this.idleTimeoutMs = timeoutCfg.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
     this.onTimeout = timeoutCfg.onTimeout ?? DEFAULT_ON_TIMEOUT;
+
+    const dtmfCfg = options.spec.dtmf ?? {};
+    this.dtmfMode = dtmfCfg.mode ?? 'digit';
+    this.dtmfTerminators = new Set((dtmfCfg.terminators ?? ['#']).map(s => String(s)));
+    this.dtmfMaxDigits = Math.max(1, Math.floor(dtmfCfg.maxDigits ?? 32));
 
     if (options.spec.functionToolNames && options.spec.functionToolNames.length > 0) {
       this.enabledToolNames = new Set(options.spec.functionToolNames);
@@ -80,6 +92,48 @@ class RealtimeSessionController implements RealtimeSession {
     this.ensureOpen();
     this.onActivity();
     await this.options.compatSession.sendText(options);
+  }
+
+  async sendDTMF(digit: string): Promise<void> {
+    this.ensureOpen();
+    this.onActivity();
+
+    const d = String(digit ?? '');
+    if (!d) {
+      throw new Error('DTMF digit must be a non-empty string');
+    }
+
+    if (this.dtmfMode === 'sequence' && this.dtmfBuffer.length === 0) {
+      this.dtmfBargedInThisBuffer = false;
+      this.dtmfBargedInThisBuffer = await this.maybeBargeIn('user_dtmf.digit');
+    } else if (this.dtmfMode === 'digit') {
+      await this.maybeBargeIn('user_dtmf.digit');
+    }
+    this.queue.push({ type: 'user_dtmf.digit', digit: d });
+
+    if (this.dtmfMode === 'digit') {
+      await this.options.compatSession.sendText({ text: `DTMF: ${d}`, role: 'user' });
+      await this.options.compatSession.commit();
+      return;
+    }
+
+    // sequence mode
+    this.dtmfBuffer += d;
+    const terminator = this.dtmfTerminators.has(d) ? d : undefined;
+    const shouldFlush = Boolean(terminator) || this.dtmfBuffer.length >= this.dtmfMaxDigits;
+    if (!shouldFlush) return;
+
+    const digits = this.dtmfBuffer;
+    this.dtmfBuffer = '';
+
+    if (!this.dtmfBargedInThisBuffer) {
+      await this.maybeBargeIn('user_dtmf.sequence');
+    }
+    this.queue.push({ type: 'user_dtmf.sequence', digits, ...(terminator ? { terminator } : {}) });
+
+    await this.options.compatSession.sendText({ text: `DTMF sequence: ${digits}`, role: 'user' });
+    await this.options.compatSession.commit();
+    this.dtmfBargedInThisBuffer = false;
   }
 
   async sendAudio(frame: RealtimeAudioFrame): Promise<void> {
@@ -235,15 +289,18 @@ class RealtimeSessionController implements RealtimeSession {
     }
   }
 
-  private async maybeBargeIn(trigger: 'user_speech.started' | 'user_transcript.delta'): Promise<void> {
+  private async maybeBargeIn(
+    trigger: 'user_speech.started' | 'user_transcript.delta' | 'user_dtmf.digit' | 'user_dtmf.sequence'
+  ): Promise<boolean> {
     const cfg = this.options.spec.bargeIn;
-    if (!cfg?.enabled) return;
+    if (!cfg?.enabled) return false;
 
-    const triggers = cfg.triggers ?? ['user_speech.started'];
-    if (!triggers.includes(trigger)) return;
+    const triggers = cfg.triggers ?? ['user_speech.started', 'user_dtmf.digit'];
+    if (!triggers.includes(trigger)) return false;
 
     await this.options.compatSession.interrupt({ reason: 'barge_in' });
     this.queue.push({ type: 'playback.clear_requested', reason: 'barge_in', atMs: Date.now() });
+    return true;
   }
 
   private async ensureToolCoordinator(): Promise<ToolCoordinatorLike> {

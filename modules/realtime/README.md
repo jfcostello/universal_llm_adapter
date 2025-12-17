@@ -32,6 +32,7 @@ const session = await createRealtimeSession(registry, {
   - Single-consumer: `events()` can only be called once per session instance.
   - Ordering: the first emitted event is always `ready` (or the session closes with an `error` + `closed`).
 - `sendText({ text, role? })`
+- `sendDTMF(digit: string)`
 - `sendAudio(frame: RealtimeAudioFrame)`
 - `commit()`
 - `interrupt({ reason? })`
@@ -65,7 +66,29 @@ Key fields:
 - `transcription`: enable user transcription (and optionally language hints).
 - `turnDetection`: `manual_commit` vs `server_vad`.
 - `bargeIn`: interruption (barge-in) configuration.
+- `dtmf`: touch-tone input behavior (digit vs sequence buffering).
 - `timeout`: max duration + idle timeout behavior.
+
+---
+
+## DTMF (touch tones)
+
+DTMF is treated as transport-agnostic user input. Calling `session.sendDTMF(digit)` injects a model-visible user turn as text:
+
+- `mode: 'digit'` (default): sends `DTMF: <digit>` and commits immediately.
+- `mode: 'sequence'`: buffers digits until a terminator/max-length flush, then sends `DTMF sequence: <digits>` and commits.
+
+Configure via `spec.dtmf`:
+
+```ts
+dtmf: {
+  mode: 'digit', // or 'sequence'
+  terminators: ['#'], // sequence mode only
+  maxDigits: 32 // sequence mode only
+}
+```
+
+DTMF can also be used as a barge-in trigger via `spec.bargeIn.triggers`.
 
 ---
 
@@ -97,6 +120,13 @@ These events are the stable contract that:
   - `{ type: 'user_transcript.delta', textDelta }`
 - `user_transcript.final`
   - `{ type: 'user_transcript.final', text }`
+
+### DTMF (touch tones)
+
+- `user_dtmf.digit`
+  - `{ type: 'user_dtmf.digit', digit }`
+- `user_dtmf.sequence`
+  - `{ type: 'user_dtmf.sequence', digits, terminator? }`
 
 ### Assistant transcript + audio
 
@@ -145,7 +175,7 @@ Barge-in is enabled via:
 ```ts
 bargeIn: {
   enabled: true,
-  triggers: ['user_speech.started'] // default
+  triggers: ['user_speech.started', 'user_dtmf.digit'] // default
 }
 ```
 

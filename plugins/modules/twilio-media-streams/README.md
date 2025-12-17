@@ -125,6 +125,32 @@ Notes:
 
 ---
 
+## DTMF (touch tones)
+
+Twilio sends keypad presses as `dtmf` events. The bridge handles DTMF in two ways:
+
+1. **Callback**: `callbacks.onDtmf({ digit, metadata })` fires for every inbound digit.
+2. **Session forwarding**: every digit is forwarded into the realtime session via `session.sendDTMF(digit)`.
+
+Forwarding DTMF into the session makes it model-visible (as provider-agnostic user input) and emits normalized realtime events:
+
+- `user_dtmf.digit`
+- `user_dtmf.sequence` (when buffering is enabled)
+
+DTMF behavior is configured on the session spec (`RealtimeSessionSpec.dtmf`), not on the bridge:
+
+```ts
+dtmf: {
+  mode: 'digit', // or 'sequence'
+  terminators: ['#'], // sequence mode only
+  maxDigits: 32 // sequence mode only
+}
+```
+
+In `digit` mode, each key press is injected as a user turn and committed immediately. In `sequence` mode, digits are buffered until a terminator/max-length flush, then the full sequence is injected and committed.
+
+---
+
 ## Audio behavior
 
 ### Inbound (caller → session)

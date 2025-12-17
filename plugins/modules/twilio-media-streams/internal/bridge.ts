@@ -284,6 +284,7 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
 
       const inboundAudioQueue = new ResettableQueue<RealtimeAudioFrame>();
       const outboundAudioQueue = new ResettableQueue<Uint8Array>();
+      const dtmfQueue = new ResettableQueue<string>();
 
       let sentAudioMsTotal = 0;
       let markSeq = 0;
@@ -313,6 +314,7 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
 
         inboundAudioQueue.close();
         outboundAudioQueue.close();
+        dtmfQueue.close();
         try { await session?.close?.(); } catch {}
         try { safeClose(ws, 1000, 'Closed'); } catch {}
       };
@@ -402,6 +404,22 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
         })();
       };
 
+      const startDtmfPump = (localSession: RealtimeSession) => {
+        void (async () => {
+          while (true) {
+            const next = await dtmfQueue.next();
+            if (!next) return;
+            try {
+              await localSession.sendDTMF(next.value);
+            } catch (err: any) {
+              callbacks.onError?.({ message: err?.message ?? String(err), code: 'session_send_dtmf_failed', metadata });
+              void closeAll();
+              return;
+            }
+          }
+        })();
+      };
+
       const startSessionPump = (localSession: RealtimeSession, call: TwilioCallMetadata) => {
         void (async () => {
           try {
@@ -429,6 +447,7 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
             // Start pumps once the session is ready.
             startInboundPump(localSession);
             startOutboundPump(call);
+            startDtmfPump(localSession);
 
             callbacks.onRealtimeEvent?.({ event: first.value, metadata: call });
 
@@ -605,6 +624,7 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
             case 'dtmf': {
               if (!metadata) return;
               callbacks.onDtmf?.({ digit: msg.digit, metadata });
+              dtmfQueue.push(msg.digit);
               return;
             }
             case 'stop': {
