@@ -2,10 +2,15 @@ import type http from 'http';
 import type net from 'net';
 import { createRequire } from 'module';
 
+import { createLimiter } from '../transport/limiter.js';
+
 export interface RealtimeWsConfig {
   path: string;
   maxMessageBytes: number;
   idleTimeoutMs: number;
+  maxConcurrentSessions: number;
+  maxAudioBytesPerSecond: number;
+  maxSessionDurationMs: number;
 }
 
 export type RealtimeWsCreateSession = (options: {
@@ -62,37 +67,83 @@ export async function attachRealtimeWsServer(options: {
   server: http.Server;
   registry: any;
   createSession: RealtimeWsCreateSession;
+  authorizeUpgrade: (req: http.IncomingMessage) => Promise<void> | void;
   config: RealtimeWsConfig;
 }): Promise<{ close: () => Promise<void> }> {
   const require = createRequire(import.meta.url);
   const ws = require('ws');
   const wss = new ws.WebSocketServer({ noServer: true });
 
-  const onUpgrade = (req: http.IncomingMessage, socket: net.Socket, head: Buffer) => {
-    const pathname = parseWsPath(req);
-    if (pathname !== options.config.path) {
-      writeHttpResponse(socket, 404, 'Not Found', 'Not Found');
-      socket.destroy();
-      return;
-    }
+  const limiter = createLimiter({
+    maxConcurrent: options.config.maxConcurrentSessions,
+    maxQueueSize: 0,
+    queueTimeoutMs: 0
+  });
 
-    wss.handleUpgrade(req, socket, head, (ws: any) => {
-      wss.emit('connection', ws, req);
-    });
+  const statusTextFor = (statusCode: number): string => {
+    const map: Record<number, string> = {
+      400: 'Bad Request',
+      401: 'Unauthorized',
+      403: 'Forbidden',
+      404: 'Not Found',
+      413: 'Payload Too Large',
+      429: 'Too Many Requests',
+      500: 'Internal Server Error',
+      503: 'Service Unavailable'
+    };
+    return map[statusCode] ?? 'Error';
+  };
+
+  const onUpgrade = (req: http.IncomingMessage, socket: net.Socket, head: Buffer) => {
+    void (async () => {
+      const pathname = parseWsPath(req);
+      if (pathname !== options.config.path) {
+        writeHttpResponse(socket, 404, 'Not Found', 'Not Found');
+        socket.destroy();
+        return;
+      }
+
+      try {
+        await options.authorizeUpgrade(req);
+      } catch (err: any) {
+        const statusCode = Number(err?.statusCode ?? 401);
+        writeHttpResponse(socket, statusCode, statusTextFor(statusCode), err?.message ?? 'Unauthorized');
+        socket.destroy();
+        return;
+      }
+
+      let release: (() => void) | undefined;
+      try {
+        release = await limiter.acquire();
+      } catch {
+        writeHttpResponse(socket, 503, statusTextFor(503), 'Server busy');
+        socket.destroy();
+        return;
+      }
+
+      wss.handleUpgrade(req, socket, head, (ws: any) => {
+        (ws as any).__realtimeRelease = release;
+        wss.emit('connection', ws, req);
+      });
+    })();
   };
 
   options.server.on('upgrade', onUpgrade);
 
   wss.on('connection', (ws: any) => {
+    const release: (() => void) = (ws as any).__realtimeRelease as () => void;
+
     let session: any | undefined;
     let openSeen = false;
     let closed = false;
 
     let idleTimer: NodeJS.Timeout | undefined;
-    let lastActivity = Date.now();
+    let durationTimer: NodeJS.Timeout | undefined;
+    let audioTokens = options.config.maxAudioBytesPerSecond;
+    let audioLastRefillMs = Date.now();
 
     const touch = () => {
-      lastActivity = Date.now();
+      // also drives idle timeout resets
     };
 
     const scheduleIdleCheck = () => {
@@ -104,6 +155,19 @@ export async function attachRealtimeWsServer(options: {
         send({ type: 'error', error: { message: 'Realtime WS idle timeout', code: 'ws_idle_timeout' } });
         try { ws.close(); } catch {}
       }, options.config.idleTimeoutMs);
+    };
+
+    const chargeAudioBytes = (bytes: number) => {
+      const now = Date.now();
+      const elapsedMs = Math.max(0, now - audioLastRefillMs);
+      const refill = (elapsedMs * options.config.maxAudioBytesPerSecond) / 1000;
+      audioTokens = Math.min(options.config.maxAudioBytesPerSecond, audioTokens + refill);
+      audioLastRefillMs = now;
+
+      if (audioTokens < bytes) {
+        throw Object.assign(new Error('Audio rate limit exceeded'), { code: 'audio_rate_limited' });
+      }
+      audioTokens -= bytes;
     };
 
     const send = (env: RealtimeServerEnvelope) => {
@@ -149,9 +213,11 @@ export async function attachRealtimeWsServer(options: {
       if (closed) return;
       closed = true;
       if (idleTimer) clearTimeout(idleTimer);
+      if (durationTimer) clearTimeout(durationTimer);
       try {
         await session?.close?.();
       } catch {}
+      try { release(); } catch {}
       try {
         if (ws.readyState === ws.OPEN) ws.close();
       } catch {}
@@ -163,6 +229,12 @@ export async function attachRealtimeWsServer(options: {
 
     touch();
     scheduleIdleCheck();
+    if (Number.isFinite(options.config.maxSessionDurationMs) && options.config.maxSessionDurationMs > 0) {
+      durationTimer = setTimeout(() => {
+        send({ type: 'error', error: { message: 'Realtime WS max session duration exceeded', code: 'ws_max_duration' } });
+        try { ws.close(); } catch {}
+      }, options.config.maxSessionDurationMs);
+    }
 
     ws.on('message', async (data: any) => {
       touch();
@@ -209,6 +281,8 @@ export async function attachRealtimeWsServer(options: {
           }
           case 'send_audio': {
             ensureOpen();
+            const approxBytes = Math.floor((msg.frame.dataBase64.length * 3) / 4);
+            chargeAudioBytes(approxBytes);
             await session.sendAudio(msg.frame);
             return;
           }

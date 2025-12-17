@@ -156,6 +156,24 @@ describe('core/logging', () => {
         expect(mocks.logger.debug).toHaveBeenCalledWith('Raw payload', {
           raw: JSON.stringify(Buffer.from(uint8).toString('base64'))
         });
+
+        mocks.logger.debug.mockClear();
+        logger.debugRaw({
+          dataBase64: 'AA==',
+          token: 'secret-token',
+          authorization: 123,
+          Authorization: 'Bearer sk-abcdef1234567890',
+          'x-api-key': 'super-secret-api-key'
+        });
+        const redactedRaw = mocks.logger.debug.mock.calls[0]?.[1]?.raw as string;
+        expect(redactedRaw).toContain('[REDACTED_BASE64]');
+        expect(redactedRaw).toContain('[REDACTED_TOKEN]');
+        expect(redactedRaw).toContain('[REDACTED_AUTH]');
+        expect(redactedRaw).toContain('Bearer ***7890');
+        expect(redactedRaw).toContain('[REDACTED_API_KEY]');
+        expect(redactedRaw).not.toContain('AA==');
+        expect(redactedRaw).not.toContain('secret-token');
+        expect(redactedRaw).not.toContain('super-secret-api-key');
       } finally {
         jest.useRealTimers();
       }

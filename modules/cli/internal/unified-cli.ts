@@ -349,6 +349,9 @@ export function createUnifiedProgram(
     .option('--realtime-ws-path <path>', 'WebSocket path for realtime sessions')
     .option('--realtime-max-ws-message-bytes <bytes>', 'Maximum realtime WebSocket message size', parseNumber)
     .option('--realtime-ws-idle-timeout-ms <ms>', 'Realtime WebSocket idle timeout', parseNumber)
+    .option('--realtime-max-concurrent-sessions <n>', 'Max concurrent realtime sessions', parseNumber)
+    .option('--realtime-max-audio-bytes-per-second <bytes>', 'Max audio throughput per session (bytes/sec)', parseNumber)
+    .option('--realtime-max-session-duration-ms <ms>', 'Max realtime session duration', parseNumber)
     .option('--auth-enabled', 'Enable API key/token auth')
     .option('--no-auth-allow-bearer', 'Disable Authorization: Bearer header support')
     .option('--no-auth-allow-api-key-header', 'Disable API key header support')
@@ -431,12 +434,16 @@ export function createUnifiedProgram(
 
         const realtimeArgProvided = rawArgs?.some(arg => arg.startsWith('--realtime-'));
         if (realtimeArgProvided) {
-          serverOptions.realtime = {
-            enabled: rawArgs.includes('--realtime-enabled'),
-            wsPath: options.realtimeWsPath,
-            maxWsMessageBytes: options.realtimeMaxWsMessageBytes,
-            wsIdleTimeoutMs: options.realtimeWsIdleTimeoutMs
+          const realtime: any = {
+            enabled: rawArgs.includes('--realtime-enabled')
           };
+          if (options.realtimeWsPath !== undefined) realtime.wsPath = options.realtimeWsPath;
+          if (options.realtimeMaxWsMessageBytes !== undefined) realtime.maxWsMessageBytes = options.realtimeMaxWsMessageBytes;
+          if (options.realtimeWsIdleTimeoutMs !== undefined) realtime.wsIdleTimeoutMs = options.realtimeWsIdleTimeoutMs;
+          if (options.realtimeMaxConcurrentSessions !== undefined) realtime.maxConcurrentSessions = options.realtimeMaxConcurrentSessions;
+          if (options.realtimeMaxAudioBytesPerSecond !== undefined) realtime.maxAudioBytesPerSecond = options.realtimeMaxAudioBytesPerSecond;
+          if (options.realtimeMaxSessionDurationMs !== undefined) realtime.maxSessionDurationMs = options.realtimeMaxSessionDurationMs;
+          serverOptions.realtime = realtime;
         }
 
         // Parse security headers options

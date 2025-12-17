@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals';
+import { createRequire } from 'module';
 
 import { createServer, createServerHandlerWithDefaults } from '@/modules/server/index.ts';
 
@@ -113,7 +114,22 @@ describe('utils/server index default branches', () => {
     await running.close();
   });
 
+  test('createServer rejects realtime WS when auth is not enabled', async () => {
+    await expect(createServer({
+      realtime: { enabled: true },
+      deps: {
+        getDefaults: () => DEFAULTS_WITHOUT_NESTED,
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any)).rejects.toThrow('Realtime WS requires server auth to be enabled');
+  });
+
   test('createServer attaches realtime WS when enabled', async () => {
+    const require = createRequire(import.meta.url);
+    const WsClient = require('ws');
+
     let closeResolve: (() => void) | undefined;
     const closed = new Promise<void>((resolve) => {
       closeResolve = resolve;
@@ -132,6 +148,8 @@ describe('utils/server index default branches', () => {
 
     const running = await createServer({
       realtime: { enabled: true, wsIdleTimeoutMs: 0, maxWsMessageBytes: 1024 },
+      auth: { enabled: true, apiKeys: ['test-key'] },
+      rateLimit: { enabled: true, requestsPerMinute: 60, burst: 10 },
       deps: {
         getDefaults: () => DEFAULTS_WITHOUT_NESTED,
         createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
@@ -146,24 +164,24 @@ describe('utils/server index default branches', () => {
     url.pathname = '/realtime/ws';
     url.search = '';
 
-    const ws = new WebSocket(url.toString());
+    const ws = new WsClient(url.toString(), { headers: { 'x-api-key': 'test-key' } });
     const messages: any[] = [];
     const closePromise = new Promise<void>((resolve) => {
-      ws.onclose = () => resolve();
+      ws.on('close', () => resolve());
     });
 
-    ws.onmessage = (evt: any) => {
+    ws.on('message', (data: any) => {
       try {
-        const text = typeof evt.data === 'string' ? evt.data : Buffer.from(evt.data).toString('utf-8');
+        const text = typeof data === 'string' ? data : Buffer.from(data).toString('utf-8');
         messages.push(JSON.parse(text));
       } catch {
         // ignore
       }
-    };
+    });
 
     await new Promise<void>((resolve, reject) => {
-      ws.onerror = (err: any) => reject(err);
-      ws.onopen = () => resolve();
+      ws.on('error', (err: any) => reject(err));
+      ws.on('open', () => resolve());
     });
 
     ws.send(JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }));
@@ -190,8 +208,12 @@ describe('utils/server index default branches', () => {
   });
 
   test('realtime WS errors when session factory is missing', async () => {
+    const require = createRequire(import.meta.url);
+    const WsClient = require('ws');
+
     const running = await createServer({
       realtime: { enabled: true, wsIdleTimeoutMs: 0, maxWsMessageBytes: 1024 },
+      auth: { enabled: true, apiKeys: ['test-key'] },
       deps: {
         getDefaults: () => DEFAULTS_WITHOUT_NESTED,
         createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
@@ -205,24 +227,24 @@ describe('utils/server index default branches', () => {
     url.pathname = '/realtime/ws';
     url.search = '';
 
-    const ws = new WebSocket(url.toString());
+    const ws = new WsClient(url.toString(), { headers: { 'x-api-key': 'test-key' } });
     const messages: any[] = [];
     const closePromise = new Promise<void>((resolve) => {
-      ws.onclose = () => resolve();
+      ws.on('close', () => resolve());
     });
 
-    ws.onmessage = (evt: any) => {
+    ws.on('message', (data: any) => {
       try {
-        const text = typeof evt.data === 'string' ? evt.data : Buffer.from(evt.data).toString('utf-8');
+        const text = typeof data === 'string' ? data : Buffer.from(data).toString('utf-8');
         messages.push(JSON.parse(text));
       } catch {
         // ignore
       }
-    };
+    });
 
     await new Promise<void>((resolve, reject) => {
-      ws.onerror = (err: any) => reject(err);
-      ws.onopen = () => resolve();
+      ws.on('error', (err: any) => reject(err));
+      ws.on('open', () => resolve());
     });
 
     ws.send(JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }));

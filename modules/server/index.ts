@@ -53,6 +53,9 @@ export interface ServerOptions {
     wsPath?: string;
     maxWsMessageBytes?: number;
     wsIdleTimeoutMs?: number;
+    maxConcurrentSessions?: number;
+    maxAudioBytesPerSecond?: number;
+    maxSessionDurationMs?: number;
   };
   maxRequestBytes?: number;
   bodyReadTimeoutMs?: number;
@@ -168,6 +171,9 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
   const authDefaults = serverDefaults.auth ?? {};
   const rateLimitDefaults = serverDefaults.rateLimit ?? {};
   const corsDefaults = serverDefaults.cors ?? {};
+  const authConfig = { ...authDefaults, ...options.auth };
+  const rateLimitConfig = { ...rateLimitDefaults, ...options.rateLimit };
+  const corsConfig = { ...corsDefaults, ...options.cors };
   const host = options.host ?? '127.0.0.1';
   const port = options.port ?? 0;
   const pluginsPath = options.pluginsPath ?? './plugins';
@@ -207,9 +213,9 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
         options.embeddingMaxQueueSize ?? serverDefaults.embeddingMaxQueueSize,
       embeddingQueueTimeoutMs:
         options.embeddingQueueTimeoutMs ?? serverDefaults.embeddingQueueTimeoutMs,
-      auth: { ...authDefaults, ...options.auth },
-      rateLimit: { ...rateLimitDefaults, ...options.rateLimit },
-      cors: { ...corsDefaults, ...options.cors },
+      auth: authConfig,
+      rateLimit: rateLimitConfig,
+      cors: corsConfig,
       securityHeadersEnabled:
         options.securityHeadersEnabled ?? serverDefaults.securityHeadersEnabled ?? true
     }
@@ -221,13 +227,30 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
   const realtimeWsPath = options.realtime?.wsPath ?? '/realtime/ws';
   const realtimeMaxWsMessageBytes = options.realtime?.maxWsMessageBytes ?? 262144;
   const realtimeWsIdleTimeoutMs = options.realtime?.wsIdleTimeoutMs ?? 60000;
+  const realtimeMaxConcurrentSessions = options.realtime?.maxConcurrentSessions ?? 20;
+  const realtimeMaxAudioBytesPerSecond = options.realtime?.maxAudioBytesPerSecond ?? 256000;
+  const realtimeMaxSessionDurationMs = options.realtime?.maxSessionDurationMs ?? 3600000;
 
   let closeRealtimeWs: (() => Promise<void>) | undefined;
   if (realtimeEnabled) {
+    if (!authConfig.enabled) {
+      throw new Error('Realtime WS requires server auth to be enabled');
+    }
+
+    const { assertAuthorized } = await import('./internal/security/auth.js');
+    const { createRateLimiter } = await import('./internal/security/rate-limiter.js');
+    const rateLimiter = createRateLimiter(rateLimitConfig as any);
+
     const { attachRealtimeWsServer } = await import('./internal/realtime/ws.js');
     const realtime = await attachRealtimeWsServer({
       server,
       registry,
+      authorizeUpgrade: async (req) => {
+        const authIdentity = await assertAuthorized(req, authConfig as any, options.authorize as any) as string;
+        if (rateLimitConfig.enabled) {
+          rateLimiter.check(authIdentity);
+        }
+      },
       createSession: async ({ registry, spec }) => {
         if (!deps.createRealtimeSession) {
           throw new Error('Realtime session factory unavailable');
@@ -237,7 +260,10 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
       config: {
         path: realtimeWsPath,
         maxMessageBytes: realtimeMaxWsMessageBytes,
-        idleTimeoutMs: realtimeWsIdleTimeoutMs
+        idleTimeoutMs: realtimeWsIdleTimeoutMs,
+        maxConcurrentSessions: realtimeMaxConcurrentSessions,
+        maxAudioBytesPerSecond: realtimeMaxAudioBytesPerSecond,
+        maxSessionDurationMs: realtimeMaxSessionDurationMs
       }
     });
     closeRealtimeWs = realtime.close;

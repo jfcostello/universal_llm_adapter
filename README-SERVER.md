@@ -100,6 +100,9 @@ await server.close();
 | `realtime.wsPath` | `--realtime-ws-path <path>` | `/realtime/ws` | WebSocket path for realtime sessions |
 | `realtime.maxWsMessageBytes` | `--realtime-max-ws-message-bytes <n>` | `262144` | Maximum WebSocket message size |
 | `realtime.wsIdleTimeoutMs` | `--realtime-ws-idle-timeout-ms <n>` | `60000` | WebSocket idle timeout |
+| `realtime.maxConcurrentSessions` | `--realtime-max-concurrent-sessions <n>` | `20` | Max concurrent realtime sessions |
+| `realtime.maxAudioBytesPerSecond` | `--realtime-max-audio-bytes-per-second <n>` | `256000` | Max audio throughput per session (bytes/sec) |
+| `realtime.maxSessionDurationMs` | `--realtime-max-session-duration-ms <n>` | `3600000` | Max realtime session duration |
 
 ### Security: Authentication
 
@@ -196,7 +199,8 @@ Realtime sessions over WebSocket using the same message/envelope contract as `ll
 **Contract notes:**
 
 - The first emitted event must be `{ "type": "ready", ... }`.
-- Configure message size and idle timeout via the `realtime.*` options.
+- Authentication must be enabled (`auth.enabled: true`) for this endpoint.
+- Configure limits via the `realtime.*` options (message size, idle timeout, concurrency, audio rate, max duration).
 
 ### LLM Run (Non-Streaming)
 
