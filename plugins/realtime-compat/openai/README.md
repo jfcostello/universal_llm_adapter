@@ -32,6 +32,23 @@ Enable realtime for the provider by adding a `realtime` block to `plugins/provid
 
 The compat validates these combinations before connecting.
 
+## Normalized events emitted
+
+This compat maps provider realtime events into the provider-agnostic `RealtimeEvent` taxonomy. Which events you receive depends on the session configuration and provider capabilities.
+
+Common events include:
+- `ready`
+- `assistant_audio.chunk` / `assistant_audio.end`
+- `assistant_transcript.delta` / `assistant_transcript.final`
+- `user_transcript.delta` / `user_transcript.final` (when transcription is enabled)
+- tool calling: `tool_call.*` (when tools are enabled)
+- `usage`, `error`, `timeout`, `closed`
+
+## Interrupt / barge-in
+
+- `session.interrupt()` maps to provider cancellation.
+- Core will emit `playback.clear_requested` when interruption/barge-in occurs; downstream transports should stop playback immediately.
+
 ## Usage (via `llm-adapter/realtime`)
 ```ts
 import { PluginRegistry } from 'llm-adapter';
@@ -44,6 +61,7 @@ const session = await createRealtimeSession(registry, {
   model: 'gpt-realtime',
   systemPrompt: 'Be concise and helpful.',
   transcription: { enabled: true },
+  bargeIn: { enabled: true, triggers: ['user_speech.started'] },
   turnDetection: { mode: 'manual_commit' },
   audio: {
     input: { format: 'pcm16', sampleRateHz: 24000, channels: 1 },
@@ -66,5 +84,4 @@ await eventsTask;
 
 ## Notes / caveats
 - `session.interrupt()` maps to provider cancellation. Audio/text alignment after cancellation is best-effort.
-- Tool calling is supported via normalized `tool_call.*` events and `sendToolResult()`.
-
+- Tool calling is supported via normalized `tool_call.*` events; tool results are injected back into the session by core.

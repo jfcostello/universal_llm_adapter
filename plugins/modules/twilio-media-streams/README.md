@@ -234,6 +234,10 @@ server.listen(3000);
 
 If you see `1008 Unauthorized` immediately, the signed-token check is failing (missing/invalid/expired token or secret mismatch).
 
+## Runnable example
+
+See `plugins/modules/twilio-media-streams/examples/twilio-inbound/` for a runnable inbound-call bridge example (TwiML endpoint + WebSocket server).
+
 ---
 
 ## Troubleshooting

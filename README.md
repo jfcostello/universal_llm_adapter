@@ -11,6 +11,7 @@ Provider-agnostic LLM adapter with a unified interface across multiple providers
 - **MCP Integration**: Model Context Protocol server support
 - **Vector Stores**: Integration with vector databases for RAG applications
 - **Streaming**: Real-time streaming responses with tool support
+- **Realtime Sessions**: Bidirectional sessions (audio/text in, audio/transcripts/tools out) via `llm-adapter/realtime`
 - **100% Test Coverage**: Comprehensive test suite with full coverage
 
 ## Quick Start
@@ -35,6 +36,7 @@ universal_llm_adapter/
 │   ├── kernel/                   # Core primitives: types, defaults, registry, config
 │   ├── cli/                      # Unified CLI program and handlers
 │   ├── llm/                      # LLM coordinator and manager
+│   ├── realtime/                 # Realtime session entrypoint + controller
 │   ├── server/                   # HTTP/SSE server
 │   ├── vector/                   # Vector store coordinator and manager
 │   ├── embeddings/               # Embedding coordinator and manager
@@ -55,6 +57,7 @@ universal_llm_adapter/
 │   ├── embeddings/               # Embedding provider configs (.json)
 │   ├── vector/                   # Vector store configs (.json)
 │   ├── compat/                   # LLM provider compat implementations
+│   ├── realtime-compat/          # Realtime provider compat implementations
 │   ├── embedding-compat/         # Embedding provider compat implementations
 │   ├── vector-compat/            # Vector store compat implementations
 │   ├── tools/                    # Tool definitions (.json)
