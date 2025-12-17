@@ -17,6 +17,10 @@
       "types": "./dist/modules/realtime/index.d.ts",
       "import": "./dist/modules/realtime/index.js"
     },
+    "./audio": {
+      "types": "./dist/modules/audio/index.d.ts",
+      "import": "./dist/modules/audio/index.js"
+    },
     "./server": {
       "types": "./dist/modules/server/index.d.ts",
       "import": "./dist/modules/server/index.js"
