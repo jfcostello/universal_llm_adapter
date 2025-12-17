@@ -260,6 +260,32 @@ export function resolveOpenAIWebrtcSdpUrl(options: {
   });
 }
 
+export function resolveOpenAIClientSecretUrl(options: {
+  provider: Parameters<IRealtimeCompat['createSession']>[0]['provider'];
+  spec: RealtimeSessionSpec;
+}): string {
+  const realtime = options.provider.realtime;
+  if (!realtime?.webrtc?.clientSecretEndpoint?.urlTemplate) {
+    throw new Error(`Provider '${options.provider.id}' missing realtime webrtc clientSecret endpoint configuration`);
+  }
+
+  const template = String(realtime.webrtc.clientSecretEndpoint.urlTemplate);
+  const query = realtime.webrtc.clientSecretEndpoint.query;
+  const needsModel =
+    template.includes('{model}') ||
+    Object.values(query ?? {}).some(v => String(v).includes('{model}'));
+  const model = needsModel ? options.spec.model ?? (realtime.metadata as any)?.defaultModel : 'unused';
+  if (needsModel && !model) {
+    throw new Error(`Realtime session requires 'model' for provider '${options.provider.id}'`);
+  }
+
+  return resolveRealtimeUrl({
+    urlTemplate: template,
+    model,
+    query
+  });
+}
+
 export function resolveOpenAIWsUrl(options: {
   provider: Parameters<IRealtimeCompat['createSession']>[0]['provider'];
   spec: RealtimeSessionSpec;

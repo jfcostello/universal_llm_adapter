@@ -1,6 +1,8 @@
 import type { IRealtimeCompat } from '../../../../modules/kernel/index.js';
 import type { RealtimeSessionSpec } from '../../../../modules/kernel/index.js';
 
+import { resolveOpenAIClientSecretUrl } from './session-core.js';
+
 export default class OpenAIRealtimeCompat implements IRealtimeCompat {
   async createSession(options: Parameters<IRealtimeCompat['createSession']>[0]) {
     const spec = options.spec as RealtimeSessionSpec;
@@ -13,5 +15,50 @@ export default class OpenAIRealtimeCompat implements IRealtimeCompat {
 
     const { createOpenAIRealtimeWsCompatSession } = await import('./session-ws.js');
     return createOpenAIRealtimeWsCompatSession(options);
+  }
+
+  async mintClientSecret(options: Parameters<NonNullable<IRealtimeCompat['mintClientSecret']>>[0]) {
+    const spec = options.spec as RealtimeSessionSpec;
+    const url = resolveOpenAIClientSecretUrl({ provider: options.provider, spec });
+    const headers = { ...(options.provider.realtime?.webrtc?.clientSecretEndpoint?.headers ?? {}) } as Record<string, string>;
+    if (!headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    const realtime = options.provider.realtime;
+    const model = spec.model ?? (realtime?.metadata as any)?.defaultModel;
+    if (!model) {
+      throw new Error(`Realtime session requires 'model' for provider '${options.provider.id}'`);
+    }
+
+    const expiresAfterSeconds = options.expiresAfterSeconds ?? 600;
+    const body = {
+      expires_after: { anchor: 'created_at', seconds: expiresAfterSeconds },
+      session: {
+        type: 'realtime',
+        model,
+        ...(spec.systemPrompt ? { instructions: spec.systemPrompt } : {})
+      }
+    };
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body)
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Client secret mint request failed (${res.status}): ${text || res.statusText}`);
+    }
+
+    const payload = (await res.json()) as any;
+    const value = String(payload?.value ?? '');
+    if (!value) {
+      throw new Error('Realtime client secret response missing client secret value');
+    }
+
+    const expiresAt = typeof payload?.expires_at === 'number' ? payload.expires_at : undefined;
+    return { clientSecret: value, ...(expiresAt !== undefined ? { expiresAt } : {}) };
   }
 }

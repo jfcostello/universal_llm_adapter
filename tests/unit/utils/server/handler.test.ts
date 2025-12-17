@@ -1459,4 +1459,305 @@ describe('utils/server createServerHandler', () => {
     expect(out.body).toContain('timeout');
     expect(unhandled).toHaveLength(0);
   });
+
+  test('POST /realtime/webrtc/client-secret rejects unauthenticated', async () => {
+    const handler = createServerHandler({
+      registry: {
+        loadAll: jest.fn(),
+        getProvider: jest.fn(),
+        getRealtimeCompat: jest.fn()
+      } as any,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+    });
+
+    const req = makeReq('POST', '/realtime/webrtc/client-secret', JSON.stringify({ provider: 'p' }));
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(401);
+    expect(JSON.parse(out.body).error.code).toBe('unauthorized');
+  });
+
+  test('POST /realtime/webrtc/client-secret returns 501 when server auth is disabled', async () => {
+    const handler = createServerHandler({
+      registry: {
+        loadAll: jest.fn(),
+        getProvider: jest.fn(),
+        getRealtimeCompat: jest.fn()
+      } as any,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, auth: { enabled: false } } as any
+    });
+
+    const req = makeReq('POST', '/realtime/webrtc/client-secret', JSON.stringify({ provider: 'p' }));
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(501);
+    expect(JSON.parse(out.body).error.code).toBe('not_implemented');
+  });
+
+  test('POST /realtime/webrtc/client-secret returns expected JSON on success', async () => {
+    const registryWithRealtime = {
+      loadAll: jest.fn(),
+      getProvider: jest.fn().mockResolvedValue({
+        id: 'p',
+        compat: 'x',
+        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
+        realtime: { compat: 'rt', endpoint: { urlTemplate: 'ws://x', headers: {} } }
+      }),
+      getRealtimeCompat: jest.fn().mockResolvedValue({
+        mintClientSecret: jest.fn().mockResolvedValue({ clientSecret: 'cs', expiresAt: 123 })
+      })
+    };
+
+    const handler = createServerHandler({
+      registry: registryWithRealtime as any,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registryWithRealtime),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+    });
+
+    const req = makeReq(
+      'POST',
+      '/realtime/webrtc/client-secret',
+      JSON.stringify({ provider: 'p', model: 'm', systemPrompt: 'hi', expiresAfterSeconds: 60 })
+    );
+    req.headers.authorization = 'Bearer k1';
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(200);
+    expect(JSON.parse(out.body)).toEqual({ clientSecret: 'cs', expiresAt: 123 });
+    expect(registryWithRealtime.getProvider).toHaveBeenCalledWith('p');
+    expect(registryWithRealtime.getRealtimeCompat).toHaveBeenCalledWith('rt');
+  });
+
+  test('POST /realtime/webrtc/client-secret returns 501 when provider does not support minting', async () => {
+    const registryWithRealtime = {
+      loadAll: jest.fn(),
+      getProvider: jest.fn().mockResolvedValue({
+        id: 'p',
+        compat: 'x',
+        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
+        realtime: { compat: 'rt', endpoint: { urlTemplate: 'ws://x', headers: {} } }
+      }),
+      getRealtimeCompat: jest.fn().mockResolvedValue({})
+    };
+
+    const handler = createServerHandler({
+      registry: registryWithRealtime as any,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registryWithRealtime),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+    });
+
+    const req = makeReq('POST', '/realtime/webrtc/client-secret', JSON.stringify({ provider: 'p' }));
+    req.headers.authorization = 'Bearer k1';
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(501);
+    expect(JSON.parse(out.body).error.code).toBe('not_implemented');
+  });
+
+  test('POST /realtime/webrtc/client-secret returns 400 when provider is missing', async () => {
+    const handler = createServerHandler({
+      registry: {
+        getProvider: jest.fn(),
+        getRealtimeCompat: jest.fn()
+      } as any,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+    });
+
+    const req = makeReq('POST', '/realtime/webrtc/client-secret', JSON.stringify({}));
+    req.headers.authorization = 'Bearer k1';
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(400);
+    expect(JSON.parse(out.body).error.code).toBe('validation_error');
+  });
+
+  test('POST /realtime/webrtc/client-secret returns 400 when expiresAfterSeconds is invalid', async () => {
+    const handler = createServerHandler({
+      registry: {
+        getProvider: jest.fn(),
+        getRealtimeCompat: jest.fn()
+      } as any,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+    });
+
+    const req = makeReq(
+      'POST',
+      '/realtime/webrtc/client-secret',
+      JSON.stringify({ provider: 'p', expiresAfterSeconds: 'nope' })
+    );
+    req.headers.authorization = 'Bearer k1';
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(400);
+    expect(JSON.parse(out.body).error.code).toBe('validation_error');
+  });
+
+  test('POST /realtime/webrtc/client-secret returns 501 when registry does not implement required methods', async () => {
+    const handler = createServerHandler({
+      registry: { loadAll: jest.fn() } as any,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+    });
+
+    const req = makeReq('POST', '/realtime/webrtc/client-secret', JSON.stringify({ provider: 'p' }));
+    req.headers.authorization = 'Bearer k1';
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(501);
+    expect(JSON.parse(out.body).error.code).toBe('not_implemented');
+  });
+
+  test('POST /realtime/webrtc/client-secret returns 501 when provider has no realtime compat', async () => {
+    const registryWithNoRealtime = {
+      getProvider: jest.fn().mockResolvedValue({
+        id: 'p',
+        compat: 'x',
+        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} }
+      }),
+      getRealtimeCompat: jest.fn()
+    };
+
+    const handler = createServerHandler({
+      registry: registryWithNoRealtime as any,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registryWithNoRealtime),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+    });
+
+    const req = makeReq('POST', '/realtime/webrtc/client-secret', JSON.stringify({ provider: 'p' }));
+    req.headers.authorization = 'Bearer k1';
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(501);
+    expect(JSON.parse(out.body).error.code).toBe('not_implemented');
+  });
+
+  test('POST /realtime/webrtc/client-secret omits optional spec fields and expiresAt when not provided', async () => {
+    const registryWithRealtime = {
+      loadAll: jest.fn(),
+      getProvider: jest.fn().mockResolvedValue({
+        id: 'p',
+        compat: 'x',
+        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
+        realtime: { compat: 'rt', endpoint: { urlTemplate: 'ws://x', headers: {} } }
+      }),
+      getRealtimeCompat: jest.fn().mockResolvedValue({
+        mintClientSecret: jest.fn().mockResolvedValue({ clientSecret: 'cs' })
+      })
+    };
+
+    const handler = createServerHandler({
+      registry: registryWithRealtime as any,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registryWithRealtime),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+    });
+
+    const req = makeReq('POST', '/realtime/webrtc/client-secret', JSON.stringify({ provider: 'p' }));
+    req.headers.authorization = 'Bearer k1';
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(200);
+    expect(JSON.parse(out.body)).toEqual({ clientSecret: 'cs' });
+  });
+
+  test('POST /realtime/webrtc/client-secret falls back to empty clientSecret when compat returns none', async () => {
+    const registryWithRealtime = {
+      loadAll: jest.fn(),
+      getProvider: jest.fn().mockResolvedValue({
+        id: 'p',
+        compat: 'x',
+        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
+        realtime: { compat: 'rt', endpoint: { urlTemplate: 'ws://x', headers: {} } }
+      }),
+      getRealtimeCompat: jest.fn().mockResolvedValue({
+        mintClientSecret: jest.fn().mockResolvedValue({})
+      })
+    };
+
+    const handler = createServerHandler({
+      registry: registryWithRealtime as any,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registryWithRealtime),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+    });
+
+    const req = makeReq('POST', '/realtime/webrtc/client-secret', JSON.stringify({ provider: 'p' }));
+    req.headers.authorization = 'Bearer k1';
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(200);
+    expect(JSON.parse(out.body)).toEqual({ clientSecret: '' });
+  });
 });

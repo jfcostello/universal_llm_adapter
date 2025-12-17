@@ -23,6 +23,13 @@
         "headers": {
           "Content-Type": "application/sdp"
         }
+      },
+      "clientSecretEndpoint": {
+        "urlTemplate": "https://api.openai.com/v1/realtime/client_secrets",
+        "headers": {
+          "Authorization": "Bearer ${OPENAI_API_KEY}",
+          "Content-Type": "application/json"
+        }
       }
     }
   },

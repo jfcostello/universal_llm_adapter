@@ -447,11 +447,18 @@ export interface RealtimeWebrtcEndpointConfig {
   query?: Record<string, string>;
 }
 
+export interface RealtimeClientSecretEndpointConfig {
+  urlTemplate: string;
+  headers?: Record<string, string>;
+  query?: Record<string, string>;
+}
+
 export interface ProviderRealtimeConfig {
   compat: string;
   endpoint: RealtimeEndpointConfig;
   webrtc?: {
     endpoint: RealtimeWebrtcEndpointConfig;
+    clientSecretEndpoint?: RealtimeClientSecretEndpointConfig;
   };
   metadata?: JsonObject;
 }

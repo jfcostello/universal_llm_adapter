@@ -25,8 +25,14 @@ Enable realtime for the provider by adding a `realtime` block to `plugins/provid
       "endpoint": {
         "urlTemplate": "https://api.openai.com/v1/realtime?model={model}",
         "headers": {
-          "Authorization": "Bearer ${OPENAI_API_KEY}",
           "Content-Type": "application/sdp"
+        }
+      },
+      "clientSecretEndpoint": {
+        "urlTemplate": "https://api.openai.com/v1/realtime/client_secrets",
+        "headers": {
+          "Authorization": "Bearer ${OPENAI_API_KEY}",
+          "Content-Type": "application/json"
         }
       }
     }
@@ -98,6 +104,7 @@ When `spec.transport.type === 'webrtc'`, this compat connects using WebRTC SDP e
 
 Key points:
 - You must provide `spec.webrtc.clientSecret` (short-lived client credential for WebRTC). Do not put long-lived API keys in browsers.
+  - Use your own authenticated backend route to mint this (e.g., the bundled server route `POST /realtime/webrtc/client-secret`).
 - Remote audio is delivered via the WebRTC media track. Provide `spec.webrtc.onRemoteStream(stream)` to attach it to playback.
 
 Example (browser-style pseudocode):

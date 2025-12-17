@@ -244,6 +244,88 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
     }
 
     try {
+      if (url === '/realtime/webrtc/client-secret') {
+        if (!config.auth?.enabled) {
+          const error = new Error('Realtime client-secret endpoint requires server auth to be enabled');
+          (error as any).statusCode = 501;
+          (error as any).code = 'not_implemented';
+          throw error;
+        }
+
+        await assertAuthorizedAndRateLimited(req);
+        assertJsonContentType(req);
+
+        const body = await readJsonBody(req, {
+          maxBytes: config.maxRequestBytes,
+          timeoutMs: config.bodyReadTimeoutMs
+        });
+
+        const providerId = String(body?.provider ?? '').trim();
+        const model = body?.model !== undefined ? String(body.model) : undefined;
+        const systemPrompt = body?.systemPrompt !== undefined ? String(body.systemPrompt) : undefined;
+        const expiresAfterSecondsRaw = body?.expiresAfterSeconds;
+        const expiresAfterSeconds =
+          expiresAfterSecondsRaw === undefined || expiresAfterSecondsRaw === null
+            ? undefined
+            : Number(expiresAfterSecondsRaw);
+
+        if (!providerId) {
+          const error = new Error('Missing provider');
+          (error as any).statusCode = 400;
+          (error as any).code = 'validation_error';
+          throw error;
+        }
+
+        if (expiresAfterSeconds !== undefined && !Number.isFinite(expiresAfterSeconds)) {
+          const error = new Error('Invalid expiresAfterSeconds');
+          (error as any).statusCode = 400;
+          (error as any).code = 'validation_error';
+          throw error;
+        }
+
+        const reg = registry as any;
+        if (typeof reg.getProvider !== 'function' || typeof reg.getRealtimeCompat !== 'function') {
+          const error = new Error('Registry does not support realtime client-secret minting');
+          (error as any).statusCode = 501;
+          (error as any).code = 'not_implemented';
+          throw error;
+        }
+
+        const provider = await reg.getProvider(providerId);
+        const compatKind = provider?.realtime?.compat;
+        if (!compatKind) {
+          const error = new Error(`Realtime client-secret minting not supported for provider '${providerId}'`);
+          (error as any).statusCode = 501;
+          (error as any).code = 'not_implemented';
+          throw error;
+        }
+
+        const compat = await reg.getRealtimeCompat(compatKind);
+        if (!compat || typeof compat.mintClientSecret !== 'function') {
+          const error = new Error(`Realtime client-secret minting not supported for provider '${providerId}'`);
+          (error as any).statusCode = 501;
+          (error as any).code = 'not_implemented';
+          throw error;
+        }
+
+        const result = await compat.mintClientSecret({
+          provider,
+          spec: {
+            provider: providerId,
+            ...(model ? { model } : {}),
+            ...(systemPrompt ? { systemPrompt } : {}),
+            transport: { type: 'webrtc' }
+          },
+          ...(expiresAfterSeconds !== undefined ? { expiresAfterSeconds } : {})
+        });
+
+        writeJson(res, 200, {
+          clientSecret: String(result?.clientSecret ?? ''),
+          ...(result?.expiresAt !== undefined ? { expiresAt: result.expiresAt } : {})
+        });
+        return;
+      }
+
       if (url === '/run') {
         await assertAuthorizedAndRateLimited(req);
 

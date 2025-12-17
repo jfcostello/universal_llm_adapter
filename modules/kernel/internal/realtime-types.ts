@@ -304,10 +304,28 @@ export interface RealtimeCompatSession {
   close: () => Promise<void> | void;
 }
 
+export interface RealtimeClientSecret {
+  clientSecret: string;
+  /**
+   * Expiration timestamp (unix seconds) when provided by the provider.
+   */
+  expiresAt?: number;
+}
+
 export interface IRealtimeCompat {
   createSession: (options: {
     provider: ProviderManifest;
     spec: RealtimeSessionSpec;
     tools?: UnifiedTool[];
   }) => Promise<RealtimeCompatSession> | RealtimeCompatSession;
+
+  /**
+   * Optional capability to mint short-lived client credentials for browser/mobile usage.
+   * Intended for WebRTC session establishment where long-lived provider keys must not be exposed client-side.
+   */
+  mintClientSecret?: (options: {
+    provider: ProviderManifest;
+    spec: RealtimeSessionSpec;
+    expiresAfterSeconds?: number;
+  }) => Promise<RealtimeClientSecret> | RealtimeClientSecret;
 }

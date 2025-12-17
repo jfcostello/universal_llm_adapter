@@ -115,6 +115,24 @@ Accepts the same options and defaults as `createServer`.
 - Body: `EmbeddingCallSpec` JSON.
 - Response: `application/json` `{ type: "response", data: <EmbeddingOperationResult> }`.
 
+### `POST /realtime/webrtc/client-secret`
+
+Mints a short-lived client credential suitable for establishing a realtime WebRTC session from a browser/mobile client **without** exposing long-lived provider credentials.
+
+- Auth: **required** (server `auth.enabled` must be true).
+- Rate limiting: uses the server rate limiter when enabled.
+- Body:
+  - `provider` (string, required)
+  - `model` (string, optional)
+  - `systemPrompt` (string, optional)
+  - `expiresAfterSeconds` (number, optional)
+- Response: `application/json` `{ clientSecret: string, expiresAt?: number }`
+  - `expiresAt` is a unix timestamp in seconds (when provided by the provider).
+
+Security guidance:
+- Never send long-lived provider API keys to browsers/mobile clients.
+- Prefer routing all client-secret minting through your own authenticated backend, and apply additional per-user authorization and rate limits as appropriate for your application.
+
 ## Validation, Limits, Concurrency
 
 - **Content-Type**: If `Content-Type` is present and not `application/json`, the server returns `415`.
