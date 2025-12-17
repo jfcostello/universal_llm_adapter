@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 
-import { AsyncQueue } from '@/modules/realtime/internal/async-queue.ts';
+import { AsyncQueue } from '@/modules/kernel/index.ts';
 import { createRealtimeSessionController } from '@/modules/realtime/internal/realtime-session.ts';
 import { createRealtimeSession } from '@/modules/realtime/index.ts';
 
