@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import DailyRotateFile from 'winston-daily-rotate-file';
 import TransportStream from 'winston-transport';
 import type { TransformableInfo } from 'logform';
-import { genericRedactHeaders } from '../../security/index.js';
+import { genericRedactHeaders, redactUrl } from '../../security/index.js';
 import { readEnvFloat, readEnvInt } from './retention.js';
 import { applyRetentionOnce } from './retention-manager.js';
 import { getDefaults } from '../../kernel/index.js';
@@ -299,6 +299,11 @@ export class BaseAdapterLogger {
     if (value instanceof Buffer || value instanceof Uint8Array) {
       return Buffer.from(value).toString('base64');
     }
+
+    if (typeof value === 'string' && /^(https?|wss?):\/\//.test(value)) {
+      return redactUrl(value);
+    }
+
     return value;
   }
 

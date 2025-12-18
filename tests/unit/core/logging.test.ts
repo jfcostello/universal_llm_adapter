@@ -163,7 +163,10 @@ describe('core/logging', () => {
           token: 'secret-token',
           authorization: 123,
           Authorization: 'Bearer sk-abcdef1234567890',
-          'x-api-key': 'super-secret-api-key'
+          'x-api-key': 'super-secret-api-key',
+          note: 'hello',
+          url: 'wss://api.example.com/realtime?key=AIzaSyABCDEF1234',
+          url2: 'https://user:password@api.example.com/realtime?token=abcd1234'
         });
         const redactedRaw = mocks.logger.debug.mock.calls[0]?.[1]?.raw as string;
         expect(redactedRaw).toContain('[REDACTED_BASE64]');
@@ -171,9 +174,16 @@ describe('core/logging', () => {
         expect(redactedRaw).toContain('[REDACTED_AUTH]');
         expect(redactedRaw).toContain('Bearer ***7890');
         expect(redactedRaw).toContain('[REDACTED_API_KEY]');
+        expect(redactedRaw).toContain('key=***1234');
+        expect(redactedRaw).toContain('***:***@');
+        expect(redactedRaw).toContain('token=***1234');
+        expect(redactedRaw).toContain('hello');
         expect(redactedRaw).not.toContain('AA==');
         expect(redactedRaw).not.toContain('secret-token');
         expect(redactedRaw).not.toContain('super-secret-api-key');
+        expect(redactedRaw).not.toContain('AIzaSyABCDEF1234');
+        expect(redactedRaw).not.toContain('user:password@');
+        expect(redactedRaw).not.toContain('abcd1234');
       } finally {
         jest.useRealTimers();
       }
