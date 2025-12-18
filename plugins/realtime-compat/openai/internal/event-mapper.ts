@@ -98,6 +98,8 @@ export function mapOpenAIRealtimeServerEvent(
       const argsText = String(evt?.arguments ?? '');
       if (!callId || !argsText) return [];
       const name = state.functionNameByCallId.get(callId) ?? 'unknown';
+      // Prevent unbounded per-session growth for long-running sessions.
+      state.functionNameByCallId.delete(callId);
       const argumentsObj = parseJsonObject(argsText);
       return [{ type: 'tool_call.end', toolCallId: callId, name, arguments: argumentsObj }];
     }

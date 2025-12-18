@@ -7,7 +7,7 @@ import type {
   RealtimeEvent,
   RealtimeSessionSpec
 } from '../../../../modules/kernel/index.js';
-import { AsyncQueue, sanitizeToolName } from '../../../../modules/kernel/index.js';
+import { AsyncQueue, LruMap, resolveRealtimeToolCallTrackingMaxEntries, sanitizeToolName } from '../../../../modules/kernel/index.js';
 import { buildGeminiActivityEndMessage, buildGeminiActivityStartMessage, buildGeminiCommitTextTurnMessage, buildGeminiInterruptMessage, buildGeminiRealtimeAudioMessage, buildGeminiRealtimeTextMessage, buildGeminiSendTextMessage, buildGeminiSetupMessage, buildGeminiToolResponseMessage } from './commands.js';
 import { convertSessionAudioToProviderPcm16_16k } from './audio.js';
 import { mapGeminiLiveServerMessage, type GeminiRealtimeMapperState } from './event-mapper.js';
@@ -76,6 +76,8 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
   const queue = new AsyncQueue<RealtimeEvent>();
   const sessionId = generateSessionId();
 
+  const toolCallTrackingMaxEntries = resolveRealtimeToolCallTrackingMaxEntries(spec);
+
   const { message: setupMessage, audio } = buildGeminiSetupMessage({
     model,
     spec,
@@ -87,7 +89,10 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
     unifiedToolNameByProviderName: new Map(
       (options.tools ?? []).map(t => [sanitizeToolName(t.name), t.name] as const)
     ),
-    toolNameByCallId: new Map<string, string>(),
+    toolNameByCallId: new LruMap<string, string>(toolCallTrackingMaxEntries, {
+      label: 'realtime-tool-call-tracking(gemini)',
+      warnOnEvict: true
+    }),
     toolCallSeq: 0,
     sawUsageThisTurn: false,
     userTranscriptRaw: '',

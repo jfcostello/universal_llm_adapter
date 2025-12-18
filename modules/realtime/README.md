@@ -73,6 +73,7 @@ Key fields:
   - Each item is `{ role: 'system' | 'user' | 'assistant', text: string }`.
   - Use `session.injectContext(items)` for mid-session injection (does not auto-trigger a response).
 - `functionToolNames` / `toolChoice`: enable tool calling within the session.
+- `toolCallTracking`: bounds internal tool-call id → name tracking (default `maxEntries: 1000`).
 - `audio`: negotiated session audio input/output formats.
 - `transcription`: enable user transcription (and optionally language hints).
 - `turnDetection`: `manual_commit` vs `server_vad`.

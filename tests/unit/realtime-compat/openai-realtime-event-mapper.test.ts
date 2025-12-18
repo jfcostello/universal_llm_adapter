@@ -149,6 +149,7 @@ describe('realtime-compat/openai — event mapper', () => {
     expect(end.toolCallId).toBe('c1');
     expect(end.name).toBe('test.echo');
     expect(end.arguments).toEqual({ message: 'Tokyo' });
+    expect(state.functionNameByCallId.has('c1')).toBe(false);
 
     const unknownNameEnd = mapOpenAIRealtimeServerEvent(
       { type: 'response.function_call_arguments.done', call_id: 'unknown', arguments: '{"ok":true}' },

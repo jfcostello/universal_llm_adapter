@@ -12,4 +12,6 @@ export * from './internal/vector-spec-types.js';
 export * from './internal/tool-names.js';
 export * from './internal/safe-data.js';
 export * from './internal/realtime-types.js';
+export * from './internal/realtime-tool-call-tracking.js';
 export * from './internal/async-queue.js';
+export * from './internal/lru-map.js';
