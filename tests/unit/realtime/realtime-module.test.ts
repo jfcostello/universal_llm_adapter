@@ -98,6 +98,7 @@ describe('modules/realtime createRealtimeSession (public API)', () => {
     const closed = createDeferred<void>();
     const compatSession: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -143,6 +144,7 @@ describe('modules/realtime createRealtimeSession (public API)', () => {
     const closed = createDeferred<void>();
     const compatSession: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -179,6 +181,7 @@ describe('modules/realtime/internal/realtime-session', () => {
   test('events() can only be consumed once', async () => {
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -208,6 +211,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const compatClose = jest.fn();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -237,6 +241,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const compatClose = jest.fn();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -263,6 +268,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const compatClose = jest.fn().mockImplementation(() => closed.resolve());
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: compatInterrupt,
@@ -302,6 +308,7 @@ describe('modules/realtime/internal/realtime-session', () => {
 
     const compat: RealtimeCompatSession = {
       sendText: compatSendText,
+      injectContext: jest.fn(),
       sendAudio: compatSendAudio,
       commit: compatCommit,
       interrupt: jest.fn(),
@@ -335,10 +342,159 @@ describe('modules/realtime/internal/realtime-session', () => {
     await expect(iter.next()).resolves.toMatchObject({ value: { type: 'closed', reason: 'client_close' } });
   });
 
+  test('startup history injection blocks ready until compat injectContext completes', async () => {
+    const injection = createDeferred<void>();
+
+    const compat: RealtimeCompatSession = {
+      sendText: jest.fn(),
+      injectContext: jest.fn().mockImplementation(() => injection.promise),
+      sendAudio: jest.fn(),
+      commit: jest.fn(),
+      interrupt: jest.fn(),
+      sendToolResult: jest.fn(),
+      close: jest.fn(),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+        // keep session open
+        await new Promise(() => {});
+      }
+    };
+
+    const history = [{ role: 'system', text: 'Remember TOKEN_123' }];
+    const session = createRealtimeSessionController({
+      registry: { getProcessRoutes: jest.fn().mockResolvedValue([]) },
+      provider: { id: 'p' } as any,
+      spec: {
+        provider: 'p',
+        history,
+        timeout: { maxDurationMs: 0, idleTimeoutMs: 0, onTimeout: 'close' }
+      },
+      compatSession: compat
+    });
+
+    const iter = session.events()[Symbol.asyncIterator]();
+    const first = iter.next();
+
+    let settled = false;
+    void first.finally(() => {
+      settled = true;
+    });
+
+    // Allow the event pump to reach the injectContext await.
+    await new Promise(res => setTimeout(res, 0));
+    expect(compat.injectContext).toHaveBeenCalledWith(history);
+    expect(settled).toBe(false);
+
+    injection.resolve(undefined);
+    await expect(first).resolves.toMatchObject({ value: { type: 'ready', sessionId: 's' } });
+    await session.close();
+  });
+
+  test('startup history injection failure surfaces history_injection_failed and closes without emitting ready', async () => {
+    const compat: RealtimeCompatSession = {
+      sendText: jest.fn(),
+      injectContext: jest.fn().mockImplementation(() => {
+        throw new Error('inject boom');
+      }),
+      sendAudio: jest.fn(),
+      commit: jest.fn(),
+      interrupt: jest.fn(),
+      sendToolResult: jest.fn(),
+      close: jest.fn(),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+      }
+    };
+
+    const session = createRealtimeSessionController({
+      registry: { getProcessRoutes: jest.fn().mockResolvedValue([]) },
+      provider: { id: 'p' } as any,
+      spec: {
+        provider: 'p',
+        history: [{ role: 'system', text: 'x' }],
+        timeout: { maxDurationMs: 0, idleTimeoutMs: 0, onTimeout: 'close' }
+      },
+      compatSession: compat
+    });
+
+    await expect(collectAll(session.events())).resolves.toEqual([
+      { type: 'error', message: 'inject boom', code: 'history_injection_failed' },
+      { type: 'closed', reason: 'error' }
+    ]);
+  });
+
+  test('startup history injection failure uses String(error) when thrown value has no message', async () => {
+    const compat: RealtimeCompatSession = {
+      sendText: jest.fn(),
+      injectContext: jest.fn().mockImplementation(() => {
+        throw 123;
+      }),
+      sendAudio: jest.fn(),
+      commit: jest.fn(),
+      interrupt: jest.fn(),
+      sendToolResult: jest.fn(),
+      close: jest.fn(),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+      }
+    };
+
+    const session = createRealtimeSessionController({
+      registry: { getProcessRoutes: jest.fn().mockResolvedValue([]) },
+      provider: { id: 'p' } as any,
+      spec: {
+        provider: 'p',
+        history: [{ role: 'system', text: 'x' }],
+        timeout: { maxDurationMs: 0, idleTimeoutMs: 0, onTimeout: 'close' }
+      },
+      compatSession: compat
+    });
+
+    await expect(collectAll(session.events())).resolves.toEqual([
+      { type: 'error', message: '123', code: 'history_injection_failed' },
+      { type: 'closed', reason: 'error' }
+    ]);
+  });
+
+  test('injectContext() delegates to compat session', async () => {
+    const closed = createDeferred<void>();
+    const compatInject = jest.fn();
+    const compat: RealtimeCompatSession = {
+      sendText: jest.fn(),
+      injectContext: compatInject,
+      sendAudio: jest.fn(),
+      commit: jest.fn(),
+      interrupt: jest.fn(),
+      sendToolResult: jest.fn(),
+      close: jest.fn().mockImplementation(() => closed.resolve()),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+        await closed.promise;
+      }
+    };
+
+    const session = createRealtimeSessionController({
+      registry: { getProcessRoutes: jest.fn().mockResolvedValue([]) },
+      provider: { id: 'p' } as any,
+      spec: { provider: 'p', timeout: { maxDurationMs: 0, idleTimeoutMs: 0, onTimeout: 'close' } },
+      compatSession: compat
+    });
+
+    const eventsPromise = collectAll(session.events());
+    await new Promise(res => setTimeout(res, 0));
+
+    await session.injectContext([{ role: 'user', text: 'hello' }]);
+    await session.close();
+
+    expect(compatInject).toHaveBeenCalledWith([{ role: 'user', text: 'hello' }]);
+    await expect(eventsPromise).resolves.toContainEqual({ type: 'ready', sessionId: 's' });
+  });
+
   test('throws when attempting to send after close', async () => {
     const closed = createDeferred<void>();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -359,6 +515,7 @@ describe('modules/realtime/internal/realtime-session', () => {
 
     await session.close();
     await expect(session.sendText({ text: 'x' })).rejects.toThrow('Realtime session is closed');
+    await expect(session.injectContext([] as any)).rejects.toThrow('Realtime session is closed');
     await expect(session.sendDTMF('5')).rejects.toThrow('Realtime session is closed');
     await expect(session.sendAudio({ format: 'pcm16', sampleRateHz: 24000, channels: 1, dataBase64: '' })).rejects.toThrow(
       'Realtime session is closed'
@@ -371,6 +528,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const closed = createDeferred<void>();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -413,6 +571,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const closed = createDeferred<void>();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -461,6 +620,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const closed = createDeferred<void>();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -489,6 +649,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const closed = createDeferred<void>();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -535,6 +696,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const compatInterrupt = jest.fn();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: compatInterrupt,
@@ -573,6 +735,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const compatInterrupt = jest.fn();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: compatInterrupt,
@@ -605,6 +768,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const compatInterrupt = jest.fn();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: compatInterrupt,
@@ -632,6 +796,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const compatInterrupt = jest.fn();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: compatInterrupt,
@@ -663,6 +828,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const compatInterrupt = jest.fn();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: compatInterrupt,
@@ -701,6 +867,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const compatSendToolResult = jest.fn();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -752,6 +919,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const compatSendToolResult = jest.fn();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -793,6 +961,7 @@ describe('modules/realtime/internal/realtime-session', () => {
   test('tool calls are rejected when tools are not enabled', async () => {
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -820,6 +989,7 @@ describe('modules/realtime/internal/realtime-session', () => {
   test('tool calls are rejected when tool is not enabled', async () => {
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -848,6 +1018,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const compatClose = jest.fn();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -886,6 +1057,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const compatClose = jest.fn();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -918,6 +1090,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const compatClose = jest.fn();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -948,6 +1121,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const compatClose = jest.fn();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -976,6 +1150,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const compatClose = jest.fn();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -1006,6 +1181,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const compatClose = jest.fn();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -1038,6 +1214,7 @@ describe('modules/realtime/internal/realtime-session', () => {
 
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -1072,6 +1249,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const compatClose = jest.fn().mockImplementation(() => closed.resolve());
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -1115,6 +1293,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const compatClose = jest.fn().mockImplementation(() => closed.resolve());
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -1154,6 +1333,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     });
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -1179,6 +1359,7 @@ describe('modules/realtime/internal/realtime-session', () => {
   test('can ignore incoming compat events after closure', async () => {
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),
@@ -1204,6 +1385,7 @@ describe('modules/realtime/internal/realtime-session', () => {
     const closed = createDeferred<void>();
     const compat: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),

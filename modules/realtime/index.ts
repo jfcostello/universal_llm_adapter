@@ -7,7 +7,7 @@ export { createRealtimeSession } from './internal/create-session.js';
 // Re-export spec and event types for convenience.
 export type {
   RealtimeSessionSpec,
+  RealtimeHistoryItem,
   RealtimeAudioFrame,
   RealtimeEvent
 } from '../kernel/index.js';
-

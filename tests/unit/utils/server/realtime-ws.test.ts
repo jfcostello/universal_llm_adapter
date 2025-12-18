@@ -316,6 +316,7 @@ describe('server/internal/realtime/ws', () => {
 
     const session = {
       sendText: jest.fn().mockResolvedValue(undefined),
+      injectContext: jest.fn().mockResolvedValue(undefined),
       sendAudio: jest.fn().mockResolvedValue(undefined),
       commit: jest.fn().mockResolvedValue(undefined),
       interrupt: jest.fn().mockResolvedValue(undefined),
@@ -340,6 +341,7 @@ describe('server/internal/realtime/ws', () => {
       await waitForMessage(messages, m => m?.type === 'event' && m?.event?.type === 'ready', 2000);
 
       ws.send(JSON.stringify({ type: 'send_text', text: 'hi', role: 'user' }));
+      ws.send(JSON.stringify({ type: 'inject_context', items: [{ role: 'system', text: 'Remember TOKEN_123' }] }));
       ws.send(JSON.stringify({ type: 'send_audio', frame: { format: 'pcm16', sampleRateHz: 24000, channels: 1, dataBase64: 'AA==' } }));
       ws.send(JSON.stringify({ type: 'commit' }));
       ws.send(JSON.stringify({ type: 'interrupt', reason: 'interrupt' }));
@@ -350,6 +352,7 @@ describe('server/internal/realtime/ws', () => {
 
       expect(createSession).toHaveBeenCalledWith({ registry: harness.registry, spec: { any: true } });
       expect(session.sendText).toHaveBeenCalledWith({ text: 'hi', role: 'user' });
+      expect(session.injectContext).toHaveBeenCalledWith([{ role: 'system', text: 'Remember TOKEN_123' }]);
       expect(session.sendAudio).toHaveBeenCalled();
       expect(session.commit).toHaveBeenCalled();
       expect(session.interrupt).toHaveBeenCalledWith({ reason: 'interrupt' });

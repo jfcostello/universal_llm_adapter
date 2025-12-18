@@ -32,6 +32,7 @@ const session = await createRealtimeSession(registry, {
   - Single-consumer: `events()` can only be called once per session instance.
   - Ordering: the first emitted event is always `ready` (or the session closes with an `error` + `closed`).
 - `sendText({ text, role? })`
+- `injectContext(items: RealtimeHistoryItem[])`
 - `sendDTMF(digit: string)`
 - `sendAudio(frame: RealtimeAudioFrame)`
 - `commit()`
@@ -40,6 +41,7 @@ const session = await createRealtimeSession(registry, {
 
 Types are re-exported from this module for convenience:
 - `RealtimeSessionSpec`
+- `RealtimeHistoryItem`
 - `RealtimeAudioFrame`
 - `RealtimeEvent`
 
@@ -67,6 +69,9 @@ Key fields:
   - `onRemoteStream`: callback invoked with the remote media stream for playback.
   - `dataChannelLabel`: override the data-channel label used for JSON events.
 - `systemPrompt`: optional system prompt for the session.
+- `history`: optional **text-first** conversation seeding (cross-session context) injected before the first user-visible `ready` event is emitted.
+  - Each item is `{ role: 'system' | 'user' | 'assistant', text: string }`.
+  - Use `session.injectContext(items)` for mid-session injection (does not auto-trigger a response).
 - `functionToolNames` / `toolChoice`: enable tool calling within the session.
 - `audio`: negotiated session audio input/output formats.
 - `transcription`: enable user transcription (and optionally language hints).
@@ -245,6 +250,27 @@ The realtime API is designed to work identically across transports:
 - Server: `/realtime/ws` (WebSocket JSON protocol)
 
 Both transports emit the same normalized `RealtimeEvent`s (wrapped in simple JSON envelopes).
+
+### Realtime wire protocol (v1)
+
+Client → transport (stdin/stdout or WS JSON messages):
+
+```json
+{ "type": "open", "protocolVersion": 1, "spec": { /* RealtimeSessionSpec */ } }
+{ "type": "send_text", "text": "hello", "role": "user" }
+{ "type": "inject_context", "items": [ { "role": "system", "text": "Remember TOKEN_123" } ] }
+{ "type": "send_audio", "frame": { "format": "pcm16", "sampleRateHz": 24000, "channels": 1, "dataBase64": "..." } }
+{ "type": "commit" }
+{ "type": "interrupt", "reason": "barge_in" }
+{ "type": "close" }
+```
+
+Transport → client:
+
+```json
+{ "type": "event", "event": { /* RealtimeEvent */ } }
+{ "type": "error", "error": { "message": "…", "code": "…" } }
+```
 
 ---
 

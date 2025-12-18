@@ -108,6 +108,11 @@ export interface RealtimeWebrtcConfig {
   dataChannelLabel?: string;
 }
 
+export interface RealtimeHistoryItem {
+  role: 'system' | 'user' | 'assistant';
+  text: string;
+}
+
 export interface RealtimeSessionSpec {
   /** Provider id from plugins/providers/*.json */
   provider: string;
@@ -118,6 +123,7 @@ export interface RealtimeSessionSpec {
 
   // prompt/context
   systemPrompt?: string;
+  history?: RealtimeHistoryItem[];
 
   // tools
   functionToolNames?: string[];
@@ -296,6 +302,7 @@ export type RealtimeEvent =
 
 export interface RealtimeCompatSession {
   sendText: (options: { text: string; role?: 'system' | 'user' }) => Promise<void> | void;
+  injectContext: (items: RealtimeHistoryItem[]) => Promise<void> | void;
   sendAudio: (frame: RealtimeAudioFrame) => Promise<void> | void;
   commit: () => Promise<void> | void;
   interrupt: (options?: { reason?: string }) => Promise<void> | void;

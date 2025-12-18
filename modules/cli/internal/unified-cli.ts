@@ -490,6 +490,7 @@ export function createUnifiedProgram(
     | { type: 'open'; protocolVersion: 1; spec: any }
     | { type: 'send_text'; text: string; role?: 'system' | 'user' }
     | { type: 'send_audio'; frame: { format: string; sampleRateHz: number; channels: 1 | 2; dataBase64: string; timestampMs?: number } }
+    | { type: 'inject_context'; items: any[] }
     | { type: 'commit' }
     | { type: 'interrupt'; reason?: string }
     | { type: 'close' };
@@ -602,6 +603,11 @@ export function createUnifiedProgram(
               case 'send_audio': {
                 ensureOpen();
                 await session.sendAudio(msg.frame);
+                break;
+              }
+              case 'inject_context': {
+                ensureOpen();
+                await session.injectContext(msg.items);
                 break;
               }
               case 'commit': {

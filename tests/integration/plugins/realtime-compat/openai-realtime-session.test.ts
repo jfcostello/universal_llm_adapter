@@ -105,6 +105,40 @@ describe('integration/realtime-compat/openai session', () => {
     }
   });
 
+  test('injectContext throws (placeholder behavior)', async () => {
+    const server = await startWsServer();
+    try {
+      const session = createOpenAIRealtimeCompatSession({
+        provider: {
+          id: 'openai',
+          compat: 'openai',
+          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
+          realtime: {
+            compat: 'openai',
+            endpoint: { urlTemplate: server.urlTemplate, headers: {} }
+          }
+        },
+        spec: {
+          provider: 'openai',
+          model: 'stub-model',
+          transcription: { enabled: true },
+          timeout: { maxDurationMs: 0, idleTimeoutMs: 0, onTimeout: 'close' }
+        },
+        tools: []
+      } as any);
+
+      const it = await waitForReady(session as any, server);
+      await expect(session.injectContext([{ role: 'system', text: 'Remember TOKEN_123' }])).rejects.toThrow(
+        'injectContext is not implemented'
+      );
+
+      await session.close();
+      await it.next();
+    } finally {
+      await server.close();
+    }
+  });
+
   test('sends text, audio, commit, interrupt, and tool results with correct event shapes', async () => {
     const server = await startWsServer();
     try {

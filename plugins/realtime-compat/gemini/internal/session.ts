@@ -178,6 +178,10 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
       pendingTextTurn = true;
       sendOrBuffer(buildGeminiSendTextMessage({ text, role }));
     },
+    async injectContext(_items) {
+      ensureOpen();
+      throw new Error('injectContext is not implemented for this realtime compat session');
+    },
     async sendAudio(frame) {
       ensureOpen();
       const converted = convertSessionAudioToProviderPcm16_16k(frame);

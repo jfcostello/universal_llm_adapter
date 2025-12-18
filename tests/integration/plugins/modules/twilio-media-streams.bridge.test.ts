@@ -81,6 +81,7 @@ describe('plugins/modules/twilio-media-streams (bridge integration)', () => {
 
     const compatSession: RealtimeCompatSession = {
       sendText: jest.fn(),
+      injectContext: jest.fn(),
       sendAudio: jest.fn(),
       commit: jest.fn(),
       interrupt: jest.fn(),

@@ -18,6 +18,7 @@ export type RealtimeClientMessage =
   | { type: 'open'; protocolVersion: 1; spec: any }
   | { type: 'send_text'; text: string; role?: 'system' | 'user' }
   | { type: 'send_audio'; frame: RealtimeAudioFrame }
+  | { type: 'inject_context'; items: any[] }
   | { type: 'commit' }
   | { type: 'interrupt'; reason?: string }
   | { type: 'close' };
@@ -29,6 +30,7 @@ export type RealtimeServerEnvelope =
 export interface RealtimeScenarioStep {
   type:
     | 'send_text'
+    | 'inject_context'
     | 'send_audio_file'
     | 'commit'
     | 'interrupt'
@@ -37,6 +39,7 @@ export interface RealtimeScenarioStep {
     | 'close';
   text?: string;
   role?: 'system' | 'user';
+  items?: any[];
   filePath?: string;
   frameFormat?: string;
   sampleRateHz?: number;
@@ -225,6 +228,10 @@ async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealti
         });
         break;
       }
+      case 'inject_context': {
+        await writeLine({ type: 'inject_context', items: Array.isArray(step.items) ? step.items : [] });
+        break;
+      }
       case 'send_audio_file': {
         if (!step.filePath) throw new Error('send_audio_file missing filePath');
         const frames = await readAudioFileAsFrames({
@@ -349,6 +356,9 @@ async function runViaServer(options: RunRealtimeScenarioOptions): Promise<RunRea
     switch (step.type) {
       case 'send_text':
         send({ type: 'send_text', text: String(step.text ?? ''), role: step.role ?? 'user' });
+        break;
+      case 'inject_context':
+        send({ type: 'inject_context', items: Array.isArray(step.items) ? step.items : [] });
         break;
       case 'send_audio_file': {
         if (!step.filePath) throw new Error('send_audio_file missing filePath');

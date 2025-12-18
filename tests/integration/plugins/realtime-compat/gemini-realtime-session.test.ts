@@ -147,6 +147,37 @@ describe('integration/realtime-compat/gemini session', () => {
     }
   });
 
+  test('injectContext throws (placeholder behavior)', async () => {
+    const server = await startWsServer();
+    try {
+      const session = createGeminiRealtimeCompatSession({
+        provider: {
+          id: 'google',
+          compat: 'google',
+          endpoint: { urlTemplate: 'SDK_BASED_NOT_USED', method: 'POST', headers: {} },
+          realtime: { compat: 'gemini', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+        } as any,
+        spec: { provider: 'google', model: 'm', turnDetection: { mode: 'manual_commit' } }
+      } as any);
+
+      await waitForMessage(server.messages, m => m?.setup?.model === 'models/m', 2000);
+      server.sendToClient({ setupComplete: {} });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      const first = await it.next();
+      expect(first.value.type).toBe('ready');
+
+      await expect(session.injectContext([{ role: 'system', text: 'Remember TOKEN_123' }])).rejects.toThrow(
+        'injectContext is not implemented'
+      );
+
+      await session.close();
+      await it.next();
+    } finally {
+      await server.close();
+    }
+  });
+
   test('buffers outbound messages until setupComplete', async () => {
     const server = await startWsServer();
     try {

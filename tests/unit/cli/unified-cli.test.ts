@@ -169,6 +169,7 @@ describe('cli/internal/unified-cli', () => {
 
       const mockSession = {
         sendText: jest.fn().mockResolvedValue(undefined),
+        injectContext: jest.fn().mockResolvedValue(undefined),
         sendAudio: jest.fn().mockResolvedValue(undefined),
         commit: jest.fn().mockResolvedValue(undefined),
         interrupt: jest.fn().mockResolvedValue(undefined),
@@ -184,6 +185,7 @@ describe('cli/internal/unified-cli', () => {
         '\n',
         JSON.stringify({ type: 'open', protocolVersion: 1, spec: { any: true } }) + '\n',
         JSON.stringify({ type: 'send_text', text: 'hi', role: 'user' }) + '\n',
+        JSON.stringify({ type: 'inject_context', items: [{ role: 'system', text: 'Remember TOKEN_123' }] }) + '\n',
         JSON.stringify({
           type: 'send_audio',
           frame: { format: 'pcm16', sampleRateHz: 24000, channels: 1, dataBase64: 'AA==' }
@@ -207,6 +209,7 @@ describe('cli/internal/unified-cli', () => {
 
       expect(mockDeps.createRegistry).toHaveBeenCalledWith('./test-plugins');
       expect(mockSession.sendText).toHaveBeenCalledWith({ text: 'hi', role: 'user' });
+      expect(mockSession.injectContext).toHaveBeenCalledWith([{ role: 'system', text: 'Remember TOKEN_123' }]);
       expect(mockSession.sendAudio).toHaveBeenCalledWith({
         format: 'pcm16',
         sampleRateHz: 24000,

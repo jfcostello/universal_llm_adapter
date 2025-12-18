@@ -31,6 +31,7 @@ type RealtimeClientMessage =
         timestampMs?: number;
       };
     }
+  | { type: 'inject_context'; items: any[] }
   | { type: 'commit' }
   | { type: 'interrupt'; reason?: string }
   | { type: 'close' };
@@ -284,6 +285,11 @@ export async function attachRealtimeWsServer(options: {
             const approxBytes = Math.floor((msg.frame.dataBase64.length * 3) / 4);
             chargeAudioBytes(approxBytes);
             await session.sendAudio(msg.frame);
+            return;
+          }
+          case 'inject_context': {
+            ensureOpen();
+            await session.injectContext(msg.items);
             return;
           }
           case 'commit': {

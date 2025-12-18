@@ -5,6 +5,7 @@ import type {
   RealtimeAudioFrame,
   RealtimeCompatSession,
   RealtimeEvent,
+  RealtimeHistoryItem,
   RealtimeSessionSpec,
   UnifiedTool
 } from '../../kernel/index.js';
@@ -12,6 +13,7 @@ import { AsyncQueue } from '../../kernel/index.js';
 
 export interface RealtimeSession {
   sendText: (options: { text: string; role?: 'system' | 'user' }) => Promise<void>;
+  injectContext: (items: RealtimeHistoryItem[]) => Promise<void>;
   sendDTMF: (digit: string) => Promise<void>;
   sendAudio: (frame: RealtimeAudioFrame) => Promise<void>;
   commit: () => Promise<void>;
@@ -92,6 +94,12 @@ class RealtimeSessionController implements RealtimeSession {
     this.ensureOpen();
     this.onActivity();
     await this.options.compatSession.sendText(options);
+  }
+
+  async injectContext(items: RealtimeHistoryItem[]): Promise<void> {
+    this.ensureOpen();
+    this.onActivity();
+    await this.options.compatSession.injectContext(items);
   }
 
   async sendDTMF(digit: string): Promise<void> {
@@ -245,6 +253,21 @@ class RealtimeSessionController implements RealtimeSession {
         this.queue.push({ type: 'error', message: 'First realtime event must be ready', code: 'invalid_first_event' });
         await this.closeInternal({ reason: 'error', emitClosedEvent: true });
         return;
+      }
+
+      const history = this.options.spec.history;
+      if (Array.isArray(history) && history.length > 0) {
+        try {
+          await this.options.compatSession.injectContext(history);
+        } catch (err: any) {
+          this.queue.push({
+            type: 'error',
+            message: err?.message ?? String(err),
+            code: 'history_injection_failed'
+          });
+          await this.closeInternal({ reason: 'error', emitClosedEvent: true });
+          return;
+        }
       }
 
       this.onActivity();
