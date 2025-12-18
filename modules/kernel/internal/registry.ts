@@ -121,7 +121,7 @@ export class PluginRegistry {
     if (!/^[a-zA-Z0-9._-]+$/.test(moduleName)) {
       throw new ManifestError(`Invalid ${area} module name '${moduleName}'`);
     }
-    if (moduleName === '.' || moduleName === '..') {
+    if (moduleName === '.' || moduleName === '..' || moduleName.includes('..')) {
       throw new ManifestError(`Invalid ${area} module name '${moduleName}'`);
     }
   }
