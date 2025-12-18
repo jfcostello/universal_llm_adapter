@@ -2,6 +2,7 @@ import type http from 'http';
 import type net from 'net';
 import { createRequire } from 'module';
 
+import { createAudioRateLimiter } from '../transport/audio-rate-limiter.js';
 import { createLimiter } from '../transport/limiter.js';
 
 export interface RealtimeWsConfig {
@@ -138,10 +139,9 @@ export async function attachRealtimeWsServer(options: {
     let openSeen = false;
     let closed = false;
 
-    let idleTimer: NodeJS.Timeout | undefined;
-    let durationTimer: NodeJS.Timeout | undefined;
-    let audioTokens = options.config.maxAudioBytesPerSecond;
-    let audioLastRefillMs = Date.now();
+	    let idleTimer: NodeJS.Timeout | undefined;
+	    let durationTimer: NodeJS.Timeout | undefined;
+	    const audioRateLimiter = createAudioRateLimiter(options.config.maxAudioBytesPerSecond);
 
     const touch = () => {
       // also drives idle timeout resets
@@ -158,23 +158,10 @@ export async function attachRealtimeWsServer(options: {
       }, options.config.idleTimeoutMs);
     };
 
-    const chargeAudioBytes = (bytes: number) => {
-      const now = Date.now();
-      const elapsedMs = Math.max(0, now - audioLastRefillMs);
-      const refill = (elapsedMs * options.config.maxAudioBytesPerSecond) / 1000;
-      audioTokens = Math.min(options.config.maxAudioBytesPerSecond, audioTokens + refill);
-      audioLastRefillMs = now;
-
-      if (audioTokens < bytes) {
-        throw Object.assign(new Error('Audio rate limit exceeded'), { code: 'audio_rate_limited' });
-      }
-      audioTokens -= bytes;
-    };
-
-    const send = (env: RealtimeServerEnvelope) => {
-      if (ws.readyState !== ws.OPEN) return;
-      touch();
-      scheduleIdleCheck();
+	    const send = (env: RealtimeServerEnvelope) => {
+	      if (ws.readyState !== ws.OPEN) return;
+	      touch();
+	      scheduleIdleCheck();
       ws.send(JSON.stringify(env));
     };
 
@@ -280,13 +267,13 @@ export async function attachRealtimeWsServer(options: {
             await session.sendText({ text: msg.text, role: msg.role });
             return;
           }
-          case 'send_audio': {
-            ensureOpen();
-            const approxBytes = Math.floor((msg.frame.dataBase64.length * 3) / 4);
-            chargeAudioBytes(approxBytes);
-            await session.sendAudio(msg.frame);
-            return;
-          }
+	          case 'send_audio': {
+	            ensureOpen();
+	            const approxBytes = Math.floor((msg.frame.dataBase64.length * 3) / 4);
+	            audioRateLimiter.charge(approxBytes);
+	            await session.sendAudio(msg.frame);
+	            return;
+	          }
           case 'inject_context': {
             ensureOpen();
             await session.injectContext(msg.items);

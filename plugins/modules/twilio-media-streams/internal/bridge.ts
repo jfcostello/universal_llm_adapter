@@ -2,6 +2,7 @@ import type { RealtimeAudioFrame, RealtimeEvent } from '../../../../modules/kern
 import type { RealtimeSession } from '../../../../modules/realtime/index.js';
 import { AudioPacer, base64ToBytes, bytesToBase64, durationMsForBytes } from '../../../../modules/audio/index.js';
 import { verifySignedWsToken } from '../../../../modules/security/index.js';
+import { createAudioRateLimiter } from '../../../../modules/server/index.js';
 
 import { convertAudioBytes, frameAudioBytes, type AudioSpec } from './audio.js';
 import {
@@ -166,26 +167,6 @@ function safeClose(ws: TwilioMediaStreamsWsLike, code: number, reason: string): 
   try {
     ws.close(code, reason);
   } catch {}
-}
-
-function createAudioRateLimiter(maxBytesPerSecond: number): { charge: (bytes: number) => void } {
-  let tokens = maxBytesPerSecond;
-  let lastRefillMs = Date.now();
-
-  return {
-    charge(bytes: number) {
-      const now = Date.now();
-      const elapsedMs = Math.max(0, now - lastRefillMs);
-      const refill = (elapsedMs * maxBytesPerSecond) / 1000;
-      tokens = Math.min(maxBytesPerSecond, tokens + refill);
-      lastRefillMs = now;
-
-      if (tokens < bytes) {
-        throw Object.assign(new Error('Audio rate limit exceeded'), { code: 'audio_rate_limited' });
-      }
-      tokens -= bytes;
-    }
-  };
 }
 
 class ResettableQueue<T> {
