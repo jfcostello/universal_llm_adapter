@@ -107,6 +107,42 @@ describeMaybe('20-realtime — realtime session contract', () => {
     expect(text.includes('paris')).toBe(true);
   }, 120000);
 
+  test('History injection (spec.history) influences first response', async () => {
+    const env = withLiveEnv({ TEST_FILE: '20-realtime-history-injection' });
+    const token = 'HISTORY_TOKEN_291_X9Y8Z7';
+
+    const result = await runRealtimeScenario({
+      pluginsPath,
+      cwd: process.cwd(),
+      env,
+      spec: {
+        provider,
+        systemPrompt:
+          'You will be given prior conversation history. When asked what token was mentioned earlier, reply with that exact token.',
+        history: [{ role: 'user', text: `My unique token is ${token}. Please remember it.` }],
+        transcription: { enabled: true },
+        turnDetection: { mode: 'manual_commit' },
+        audio: {
+          input: { format: 'pcm16', sampleRateHz: 24000, channels: 1 },
+          output: { format: 'pcm16', sampleRateHz: 24000, channels: 1 }
+        },
+        timeout: { maxDurationMs: 60000, idleTimeoutMs: 20000, onTimeout: 'close' }
+      },
+      steps: [
+        { type: 'send_text', text: 'What token did I mention earlier? Reply with the token only.', role: 'user' },
+        { type: 'commit' },
+        { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 30000 },
+        { type: 'close' }
+      ],
+      timeoutMs: 30000
+    });
+
+    expect(result.code).toBe(0);
+    const events = result.envelopes.filter(e => e.type === 'event').map(e => (e as any).event);
+    const text = getFinalTranscript(events, 'assistant').toLowerCase();
+    expect(text.includes(token.toLowerCase())).toBe(true);
+  }, 120000);
+
   test('Tool calling via adapter tool system', async () => {
     const env = withLiveEnv({ TEST_FILE: '20-realtime-tools' });
 
