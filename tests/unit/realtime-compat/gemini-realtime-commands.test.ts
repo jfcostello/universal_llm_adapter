@@ -48,6 +48,44 @@ describe('realtime-compat/gemini — commands', () => {
     expect(message.setup.tools[0].functionDeclarations[0].name).toBe('test_echo');
   });
 
+  test('buildGeminiSetupMessage renders history into system instruction text (startup seeding)', () => {
+    const { message } = buildGeminiSetupMessage({
+      model: 'm',
+      spec: {
+        provider: 'google',
+        model: 'm',
+        systemPrompt: 'Hello',
+        history: [
+          { role: 'system', text: 'Remember TOKEN_123' },
+          { role: 'user', text: 'User said hi' },
+          { role: 'assistant', text: 'Assistant replied ok' }
+        ],
+        turnDetection: { mode: 'manual_commit' }
+      }
+    });
+
+    const text = String(message.setup.systemInstruction.parts[0].text ?? '');
+    expect(text).toContain('Hello');
+    expect(text).toContain('TOKEN_123');
+    expect(text).toContain('SYSTEM:');
+    expect(text).toContain('USER:');
+    expect(text).toContain('ASSISTANT:');
+  });
+
+  test('buildGeminiSetupMessage creates a system instruction when history is provided without systemPrompt', () => {
+    const { message } = buildGeminiSetupMessage({
+      model: 'm',
+      spec: {
+        provider: 'google',
+        model: 'm',
+        history: [{ role: 'system', text: 'Remember TOKEN_456' }],
+        turnDetection: { mode: 'manual_commit' }
+      }
+    });
+
+    expect(String(message.setup.systemInstruction.parts[0].text)).toContain('TOKEN_456');
+  });
+
   test('buildGeminiSetupMessage accepts g711 formats for session I/O', () => {
     const { audio } = buildGeminiSetupMessage({
       model: 'm',

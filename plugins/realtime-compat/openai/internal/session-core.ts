@@ -196,9 +196,11 @@ export function createOpenAIRealtimeCompatSessionWithTransport(
       ensureOpen();
       send(buildConversationItemCreateEvent({ text, role }));
     },
-    async injectContext(_items) {
+    async injectContext(items) {
       ensureOpen();
-      throw new Error('injectContext is not implemented for this realtime compat session');
+      for (const item of items) {
+        send(buildConversationItemCreateEvent({ text: item.text, role: item.role }));
+      }
     },
     async sendAudio(frame) {
       ensureOpen();

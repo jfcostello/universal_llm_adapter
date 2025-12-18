@@ -105,7 +105,7 @@ describe('integration/realtime-compat/openai session', () => {
     }
   });
 
-  test('injectContext throws (placeholder behavior)', async () => {
+  test('injectContext sends conversation item create events for system/user/assistant history', async () => {
     const server = await startWsServer();
     try {
       const session = createOpenAIRealtimeCompatSession({
@@ -128,9 +128,20 @@ describe('integration/realtime-compat/openai session', () => {
       } as any);
 
       const it = await waitForReady(session as any, server);
-      await expect(session.injectContext([{ role: 'system', text: 'Remember TOKEN_123' }])).rejects.toThrow(
-        'injectContext is not implemented'
-      );
+
+      await session.injectContext([
+        { role: 'system', text: 'sys' },
+        { role: 'user', text: 'u' },
+        { role: 'assistant', text: 'a' }
+      ]);
+
+      await waitForMessage(server.messages, m => m?.type === 'conversation.item.create' && m?.item?.role === 'assistant', 2000);
+
+      const messageItems = server.messages.filter(m => m?.type === 'conversation.item.create' && m?.item?.type === 'message');
+      expect(messageItems.map((m: any) => m.item.role)).toEqual(['system', 'user', 'assistant']);
+      expect(messageItems[0].item.content[0]).toEqual({ type: 'input_text', text: 'sys' });
+      expect(messageItems[1].item.content[0]).toEqual({ type: 'input_text', text: 'u' });
+      expect(messageItems[2].item.content[0]).toEqual({ type: 'text', text: 'a' });
 
       await session.close();
       await it.next();

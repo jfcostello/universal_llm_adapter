@@ -64,6 +64,18 @@ Common events include:
 - `session.interrupt()` maps to provider cancellation.
 - Core will emit `playback.clear_requested` when interruption/barge-in occurs; downstream transports should stop playback immediately.
 
+## History injection
+
+This compat supports seeding and injecting text-only history items via `conversation.item.create`.
+
+- Startup seeding: provide `spec.history` when creating the session.
+- Mid-session: call `session.injectContext(items)`.
+
+Supported roles:
+- `system` (text)
+- `user` (text)
+- `assistant` (text-only; no audio history injection)
+
 ## Usage (via `llm-adapter/realtime`)
 ```ts
 import { PluginRegistry } from 'llm-adapter';

@@ -6,6 +6,11 @@ type SessionAudioConfig = {
   output: Omit<RealtimeAudioFrame, 'dataBase64' | 'timestampMs'>;
 };
 
+function renderHistoryForSystemInstruction(history: NonNullable<RealtimeSessionSpec['history']>): string {
+  const lines = history.map(item => `${String(item.role).toUpperCase()}: ${String(item.text)}`);
+  return ['--- Injected conversation history (for context) ---', ...lines, '--- End injected conversation history ---'].join('\n');
+}
+
 export function buildGeminiSetupMessage(options: {
   model: string;
   spec: RealtimeSessionSpec;
@@ -20,10 +25,15 @@ export function buildGeminiSetupMessage(options: {
     }
   };
 
-  if (options.spec.systemPrompt) {
+  const history = Array.isArray(options.spec.history) ? options.spec.history : [];
+  const systemPromptText = options.spec.systemPrompt ? String(options.spec.systemPrompt) : '';
+  const historyText = history.length > 0 ? renderHistoryForSystemInstruction(history) : '';
+  const combinedSystemInstructionText = [systemPromptText, historyText].filter(Boolean).join('\n\n');
+
+  if (combinedSystemInstructionText) {
     setup.systemInstruction = {
       role: 'user',
-      parts: [{ text: options.spec.systemPrompt }]
+      parts: [{ text: combinedSystemInstructionText }]
     };
   }
 

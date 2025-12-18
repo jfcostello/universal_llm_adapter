@@ -94,6 +94,8 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
   let closed = false;
   let readySent = false;
   let setupComplete = false;
+  const expectedHistory = Array.isArray(spec.history) ? spec.history : undefined;
+  let startupHistoryCallAccepted = false;
   const pendingSends: any[] = [];
 
   const turnMode = spec.turnDetection?.mode ?? 'manual_commit';
@@ -178,9 +180,16 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
       pendingTextTurn = true;
       sendOrBuffer(buildGeminiSendTextMessage({ text, role }));
     },
-    async injectContext(_items) {
+    async injectContext(items) {
       ensureOpen();
-      throw new Error('injectContext is not implemented for this realtime compat session');
+      if (!startupHistoryCallAccepted && expectedHistory && items.length === expectedHistory.length) {
+        const matches = items.every((item, i) => item.role === expectedHistory[i]?.role && item.text === expectedHistory[i]?.text);
+        if (matches) {
+          startupHistoryCallAccepted = true;
+          return;
+        }
+      }
+      throw new Error('injectContext is not supported for this realtime compat session');
     },
     async sendAudio(frame) {
       ensureOpen();

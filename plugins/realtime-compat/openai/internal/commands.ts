@@ -185,14 +185,15 @@ export function buildSessionUpdateEvent(options: {
 
 export function buildConversationItemCreateEvent(options: {
   text: string;
-  role: 'system' | 'user';
+  role: 'system' | 'user' | 'assistant';
 }): OpenAIRealtimeClientEvent {
+  const contentType = options.role === 'assistant' ? 'text' : 'input_text';
   return {
     type: 'conversation.item.create',
     item: {
       type: 'message',
       role: options.role,
-      content: [{ type: 'input_text', text: options.text }]
+      content: [{ type: contentType, text: options.text }]
     }
   };
 }

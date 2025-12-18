@@ -54,6 +54,15 @@ Constraints:
 
 When `spec.transcription.enabled` is true, both input and output audio transcriptions are enabled and mapped to normalized transcript events.
 
+## History injection
+
+This compat supports **startup-only** text history seeding:
+
+- Provide `spec.history` when creating the session.
+- The compat renders history into the initial setup `systemInstruction` text as a summary.
+
+Runtime `session.injectContext(items)` is **not supported** and will throw.
+
 ## Turn detection and interruption
 
 - `turnDetection.mode=manual_commit`:

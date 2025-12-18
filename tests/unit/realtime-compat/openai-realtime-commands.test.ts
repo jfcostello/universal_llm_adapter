@@ -258,12 +258,24 @@ describe('realtime-compat/openai — commands', () => {
     ).toThrow('Unsupported audio format');
   });
 
-  test('buildConversationItemCreateEvent produces message item', () => {
-    const evt = buildConversationItemCreateEvent({ text: 'hi', role: 'user' });
+  test('buildConversationItemCreateEvent produces message item for user/system roles', () => {
+    const userEvt = buildConversationItemCreateEvent({ text: 'hi', role: 'user' });
+    expect(userEvt.type).toBe('conversation.item.create');
+    expect(userEvt.item.type).toBe('message');
+    expect(userEvt.item.role).toBe('user');
+    expect(userEvt.item.content[0]).toEqual({ type: 'input_text', text: 'hi' });
+
+    const systemEvt = buildConversationItemCreateEvent({ text: 'sys', role: 'system' });
+    expect(systemEvt.item.role).toBe('system');
+    expect(systemEvt.item.content[0]).toEqual({ type: 'input_text', text: 'sys' });
+  });
+
+  test('buildConversationItemCreateEvent produces assistant message item with text content', () => {
+    const evt = buildConversationItemCreateEvent({ text: 'hello', role: 'assistant' });
     expect(evt.type).toBe('conversation.item.create');
     expect(evt.item.type).toBe('message');
-    expect(evt.item.role).toBe('user');
-    expect(evt.item.content[0]).toEqual({ type: 'input_text', text: 'hi' });
+    expect(evt.item.role).toBe('assistant');
+    expect(evt.item.content[0]).toEqual({ type: 'text', text: 'hello' });
   });
 
   test('audio append/commit/response/cancel events serialize with expected types', () => {

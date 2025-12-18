@@ -147,7 +147,7 @@ describe('integration/realtime-compat/gemini session', () => {
     }
   });
 
-  test('injectContext throws (placeholder behavior)', async () => {
+  test('injectContext is a startup-only no-op and runtime injection is not supported', async () => {
     const server = await startWsServer();
     try {
       const session = createGeminiRealtimeCompatSession({
@@ -157,19 +157,29 @@ describe('integration/realtime-compat/gemini session', () => {
           endpoint: { urlTemplate: 'SDK_BASED_NOT_USED', method: 'POST', headers: {} },
           realtime: { compat: 'gemini', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
         } as any,
-        spec: { provider: 'google', model: 'm', turnDetection: { mode: 'manual_commit' } }
+        spec: {
+          provider: 'google',
+          model: 'm',
+          systemPrompt: 'Hello',
+          history: [{ role: 'system', text: 'Remember TOKEN_123' }],
+          turnDetection: { mode: 'manual_commit' }
+        }
       } as any);
 
       await waitForMessage(server.messages, m => m?.setup?.model === 'models/m', 2000);
+      expect(String(server.messages.find(m => m?.setup)?.setup?.systemInstruction?.parts?.[0]?.text ?? '')).toContain('TOKEN_123');
+
+      // This call represents the core's startup seeding call; Gemini pre-seeds via setup message so it is a no-op.
+      await expect(session.injectContext([{ role: 'system', text: 'Remember TOKEN_123' }])).resolves.toBeUndefined();
+
+      // Any mid-session injection attempts are rejected (not supported for this compat).
+      await expect(session.injectContext([{ role: 'system', text: 'Remember TOKEN_999' }])).rejects.toThrow('not supported');
+
       server.sendToClient({ setupComplete: {} });
 
       const it = session.events()[Symbol.asyncIterator]();
       const first = await it.next();
       expect(first.value.type).toBe('ready');
-
-      await expect(session.injectContext([{ role: 'system', text: 'Remember TOKEN_123' }])).rejects.toThrow(
-        'injectContext is not implemented'
-      );
 
       await session.close();
       await it.next();
