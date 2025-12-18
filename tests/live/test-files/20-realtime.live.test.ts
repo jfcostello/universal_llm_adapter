@@ -244,6 +244,9 @@ for (let i = 0; i < testRuns.length; i++) {
           },
           { type: 'commit' },
           { type: 'wait_for_event', eventType: 'user_transcript.final', timeoutMs: 30000 },
+          // Some providers emit an assistant confirmation for the audio turn; drain turn completion
+          // markers so the follow-up assertion targets the *second* (text) turn deterministically.
+          { type: 'wait_for_event', eventType: 'usage', timeoutMs: 30000 },
           { type: 'send_text', text: 'What number did I ask you to remember? Answer digits only.', role: 'user' },
           { type: 'commit' },
           { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 30000 },
