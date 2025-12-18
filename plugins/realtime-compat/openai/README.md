@@ -62,6 +62,12 @@ Common events include:
 - `session.interrupt()` maps to provider cancellation.
 - Core will emit `playback.clear_requested` when interruption/barge-in occurs; downstream transports should stop playback immediately.
 
+## Turn detection (`server_vad`)
+
+When `spec.turnDetection.mode === 'server_vad'`, this compat enables provider-side VAD **for speech boundary events** (`user_speech.started` / `user_speech.stopped`) but keeps **provider auto-response disabled** (`create_response: false`).
+
+This keeps response creation deterministic and owned by the adapter via `session.commit()` (which maps to `response.create`), avoiding double-turns in downstream bridges that also commit on `user_speech.stopped` (for example the Twilio Media Streams bridge).
+
 ## History injection
 
 This compat supports seeding and injecting text-only history items via `conversation.item.create`.

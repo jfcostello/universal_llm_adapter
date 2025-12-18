@@ -112,7 +112,10 @@ export function buildSessionUpdateEvent(options: {
     turnMode === 'server_vad'
       ? {
           type: 'server_vad',
-          create_response: true,
+          // Core owns response creation via `session.commit()` (which maps to `response.create`).
+          // Keeping provider-side auto-response on can cause double turns when downstream bridges
+          // also commit on normalized `user_speech.stopped` events.
+          create_response: false,
           // Keep provider-side interruption off; core owns barge-in semantics.
           interrupt_response: false
         }
