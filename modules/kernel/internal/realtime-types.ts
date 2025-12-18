@@ -113,6 +113,17 @@ export interface RealtimeHistoryItem {
   text: string;
 }
 
+export interface RealtimeToolCallTrackingConfig {
+  /**
+   * Max entries tracked for mapping provider tool call ids to tool names during a session.
+   *
+   * This is a per-session memory safety guard for long-lived sessions with heavy tool usage.
+   *
+   * Defaults to 1000.
+   */
+  maxEntries?: number;
+}
+
 export interface RealtimeSessionSpec {
   /** Provider id from plugins/realtime-providers/*.json */
   provider: string;
@@ -128,6 +139,7 @@ export interface RealtimeSessionSpec {
   // tools
   functionToolNames?: string[];
   toolChoice?: ToolChoice;
+  toolCallTracking?: RealtimeToolCallTrackingConfig;
 
   // audio + transcription
   audio?: RealtimeSessionAudioConfig;

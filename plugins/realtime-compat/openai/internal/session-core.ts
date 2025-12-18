@@ -5,7 +5,7 @@ import type {
   RealtimeEvent,
   RealtimeSessionSpec
 } from '../../../../modules/kernel/index.js';
-import { AsyncQueue } from '../../../../modules/kernel/index.js';
+import { AsyncQueue, LruMap, resolveRealtimeToolCallTrackingMaxEntries } from '../../../../modules/kernel/index.js';
 
 import {
   buildConversationItemCreateEvent,
@@ -52,6 +52,8 @@ export function createOpenAIRealtimeCompatSessionWithTransport(
   const queue = new AsyncQueue<RealtimeEvent>();
   const sessionId = generateSessionId();
 
+  const toolCallTrackingMaxEntries = resolveRealtimeToolCallTrackingMaxEntries(spec);
+
   const { event: sessionUpdateEvent, audio, toolNameByProviderName } = buildSessionUpdateEvent({
     spec,
     tools: options.tools
@@ -59,7 +61,10 @@ export function createOpenAIRealtimeCompatSessionWithTransport(
 
   const state = {
     audio,
-    functionNameByCallId: new Map<string, string>(),
+    functionNameByCallId: new LruMap<string, string>(toolCallTrackingMaxEntries, {
+      label: 'realtime-tool-call-tracking(openai)',
+      warnOnEvict: true
+    }),
     toolNameByProviderName
   };
 
