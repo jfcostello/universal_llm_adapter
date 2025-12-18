@@ -17,7 +17,7 @@ function parseRateFromMimeType(mimeType: string): number | undefined {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
-export function convertSessionAudioToProviderPcm16_24k(frame: RealtimeAudioFrame): { audioBase64: string; mimeType: string } {
+export function convertSessionAudioToProviderPcm16_16k(frame: RealtimeAudioFrame): { audioBase64: string; mimeType: string } {
   const channels = frame.channels === 2 ? 2 : 1;
   if (channels !== 1) {
     throw new Error('Provider input requires channels=1');
@@ -28,10 +28,10 @@ export function convertSessionAudioToProviderPcm16_24k(frame: RealtimeAudioFrame
     const resampled = resamplePcm16leBytes({
       bytes,
       fromSampleRateHz: frame.sampleRateHz,
-      toSampleRateHz: 24000,
+      toSampleRateHz: 16000,
       channels: 1
     });
-    return { audioBase64: bytesToBase64(resampled), mimeType: 'audio/pcm;rate=24000' };
+    return { audioBase64: bytesToBase64(resampled), mimeType: 'audio/pcm;rate=16000' };
   }
 
   if (frame.format === 'g711_ulaw') {
@@ -40,11 +40,11 @@ export function convertSessionAudioToProviderPcm16_24k(frame: RealtimeAudioFrame
     const resampled = resamplePcm16Samples({
       samples,
       fromSampleRateHz: frame.sampleRateHz,
-      toSampleRateHz: 24000,
+      toSampleRateHz: 16000,
       channels: 1
     });
     const pcmBytes = pcm16leSamplesToBytes(resampled);
-    return { audioBase64: bytesToBase64(pcmBytes), mimeType: 'audio/pcm;rate=24000' };
+    return { audioBase64: bytesToBase64(pcmBytes), mimeType: 'audio/pcm;rate=16000' };
   }
 
   // g711_alaw is not yet supported by the audio module; require conversion upstream.

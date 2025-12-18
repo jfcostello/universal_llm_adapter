@@ -40,7 +40,7 @@ Example:
 ## Audio
 
 - Session input audio is converted to provider-required **PCM16 mono @ 16kHz**.
-- Provider output audio is converted to the configured session output format before emitting `assistant_audio.chunk`.
+- Provider output audio (typically **PCM16 mono @ 24kHz**) is converted to the configured session output format before emitting `assistant_audio.chunk` (the sample rate is parsed from `audio/pcm;rate=...` when present).
 
 Constraints:
 

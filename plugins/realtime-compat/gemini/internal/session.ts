@@ -9,7 +9,7 @@ import type {
 } from '../../../../modules/kernel/index.js';
 import { AsyncQueue, sanitizeToolName } from '../../../../modules/kernel/index.js';
 import { buildGeminiActivityEndMessage, buildGeminiActivityStartMessage, buildGeminiCommitTextTurnMessage, buildGeminiInterruptMessage, buildGeminiRealtimeAudioMessage, buildGeminiRealtimeTextMessage, buildGeminiSendTextMessage, buildGeminiSetupMessage, buildGeminiToolResponseMessage } from './commands.js';
-import { convertSessionAudioToProviderPcm16_24k } from './audio.js';
+import { convertSessionAudioToProviderPcm16_16k } from './audio.js';
 import { mapGeminiLiveServerMessage, type GeminiRealtimeMapperState } from './event-mapper.js';
 
 type WsLike = {
@@ -206,7 +206,7 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
     },
     async sendAudio(frame) {
       ensureOpen();
-      const converted = convertSessionAudioToProviderPcm16_24k(frame);
+      const converted = convertSessionAudioToProviderPcm16_16k(frame);
       if (activityDriven && !activityStarted) {
         // The Live API rejects messages that combine activityStart + audio in a single realtimeInput payload.
         // Send activityStart separately on the first audio frame after a commit boundary.
