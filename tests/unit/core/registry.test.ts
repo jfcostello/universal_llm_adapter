@@ -798,9 +798,17 @@ describe('core/registry', () => {
         copyFixturePlugins(pluginsDir);
 
         const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.getCompatModule('.')).rejects.toThrow(ManifestError);
+        await expect(registry.getCompatModule('..')).rejects.toThrow(ManifestError);
         await expect(registry.getCompatModule('../evil')).rejects.toThrow(ManifestError);
+        await expect(registry.getEmbeddingCompat('.')).rejects.toThrow(ManifestError);
+        await expect(registry.getEmbeddingCompat('..')).rejects.toThrow(ManifestError);
         await expect(registry.getEmbeddingCompat('../evil')).rejects.toThrow(ManifestError);
+        await expect(registry.getVectorStoreCompat('.')).rejects.toThrow(ManifestError);
+        await expect(registry.getVectorStoreCompat('..')).rejects.toThrow(ManifestError);
         await expect(registry.getVectorStoreCompat('../evil')).rejects.toThrow(ManifestError);
+        await expect(registry.getRealtimeCompat('.')).rejects.toThrow(ManifestError);
+        await expect(registry.getRealtimeCompat('..')).rejects.toThrow(ManifestError);
       });
     });
 

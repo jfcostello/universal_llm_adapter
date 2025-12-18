@@ -121,6 +121,9 @@ export class PluginRegistry {
     if (!/^[a-zA-Z0-9._-]+$/.test(moduleName)) {
       throw new ManifestError(`Invalid ${area} module name '${moduleName}'`);
     }
+    if (moduleName === '.' || moduleName === '..') {
+      throw new ManifestError(`Invalid ${area} module name '${moduleName}'`);
+    }
   }
 
   private async ensureCompatModuleLoaded(moduleName: string): Promise<void> {
