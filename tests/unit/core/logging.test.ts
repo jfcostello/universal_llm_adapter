@@ -1683,4 +1683,101 @@ describe('core/logging', () => {
       }
     });
   });
+
+  // ============================================================================
+  // URL redaction in jsonReplacer tests (Issue #318)
+  // ============================================================================
+
+  test('debugRaw redacts sensitive query params in URL strings', async () => {
+    const { module, mocks } = await setupLoggingTestHarness({ disableFileLogs: true });
+    const { AdapterLogger } = module;
+
+    const logger = new AdapterLogger();
+
+    mocks.logger.debug.mockClear();
+    logger.debugRaw({ endpoint: 'wss://api.example.com/realtime?key=AIzaSyABCD1234' });
+
+    expect(mocks.logger.debug).toHaveBeenCalledWith('Raw payload', {
+      raw: expect.stringContaining('key=***1234')
+    });
+    expect(mocks.logger.debug).toHaveBeenCalledWith('Raw payload', {
+      raw: expect.not.stringContaining('AIzaSyABCD1234')
+    });
+  });
+
+  test('debugRaw redacts multiple sensitive query params in nested object', async () => {
+    const { module, mocks } = await setupLoggingTestHarness({ disableFileLogs: true });
+    const { AdapterLogger } = module;
+
+    const logger = new AdapterLogger();
+
+    mocks.logger.debug.mockClear();
+    logger.debugRaw({
+      gemini: 'wss://generativelanguage.googleapis.com/ws/live?key=AIzaSySecret123',
+      openai: 'https://api.openai.com/v1/realtime?token=sk-proj-abc123xyz'
+    });
+
+    const call = mocks.logger.debug.mock.calls[0];
+    const rawPayload = call[1].raw;
+
+    expect(rawPayload).toContain('key=***t123');
+    expect(rawPayload).toContain('token=***3xyz');
+    expect(rawPayload).not.toContain('AIzaSySecret123');
+    expect(rawPayload).not.toContain('sk-proj-abc123xyz');
+  });
+
+  test('debugRaw redacts basic-auth and query params together in URLs', async () => {
+    const { module, mocks } = await setupLoggingTestHarness({ disableFileLogs: true });
+    const { AdapterLogger } = module;
+
+    const logger = new AdapterLogger();
+
+    mocks.logger.debug.mockClear();
+    logger.debugRaw({ url: 'https://user:password@api.example.com?api_key=secret1234' });
+
+    const call = mocks.logger.debug.mock.calls[0];
+    const rawPayload = call[1].raw;
+
+    expect(rawPayload).toContain('***:***@');
+    expect(rawPayload).toContain('api_key=***1234');
+    expect(rawPayload).not.toContain('password');
+    expect(rawPayload).not.toContain('secret1234');
+  });
+
+  test('debugRaw preserves non-sensitive URLs unchanged', async () => {
+    const { module, mocks } = await setupLoggingTestHarness({ disableFileLogs: true });
+    const { AdapterLogger } = module;
+
+    const logger = new AdapterLogger();
+
+    mocks.logger.debug.mockClear();
+    logger.debugRaw({ url: 'https://api.example.com/v1/chat?model=gpt-4&version=v1' });
+
+    const call = mocks.logger.debug.mock.calls[0];
+    const rawPayload = call[1].raw;
+
+    expect(rawPayload).toContain('model=gpt-4');
+    expect(rawPayload).toContain('version=v1');
+  });
+
+  test('debugRaw handles WebSocket URLs (ws:// and wss://)', async () => {
+    const { module, mocks } = await setupLoggingTestHarness({ disableFileLogs: true });
+    const { AdapterLogger } = module;
+
+    const logger = new AdapterLogger();
+
+    mocks.logger.debug.mockClear();
+    logger.debugRaw({
+      ws: 'ws://localhost:8080?token=localtoken123',
+      wss: 'wss://secure.example.com?secret=mysecret456'
+    });
+
+    const call = mocks.logger.debug.mock.calls[0];
+    const rawPayload = call[1].raw;
+
+    expect(rawPayload).toContain('token=***n123');
+    expect(rawPayload).toContain('secret=***t456');
+    expect(rawPayload).not.toContain('localtoken123');
+    expect(rawPayload).not.toContain('mysecret456');
+  });
 });
