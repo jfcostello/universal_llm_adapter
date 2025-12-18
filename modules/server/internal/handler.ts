@@ -269,6 +269,9 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
             ? undefined
             : Number(expiresAfterSecondsRaw);
 
+        const MIN_CLIENT_SECRET_EXPIRES_AFTER_SECONDS = 30;
+        const MAX_CLIENT_SECRET_EXPIRES_AFTER_SECONDS = 600;
+
         if (!providerId) {
           const error = new Error('Missing provider');
           (error as any).statusCode = 400;
@@ -276,11 +279,32 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           throw error;
         }
 
-        if (expiresAfterSeconds !== undefined && !Number.isFinite(expiresAfterSeconds)) {
-          const error = new Error('Invalid expiresAfterSeconds');
-          (error as any).statusCode = 400;
-          (error as any).code = 'validation_error';
-          throw error;
+        if (expiresAfterSeconds !== undefined) {
+          if (!Number.isFinite(expiresAfterSeconds)) {
+            const error = new Error('Invalid expiresAfterSeconds');
+            (error as any).statusCode = 400;
+            (error as any).code = 'validation_error';
+            throw error;
+          }
+
+          if (!Number.isInteger(expiresAfterSeconds)) {
+            const error = new Error('expiresAfterSeconds must be an integer');
+            (error as any).statusCode = 400;
+            (error as any).code = 'validation_error';
+            throw error;
+          }
+
+          if (
+            expiresAfterSeconds < MIN_CLIENT_SECRET_EXPIRES_AFTER_SECONDS ||
+            expiresAfterSeconds > MAX_CLIENT_SECRET_EXPIRES_AFTER_SECONDS
+          ) {
+            const error = new Error(
+              `expiresAfterSeconds must be between ${MIN_CLIENT_SECRET_EXPIRES_AFTER_SECONDS} and ${MAX_CLIENT_SECRET_EXPIRES_AFTER_SECONDS}`
+            );
+            (error as any).statusCode = 400;
+            (error as any).code = 'validation_error';
+            throw error;
+          }
         }
 
         const reg = registry as any;

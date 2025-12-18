@@ -125,7 +125,7 @@ Mints a short-lived client credential suitable for establishing a realtime WebRT
   - `provider` (string, required) — realtime provider id from `plugins/realtime-providers/*.json`
   - `model` (string, optional)
   - `systemPrompt` (string, optional)
-  - `expiresAfterSeconds` (number, optional)
+  - `expiresAfterSeconds` (integer, optional) — must be between 30 and 600 seconds when provided
 - Response: `application/json` `{ clientSecret: string, expiresAt?: number }`
   - `expiresAt` is a unix timestamp in seconds (when provided by the provider).
 

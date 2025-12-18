@@ -1636,6 +1636,124 @@ describe('utils/server createServerHandler', () => {
     expect(JSON.parse(out.body).error.code).toBe('validation_error');
   });
 
+  test('POST /realtime/webrtc/client-secret returns 400 when expiresAfterSeconds is non-integer', async () => {
+    const handler = createServerHandler({
+      registry: {
+        getProvider: jest.fn(),
+        getRealtimeCompat: jest.fn()
+      } as any,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+    });
+
+    const req = makeReq(
+      'POST',
+      '/realtime/webrtc/client-secret',
+      JSON.stringify({ provider: 'p', expiresAfterSeconds: 60.5 })
+    );
+    req.headers.authorization = 'Bearer k1';
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(400);
+    expect(JSON.parse(out.body).error.code).toBe('validation_error');
+  });
+
+  test('POST /realtime/webrtc/client-secret returns 400 when expiresAfterSeconds is too small', async () => {
+    const handler = createServerHandler({
+      registry: {
+        getProvider: jest.fn(),
+        getRealtimeCompat: jest.fn()
+      } as any,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+    });
+
+    const req = makeReq(
+      'POST',
+      '/realtime/webrtc/client-secret',
+      JSON.stringify({ provider: 'p', expiresAfterSeconds: 1 })
+    );
+    req.headers.authorization = 'Bearer k1';
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(400);
+    expect(JSON.parse(out.body).error.code).toBe('validation_error');
+  });
+
+  test('POST /realtime/webrtc/client-secret returns 400 when expiresAfterSeconds is too large', async () => {
+    const handler = createServerHandler({
+      registry: {
+        getProvider: jest.fn(),
+        getRealtimeCompat: jest.fn()
+      } as any,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+    });
+
+    const req = makeReq(
+      'POST',
+      '/realtime/webrtc/client-secret',
+      JSON.stringify({ provider: 'p', expiresAfterSeconds: 601 })
+    );
+    req.headers.authorization = 'Bearer k1';
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(400);
+    expect(JSON.parse(out.body).error.code).toBe('validation_error');
+  });
+
+  test('POST /realtime/webrtc/client-secret returns 400 when expiresAfterSeconds is zero or negative', async () => {
+    const handler = createServerHandler({
+      registry: {
+        getProvider: jest.fn(),
+        getRealtimeCompat: jest.fn()
+      } as any,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+    });
+
+    for (const expiresAfterSeconds of [0, -1]) {
+      const req = makeReq(
+        'POST',
+        '/realtime/webrtc/client-secret',
+        JSON.stringify({ provider: 'p', expiresAfterSeconds })
+      );
+      req.headers.authorization = 'Bearer k1';
+      const out = makeRes();
+      await handler(req, out.res);
+
+      expect(out.status).toBe(400);
+      expect(JSON.parse(out.body).error.code).toBe('validation_error');
+    }
+  });
+
   test('POST /realtime/webrtc/client-secret returns 501 when registry does not implement required methods', async () => {
     const handler = createServerHandler({
       registry: { loadAll: jest.fn() } as any,
