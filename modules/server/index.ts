@@ -302,4 +302,6 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
   };
 }
 
+export { createAudioRateLimiter } from './internal/transport/audio-rate-limiter.js';
+
 export type { LLMCallSpec, LLMStreamEvent };
