@@ -46,7 +46,8 @@ const bridge = createTwilioMediaStreamsBridge({
     idleTimeoutMs: 60000,
     maxSessionDurationMs: 3600000,
     startTimeoutMs: 5000,
-    maxPendingInboundFrames: 200
+    maxPendingInboundFrames: 200,
+    maxPendingOutboundAudioMs: 10000
   },
   audio: {
     frameMs: 20,
@@ -163,6 +164,10 @@ In `digit` mode, each key press is injected as a user turn and committed immedia
 
 - Assistant audio chunks (`assistant_audio.chunk`) are converted to **g711_ulaw @ 8000 Hz mono**, framed into `frameMs` chunks, then sent as Twilio `media` messages.
 - `mark` messages are emitted periodically (`markEveryMs`) to track playback progress (via Twilio inbound `mark` acknowledgements).
+- Outbound audio buffering is bounded by `maxPendingOutboundAudioMs`. If the pending queue would exceed this limit, the bridge:
+  - emits `callbacks.onError({ code: "outbound_backpressure" })`
+  - sends a Twilio `{ event: "clear" }` to stop playback
+  - interrupts the session (`session.interrupt({ reason: "outbound_backpressure" })`)
 
 ### Pacing (telephony-friendly)
 

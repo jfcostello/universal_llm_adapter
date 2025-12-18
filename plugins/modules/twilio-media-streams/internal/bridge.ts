@@ -37,6 +37,7 @@ export interface TwilioMediaStreamsBridgeLimits {
   maxSessionDurationMs?: number;
   startTimeoutMs?: number;
   maxPendingInboundFrames?: number;
+  maxPendingOutboundAudioMs?: number;
 }
 
 export interface TwilioMediaStreamsBridgeAudioOptions {
@@ -82,7 +83,8 @@ const DEFAULT_LIMITS: Required<TwilioMediaStreamsBridgeLimits> = {
   idleTimeoutMs: 60000,
   maxSessionDurationMs: 3600000,
   startTimeoutMs: 5000,
-  maxPendingInboundFrames: 200
+  maxPendingInboundFrames: 200,
+  maxPendingOutboundAudioMs: 10000
 };
 
 const DEFAULT_AUDIO: Required<Pick<TwilioMediaStreamsBridgeAudioOptions, 'frameMs' | 'markEveryMs'>> = {
@@ -475,9 +477,28 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
                   inputSpec: outputSpec,
                   outputSpec: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1 }
                 });
-                const framed = frameAudioBytes({ bytes: converted, audio: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1 }, frameMs });
-                for (const frame of framed) {
-                  outboundAudioQueue.push(frame);
+                const framed = frameAudioBytes({
+                  bytes: converted,
+                  audio: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1 },
+                  frameMs
+                });
+
+                const maxPendingOutboundFrames = Math.max(0, Math.floor(limits.maxPendingOutboundAudioMs / frameMs));
+                const wouldOverflow = outboundAudioQueue.size() + framed.length > maxPendingOutboundFrames;
+                if (wouldOverflow) {
+                  callbacks.onError?.({ message: 'Outbound backpressure', code: 'outbound_backpressure', metadata: call });
+                  clearPlayback(call);
+                  try {
+                    await localSession.interrupt({ reason: 'outbound_backpressure' });
+                  } catch (err: any) {
+                    callbacks.onError?.({ message: err?.message ?? String(err), code: 'session_interrupt_failed', metadata });
+                    void closeAll();
+                    return;
+                  }
+                } else {
+                  for (const frame of framed) {
+                    outboundAudioQueue.push(frame);
+                  }
                 }
               } else if (event.type === 'playback.clear_requested') {
                 clearPlayback(call);
