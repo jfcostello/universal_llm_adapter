@@ -147,6 +147,28 @@ Security guidance:
   Queue waits longer than `queueTimeoutMs` return `503` with `error.code="queue_timeout"`.
   Vector and embedding limiters can be tuned independently via the `vector*` and `embedding*` options.
 
+## Distributed / multi-instance deployments
+
+All limiters in `modules/server` are **in-memory** and **per-process**:
+
+- Concurrency + queues (`maxConcurrent*`, `maxQueueSize`) apply **per server instance**.
+- Rate limiting (`rateLimit.*`) applies **per server instance** (no shared state across replicas).
+- Realtime WebSocket limits (for `/realtime/ws`) like `maxConcurrentSessions` and audio throughput limits
+  are also **per server instance**.
+
+Implications behind a load balancer with `N` replicas:
+
+- Effective caps are roughly `perInstanceLimit × N` (assuming traffic is spread evenly).
+- For realtime WebSockets, you typically also need **sticky sessions / connection affinity** so that a
+  given client stays on one instance for the lifetime of the WS connection.
+
+Production guidance:
+
+- If you need **global** rate limits or global concurrency/session caps, enforce them at a higher layer
+  (API gateway / reverse proxy) or via a distributed limiter (e.g. Redis-backed) that all instances share.
+- In Kubernetes, configure your ingress/controller for WebSocket support and consider session affinity
+  if you rely on per-instance connection caps for realtime sessions.
+
 ## Auth & Security Controls
 
 - **Auth (opt‑in):** when `auth.enabled=true`, requests must include either:
