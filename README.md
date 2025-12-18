@@ -413,6 +413,16 @@ All non-provider-specific defaults are in `plugins/configs/defaults.json`:
 }
 ```
 
+### Production Limits
+
+For production deployments, be aware of per-process resource limits enforced by the server and realtime modules:
+
+- **Server**: `maxConcurrentRequests`, `maxConcurrentStreams`, `maxQueueSize` (see `plugins/configs/defaults.json`)
+- **Realtime WS**: `maxConcurrentSessions`, `maxMessageBytes`, `maxAudioBytesPerSecond`, `idleTimeoutMs`, `maxSessionDurationMs`
+- **Twilio Bridge**: `maxPendingInboundFrames`, `maxPendingOutboundAudioMs`, `maxWsMessageBytes`
+
+These limits protect against resource exhaustion. Tune them based on your expected concurrency and available memory.
+
 ### Accessing Defaults in Code
 
 ```typescript
