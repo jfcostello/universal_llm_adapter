@@ -152,10 +152,6 @@ async function startLiveServer(options: {
   return { url, logPath, close };
 }
 
-function isRealtimeSuite(passthrough: string[]): boolean {
-  return passthrough.some(arg => /20-realtime/i.test(String(arg)));
-}
-
 function generateTestApiKey(): string {
   return `live_test_${crypto.randomBytes(24).toString('hex')}`;
 }
@@ -171,11 +167,6 @@ async function main() {
 
   const baseEnv: NodeJS.ProcessEnv = { ...process.env, LLM_LIVE: '1' };
   if (provider) baseEnv.LLM_TEST_PROVIDERS = provider;
-
-  const realtimeSuite = isRealtimeSuite(passthrough);
-  const realtimeTestApiKey = realtimeSuite
-    ? (process.env.LLM_TEST_REALTIME_API_KEY ?? generateTestApiKey())
-    : undefined;
 
   // Live suites invoke the built CLI entrypoint under `dist/` (and server mode runs `dist/bin/cli.js`),
   // so ensure `dist/` is up to date for *all* transports (cli/server/both) for deterministic results.
@@ -195,9 +186,19 @@ async function main() {
     return;
   }
 
+  // Server transport uses auth for all HTTP endpoints and (when enabled) realtime WS. Support
+  // a dedicated server token and/or a separate realtime token, but keep them unified by default.
+  const serverHttpApiKey =
+    process.env.LLM_TEST_SERVER_API_KEY ??
+    process.env.LLM_TEST_REALTIME_API_KEY ??
+    generateTestApiKey();
+  const serverRealtimeApiKey = process.env.LLM_TEST_REALTIME_API_KEY ?? serverHttpApiKey;
+  const serverApiKeys = Array.from(new Set([serverHttpApiKey, serverRealtimeApiKey])).join(',');
+
   const commonJestEnv: NodeJS.ProcessEnv = {
     LLM_SKIP_TS_BUILD: '1',
-    ...(realtimeSuite && realtimeTestApiKey ? { LLM_TEST_REALTIME_API_KEY: realtimeTestApiKey } : {})
+    LLM_TEST_SERVER_API_KEY: serverHttpApiKey,
+    LLM_TEST_REALTIME_API_KEY: serverRealtimeApiKey
   };
 
   if (transport === 'both') {
@@ -212,13 +213,16 @@ async function main() {
   const server = await startLiveServer({
     env: {
       ...process.env,
-      ...(realtimeSuite && realtimeTestApiKey
-        ? { LLM_ADAPTER_API_KEYS: realtimeTestApiKey, LLM_TEST_REALTIME_API_KEY: realtimeTestApiKey }
-        : {})
+      LLM_ADAPTER_API_KEYS: serverApiKeys,
+      LLM_TEST_SERVER_API_KEY: serverHttpApiKey,
+      LLM_TEST_REALTIME_API_KEY: serverRealtimeApiKey
     },
     batchId,
-    enableAuth: realtimeSuite,
-    enableRealtimeWs: realtimeSuite
+    // Live runs can include realtime tests even when not launched via `test:live:realtime`
+    // (for example `npm run test:live:openrouter -- --transport=both`). Always enable realtime
+    // WS routes for the live server process. Note: realtime WS requires auth.
+    enableAuth: true,
+    enableRealtimeWs: true
   });
 
   try {
