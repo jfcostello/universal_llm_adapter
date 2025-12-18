@@ -1,10 +1,12 @@
 import type { UnifiedTool } from '@/modules/kernel/index.ts';
 import {
   buildGeminiActivityEndMessage,
+  buildGeminiActivityStartMessage,
   buildGeminiClientContentMessage,
   buildGeminiCommitTextTurnMessage,
   buildGeminiInterruptMessage,
   buildGeminiRealtimeAudioMessage,
+  buildGeminiRealtimeTextMessage,
   buildGeminiSendTextMessage,
   buildGeminiSetupMessage,
   buildGeminiToolResponseMessage
@@ -187,11 +189,15 @@ describe('realtime-compat/gemini — commands', () => {
   test('commit/interrupt/activity/tool messages have expected shapes', () => {
     expect(buildGeminiCommitTextTurnMessage().clientContent.turnComplete).toBe(true);
     expect(buildGeminiInterruptMessage().clientContent.turnComplete).toBe(false);
+    expect(buildGeminiActivityStartMessage().realtimeInput.activityStart).toEqual({});
     expect(buildGeminiActivityEndMessage().realtimeInput.activityEnd).toEqual({});
 
-    const audioMsg = buildGeminiRealtimeAudioMessage({ audioBase64: 'AAA=', mimeType: 'audio/pcm;rate=16000', includeActivityStart: true });
-    expect(audioMsg.realtimeInput.activityStart).toEqual({});
+    const audioMsg = buildGeminiRealtimeAudioMessage({ audioBase64: 'AAA=', mimeType: 'audio/pcm;rate=16000' });
+    expect(audioMsg.realtimeInput.activityStart).toBeUndefined();
     expect(audioMsg.realtimeInput.audio.data).toBe('AAA=');
+
+    const textMsg = buildGeminiRealtimeTextMessage({ text: 'hi' });
+    expect(textMsg.realtimeInput.text).toBe('hi');
 
     const toolMsg = buildGeminiToolResponseMessage({ toolCallId: 'c1', name: 'test_echo', response: { output: 'ok' } });
     expect(toolMsg.toolResponse.functionResponses[0].id).toBe('c1');
@@ -200,6 +206,11 @@ describe('realtime-compat/gemini — commands', () => {
   test('buildGeminiRealtimeAudioMessage coerces missing audioBase64 to empty string', () => {
     const msg = buildGeminiRealtimeAudioMessage({ audioBase64: undefined as any, mimeType: 'audio/pcm;rate=16000' });
     expect(msg.realtimeInput.audio.data).toBe('');
+  });
+
+  test('buildGeminiRealtimeTextMessage coerces missing text to empty string', () => {
+    const msg = buildGeminiRealtimeTextMessage({ text: undefined as any });
+    expect(msg.realtimeInput.text).toBe('');
   });
 
   test('buildGeminiSetupMessage preserves empty model strings', () => {

@@ -284,15 +284,15 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
         }
 
         const reg = registry as any;
-        if (typeof reg.getProvider !== 'function' || typeof reg.getRealtimeCompat !== 'function') {
+        if (typeof reg.getRealtimeProvider !== 'function' || typeof reg.getRealtimeCompat !== 'function') {
           const error = new Error('Registry does not support realtime client-secret minting');
           (error as any).statusCode = 501;
           (error as any).code = 'not_implemented';
           throw error;
         }
 
-        const provider = await reg.getProvider(providerId);
-        const compatKind = provider?.realtime?.compat;
+        const provider = await reg.getRealtimeProvider(providerId);
+        const compatKind = provider?.compat;
         if (!compatKind) {
           const error = new Error(`Realtime client-secret minting not supported for provider '${providerId}'`);
           (error as any).statusCode = 501;

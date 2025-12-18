@@ -3,14 +3,13 @@ import { createRequire } from 'module';
 import type {
   IRealtimeCompat,
   JsonValue,
-  ProviderManifest,
   RealtimeCompatSession,
   RealtimeEvent,
   RealtimeSessionSpec
 } from '../../../../modules/kernel/index.js';
-import { AsyncQueue } from '../../../../modules/kernel/index.js';
-import { buildGeminiActivityEndMessage, buildGeminiCommitTextTurnMessage, buildGeminiInterruptMessage, buildGeminiRealtimeAudioMessage, buildGeminiSendTextMessage, buildGeminiSetupMessage, buildGeminiToolResponseMessage } from './commands.js';
-import { convertSessionAudioToProviderPcm16_16k } from './audio.js';
+import { AsyncQueue, sanitizeToolName } from '../../../../modules/kernel/index.js';
+import { buildGeminiActivityEndMessage, buildGeminiActivityStartMessage, buildGeminiCommitTextTurnMessage, buildGeminiInterruptMessage, buildGeminiRealtimeAudioMessage, buildGeminiRealtimeTextMessage, buildGeminiSendTextMessage, buildGeminiSetupMessage, buildGeminiToolResponseMessage } from './commands.js';
+import { convertSessionAudioToProviderPcm16_24k } from './audio.js';
 import { mapGeminiLiveServerMessage, type GeminiRealtimeMapperState } from './event-mapper.js';
 
 type WsLike = {
@@ -50,28 +49,28 @@ function ensureJsonObject(value: JsonValue): any {
 }
 
 export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeCompat['createSession']>[0]): RealtimeCompatSession {
-  const provider = options.provider as ProviderManifest;
+  const provider = options.provider;
   const spec = options.spec as RealtimeSessionSpec;
 
-  const realtime = provider.realtime;
-  if (!realtime?.endpoint?.urlTemplate) {
+  const endpoint = provider.endpoint;
+  if (!endpoint?.urlTemplate) {
     throw new Error(`Provider '${provider.id}' missing realtime endpoint configuration`);
   }
 
-  const model = spec.model ?? (realtime.metadata as any)?.defaultModel;
+  const model = spec.model ?? (provider.metadata as any)?.defaultModel;
   if (!model) {
     throw new Error(`Realtime session requires 'model' for provider '${provider.id}'`);
   }
 
   const url = resolveRealtimeUrl({
-    urlTemplate: realtime.endpoint.urlTemplate,
+    urlTemplate: endpoint.urlTemplate,
     model,
-    query: realtime.endpoint.query
+    query: endpoint.query
   });
 
   const require = createRequire(import.meta.url);
   const wsLib = require('ws');
-  const ws: WsLike = new wsLib.WebSocket(url, { headers: realtime.endpoint.headers });
+  const ws: WsLike = new wsLib.WebSocket(url, { headers: endpoint.headers });
   const WS_OPEN: number = wsLib.WebSocket.OPEN;
 
   const queue = new AsyncQueue<RealtimeEvent>();
@@ -85,10 +84,17 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
 
   const state: GeminiRealtimeMapperState = {
     audio,
+    unifiedToolNameByProviderName: new Map(
+      (options.tools ?? []).map(t => [sanitizeToolName(t.name), t.name] as const)
+    ),
     toolNameByCallId: new Map<string, string>(),
+    toolCallSeq: 0,
+    sawUsageThisTurn: false,
+    userTranscriptRaw: '',
     userTranscript: '',
+    pendingUserTranscriptFinal: false,
+    assistantTranscriptRaw: '',
     assistantTranscript: '',
-    assistantText: ''
   };
 
   let closed = false;
@@ -177,6 +183,13 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
   return {
     async sendText({ text, role = 'user' }) {
       ensureOpen();
+      if (activityDriven && activityStarted) {
+        // Avoid mixing ordered `clientContent` messages with `realtimeInput` activity signals
+        // during barge-in; send text via realtimeInput so the server treats it as part of the
+        // active activity turn.
+        sendOrBuffer(buildGeminiRealtimeTextMessage({ text }));
+        return;
+      }
       pendingTextTurn = true;
       sendOrBuffer(buildGeminiSendTextMessage({ text, role }));
     },
@@ -193,18 +206,21 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
     },
     async sendAudio(frame) {
       ensureOpen();
-      const converted = convertSessionAudioToProviderPcm16_16k(frame);
-      const msg = buildGeminiRealtimeAudioMessage({
-        audioBase64: converted.audioBase64,
-        mimeType: converted.mimeType,
-        includeActivityStart: activityDriven && !activityStarted
-      });
+      const converted = convertSessionAudioToProviderPcm16_24k(frame);
       if (activityDriven && !activityStarted) {
+        // The Live API rejects messages that combine activityStart + audio in a single realtimeInput payload.
+        // Send activityStart separately on the first audio frame after a commit boundary.
+        sendOrBuffer(buildGeminiActivityStartMessage());
         activityStarted = true;
         // Emit local speech-start immediately for barge-in.
         queue.push({ type: 'user_speech.started' });
       }
-      sendOrBuffer(msg);
+      sendOrBuffer(
+        buildGeminiRealtimeAudioMessage({
+          audioBase64: converted.audioBase64,
+          mimeType: converted.mimeType
+        })
+      );
     },
     async commit() {
       ensureOpen();
@@ -212,11 +228,9 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
         sendOrBuffer(buildGeminiActivityEndMessage());
         activityStarted = false;
         queue.push({ type: 'user_speech.stopped' });
-        // Emit a best-effort "final" for the user transcript at commit boundary.
-        if (state.userTranscript) {
-          queue.push({ type: 'user_transcript.final', text: state.userTranscript });
-          state.userTranscript = '';
-        }
+        // Input transcription can arrive after the commit boundary, so defer emitting
+        // `user_transcript.final` until turn completion (serverContent.turnComplete).
+        state.pendingUserTranscriptFinal = true;
       }
 
       if (pendingTextTurn) {
@@ -226,6 +240,18 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
     },
     async interrupt() {
       ensureOpen();
+      if (activityDriven) {
+        // Gemini Live interruption is tied to activity start ("barge in").
+        // Signal activity start to cut off the current response. The activity is
+        // ended by the next commit (audio or text) so we don't accidentally
+        // trigger a new model turn without user input.
+        if (!activityStarted) {
+          sendOrBuffer(buildGeminiActivityStartMessage());
+          activityStarted = true;
+          queue.push({ type: 'user_speech.started' });
+        }
+        return;
+      }
       sendOrBuffer(buildGeminiInterruptMessage());
     },
     async sendToolResult({ toolCallId, result }) {

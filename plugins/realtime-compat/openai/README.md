@@ -8,32 +8,30 @@ OpenAI realtime compat implementation for the provider-agnostic realtime session
 - It must not be imported by core code directly.
 
 ## Configuration
-Enable realtime for the provider by adding a `realtime` block to `plugins/providers/openai.json`:
+Configure a realtime provider manifest at `plugins/realtime-providers/openai.json`:
 
 ```json
 {
   "id": "openai",
-  "realtime": {
-    "compat": "openai",
+  "compat": "openai",
+  "endpoint": {
+    "urlTemplate": "wss://api.openai.com/v1/realtime?model={model}",
+    "headers": {
+      "Authorization": "Bearer ${OPENAI_API_KEY}"
+    }
+  },
+  "webrtc": {
     "endpoint": {
-      "urlTemplate": "wss://api.openai.com/v1/realtime?model={model}",
+      "urlTemplate": "https://api.openai.com/v1/realtime/calls",
       "headers": {
-        "Authorization": "Bearer ${OPENAI_API_KEY}"
+        "Content-Type": "application/sdp"
       }
     },
-    "webrtc": {
-      "endpoint": {
-        "urlTemplate": "https://api.openai.com/v1/realtime?model={model}",
-        "headers": {
-          "Content-Type": "application/sdp"
-        }
-      },
-      "clientSecretEndpoint": {
-        "urlTemplate": "https://api.openai.com/v1/realtime/client_secrets",
-        "headers": {
-          "Authorization": "Bearer ${OPENAI_API_KEY}",
-          "Content-Type": "application/json"
-        }
+    "clientSecretEndpoint": {
+      "urlTemplate": "https://api.openai.com/v1/realtime/client_secrets",
+      "headers": {
+        "Authorization": "Bearer ${OPENAI_API_KEY}",
+        "Content-Type": "application/json"
       }
     }
   }

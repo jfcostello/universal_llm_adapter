@@ -77,6 +77,25 @@ export function serializeToolsForSDK(tools: UnifiedTool[]): any {
 }
 
 /**
+ * Convert tools to Google Live (bidi) `functionDeclarations` format.
+ *
+ * The Live API for the Gemini Developer endpoint expects function declarations to
+ * use `parametersJsonSchema` (JSON Schema), rather than the `Schema` form used
+ * in some non-live request/response APIs.
+ */
+export function serializeToolsForLiveSDK(tools: UnifiedTool[]): any {
+  if (!tools || tools.length === 0) return undefined;
+
+  const functionDeclarations = tools.map(t => ({
+    name: sanitizeToolName(t.name),
+    description: t.description || '',
+    parametersJsonSchema: t.parametersJsonSchema || { type: 'object', properties: {} }
+  }));
+
+  return [{ functionDeclarations }];
+}
+
+/**
  * Convert tool choice to Google `functionCallingConfig`.
  */
 export function serializeToolChoiceForSDK(choice?: ToolChoice, tools?: UnifiedTool[]): any {
@@ -117,4 +136,3 @@ export function serializeToolChoiceForSDK(choice?: ToolChoice, tools?: UnifiedTo
 
   return undefined;
 }
-

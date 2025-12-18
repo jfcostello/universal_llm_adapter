@@ -81,8 +81,8 @@ describe('integration/realtime-compat/gemini session', () => {
       createGeminiRealtimeCompatSession({
         provider: {
           id: 'google',
-          compat: 'google',
-          endpoint: { urlTemplate: 'SDK_BASED_NOT_USED', method: 'POST', headers: {} }
+          compat: 'gemini',
+          endpoint: { urlTemplate: '', headers: {} }
         } as any,
         spec: { provider: 'google', model: 'm' }
       } as any)
@@ -96,9 +96,8 @@ describe('integration/realtime-compat/gemini session', () => {
         createGeminiRealtimeCompatSession({
           provider: {
             id: 'google',
-            compat: 'google',
-            endpoint: { urlTemplate: 'SDK_BASED_NOT_USED', method: 'POST', headers: {} },
-            realtime: { compat: 'gemini', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+            compat: 'gemini',
+            endpoint: { urlTemplate: server.urlTemplate, headers: {} }
           } as any,
           spec: { provider: 'google' }
         } as any)
@@ -114,9 +113,8 @@ describe('integration/realtime-compat/gemini session', () => {
       const session = createGeminiRealtimeCompatSession({
         provider: {
           id: 'google',
-          compat: 'google',
-          endpoint: { urlTemplate: 'SDK_BASED_NOT_USED', method: 'POST', headers: {} },
-          realtime: { compat: 'gemini', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: { provider: 'google', model: 'm', transcription: { enabled: true }, turnDetection: { mode: 'manual_commit' } }
       } as any);
@@ -153,9 +151,8 @@ describe('integration/realtime-compat/gemini session', () => {
       const session = createGeminiRealtimeCompatSession({
         provider: {
           id: 'google',
-          compat: 'google',
-          endpoint: { urlTemplate: 'SDK_BASED_NOT_USED', method: 'POST', headers: {} },
-          realtime: { compat: 'gemini', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: {
           provider: 'google',
@@ -194,9 +191,8 @@ describe('integration/realtime-compat/gemini session', () => {
       const session = createGeminiRealtimeCompatSession({
         provider: {
           id: 'google',
-          compat: 'google',
-          endpoint: { urlTemplate: 'SDK_BASED_NOT_USED', method: 'POST', headers: {} },
-          realtime: { compat: 'gemini', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: { provider: 'google', model: 'm', turnDetection: { mode: 'manual_commit' } }
       } as any);
@@ -226,15 +222,11 @@ describe('integration/realtime-compat/gemini session', () => {
       const session = createGeminiRealtimeCompatSession({
         provider: {
           id: 'google',
-          compat: 'google',
-          endpoint: { urlTemplate: 'SDK_BASED_NOT_USED', method: 'POST', headers: {} },
-          realtime: {
-            compat: 'gemini',
-            endpoint: {
-              urlTemplate: `${server.urlTemplate}?fromTemplate={model}`,
-              headers: {},
-              query: { static: '1', fromQuery: '{model}' }
-            }
+          compat: 'gemini',
+          endpoint: {
+            urlTemplate: `${server.urlTemplate}?fromTemplate={model}`,
+            headers: {},
+            query: { static: '1', fromQuery: '{model}' }
           }
         } as any,
         spec: { provider: 'google', model: 'a/b' }
@@ -257,10 +249,20 @@ describe('integration/realtime-compat/gemini session', () => {
       const session = createGeminiRealtimeCompatSession({
         provider: {
           id: 'google',
-          compat: 'google',
-          endpoint: { urlTemplate: 'SDK_BASED_NOT_USED', method: 'POST', headers: {} },
-          realtime: { compat: 'gemini', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
+        tools: [
+          {
+            name: 'test.echo',
+            description: 'Echo a message',
+            parametersJsonSchema: {
+              type: 'object',
+              properties: { message: { type: 'string' } },
+              required: ['message']
+            }
+          }
+        ],
         spec: {
           provider: 'google',
           model: 'm',
@@ -288,18 +290,26 @@ describe('integration/realtime-compat/gemini session', () => {
       await waitForMessage(server.messages, m => m?.realtimeInput?.audio?.mimeType?.startsWith('audio/pcm'), 2000);
       expect(server.messages.some(m => m?.realtimeInput?.activityStart)).toBe(true);
 
+      // While an activity is in progress, sendText uses realtimeInput.text to avoid ordering issues.
+      await session.sendText({ text: 'hi2' });
+      await waitForMessage(server.messages, m => m?.realtimeInput?.text === 'hi2', 2000);
+
       await session.commit();
       await waitForMessage(server.messages, m => m?.realtimeInput?.activityEnd, 2000);
 
       await session.interrupt();
-      await waitForMessage(server.messages, m => m?.clientContent?.turnComplete === false && Array.isArray(m?.clientContent?.turns), 2000);
+      await waitForMessage(server.messages, m => m?.realtimeInput?.activityStart, 2000);
 
       // Tool response uses name from prior tool call mapping.
       server.sendToClient({ toolCall: { functionCalls: [{ id: 'c1', name: 'test_echo', args: { message: 'Tokyo' } }] } });
       while (true) {
         const evt = await it.next();
         if (evt.done) throw new Error('Expected tool call event');
-        if (evt.value.type === 'tool_call.end' && (evt.value as any).toolCallId === 'c1') break;
+        if (evt.value.type === 'tool_call.end' && (evt.value as any).toolCallId === 'c1') {
+          // Incoming provider name (test_echo) is mapped back to unified tool name (test.echo).
+          expect((evt.value as any).name).toBe('test.echo');
+          break;
+        }
       }
 
       await session.sendToolResult({ toolCallId: 'c1', result: { ok: true } });
@@ -338,15 +348,46 @@ describe('integration/realtime-compat/gemini session', () => {
     }
   });
 
-  test('emits user_transcript.final at commit boundary after audio activity', async () => {
+  test('interrupt falls back to clientContent noop when activity detection is enabled', async () => {
     const server = await startWsServer();
     try {
       const session = createGeminiRealtimeCompatSession({
         provider: {
           id: 'google',
-          compat: 'google',
-          endpoint: { urlTemplate: 'SDK_BASED_NOT_USED', method: 'POST', headers: {} },
-          realtime: { compat: 'gemini', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
+        } as any,
+        spec: { provider: 'google', model: 'm', turnDetection: { mode: 'server_vad' } }
+      } as any);
+
+      await waitForMessage(server.messages, m => m?.setup?.model === 'models/m', 2000);
+      server.sendToClient({ setupComplete: {} });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      await it.next();
+
+      const before = server.messages.length;
+      await session.interrupt();
+      await new Promise(res => setTimeout(res, 25));
+
+      const next = server.messages.slice(before);
+      expect(next.some(m => m?.clientContent?.turnComplete === false && Array.isArray(m?.clientContent?.turns))).toBe(true);
+
+      await session.close();
+      await it.next();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('emits user_transcript.final at turn completion after audio activity commit', async () => {
+    const server = await startWsServer();
+    try {
+      const session = createGeminiRealtimeCompatSession({
+        provider: {
+          id: 'google',
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: { provider: 'google', model: 'm', turnDetection: { mode: 'manual_commit' } }
       } as any);
@@ -374,6 +415,7 @@ describe('integration/realtime-compat/gemini session', () => {
       }
 
       await session.commit();
+      server.sendToClient({ serverContent: { turnComplete: true } });
 
       while (true) {
         const evt = await Promise.race([
@@ -399,9 +441,8 @@ describe('integration/realtime-compat/gemini session', () => {
       const session = createGeminiRealtimeCompatSession({
         provider: {
           id: 'google',
-          compat: 'google',
-          endpoint: { urlTemplate: 'SDK_BASED_NOT_USED', method: 'POST', headers: {} },
-          realtime: { compat: 'gemini', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: { provider: 'google', model: 'm' }
       } as any);
@@ -427,9 +468,8 @@ describe('integration/realtime-compat/gemini session', () => {
       const session = createGeminiRealtimeCompatSession({
         provider: {
           id: 'google',
-          compat: 'google',
-          endpoint: { urlTemplate: 'SDK_BASED_NOT_USED', method: 'POST', headers: {} },
-          realtime: { compat: 'gemini', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: { provider: 'google', model: 'm' }
       } as any);
@@ -473,9 +513,8 @@ describe('integration/realtime-compat/gemini session', () => {
     const session = createGeminiRealtimeCompatSession({
       provider: {
         id: 'google',
-        compat: 'google',
-        endpoint: { urlTemplate: 'SDK_BASED_NOT_USED', method: 'POST', headers: {} },
-        realtime: { compat: 'gemini', endpoint: { urlTemplate: `ws://127.0.0.1:${address.port}/not-ws`, headers: {} } }
+        compat: 'gemini',
+        endpoint: { urlTemplate: `ws://127.0.0.1:${address.port}/not-ws`, headers: {} }
       } as any,
       spec: { provider: 'google', model: 'm' }
     } as any);
@@ -505,9 +544,8 @@ describe('integration/realtime-compat/gemini session', () => {
       const session = createGeminiRealtimeCompatSession({
         provider: {
           id: 'google',
-          compat: 'google',
-          endpoint: { urlTemplate: 'SDK_BASED_NOT_USED', method: 'POST', headers: {} },
-          realtime: { compat: 'gemini', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: { provider: 'google', model: 'm' }
       } as any);
@@ -533,9 +571,8 @@ describe('integration/realtime-compat/gemini session', () => {
       const session = createGeminiRealtimeCompatSession({
         provider: {
           id: 'google',
-          compat: 'google',
-          endpoint: { urlTemplate: 'SDK_BASED_NOT_USED', method: 'POST', headers: {} },
-          realtime: { compat: 'gemini', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: { provider: 'google', model: 'm' }
       } as any);
@@ -552,9 +589,8 @@ describe('integration/realtime-compat/gemini session', () => {
       const session = createGeminiRealtimeCompatSession({
         provider: {
           id: 'google',
-          compat: 'google',
-          endpoint: { urlTemplate: 'SDK_BASED_NOT_USED', method: 'POST', headers: {} },
-          realtime: { compat: 'gemini', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: { provider: 'google', model: 'm' }
       } as any);
@@ -572,9 +608,8 @@ describe('integration/realtime-compat/gemini session', () => {
       const session = createGeminiRealtimeCompatSession({
         provider: {
           id: 'google',
-          compat: 'google',
-          endpoint: { urlTemplate: 'SDK_BASED_NOT_USED', method: 'POST', headers: {} },
-          realtime: { compat: 'gemini', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: { provider: 'google', model: 'm' }
       } as any);

@@ -78,9 +78,9 @@ describe('modules/realtime/internal/async-queue', () => {
 });
 
 describe('modules/realtime createRealtimeSession (public API)', () => {
-  test('throws when provider does not declare realtime config', async () => {
+  test('throws when realtime provider does not declare compat config', async () => {
     const registry = {
-      getProvider: jest.fn().mockResolvedValue({ id: 'p' }),
+      getRealtimeProvider: jest.fn().mockResolvedValue({ id: 'p' }),
       getRealtimeCompat: jest.fn(),
       getTools: jest.fn(),
       getProcessRoutes: jest.fn().mockResolvedValue([])
@@ -88,11 +88,24 @@ describe('modules/realtime createRealtimeSession (public API)', () => {
 
     await expect(
       createRealtimeSession(registry as any, { provider: 'p' })
-    ).rejects.toThrow("Provider 'p' does not declare realtime configuration");
+    ).rejects.toThrow("Realtime provider 'p' does not declare compat configuration");
+  });
+
+  test('uses spec.provider in compat error message when provider id is missing', async () => {
+    const registry = {
+      getRealtimeProvider: jest.fn().mockResolvedValue({}),
+      getRealtimeCompat: jest.fn(),
+      getTools: jest.fn(),
+      getProcessRoutes: jest.fn().mockResolvedValue([])
+    };
+
+    await expect(
+      createRealtimeSession(registry as any, { provider: 'p_from_spec' } as any)
+    ).rejects.toThrow("Realtime provider 'p_from_spec' does not declare compat configuration");
   });
 
   test('loads compat + tools and returns a session controller', async () => {
-    const provider = { id: 'p', realtime: { compat: 'rt' } };
+    const provider = { id: 'p', compat: 'rt' };
     const tools: UnifiedTool[] = [{ name: 'echo' }];
 
     const closed = createDeferred<void>();
@@ -113,7 +126,7 @@ describe('modules/realtime createRealtimeSession (public API)', () => {
     const compat = { createSession: jest.fn().mockResolvedValue(compatSession) };
 
     const registry = {
-      getProvider: jest.fn().mockResolvedValue(provider),
+      getRealtimeProvider: jest.fn().mockResolvedValue(provider),
       getRealtimeCompat: jest.fn().mockResolvedValue(compat),
       getTools: jest.fn().mockResolvedValue(tools),
       getProcessRoutes: jest.fn().mockResolvedValue([])
@@ -132,14 +145,14 @@ describe('modules/realtime createRealtimeSession (public API)', () => {
     await session.close();
     await expect(events.next()).resolves.toMatchObject({ value: { type: 'closed', reason: 'client_close' } });
 
-    expect(registry.getProvider).toHaveBeenCalledWith('p');
+    expect(registry.getRealtimeProvider).toHaveBeenCalledWith('p');
     expect(registry.getRealtimeCompat).toHaveBeenCalledWith('rt');
     expect(registry.getTools).toHaveBeenCalledWith(['echo']);
     expect(compat.createSession).toHaveBeenCalledWith({ provider, spec: expect.any(Object), tools });
   });
 
   test('does not call getTools when functionToolNames is empty', async () => {
-    const provider = { id: 'p', realtime: { compat: 'rt' } };
+    const provider = { id: 'p', compat: 'rt' };
 
     const closed = createDeferred<void>();
     const compatSession: RealtimeCompatSession = {
@@ -159,7 +172,7 @@ describe('modules/realtime createRealtimeSession (public API)', () => {
     const compat = { createSession: jest.fn().mockResolvedValue(compatSession) };
 
     const registry = {
-      getProvider: jest.fn().mockResolvedValue(provider),
+      getRealtimeProvider: jest.fn().mockResolvedValue(provider),
       getRealtimeCompat: jest.fn().mockResolvedValue(compat),
       getTools: jest.fn(),
       getProcessRoutes: jest.fn().mockResolvedValue([])

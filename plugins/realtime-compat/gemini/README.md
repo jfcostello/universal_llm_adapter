@@ -6,23 +6,22 @@ This module implements the provider-agnostic realtime session interface (`IRealt
 
 ## Provider manifest
 
-Add a `realtime` block to the provider manifest (for example `plugins/providers/google.json`) with:
+Create a realtime provider manifest (for example `plugins/realtime-providers/google.json`) with:
 
-- `realtime.compat`: `gemini`
-- `realtime.endpoint.urlTemplate`: Live WebSocket endpoint
-- `realtime.endpoint.headers` / `realtime.endpoint.query`: authentication
+- `compat`: `gemini`
+- `endpoint.urlTemplate`: Live WebSocket endpoint
+- `endpoint.headers` / `endpoint.query`: authentication
 
 Example:
 
 ```json
 {
-  "realtime": {
-    "compat": "gemini",
-    "endpoint": {
-      "urlTemplate": "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService/BidiGenerateContent",
-      "headers": {},
-      "query": { "key": "${GEMINI_API_KEY}" }
-    }
+  "id": "google",
+  "compat": "gemini",
+  "endpoint": {
+    "urlTemplate": "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
+    "headers": {},
+    "query": { "key": "${GEMINI_API_KEY}" }
   }
 }
 ```
@@ -35,7 +34,7 @@ Example:
 
 ### Model naming
 
-- `spec.model` is required unless the provider manifest supplies `provider.realtime.metadata.defaultModel`.
+- `spec.model` is required unless the realtime provider manifest supplies `metadata.defaultModel`.
 - The setup message normalizes model names to `models/...` (if `spec.model` does not already start with `models/`).
 
 ## Audio

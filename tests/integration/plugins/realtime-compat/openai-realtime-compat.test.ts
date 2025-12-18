@@ -45,8 +45,7 @@ describe('integration/realtime-compat/openai compat class', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: { compat: 'openai', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         },
         spec: { provider: 'openai', model: 'm' }
       }));

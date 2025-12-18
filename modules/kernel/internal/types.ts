@@ -453,7 +453,14 @@ export interface RealtimeClientSecretEndpointConfig {
   query?: Record<string, string>;
 }
 
-export interface ProviderRealtimeConfig {
+/**
+ * Realtime provider manifest (loaded from JSON).
+ *
+ * This is intentionally separate from `ProviderManifest` so realtime providers
+ * can be configured independently from standard LLM request/response providers.
+ */
+export interface RealtimeProviderManifest {
+  id: string;
   compat: string;
   endpoint: RealtimeEndpointConfig;
   webrtc?: {
@@ -479,7 +486,6 @@ export interface ProviderManifest {
   id: string;
   compat: string;
   endpoint: EndpointConfig;
-  realtime?: ProviderRealtimeConfig;
   retryWords?: string[];
   metadata?: JsonObject;
   payloadExtensions?: ProviderPayloadExtension[];

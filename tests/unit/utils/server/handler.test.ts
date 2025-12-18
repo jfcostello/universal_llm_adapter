@@ -1513,11 +1513,10 @@ describe('utils/server createServerHandler', () => {
   test('POST /realtime/webrtc/client-secret returns expected JSON on success', async () => {
     const registryWithRealtime = {
       loadAll: jest.fn(),
-      getProvider: jest.fn().mockResolvedValue({
+      getRealtimeProvider: jest.fn().mockResolvedValue({
         id: 'p',
-        compat: 'x',
-        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-        realtime: { compat: 'rt', endpoint: { urlTemplate: 'ws://x', headers: {} } }
+        compat: 'rt',
+        endpoint: { urlTemplate: 'ws://x', headers: {} }
       }),
       getRealtimeCompat: jest.fn().mockResolvedValue({
         mintClientSecret: jest.fn().mockResolvedValue({ clientSecret: 'cs', expiresAt: 123 })
@@ -1547,18 +1546,17 @@ describe('utils/server createServerHandler', () => {
 
     expect(out.status).toBe(200);
     expect(JSON.parse(out.body)).toEqual({ clientSecret: 'cs', expiresAt: 123 });
-    expect(registryWithRealtime.getProvider).toHaveBeenCalledWith('p');
+    expect(registryWithRealtime.getRealtimeProvider).toHaveBeenCalledWith('p');
     expect(registryWithRealtime.getRealtimeCompat).toHaveBeenCalledWith('rt');
   });
 
   test('POST /realtime/webrtc/client-secret returns 501 when provider does not support minting', async () => {
     const registryWithRealtime = {
       loadAll: jest.fn(),
-      getProvider: jest.fn().mockResolvedValue({
+      getRealtimeProvider: jest.fn().mockResolvedValue({
         id: 'p',
-        compat: 'x',
-        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-        realtime: { compat: 'rt', endpoint: { urlTemplate: 'ws://x', headers: {} } }
+        compat: 'rt',
+        endpoint: { urlTemplate: 'ws://x', headers: {} }
       }),
       getRealtimeCompat: jest.fn().mockResolvedValue({})
     };
@@ -1662,11 +1660,7 @@ describe('utils/server createServerHandler', () => {
 
   test('POST /realtime/webrtc/client-secret returns 501 when provider has no realtime compat', async () => {
     const registryWithNoRealtime = {
-      getProvider: jest.fn().mockResolvedValue({
-        id: 'p',
-        compat: 'x',
-        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} }
-      }),
+      getRealtimeProvider: jest.fn().mockResolvedValue({ id: 'p' }),
       getRealtimeCompat: jest.fn()
     };
 
@@ -1694,11 +1688,10 @@ describe('utils/server createServerHandler', () => {
   test('POST /realtime/webrtc/client-secret omits optional spec fields and expiresAt when not provided', async () => {
     const registryWithRealtime = {
       loadAll: jest.fn(),
-      getProvider: jest.fn().mockResolvedValue({
+      getRealtimeProvider: jest.fn().mockResolvedValue({
         id: 'p',
-        compat: 'x',
-        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-        realtime: { compat: 'rt', endpoint: { urlTemplate: 'ws://x', headers: {} } }
+        compat: 'rt',
+        endpoint: { urlTemplate: 'ws://x', headers: {} }
       }),
       getRealtimeCompat: jest.fn().mockResolvedValue({
         mintClientSecret: jest.fn().mockResolvedValue({ clientSecret: 'cs' })
@@ -1729,11 +1722,10 @@ describe('utils/server createServerHandler', () => {
   test('POST /realtime/webrtc/client-secret falls back to empty clientSecret when compat returns none', async () => {
     const registryWithRealtime = {
       loadAll: jest.fn(),
-      getProvider: jest.fn().mockResolvedValue({
+      getRealtimeProvider: jest.fn().mockResolvedValue({
         id: 'p',
-        compat: 'x',
-        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-        realtime: { compat: 'rt', endpoint: { urlTemplate: 'ws://x', headers: {} } }
+        compat: 'rt',
+        endpoint: { urlTemplate: 'ws://x', headers: {} }
       }),
       getRealtimeCompat: jest.fn().mockResolvedValue({
         mintClientSecret: jest.fn().mockResolvedValue({})

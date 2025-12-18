@@ -20,13 +20,12 @@ export default class OpenAIRealtimeCompat implements IRealtimeCompat {
   async mintClientSecret(options: Parameters<NonNullable<IRealtimeCompat['mintClientSecret']>>[0]) {
     const spec = options.spec as RealtimeSessionSpec;
     const url = resolveOpenAIClientSecretUrl({ provider: options.provider, spec });
-    const headers = { ...(options.provider.realtime?.webrtc?.clientSecretEndpoint?.headers ?? {}) } as Record<string, string>;
+    const headers = { ...(options.provider.webrtc?.clientSecretEndpoint?.headers ?? {}) } as Record<string, string>;
     if (!headers['Content-Type']) {
       headers['Content-Type'] = 'application/json';
     }
 
-    const realtime = options.provider.realtime;
-    const model = spec.model ?? (realtime?.metadata as any)?.defaultModel;
+    const model = spec.model ?? (options.provider.metadata as any)?.defaultModel;
     if (!model) {
       throw new Error(`Realtime session requires 'model' for provider '${options.provider.id}'`);
     }

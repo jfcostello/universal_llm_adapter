@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue, ProviderManifest, UnifiedTool, ToolChoice } from './types.js';
+import type { JsonObject, JsonValue, RealtimeProviderManifest, UnifiedTool, ToolChoice } from './types.js';
 
 // ============================================================
 // REALTIME (provider-agnostic) types
@@ -114,7 +114,7 @@ export interface RealtimeHistoryItem {
 }
 
 export interface RealtimeSessionSpec {
-  /** Provider id from plugins/providers/*.json */
+  /** Provider id from plugins/realtime-providers/*.json */
   provider: string;
   model?: string;
 
@@ -321,7 +321,7 @@ export interface RealtimeClientSecret {
 
 export interface IRealtimeCompat {
   createSession: (options: {
-    provider: ProviderManifest;
+    provider: RealtimeProviderManifest;
     spec: RealtimeSessionSpec;
     tools?: UnifiedTool[];
   }) => Promise<RealtimeCompatSession> | RealtimeCompatSession;
@@ -331,7 +331,7 @@ export interface IRealtimeCompat {
    * Intended for WebRTC session establishment where long-lived provider keys must not be exposed client-side.
    */
   mintClientSecret?: (options: {
-    provider: ProviderManifest;
+    provider: RealtimeProviderManifest;
     spec: RealtimeSessionSpec;
     expiresAfterSeconds?: number;
   }) => Promise<RealtimeClientSecret> | RealtimeClientSecret;

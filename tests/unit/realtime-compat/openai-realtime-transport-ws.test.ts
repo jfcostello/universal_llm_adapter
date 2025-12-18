@@ -76,8 +76,7 @@ describe('plugins/realtime-compat/openai — ws transport', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: { compat: 'openai', endpoint: { urlTemplate: server.url, headers: undefined } }
+          endpoint: { urlTemplate: server.url, headers: undefined }
         } as any,
         spec: { provider: 'openai', model: 'm' }
       } as any);

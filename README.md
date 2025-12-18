@@ -54,6 +54,7 @@ universal_llm_adapter/
 │   └── string/                   # String utilities
 ├── plugins/                      # Provider-specific implementations
 │   ├── providers/                # LLM provider configs (.json)
+│   ├── realtime-providers/       # Realtime provider configs (.json)
 │   ├── embeddings/               # Embedding provider configs (.json)
 │   ├── vector/                   # Vector store configs (.json)
 │   ├── compat/                   # LLM provider compat implementations
@@ -118,6 +119,25 @@ Provider compat implementations live in `plugins/compat/<provider>/index.ts` and
 - `serializeToolChoice()` - Serialize tool choice
 - `applyProviderExtensions()` - Apply provider payload extensions (optional)
 - `callSDK()` / `streamSDK()` - Optional SDK-based overrides (when available)
+
+### Realtime Providers
+
+Realtime provider configurations live in `plugins/realtime-providers/*.json` and are intentionally separate from LLM providers.
+
+```json
+{
+  "id": "example-realtime",
+  "compat": "example-realtime",
+  "endpoint": {
+    "urlTemplate": "wss://example.com/realtime?model={model}",
+    "headers": {
+      "Authorization": "Bearer ${REALTIME_API_KEY}"
+    }
+  }
+}
+```
+
+Realtime compat implementations live in `plugins/realtime-compat/<kind>/index.ts` and implement `IRealtimeCompat`.
 
 ### Compat templates
 

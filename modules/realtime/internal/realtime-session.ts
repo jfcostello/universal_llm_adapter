@@ -1,7 +1,7 @@
 import type {
   JsonValue,
   ProcessRouteManifest,
-  ProviderManifest,
+  RealtimeProviderManifest,
   RealtimeAudioFrame,
   RealtimeCompatSession,
   RealtimeEvent,
@@ -24,7 +24,7 @@ export interface RealtimeSession {
 
 export interface RealtimeSessionControllerOptions {
   registry: { getProcessRoutes: () => Promise<ProcessRouteManifest[]> };
-  provider: ProviderManifest;
+  provider: RealtimeProviderManifest;
   spec: RealtimeSessionSpec;
   compatSession: RealtimeCompatSession;
   tools?: UnifiedTool[];

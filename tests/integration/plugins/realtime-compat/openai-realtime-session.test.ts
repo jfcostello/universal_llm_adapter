@@ -77,8 +77,7 @@ describe('integration/realtime-compat/openai session', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: { compat: 'openai', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: { provider: 'openai', model: 'm', transcription: { enabled: true }, turnDetection: { mode: 'manual_commit' } }
       } as any);
@@ -112,11 +111,7 @@ describe('integration/realtime-compat/openai session', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: {
-            compat: 'openai',
-            endpoint: { urlTemplate: server.urlTemplate, headers: {} }
-          }
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         },
         spec: {
           provider: 'openai',
@@ -157,8 +152,7 @@ describe('integration/realtime-compat/openai session', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: { compat: 'openai', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: {
           provider: 'openai',
@@ -208,8 +202,7 @@ describe('integration/realtime-compat/openai session', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: { compat: 'openai', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: { provider: 'openai', model: 'm', turnDetection: { mode: 'manual_commit' } }
       } as any);
@@ -234,8 +227,7 @@ describe('integration/realtime-compat/openai session', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: { compat: 'openai', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: {
           provider: 'openai',
@@ -266,8 +258,7 @@ describe('integration/realtime-compat/openai session', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: { compat: 'openai', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: {
           provider: 'openai',
@@ -300,8 +291,7 @@ describe('integration/realtime-compat/openai session', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: { compat: 'openai', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: { provider: 'openai', model: 'm', turnDetection: { mode: 'manual_commit' } }
       } as any);
@@ -338,8 +328,7 @@ describe('integration/realtime-compat/openai session', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: { compat: 'openai', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: { provider: 'openai', model: 'm' }
       } as any);
@@ -368,8 +357,7 @@ describe('integration/realtime-compat/openai session', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: { compat: 'openai', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: { provider: 'openai', model: 'm' }
       } as any);
@@ -401,8 +389,7 @@ describe('integration/realtime-compat/openai session', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: { compat: 'openai', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: { provider: 'openai', model: 'm', turnDetection: { mode: 'manual_commit' } }
       } as any);
@@ -436,8 +423,7 @@ describe('integration/realtime-compat/openai session', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: { compat: 'openai', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: { provider: 'openai', model: 'm' }
       } as any);
@@ -467,14 +453,10 @@ describe('integration/realtime-compat/openai session', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: {
-            compat: 'openai',
-            endpoint: {
-              urlTemplate: urlTemplateNoModel,
-              headers: {},
-              query: { model: '{model}', extra: '1' }
-            }
+          endpoint: {
+            urlTemplate: urlTemplateNoModel,
+            headers: {},
+            query: { model: '{model}', extra: '1' }
           }
         } as any,
         spec: { provider: 'openai', model: 'm' }
@@ -500,12 +482,8 @@ describe('integration/realtime-compat/openai session', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: {
-            compat: 'openai',
-            endpoint: { urlTemplate: server.urlTemplate, headers: {} },
-            metadata: { defaultModel: 'm' }
-          }
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} },
+          metadata: { defaultModel: 'm' }
         } as any,
         spec: { provider: 'openai' }
       } as any);
@@ -528,8 +506,7 @@ describe('integration/realtime-compat/openai session', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: { compat: 'openai', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: { provider: 'openai', model: 'm' }
       } as any);
@@ -549,11 +526,7 @@ describe('integration/realtime-compat/openai session', () => {
       provider: {
         id: 'openai',
         compat: 'openai',
-        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-        realtime: {
-          compat: 'openai',
-          endpoint: { urlTemplate: 'ws://127.0.0.1:1/realtime?model={model}', headers: {} }
-        }
+        endpoint: { urlTemplate: 'ws://127.0.0.1:1/realtime?model={model}', headers: {} }
       } as any,
       spec: { provider: 'openai', model: 'm' }
     } as any);
@@ -579,11 +552,7 @@ describe('integration/realtime-compat/openai session', () => {
       provider: {
         id: 'openai',
         compat: 'openai',
-        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-        realtime: {
-          compat: 'openai',
-          endpoint: { urlTemplate: 'ws://127.0.0.1:1/realtime?model={model}', headers: {} }
-        }
+        endpoint: { urlTemplate: 'ws://127.0.0.1:1/realtime?model={model}', headers: {} }
       } as any,
       spec: { provider: 'openai', model: 'm' }
     } as any);
@@ -599,8 +568,7 @@ describe('integration/realtime-compat/openai session', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: { compat: 'openai', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
         spec: { provider: 'openai', model: 'm' }
       } as any);
@@ -617,7 +585,7 @@ describe('integration/realtime-compat/openai session', () => {
   test('throws on missing realtime config or missing model', async () => {
     expect(() =>
       createOpenAIRealtimeCompatSession({
-        provider: { id: 'openai', compat: 'openai', endpoint: { urlTemplate: 'x', method: 'POST', headers: {} } } as any,
+        provider: { id: 'openai', compat: 'openai', endpoint: { urlTemplate: '', headers: {} } } as any,
         spec: { provider: 'openai', model: 'm' }
       } as any)
     ).toThrow('missing realtime endpoint');
@@ -629,8 +597,7 @@ describe('integration/realtime-compat/openai session', () => {
           provider: {
             id: 'openai',
             compat: 'openai',
-            endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-            realtime: { compat: 'openai', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+            endpoint: { urlTemplate: server.urlTemplate, headers: {} }
           } as any,
           spec: { provider: 'openai' }
         } as any)

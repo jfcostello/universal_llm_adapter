@@ -661,7 +661,7 @@ describe('plugins/realtime-compat/openai — webrtc transport + session', () => 
   test('resolveOpenAIWebrtcSdpUrl rejects missing config', () => {
     expect(() =>
       resolveOpenAIWebrtcSdpUrl({
-        provider: { id: 'p', compat: 'x', endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} }, realtime: { compat: 'rt', endpoint: { urlTemplate: 'ws://x', headers: {} } } } as any,
+        provider: { id: 'p', compat: 'x', endpoint: { urlTemplate: 'ws://x', headers: {} } } as any,
         spec: { provider: 'p', model: 'm' } as any
       })
     ).toThrow('missing realtime webrtc endpoint');
@@ -672,8 +672,9 @@ describe('plugins/realtime-compat/openai — webrtc transport + session', () => 
       provider: {
         id: 'p',
         compat: 'x',
-        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-        realtime: { compat: 'rt', endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} }, webrtc: { endpoint: { urlTemplate: 'https://sdp?model={model}' } }, metadata: { defaultModel: 'dm' } }
+        endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
+        webrtc: { endpoint: { urlTemplate: 'https://sdp?model={model}' } },
+        metadata: { defaultModel: 'dm' }
       } as any,
       spec: { provider: 'p' } as any
     });
@@ -686,8 +687,8 @@ describe('plugins/realtime-compat/openai — webrtc transport + session', () => 
         provider: {
           id: 'p',
           compat: 'x',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: { compat: 'rt', endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} }, webrtc: { endpoint: { urlTemplate: 'https://sdp?model={model}' } } }
+          endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
+          webrtc: { endpoint: { urlTemplate: 'https://sdp?model={model}' } }
         } as any,
         spec: { provider: 'p' } as any
       })
@@ -744,8 +745,8 @@ describe('plugins/realtime-compat/openai — webrtc transport + session', () => 
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: { compat: 'openai', endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} }, webrtc: { endpoint: { urlTemplate: 'https://sdp?model={model}' } } }
+          endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
+          webrtc: { endpoint: { urlTemplate: 'https://sdp?model={model}' } }
         } as any,
         spec: { provider: 'openai', model: 'm', transport: { type: 'webrtc' } }
       } as any)
@@ -755,8 +756,8 @@ describe('plugins/realtime-compat/openai — webrtc transport + session', () => 
       provider: {
         id: 'openai',
         compat: 'openai',
-        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-        realtime: { compat: 'openai', endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} }, webrtc: { endpoint: { urlTemplate: 'https://sdp?model={model}' } } }
+        endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
+        webrtc: { endpoint: { urlTemplate: 'https://sdp?model={model}' } }
       } as any,
       spec: { provider: 'openai', model: 'm', transport: { type: 'webrtc' }, webrtc: { clientSecret: 'secret' } }
     } as any);
@@ -785,8 +786,7 @@ describe('plugins/realtime-compat/openai — webrtc transport + session', () => 
       provider: {
         id: 'openai',
         compat: 'openai',
-        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-        realtime: { compat: 'openai', endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} } }
+        endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} }
       } as any,
       spec: { provider: 'openai', model: 'm' }
     } as any, transport as any);
@@ -811,8 +811,7 @@ describe('plugins/realtime-compat/openai — webrtc transport + session', () => 
       provider: {
         id: 'openai',
         compat: 'openai',
-        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-        realtime: { compat: 'openai', endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} } }
+        endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} }
       } as any,
       spec: { provider: 'openai', model: 'm' }
     } as any, transport as any);
@@ -837,8 +836,7 @@ describe('plugins/realtime-compat/openai — webrtc transport + session', () => 
       provider: {
         id: 'openai',
         compat: 'openai',
-        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-        realtime: { compat: 'openai', endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} } }
+        endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} }
       } as any,
       spec: { provider: 'openai', model: 'm' }
     } as any, transport as any);
@@ -896,8 +894,8 @@ describe('plugins/realtime-compat/openai — webrtc transport + session', () => 
       provider: {
         id: 'openai',
         compat: 'openai',
-        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-        realtime: { compat: 'openai', endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} }, webrtc: { endpoint: { urlTemplate: 'https://sdp?model={model}' } } }
+        endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
+        webrtc: { endpoint: { urlTemplate: 'https://sdp?model={model}' } }
       } as any,
       spec: { provider: 'openai', model: 'm', transport: { type: 'webrtc' }, webrtc: { clientSecret: 'secret' } }
     }));

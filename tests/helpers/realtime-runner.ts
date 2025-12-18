@@ -170,6 +170,10 @@ async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealti
     stdio: ['pipe', 'pipe', 'pipe']
   });
 
+  const closedPromise: Promise<number | null> = new Promise(resolve => {
+    child.once('close', code => resolve(code ?? 1));
+  });
+
   const envelopes: RealtimeServerEnvelope[] = [];
   const q = new EnvelopeQueue();
   let stdout = '';
@@ -257,7 +261,15 @@ async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealti
         if (!want) throw new Error('wait_for_event missing eventType');
         const stepTimeoutMs = Number(step.timeoutMs ?? timeoutMs);
         while (true) {
-          const env = await q.next(stepTimeoutMs);
+          let env: RealtimeServerEnvelope;
+          try {
+            env = await q.next(stepTimeoutMs);
+          } catch (err: any) {
+            if (err instanceof Error && err.message.startsWith('Timed out waiting for realtime envelope')) {
+              throw new Error(`Timed out waiting for realtime event '${want}' (${stepTimeoutMs}ms)`);
+            }
+            throw err;
+          }
           if (env.type === 'error') throw new Error(env.error?.message ?? 'Realtime CLI error');
           if (env.type === 'event' && env.event?.type === want) break;
         }
@@ -267,7 +279,15 @@ async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealti
         await sleep(Number(step.ms ?? 0));
         break;
       case 'close':
-        await writeLine({ type: 'close' });
+        try {
+          await writeLine({ type: 'close' });
+        } catch (err: any) {
+          // If the child exited before we could send a close command, treat that as a no-op and
+          // proceed to collect whatever output we captured.
+          if (!(err instanceof Error) || err.code !== 'ERR_STREAM_DESTROYED') {
+            throw err;
+          }
+        }
         break;
     }
   }
@@ -277,7 +297,7 @@ async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealti
     child.stdin.end();
   } catch {}
 
-  const code: number | null = await new Promise(resolve => child.on('close', resolve));
+  const code: number | null = await closedPromise;
 
   return { code, stdout, stderr, envelopes };
 }
@@ -385,7 +405,15 @@ async function runViaServer(options: RunRealtimeScenarioOptions): Promise<RunRea
         if (!want) throw new Error('wait_for_event missing eventType');
         const stepTimeoutMs = Number(step.timeoutMs ?? timeoutMs);
         while (true) {
-          const env = await q.next(stepTimeoutMs);
+          let env: RealtimeServerEnvelope;
+          try {
+            env = await q.next(stepTimeoutMs);
+          } catch (err: any) {
+            if (err instanceof Error && err.message.startsWith('Timed out waiting for realtime envelope')) {
+              throw new Error(`Timed out waiting for realtime event '${want}' (${stepTimeoutMs}ms)`);
+            }
+            throw err;
+          }
           if (env.type === 'error') throw new Error(env.error?.message ?? 'Realtime WS error');
           if (env.type === 'event' && env.event?.type === want) break;
         }

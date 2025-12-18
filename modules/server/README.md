@@ -122,7 +122,7 @@ Mints a short-lived client credential suitable for establishing a realtime WebRT
 - Auth: **required** (server `auth.enabled` must be true).
 - Rate limiting: uses the server rate limiter when enabled.
 - Body:
-  - `provider` (string, required)
+  - `provider` (string, required) — realtime provider id from `plugins/realtime-providers/*.json`
   - `model` (string, optional)
   - `systemPrompt` (string, optional)
   - `expiresAfterSeconds` (number, optional)

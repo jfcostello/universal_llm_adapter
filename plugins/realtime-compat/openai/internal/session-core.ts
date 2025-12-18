@@ -249,20 +249,20 @@ export function resolveOpenAIWebrtcSdpUrl(options: {
   provider: Parameters<IRealtimeCompat['createSession']>[0]['provider'];
   spec: RealtimeSessionSpec;
 }): string {
-  const realtime = options.provider.realtime;
-  if (!realtime?.webrtc?.endpoint?.urlTemplate) {
+  const webrtc = options.provider.webrtc;
+  if (!webrtc?.endpoint?.urlTemplate) {
     throw new Error(`Provider '${options.provider.id}' missing realtime webrtc endpoint configuration`);
   }
 
-  const model = options.spec.model ?? (realtime.metadata as any)?.defaultModel;
+  const model = options.spec.model ?? (options.provider.metadata as any)?.defaultModel;
   if (!model) {
     throw new Error(`Realtime session requires 'model' for provider '${options.provider.id}'`);
   }
 
   return resolveRealtimeUrl({
-    urlTemplate: realtime.webrtc.endpoint.urlTemplate,
+    urlTemplate: webrtc.endpoint.urlTemplate,
     model,
-    query: realtime.webrtc.endpoint.query
+    query: webrtc.endpoint.query
   });
 }
 
@@ -270,17 +270,17 @@ export function resolveOpenAIClientSecretUrl(options: {
   provider: Parameters<IRealtimeCompat['createSession']>[0]['provider'];
   spec: RealtimeSessionSpec;
 }): string {
-  const realtime = options.provider.realtime;
-  if (!realtime?.webrtc?.clientSecretEndpoint?.urlTemplate) {
+  const webrtc = options.provider.webrtc;
+  if (!webrtc?.clientSecretEndpoint?.urlTemplate) {
     throw new Error(`Provider '${options.provider.id}' missing realtime webrtc clientSecret endpoint configuration`);
   }
 
-  const template = String(realtime.webrtc.clientSecretEndpoint.urlTemplate);
-  const query = realtime.webrtc.clientSecretEndpoint.query;
+  const template = String(webrtc.clientSecretEndpoint.urlTemplate);
+  const query = webrtc.clientSecretEndpoint.query;
   const needsModel =
     template.includes('{model}') ||
     Object.values(query ?? {}).some(v => String(v).includes('{model}'));
-  const model = needsModel ? options.spec.model ?? (realtime.metadata as any)?.defaultModel : 'unused';
+  const model = needsModel ? options.spec.model ?? (options.provider.metadata as any)?.defaultModel : 'unused';
   if (needsModel && !model) {
     throw new Error(`Realtime session requires 'model' for provider '${options.provider.id}'`);
   }
@@ -296,19 +296,19 @@ export function resolveOpenAIWsUrl(options: {
   provider: Parameters<IRealtimeCompat['createSession']>[0]['provider'];
   spec: RealtimeSessionSpec;
 }): string {
-  const realtime = options.provider.realtime;
-  if (!realtime?.endpoint?.urlTemplate) {
+  const endpoint = options.provider.endpoint;
+  if (!endpoint?.urlTemplate) {
     throw new Error(`Provider '${options.provider.id}' missing realtime endpoint configuration`);
   }
 
-  const model = options.spec.model ?? (realtime.metadata as any)?.defaultModel;
+  const model = options.spec.model ?? (options.provider.metadata as any)?.defaultModel;
   if (!model) {
     throw new Error(`Realtime session requires 'model' for provider '${options.provider.id}'`);
   }
 
   return resolveRealtimeUrl({
-    urlTemplate: realtime.endpoint.urlTemplate,
+    urlTemplate: endpoint.urlTemplate,
     model,
-    query: realtime.endpoint.query
+    query: endpoint.query
   });
 }

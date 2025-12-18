@@ -11,14 +11,14 @@ This example demonstrates:
 
 ## Prerequisites
 
-- Configure `./plugins` for your environment (provider manifests + realtime compat configuration).
+- Configure `./plugins` for your environment (realtime provider manifests + realtime compat configuration).
 - Set whatever environment variables your configured plugins require (API keys, etc.).
 
 ## Environment variables
 
 Required:
 
-- `REALTIME_PROVIDER_ID` — provider id from `plugins/providers/*.json`
+- `REALTIME_PROVIDER_ID` — realtime provider id from `plugins/realtime-providers/*.json`
 
 Optional:
 
@@ -43,4 +43,3 @@ From repo root:
 ```bash
 npx tsx examples/realtime-basic/run.ts
 ```
-

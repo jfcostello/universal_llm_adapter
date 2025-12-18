@@ -317,56 +317,104 @@ describe('core/registry', () => {
       });
     });
 
-    test('validateAll requires realtime compat only when provider declares realtime config', async () => {
-      await withTempCwd('registry-realtime-validate', async (dir) => {
+  });
+
+  describe('realtime providers', () => {
+    test('loads realtime provider manifests from plugins/realtime-providers and validates referenced realtime compats', async () => {
+      await withTempCwd('registry-realtime-providers', async (dir) => {
         const pluginsDir = path.join(dir, 'plugins');
         copyFixturePlugins(pluginsDir);
 
-        // Provider manifests in fixtures use env var substitution; keep the env set for consistency.
         process.env.TEST_LLM_ENDPOINT = 'http://localhost';
 
         const rtCompatLocal = path.join(pluginsDir, 'realtime-compat');
         fs.mkdirSync(rtCompatLocal, { recursive: true });
-
-        // Local realtime compat used by provider realtime config.
         fs.writeFileSync(
           path.join(rtCompatLocal, 'rt-validate-ok.js'),
           'module.exports = class RtValidateOk { constructor() { this.kind = \"ok\"; } }',
           'utf-8'
         );
 
-        const providerPath = path.join(pluginsDir, 'providers', 'test-openai.json');
-        const provider = JSON.parse(fs.readFileSync(providerPath, 'utf-8'));
-        provider.realtime = {
-          compat: 'rt-validate-ok',
-          endpoint: { urlTemplate: 'ws://localhost/realtime', headers: {} }
-        };
-        fs.writeFileSync(providerPath, JSON.stringify(provider, null, 2), 'utf-8');
-
-        const registry = new PluginRegistry(pluginsDir);
-        await expect(registry.getProvider('test-openai')).resolves.toBeDefined();
-        await expect(registry.validateAll()).resolves.toBeUndefined();
-
-        // Lazy loading: referencing a missing realtime compat in a provider manifest does not fail until validateAll/getRealtimeCompat.
-        const missingProviderPath = path.join(pluginsDir, 'providers', 'test-openai-missing-rt.json');
+        const rtProvidersDir = path.join(pluginsDir, 'realtime-providers');
+        fs.mkdirSync(rtProvidersDir, { recursive: true });
         fs.writeFileSync(
-          missingProviderPath,
-          JSON.stringify({
-            id: 'test-openai-missing-rt',
-            compat: 'openai',
-            endpoint: provider.endpoint,
-            realtime: {
-              compat: 'rt-missing',
+          path.join(rtProvidersDir, 'test-rt.json'),
+          JSON.stringify(
+            {
+              id: 'test-rt',
+              compat: 'rt-validate-ok',
               endpoint: { urlTemplate: 'ws://localhost/realtime', headers: {} }
-            }
-          }),
+            },
+            null,
+            2
+          ),
           'utf-8'
         );
 
-        const registry2 = new PluginRegistry(pluginsDir);
-        await expect(registry2.getProvider('test-openai-missing-rt')).resolves.toBeDefined();
-        await expect(registry2.getRealtimeCompat('rt-missing')).rejects.toThrow(ManifestError);
-        await expect(registry2.validateAll()).rejects.toThrow(ManifestError);
+        const registry = new PluginRegistry(pluginsDir);
+        // Ensure we exercise strict loading path for realtime provider manifests.
+        await expect(registry.validateAll()).resolves.toBeUndefined();
+
+        const rt = await registry.getRealtimeProvider('test-rt');
+        expect(rt.id).toBe('test-rt');
+        expect(rt.compat).toBe('rt-validate-ok');
+      });
+    });
+
+    test('validateAll fails when a realtime provider references a missing realtime compat', async () => {
+      await withTempCwd('registry-realtime-providers-missing-compat', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const rtProvidersDir = path.join(pluginsDir, 'realtime-providers');
+        fs.mkdirSync(rtProvidersDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(rtProvidersDir, 'test-rt-missing.json'),
+          JSON.stringify(
+            {
+              id: 'test-rt-missing',
+              compat: 'rt-missing',
+              endpoint: { urlTemplate: 'ws://localhost/realtime', headers: {} }
+            },
+            null,
+            2
+          ),
+          'utf-8'
+        );
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.getRealtimeProvider('test-rt-missing')).resolves.toBeDefined();
+        await expect(registry.validateAll()).rejects.toThrow(ManifestError);
+      });
+    });
+
+    test('non-strict loading skips invalid realtime provider manifests with a warning', async () => {
+      await withTempCwd('registry-realtime-providers-invalid-json', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const rtProvidersDir = path.join(pluginsDir, 'realtime-providers');
+        fs.mkdirSync(rtProvidersDir, { recursive: true });
+        fs.writeFileSync(path.join(rtProvidersDir, 'invalid.json'), '{ invalid json', 'utf-8');
+
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          const registry = new PluginRegistry(pluginsDir);
+          await expect(registry.getRealtimeProvider('nonexistent')).rejects.toThrow(ManifestError);
+          expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Skipping realtime provider manifest'));
+        } finally {
+          warnSpy.mockRestore();
+        }
+      });
+    });
+
+    test('throws ManifestError for unknown realtime provider', async () => {
+      await withTempCwd('registry-realtime-providers-missing', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.getRealtimeProvider('nonexistent')).rejects.toThrow(ManifestError);
       });
     });
   });

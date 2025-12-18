@@ -61,7 +61,7 @@ The spec is intentionally provider-agnostic. Not all providers emit all events; 
 
 Key fields:
 
-- `provider` / `model`: provider id from `plugins/providers/*.json` and an optional model override.
+- `provider` / `model`: realtime provider id from `plugins/realtime-providers/*.json` and a provider-specific model string.
 - `transport`: transport selection (default `ws`). `type: 'webrtc'` enables WebRTC when supported by the selected provider compat.
 - `webrtc`: WebRTC-only options:
   - `clientSecret`: short-lived client credential used for SDP exchange (required for `transport.type: 'webrtc'`).

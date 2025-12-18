@@ -11,8 +11,7 @@ export function createOpenAIRealtimeWsCompatSession(
 
   const url = resolveOpenAIWsUrl({ provider, spec });
 
-  const headers = provider.realtime?.endpoint?.headers ?? {};
+  const headers = provider.endpoint?.headers ?? {};
   const transport = createWsTransport({ url, headers });
   return createOpenAIRealtimeCompatSessionWithTransport(options, transport);
 }
-

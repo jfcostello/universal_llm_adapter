@@ -17,7 +17,7 @@ export function createOpenAIRealtimeWebrtcCompatSession(
   }
 
   const url = resolveOpenAIWebrtcSdpUrl({ provider, spec });
-  const headers = provider.realtime?.webrtc?.endpoint?.headers ?? {};
+  const headers = provider.webrtc?.endpoint?.headers ?? {};
 
   const dataChannelLabel = spec.webrtc?.dataChannelLabel ?? DEFAULT_DATA_CHANNEL_LABEL;
   const { transport } = createWebrtcTransport({
@@ -31,4 +31,3 @@ export function createOpenAIRealtimeWebrtcCompatSession(
 
   return createOpenAIRealtimeCompatSessionWithTransport(options, transport);
 }
-

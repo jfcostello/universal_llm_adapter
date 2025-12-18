@@ -47,9 +47,8 @@ describe('integration/realtime-compat/gemini compat class', () => {
       const session = compat.createSession({
         provider: {
           id: 'google',
-          compat: 'google',
-          endpoint: { urlTemplate: 'SDK_BASED_NOT_USED', method: 'POST', headers: {} },
-          realtime: { compat: 'gemini', endpoint: { urlTemplate: server.urlTemplate, headers: {} } }
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         },
         spec: { provider: 'google', model: 'm' }
       });

@@ -40,12 +40,8 @@ describe('plugins/realtime-compat/openai — client secret minting', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: {
-            compat: 'openai',
-            endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
-            webrtc: { endpoint: { urlTemplate: 'https://sdp?model={model}' } }
-          }
+          endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
+          webrtc: { endpoint: { urlTemplate: 'https://sdp?model={model}' } }
         },
         spec: { provider: 'openai', model: 'm' }
       })
@@ -79,16 +75,12 @@ describe('plugins/realtime-compat/openai — client secret minting', () => {
       provider: {
         id: 'openai',
         compat: 'openai',
-        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-        realtime: {
-          compat: 'openai',
-          endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
-          webrtc: {
-            endpoint: { urlTemplate: 'https://sdp?model={model}' },
-            clientSecretEndpoint: {
-              urlTemplate: 'https://client-secrets.test/realtime/client_secrets',
-              headers: { Authorization: 'Bearer sk' }
-            }
+        endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
+        webrtc: {
+          endpoint: { urlTemplate: 'https://sdp?model={model}' },
+          clientSecretEndpoint: {
+            urlTemplate: 'https://client-secrets.test/realtime/client_secrets',
+            headers: { Authorization: 'Bearer sk' }
           }
         }
       },
@@ -114,14 +106,10 @@ describe('plugins/realtime-compat/openai — client secret minting', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: {
-            compat: 'openai',
-            endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
-            webrtc: {
-              endpoint: { urlTemplate: 'https://sdp?model={model}' },
-              clientSecretEndpoint: { urlTemplate: 'https://client-secrets.test/realtime/client_secrets', headers: { Authorization: 'Bearer sk' } }
-            }
+          endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
+          webrtc: {
+            endpoint: { urlTemplate: 'https://sdp?model={model}' },
+            clientSecretEndpoint: { urlTemplate: 'https://client-secrets.test/realtime/client_secrets', headers: { Authorization: 'Bearer sk' } }
           }
         },
         spec: { provider: 'openai', model: 'm' }
@@ -146,14 +134,10 @@ describe('plugins/realtime-compat/openai — client secret minting', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: {
-            compat: 'openai',
-            endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
-            webrtc: {
-              endpoint: { urlTemplate: 'https://sdp?model={model}' },
-              clientSecretEndpoint: { urlTemplate: 'https://client-secrets.test/realtime/client_secrets', headers: { Authorization: 'Bearer sk' } }
-            }
+          endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
+          webrtc: {
+            endpoint: { urlTemplate: 'https://sdp?model={model}' },
+            clientSecretEndpoint: { urlTemplate: 'https://client-secrets.test/realtime/client_secrets', headers: { Authorization: 'Bearer sk' } }
           }
         },
         spec: { provider: 'openai', model: 'm' }
@@ -176,14 +160,10 @@ describe('plugins/realtime-compat/openai — client secret minting', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: {
-            compat: 'openai',
-            endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
-            webrtc: {
-              endpoint: { urlTemplate: 'https://sdp?model={model}' },
-              clientSecretEndpoint: { urlTemplate: 'https://client-secrets.test/realtime/client_secrets', headers: { Authorization: 'Bearer sk' } }
-            }
+          endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
+          webrtc: {
+            endpoint: { urlTemplate: 'https://sdp?model={model}' },
+            clientSecretEndpoint: { urlTemplate: 'https://client-secrets.test/realtime/client_secrets', headers: { Authorization: 'Bearer sk' } }
           }
         },
         spec: { provider: 'openai', model: 'm' }
@@ -211,16 +191,12 @@ describe('plugins/realtime-compat/openai — client secret minting', () => {
       provider: {
         id: 'openai',
         compat: 'openai',
-        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-        realtime: {
-          compat: 'openai',
-          endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
-          webrtc: {
-            endpoint: { urlTemplate: 'https://sdp?model={model}' },
-            clientSecretEndpoint: { urlTemplate: 'https://client-secrets.test/realtime/client_secrets' }
-          },
-          metadata: { defaultModel: 'dm' }
-        }
+        endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
+        webrtc: {
+          endpoint: { urlTemplate: 'https://sdp?model={model}' },
+          clientSecretEndpoint: { urlTemplate: 'https://client-secrets.test/realtime/client_secrets' }
+        },
+        metadata: { defaultModel: 'dm' }
       },
       spec: { provider: 'openai', systemPrompt: 'hello' },
       expiresAfterSeconds: 60
@@ -244,14 +220,10 @@ describe('plugins/realtime-compat/openai — client secret minting', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: {
-            compat: 'openai',
-            endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
-            webrtc: {
-              endpoint: { urlTemplate: 'https://sdp?model={model}' },
-              clientSecretEndpoint: { urlTemplate: 'https://client-secrets.test/realtime/client_secrets' }
-            }
+          endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
+          webrtc: {
+            endpoint: { urlTemplate: 'https://sdp?model={model}' },
+            clientSecretEndpoint: { urlTemplate: 'https://client-secrets.test/realtime/client_secrets' }
           }
         },
         spec: { provider: 'openai' }
@@ -276,14 +248,10 @@ describe('plugins/realtime-compat/openai — client secret minting', () => {
       provider: {
         id: 'openai',
         compat: 'openai',
-        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-        realtime: {
-          compat: 'openai',
-          endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
-          webrtc: {
-            endpoint: { urlTemplate: 'https://sdp?model={model}' },
-            clientSecretEndpoint: { urlTemplate: 'https://client-secrets.test/realtime/client_secrets?m={model}', headers: { Authorization: 'Bearer sk' } }
-          }
+        endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
+        webrtc: {
+          endpoint: { urlTemplate: 'https://sdp?model={model}' },
+          clientSecretEndpoint: { urlTemplate: 'https://client-secrets.test/realtime/client_secrets?m={model}', headers: { Authorization: 'Bearer sk' } }
         }
       },
       spec: { provider: 'openai', model: 'm' }
@@ -307,17 +275,13 @@ describe('plugins/realtime-compat/openai — client secret minting', () => {
       provider: {
         id: 'openai',
         compat: 'openai',
-        endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-        realtime: {
-          compat: 'openai',
-          endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
-          webrtc: {
-            endpoint: { urlTemplate: 'https://sdp?model={model}' },
-            clientSecretEndpoint: {
-              urlTemplate: 'https://client-secrets.test/realtime/client_secrets',
-              query: { m: '{model}' },
-              headers: { Authorization: 'Bearer sk' }
-            }
+        endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
+        webrtc: {
+          endpoint: { urlTemplate: 'https://sdp?model={model}' },
+          clientSecretEndpoint: {
+            urlTemplate: 'https://client-secrets.test/realtime/client_secrets',
+            query: { m: '{model}' },
+            headers: { Authorization: 'Bearer sk' }
           }
         }
       },
@@ -333,14 +297,10 @@ describe('plugins/realtime-compat/openai — client secret minting', () => {
         provider: {
           id: 'openai',
           compat: 'openai',
-          endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} },
-          realtime: {
-            compat: 'openai',
-            endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
-            webrtc: {
-              endpoint: { urlTemplate: 'https://sdp?model={model}' },
-              clientSecretEndpoint: { urlTemplate: 'https://client-secrets.test/realtime/client_secrets?m={model}', headers: { Authorization: 'Bearer sk' } }
-            }
+          endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
+          webrtc: {
+            endpoint: { urlTemplate: 'https://sdp?model={model}' },
+            clientSecretEndpoint: { urlTemplate: 'https://client-secrets.test/realtime/client_secrets?m={model}', headers: { Authorization: 'Bearer sk' } }
           }
         },
         spec: { provider: 'openai' }

@@ -1,37 +1,37 @@
 import { base64ToBytes, bytesToBase64 } from '@/modules/audio/index.ts';
-import { convertProviderAudioToSessionOutput, convertSessionAudioToProviderPcm16_16k } from '@/plugins/realtime-compat/gemini/internal/audio.ts';
+import { convertProviderAudioToSessionOutput, convertSessionAudioToProviderPcm16_24k } from '@/plugins/realtime-compat/gemini/internal/audio.ts';
 
 describe('realtime-compat/gemini — audio', () => {
-  test('convertSessionAudioToProviderPcm16_16k converts pcm16 to pcm16@16k mono', () => {
+  test('convertSessionAudioToProviderPcm16_24k converts pcm16 to pcm16@24k mono', () => {
     const pcm24kBytes = new Uint8Array([0x00, 0x00, 0xe8, 0x03]); // 2 samples
-    const out = convertSessionAudioToProviderPcm16_16k({
+    const out = convertSessionAudioToProviderPcm16_24k({
       format: 'pcm16',
       sampleRateHz: 24000,
       channels: 1,
       dataBase64: bytesToBase64(pcm24kBytes)
     });
 
-    expect(out.mimeType).toBe('audio/pcm;rate=16000');
-    expect(base64ToBytes(out.audioBase64).length).toBe(2);
+    expect(out.mimeType).toBe('audio/pcm;rate=24000');
+    expect(base64ToBytes(out.audioBase64).length).toBe(4);
   });
 
-  test('convertSessionAudioToProviderPcm16_16k converts g711_ulaw@8k to pcm16@16k', () => {
+  test('convertSessionAudioToProviderPcm16_24k converts g711_ulaw@8k to pcm16@24k', () => {
     const ulaw8kBytes = new Uint8Array([0xff, 0x7f]); // 2 samples
-    const out = convertSessionAudioToProviderPcm16_16k({
+    const out = convertSessionAudioToProviderPcm16_24k({
       format: 'g711_ulaw',
       sampleRateHz: 8000,
       channels: 1,
       dataBase64: bytesToBase64(ulaw8kBytes)
     });
 
-    expect(out.mimeType).toBe('audio/pcm;rate=16000');
-    // 2 ulaw samples @8k => ~4 pcm16 samples @16k => 8 bytes
-    expect(base64ToBytes(out.audioBase64).length).toBe(8);
+    expect(out.mimeType).toBe('audio/pcm;rate=24000');
+    // 2 ulaw samples @8k => ~6 pcm16 samples @24k => 12 bytes
+    expect(base64ToBytes(out.audioBase64).length).toBe(12);
   });
 
-  test('convertSessionAudioToProviderPcm16_16k rejects non-mono input', () => {
+  test('convertSessionAudioToProviderPcm16_24k rejects non-mono input', () => {
     expect(() =>
-      convertSessionAudioToProviderPcm16_16k({
+      convertSessionAudioToProviderPcm16_24k({
         format: 'pcm16',
         sampleRateHz: 24000,
         channels: 2,
@@ -40,9 +40,9 @@ describe('realtime-compat/gemini — audio', () => {
     ).toThrow('channels=1');
   });
 
-  test('convertSessionAudioToProviderPcm16_16k rejects unsupported input formats', () => {
+  test('convertSessionAudioToProviderPcm16_24k rejects unsupported input formats', () => {
     expect(() =>
-      convertSessionAudioToProviderPcm16_16k({
+      convertSessionAudioToProviderPcm16_24k({
         format: 'g711_alaw' as any,
         sampleRateHz: 8000,
         channels: 1,

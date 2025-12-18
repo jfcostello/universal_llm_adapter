@@ -1,5 +1,5 @@
 import type { RealtimeAudioFrame, RealtimeSessionSpec, UnifiedTool } from '../../../../modules/kernel/index.js';
-import { serializeToolsForSDK } from '../../../modules/google-tooling/index.js';
+import { serializeToolsForLiveSDK } from '../../../modules/google-tooling/index.js';
 
 type SessionAudioConfig = {
   input: Omit<RealtimeAudioFrame, 'dataBase64' | 'timestampMs'>;
@@ -38,7 +38,7 @@ export function buildGeminiSetupMessage(options: {
   }
 
   if (options.tools && options.tools.length > 0) {
-    setup.tools = serializeToolsForSDK(options.tools);
+    setup.tools = serializeToolsForLiveSDK(options.tools);
   }
 
   const mode = options.spec.turnDetection?.mode ?? 'manual_commit';
@@ -83,19 +83,27 @@ export function buildGeminiInterruptMessage(): any {
   return buildGeminiClientContentMessage({ turns: [], turnComplete: false });
 }
 
-export function buildGeminiRealtimeAudioMessage(options: { audioBase64: string; mimeType: string; includeActivityStart?: boolean }): any {
-  const realtimeInput: any = {
+export function buildGeminiActivityStartMessage(): any {
+  return { realtimeInput: { activityStart: {} } };
+}
+
+export function buildGeminiRealtimeAudioMessage(options: { audioBase64: string; mimeType: string }): any {
+  const realtimeInput = {
     audio: {
       mimeType: options.mimeType,
       data: String(options.audioBase64 ?? '')
     }
   };
 
-  if (options.includeActivityStart) {
-    realtimeInput.activityStart = {};
-  }
-
   return { realtimeInput };
+}
+
+export function buildGeminiRealtimeTextMessage(options: { text: string }): any {
+  return {
+    realtimeInput: {
+      text: String(options.text ?? '')
+    }
+  };
 }
 
 export function buildGeminiActivityEndMessage(): any {

@@ -4,7 +4,6 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
 import { parseLaunchConfig, buildJestArgs } from './launcher/index.js';
 import { maxWorkersDefault } from './config.ts';
 
@@ -178,6 +177,10 @@ async function main() {
     ? (process.env.LLM_TEST_REALTIME_API_KEY ?? generateTestApiKey())
     : undefined;
 
+  // Live suites invoke the built CLI entrypoint under `dist/` (and server mode runs `dist/bin/cli.js`),
+  // so ensure `dist/` is up to date for *all* transports (cli/server/both) for deterministic results.
+  await buildDistOnce();
+
   const runJest = async (extraEnv: NodeJS.ProcessEnv): Promise<number> => {
     return spawnAndWait(process.execPath, [...nodeArgs, ...jestArgs], {
       cwd: rootDir,
@@ -191,10 +194,6 @@ async function main() {
     process.exitCode = await runJest({ LLM_LIVE_TRANSPORT: 'cli' });
     return;
   }
-
-  // Server-based transports require dist/ for running the server outside Jest.
-  dotenv.config({ path: path.join(rootDir, '.env') });
-  await buildDistOnce();
 
   const commonJestEnv: NodeJS.ProcessEnv = {
     LLM_SKIP_TS_BUILD: '1',

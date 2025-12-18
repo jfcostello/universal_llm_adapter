@@ -6,6 +6,7 @@ import { loadJsonFile } from './config.js';
 import { PACKAGE_ROOT } from './paths.js';
 import {
   ProviderManifest,
+  RealtimeProviderManifest,
   UnifiedTool,
   MCPServerConfig,
   VectorStoreConfig,
@@ -23,6 +24,7 @@ const distRoot = PACKAGE_ROOT;
 export class PluginRegistry {
   private rootPath: string;
   private providers = new Map<string, ProviderManifest>();
+  private realtimeProviders = new Map<string, RealtimeProviderManifest>();
   private tools = new Map<string, UnifiedTool>();
   private mcpServers = new Map<string, MCPServerConfig>();
   private vectorStores = new Map<string, VectorStoreConfig>();
@@ -35,6 +37,7 @@ export class PluginRegistry {
 
   // Lazy loading flags
   private providersLoaded = false;
+  private realtimeProvidersLoaded = false;
   private toolsLoaded = false;
   private mcpServersLoaded = false;
   private vectorStoresLoaded = false;
@@ -251,6 +254,32 @@ export class PluginRegistry {
     this.providersLoaded = true;
   }
 
+  private async loadRealtimeProviders(): Promise<void> {
+    return this.loadRealtimeProvidersInternal();
+  }
+
+  private async loadRealtimeProvidersInternal(options: { strict?: boolean } = {}): Promise<void> {
+    if (this.realtimeProvidersLoaded) return;
+
+    const files = glob.sync('realtime-providers/*.json', { cwd: this.rootPath });
+    for (const file of files) {
+      if (options.strict) {
+        const manifest = loadJsonFile(path.join(this.rootPath, file)) as RealtimeProviderManifest;
+        this.realtimeProviders.set(manifest.id, manifest);
+        continue;
+      }
+
+      try {
+        const manifest = loadJsonFile(path.join(this.rootPath, file)) as RealtimeProviderManifest;
+        this.realtimeProviders.set(manifest.id, manifest);
+      } catch (error: any) {
+        console.warn(`Skipping realtime provider manifest ${file}: ${error.message}`);
+      }
+    }
+
+    this.realtimeProvidersLoaded = true;
+  }
+
   private async loadTools(): Promise<void> {
     return this.loadToolsInternal();
   }
@@ -398,6 +427,7 @@ export class PluginRegistry {
    */
   async validateAll(): Promise<void> {
     await this.loadProvidersInternal({ strict: true });
+    await this.loadRealtimeProvidersInternal({ strict: true });
     await this.loadToolsInternal({ strict: true });
     await this.loadMCPServersInternal({ strict: true });
     await this.loadVectorStoresInternal({ strict: true });
@@ -407,9 +437,10 @@ export class PluginRegistry {
     // Validate that referenced plugin code modules exist and can be imported.
     for (const provider of this.providers.values()) {
       await this.ensureCompatModuleLoaded(provider.compat);
-      if (provider.realtime?.compat) {
-        await this.ensureRealtimeCompatLoaded(provider.realtime.compat);
-      }
+    }
+
+    for (const provider of this.realtimeProviders.values()) {
+      await this.ensureRealtimeCompatLoaded(provider.compat);
     }
 
     for (const store of this.vectorStores.values()) {
@@ -426,6 +457,15 @@ export class PluginRegistry {
     const provider = this.providers.get(id);
     if (!provider) {
       throw new ManifestError(`Unknown provider '${id}'`);
+    }
+    return provider;
+  }
+
+  async getRealtimeProvider(id: string): Promise<RealtimeProviderManifest> {
+    await this.loadRealtimeProviders();
+    const provider = this.realtimeProviders.get(id);
+    if (!provider) {
+      throw new ManifestError(`Unknown realtime provider '${id}'`);
     }
     return provider;
   }
