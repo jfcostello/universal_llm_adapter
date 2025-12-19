@@ -468,6 +468,18 @@ describe('managers/llm-manager', () => {
     expect((manager as any).stripReasoning({ foo: 'bar' })).toEqual({ foo: 'bar' });
   });
 
+  test('isReasoningExplicitlyDisabled detects enabled=false or exclude=true', () => {
+    const compat = createCompat();
+    const registry = { getCompatModule: jest.fn(() => compat) } as any;
+    const manager = new LLMManager(registry);
+
+    expect((manager as any).isReasoningExplicitlyDisabled({})).toBe(false);
+    expect((manager as any).isReasoningExplicitlyDisabled({ reasoning: null })).toBe(false);
+    expect((manager as any).isReasoningExplicitlyDisabled({ reasoning: { effort: 'low' } })).toBe(false);
+    expect((manager as any).isReasoningExplicitlyDisabled({ reasoning: { enabled: false } })).toBe(true);
+    expect((manager as any).isReasoningExplicitlyDisabled({ reasoning: { exclude: true } })).toBe(true);
+  });
+
   test('isUnsupportedReasoningParamError handles missing/partial error shapes', () => {
     const compat = createCompat();
     const registry = { getCompatModule: jest.fn(() => compat) } as any;
@@ -487,6 +499,25 @@ describe('managers/llm-manager', () => {
           code: 'unsupported_parameter',
           message: "Unsupported parameter: 'reasoning.effort' is not supported with this model."
         }
+      })
+    ).toBe(true);
+  });
+
+  test('isReasoningDisabledNotAllowedError detects "reasoning cannot be disabled" message', () => {
+    const compat = createCompat();
+    const registry = { getCompatModule: jest.fn(() => compat) } as any;
+    const manager = new LLMManager(registry);
+
+    expect((manager as any).isReasoningDisabledNotAllowedError({})).toBe(false);
+    expect((manager as any).isReasoningDisabledNotAllowedError({ error: {} })).toBe(false);
+    expect(
+      (manager as any).isReasoningDisabledNotAllowedError({
+        error: { message: 'Reasoning is mandatory for this endpoint and cannot be disabled.' }
+      })
+    ).toBe(true);
+    expect(
+      (manager as any).isReasoningDisabledNotAllowedError({
+        error: { message: 'Reasoning cannot be DISABLED.' }
       })
     ).toBe(true);
   });
@@ -545,6 +576,66 @@ describe('managers/llm-manager', () => {
       const secondPayload = httpClient.request.mock.calls[1][0].data;
       expect(firstPayload.reasoning).toBeDefined();
       expect(secondPayload.reasoning).toBeUndefined();
+    } finally {
+      if (originalLive !== undefined) {
+        process.env.LLM_LIVE = originalLive;
+      } else {
+        delete process.env.LLM_LIVE;
+      }
+    }
+  });
+
+  test('callProvider retries once without reasoning when explicit disable is rejected', async () => {
+    const originalLive = process.env.LLM_LIVE;
+    process.env.LLM_LIVE = '1';
+    try {
+    const compat = {
+      buildPayload: jest.fn(() => ({ metadata: {}, reasoning: { enabled: false } })),
+      parseResponse: jest.fn(() => ({ role: 'assistant', content: [] })),
+      applyProviderExtensions: jest.fn((payload: any) => payload)
+    };
+
+    const registry = { getCompatModule: jest.fn(() => compat) } as any;
+    const manager = new LLMManager(registry);
+
+    const httpClient = {
+      request: jest
+        .fn()
+        .mockResolvedValueOnce({
+          status: 400,
+          statusText: 'Bad Request',
+          headers: {},
+          data: {
+            error: {
+              message: 'Reasoning is mandatory for this endpoint and cannot be disabled.',
+              code: 400
+            }
+          }
+        })
+        .mockResolvedValueOnce({
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          data: { choices: [], usage: {} }
+        })
+    };
+    (manager as any).httpClient = httpClient;
+
+    const logger = {
+      warning: jest.fn(),
+      info: jest.fn(),
+      error: jest.fn(),
+      logLLMRequest: jest.fn(),
+      logLLMResponse: jest.fn()
+    } as any;
+
+    await manager.callProvider(provider, 'model-x', {} as any, [], [], undefined, {}, logger);
+
+    expect(httpClient.request).toHaveBeenCalledTimes(2);
+    const firstPayload = httpClient.request.mock.calls[0][0].data;
+    const secondPayload = httpClient.request.mock.calls[1][0].data;
+    expect(firstPayload.reasoning).toBeDefined();
+    expect(secondPayload.reasoning).toBeUndefined();
     } finally {
       if (originalLive !== undefined) {
         process.env.LLM_LIVE = originalLive;

@@ -12,11 +12,16 @@
  */
 
 import { runCoordinator, runEmbeddingCoordinator, runVectorCoordinator } from '@tests/helpers/node-cli.ts';
+import { requireEnv } from '@tests/helpers/require-env.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
-const required = ['QDRANT_CLOUD_URL', 'QDRANT_API_KEY', 'OPENROUTER_API_KEY'];
-const missing = required.filter(key => !process.env[key]);
-const describeLive = runLive && missing.length === 0 ? describe : describe.skip;
+if (runLive) {
+  requireEnv({
+    required: ['QDRANT_CLOUD_URL', 'QDRANT_API_KEY', 'OPENROUTER_API_KEY'],
+    label: '18-vector-auto-inject'
+  });
+}
+const describeLive = runLive ? describe : describe.skip;
 
 const pluginsPath = './plugins';
 const testCollection = `test-inject-${Date.now()}`;
@@ -55,11 +60,6 @@ describeLive('18-vector-auto-inject (transported)', () => {
   let dimensions = 0;
 
   beforeAll(async () => {
-    if (missing.length > 0) {
-      console.warn(`Missing environment variables: ${missing.join(', ')}`);
-      return;
-    }
-
     const dimsRes = await runEmbedding({
       operation: 'dimensions',
       provider: 'openrouter-embeddings'
@@ -116,8 +116,6 @@ describeLive('18-vector-auto-inject (transported)', () => {
   }, 180000);
 
   afterAll(async () => {
-    if (missing.length > 0) return;
-
     try {
       await runVector({
         operation: 'collections',
@@ -239,4 +237,3 @@ describeLive('18-vector-auto-inject (transported)', () => {
     }, 120000);
   });
 });
-

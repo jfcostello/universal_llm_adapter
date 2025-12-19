@@ -10,10 +10,13 @@
  */
 
 import { runEmbeddingCoordinator } from '@tests/helpers/node-cli.ts';
+import { requireEnv } from '@tests/helpers/require-env.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
-const hasKey = Boolean(process.env.OPENROUTER_API_KEY);
-const describeLive = runLive && hasKey ? describe : describe.skip;
+if (runLive) {
+  requireEnv({ required: ['OPENROUTER_API_KEY'], label: '15-embeddings' });
+}
+const describeLive = runLive ? describe : describe.skip;
 
 const pluginsPath = './plugins';
 

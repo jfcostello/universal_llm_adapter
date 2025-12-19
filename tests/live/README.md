@@ -59,7 +59,7 @@ Notes:
 | `npm test` | Run unit tests only with coverage |
 | `npm run test:all` | Run unit + live tests with combined summary |
 | `npm run test:live` | Run all live tests |
-| `npm run test:live:realtime` | Run realtime live tests only (requires `LLM_REALTIME_PROVIDER`) |
+| `npm run test:live:realtime` | Run realtime live tests only (filter with `LLM_TEST_PROVIDERS=openai|google`) |
 | `npm run test:live:openrouter` | Run live tests with OpenRouter |
 | `npm run test:live:anthropic` | Run live tests with Anthropic |
 | `npm run test:live:openai` | Run live tests with OpenAI |
@@ -67,19 +67,22 @@ Notes:
 
 ## Realtime live tests
 
-Realtime live tests validate the provider-agnostic realtime session contract (audio/text in, audio/transcripts out, tools, barge-in). These tests are skipped unless:
-- `LLM_LIVE=1`
-- `LLM_REALTIME_PROVIDER` is set to a provider id that supports realtime sessions
-- A model is provided (either `spec.model` or `LLM_REALTIME_MODEL`)
+Realtime live tests validate the provider-agnostic realtime session contract (audio/text in, audio/transcripts out, tools, barge-in). These tests only run when:
+- `LLM_LIVE=1` (set automatically by `npm run test:live:*` scripts)
+- Required provider credentials are present (the live runner hard-fails if they're missing)
 
 Examples:
 
 ```bash
-# CLI transport (default)
-LLM_LIVE=1 LLM_REALTIME_PROVIDER=... LLM_REALTIME_MODEL=... npm run test:live:realtime
+# Run both realtime providers (default)
+npm run test:live:realtime
+
+# Run a single realtime provider
+LLM_TEST_PROVIDERS=openai npm run test:live:realtime
+LLM_TEST_PROVIDERS=google npm run test:live:realtime
 
 # Enforce CLI/server parity (runs twice)
-LLM_LIVE=1 LLM_REALTIME_PROVIDER=... LLM_REALTIME_MODEL=... npm run test:live:realtime -- --transport=both
+npm run test:live:realtime -- --transport=both
 ```
 
 Server transport notes:

@@ -154,7 +154,7 @@ export function getFilteredRealtimeTestRuns(): RealtimeTestRun[] {
       `Warning: No realtime test runs matched providers: ${providerFilter}. ` +
       `Available: ${realtimeTestRuns.map(r => r.name).join(', ')}`
     );
-    return realtimeTestRuns;
+    return [];
   }
 
   return filtered;
