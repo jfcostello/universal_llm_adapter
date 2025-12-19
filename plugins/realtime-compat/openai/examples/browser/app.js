@@ -93,24 +93,71 @@ function buildResponseCancel() {
 
 async function waitForIceGatheringComplete(pc, timeoutMs = 10_000) {
   if (pc.iceGatheringState === 'complete') return;
+
+  // Wait for at least one candidate, then give a bit more time for the rest
+  let candidateCount = 0;
+  let hasSrflx = false;
+  let resolved = false;
+
   await new Promise((resolve, reject) => {
-    const start = Date.now();
-    const interval = setInterval(() => {
-      if (pc.iceGatheringState === 'complete') {
-        clearInterval(interval);
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        if (candidateCount > 0) {
+          // We have some candidates, proceed anyway
+          resolve();
+        } else {
+          reject(new Error('Timed out waiting for ICE candidates'));
+        }
+      }
+    }, timeoutMs);
+
+    let settleTimeout = null;
+
+    const trySettle = () => {
+      // Once we have a srflx candidate, wait 1.5s more then proceed
+      if (hasSrflx && !settleTimeout) {
+        settleTimeout = setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timeout);
+            resolve();
+          }
+        }, 1500);
+      }
+    };
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        candidateCount++;
+        if (event.candidate.type === 'srflx' || event.candidate.candidate?.includes('srflx')) {
+          hasSrflx = true;
+        }
+        trySettle();
+      } else {
+        // null candidate = gathering complete
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          if (settleTimeout) clearTimeout(settleTimeout);
+          resolve();
+        }
+      }
+    };
+
+    pc.onicegatheringstatechange = () => {
+      if (pc.iceGatheringState === 'complete' && !resolved) {
+        resolved = true;
+        clearTimeout(timeout);
+        if (settleTimeout) clearTimeout(settleTimeout);
         resolve();
-        return;
       }
-      if (Date.now() - start > timeoutMs) {
-        clearInterval(interval);
-        reject(new Error('Timed out waiting for ICE gathering to complete'));
-      }
-    }, 50);
+    };
   });
 }
 
 async function mintClientSecret({ adapterUrl, adapterKey, model, systemPrompt }) {
-  const res = await fetch(`${adapterUrl.replace(/\\/$/, '')}/realtime/webrtc/client-secret`, {
+  const res = await fetch(`${adapterUrl.replace(/\/$/, '')}/realtime/webrtc/client-secret`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',

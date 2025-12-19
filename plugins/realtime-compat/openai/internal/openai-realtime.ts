@@ -30,14 +30,10 @@ export default class OpenAIRealtimeCompat implements IRealtimeCompat {
       throw new Error(`Realtime session requires 'model' for provider '${options.provider.id}'`);
     }
 
-    const expiresAfterSeconds = options.expiresAfterSeconds ?? 600;
-    const body = {
-      expires_after: { anchor: 'created_at', seconds: expiresAfterSeconds },
-      session: {
-        type: 'realtime',
-        model,
-        ...(spec.systemPrompt ? { instructions: spec.systemPrompt } : {})
-      }
+    const body: Record<string, unknown> = {
+      model,
+      modalities: ['audio', 'text'],
+      ...(spec.systemPrompt ? { instructions: spec.systemPrompt } : {})
     };
 
     const res = await fetch(url, {
@@ -52,12 +48,14 @@ export default class OpenAIRealtimeCompat implements IRealtimeCompat {
     }
 
     const payload = (await res.json()) as any;
-    const value = String(payload?.value ?? '');
+    const value = String(payload?.client_secret?.value ?? '');
     if (!value) {
-      throw new Error('Realtime client secret response missing client secret value');
+      throw new Error('Realtime client secret response missing client_secret.value');
     }
 
-    const expiresAt = typeof payload?.expires_at === 'number' ? payload.expires_at : undefined;
+    const expiresAt = typeof payload?.client_secret?.expires_at === 'number'
+      ? payload.client_secret.expires_at
+      : undefined;
     return { clientSecret: value, ...(expiresAt !== undefined ? { expiresAt } : {}) };
   }
 }
