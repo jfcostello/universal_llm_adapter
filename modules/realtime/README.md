@@ -74,6 +74,8 @@ Key fields:
   - Use `session.injectContext(items)` for mid-session injection (does not auto-trigger a response).
 - `functionToolNames` / `toolChoice`: enable tool calling within the session.
 - `toolCallTracking`: bounds internal tool-call id → name tracking (default `maxEntries: 1000`).
+- `eventBuffer`: bounds normalized event buffering when the consumer is not draining `session.events()` (memory safety guard).
+  - When exceeded, the session emits an `error` (code: `event_buffer_overflow`), requests playback clear (`reason: 'error'`), and closes.
 - `audio`: negotiated session audio input/output formats.
 - `transcription`: enable user transcription (and optionally language hints).
 - `turnDetection`: `manual_commit` vs `server_vad`.

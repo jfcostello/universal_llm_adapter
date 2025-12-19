@@ -124,6 +124,16 @@ export interface RealtimeToolCallTrackingConfig {
   maxEntries?: number;
 }
 
+export interface RealtimeEventBufferConfig {
+  /**
+   * Max normalized events to buffer when the consumer is not draining `session.events()`.
+   *
+   * When exceeded, the session fails fast with an `error` (code: `event_buffer_overflow`)
+   * and closes to prevent unbounded memory growth.
+   */
+  maxEvents?: number;
+}
+
 export interface RealtimeSessionSpec {
   /** Provider id from plugins/realtime-providers/*.json */
   provider: string;
@@ -140,6 +150,7 @@ export interface RealtimeSessionSpec {
   functionToolNames?: string[];
   toolChoice?: ToolChoice;
   toolCallTracking?: RealtimeToolCallTrackingConfig;
+  eventBuffer?: RealtimeEventBufferConfig;
 
   // audio + transcription
   audio?: RealtimeSessionAudioConfig;

@@ -220,6 +220,89 @@ describe('modules/realtime/internal/realtime-session', () => {
     await session.close();
   });
 
+  test('fails fast when event buffer overflows (consumer stalls)', async () => {
+    const closed = createDeferred<void>();
+    const compatClose = jest.fn().mockImplementation(async () => closed.resolve());
+
+    const compat: RealtimeCompatSession = {
+      sendText: jest.fn(),
+      injectContext: jest.fn(),
+      sendAudio: jest.fn(),
+      commit: jest.fn(),
+      interrupt: jest.fn(),
+      sendToolResult: jest.fn(),
+      close: compatClose,
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+        for (let i = 0; i < 10; i++) {
+          yield { type: 'user_transcript.delta', textDelta: `d${i}` };
+        }
+      }
+    };
+
+    const session = createRealtimeSessionController({
+      registry: { getProcessRoutes: jest.fn().mockResolvedValue([]) },
+      provider: { id: 'p' } as any,
+      spec: {
+        provider: 'p',
+        eventBuffer: { maxEvents: 2 },
+        timeout: { maxDurationMs: 0, idleTimeoutMs: 0, onTimeout: 'close' }
+      },
+      compatSession: compat
+    });
+
+    // Do not drain events until after overflow triggers (simulates a stalled consumer).
+    await closed.promise;
+
+    const events = await collectAll(session.events());
+    expect(events[0]).toEqual({
+      type: 'error',
+      message: 'Realtime event buffer overflow: consumer is not draining events()',
+      code: 'event_buffer_overflow'
+    });
+    expect(events[1]).toMatchObject({ type: 'playback.clear_requested', reason: 'error' });
+    expect(typeof (events[1] as any).atMs).toBe('number');
+    expect(events[2]).toEqual({ type: 'closed', reason: 'error' });
+    expect(compatClose).toHaveBeenCalled();
+  });
+
+  test('eventBuffer.maxEvents does not affect normal sessions within limit', async () => {
+    const compatClose = jest.fn();
+    const compat: RealtimeCompatSession = {
+      sendText: jest.fn(),
+      injectContext: jest.fn(),
+      sendAudio: jest.fn(),
+      commit: jest.fn(),
+      interrupt: jest.fn(),
+      sendToolResult: jest.fn(),
+      close: compatClose,
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+        yield { type: 'user_transcript.delta', textDelta: 'hi' };
+        yield { type: 'closed', reason: 'provider_close' };
+      }
+    };
+
+    const session = createRealtimeSessionController({
+      registry: { getProcessRoutes: jest.fn().mockResolvedValue([]) },
+      provider: { id: 'p' } as any,
+      spec: {
+        provider: 'p',
+        eventBuffer: { maxEvents: 10 },
+        timeout: { maxDurationMs: 0, idleTimeoutMs: 0, onTimeout: 'close' }
+      },
+      compatSession: compat
+    });
+
+    const events = await collectAll(session.events());
+    expect(events).toEqual([
+      { type: 'ready', sessionId: 's' },
+      { type: 'user_transcript.delta', textDelta: 'hi' },
+      { type: 'closed', reason: 'provider_close' }
+    ]);
+    expect(compatClose).toHaveBeenCalled();
+  });
+
   test('enforces first event must be ready', async () => {
     const compatClose = jest.fn();
     const compat: RealtimeCompatSession = {
