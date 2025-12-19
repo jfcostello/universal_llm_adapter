@@ -139,13 +139,9 @@ export async function attachRealtimeWsServer(options: {
     let openSeen = false;
     let closed = false;
 
-	    let idleTimer: NodeJS.Timeout | undefined;
-	    let durationTimer: NodeJS.Timeout | undefined;
-	    const audioRateLimiter = createAudioRateLimiter(options.config.maxAudioBytesPerSecond);
-
-    const touch = () => {
-      // also drives idle timeout resets
-    };
+    let idleTimer: NodeJS.Timeout | undefined;
+    let durationTimer: NodeJS.Timeout | undefined;
+    const audioRateLimiter = createAudioRateLimiter(options.config.maxAudioBytesPerSecond);
 
     const scheduleIdleCheck = () => {
       if (idleTimer) clearTimeout(idleTimer);
@@ -158,10 +154,9 @@ export async function attachRealtimeWsServer(options: {
       }, options.config.idleTimeoutMs);
     };
 
-	    const send = (env: RealtimeServerEnvelope) => {
-	      if (ws.readyState !== ws.OPEN) return;
-	      touch();
-	      scheduleIdleCheck();
+    const send = (env: RealtimeServerEnvelope) => {
+      if (ws.readyState !== ws.OPEN) return;
+      scheduleIdleCheck();
       ws.send(JSON.stringify(env));
     };
 
@@ -215,7 +210,6 @@ export async function attachRealtimeWsServer(options: {
       void closeAll();
     });
 
-    touch();
     scheduleIdleCheck();
     if (Number.isFinite(options.config.maxSessionDurationMs) && options.config.maxSessionDurationMs > 0) {
       durationTimer = setTimeout(() => {
@@ -225,7 +219,6 @@ export async function attachRealtimeWsServer(options: {
     }
 
     ws.on('message', async (data: any) => {
-      touch();
       scheduleIdleCheck();
 
       const buf = Buffer.from(data as any);
@@ -267,13 +260,13 @@ export async function attachRealtimeWsServer(options: {
             await session.sendText({ text: msg.text, role: msg.role });
             return;
           }
-	          case 'send_audio': {
-	            ensureOpen();
-	            const approxBytes = Math.floor((msg.frame.dataBase64.length * 3) / 4);
-	            audioRateLimiter.charge(approxBytes);
-	            await session.sendAudio(msg.frame);
-	            return;
-	          }
+          case 'send_audio': {
+            ensureOpen();
+            const approxBytes = Math.floor((msg.frame.dataBase64.length * 3) / 4);
+            audioRateLimiter.charge(approxBytes);
+            await session.sendAudio(msg.frame);
+            return;
+          }
           case 'inject_context': {
             ensureOpen();
             await session.injectContext(msg.items);
