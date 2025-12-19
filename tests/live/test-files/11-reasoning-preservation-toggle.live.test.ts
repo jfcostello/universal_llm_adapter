@@ -18,6 +18,42 @@ const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
 const TEST_FILE = '11-reasoning-preservation-toggle';
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function runCoordinatorWithRetries(options: {
+  spec: any;
+  env: NodeJS.ProcessEnv;
+  attempts?: number;
+  beforeAttempt?: () => void;
+}): Promise<Awaited<ReturnType<typeof runCoordinator>>> {
+  const attempts = Math.max(1, Math.floor(options.attempts ?? 3));
+  let last: Awaited<ReturnType<typeof runCoordinator>> | undefined;
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    options.beforeAttempt?.();
+    const result = await runCoordinator({
+      args: ['run', '--spec', JSON.stringify(options.spec), '--plugins', pluginsPath],
+      cwd: process.cwd(),
+      env: options.env
+    });
+
+    if (result.code === 0) return result;
+    last = result;
+
+    // Backoff for transient failures (network, provider hiccups, etc). Still fails if retries are exhausted.
+    await sleep(500 * attempt);
+  }
+
+  const stderr = String(last?.stderr || '');
+  const stdout = String(last?.stdout || '');
+  throw new Error(
+    `Coordinator failed after ${attempts} attempt(s) (exit ${last?.code ?? 'unknown'}).\n\n` +
+      `STDERR:\n${stderr}\n\nSTDOUT:\n${stdout}`
+  );
+}
+
 /**
  * Check if a request body contains reasoning configuration.
  * Different providers use different formats:
@@ -55,7 +91,8 @@ for (let i = 0; i < testRuns.length; i++) {
     test('Call 1 — reasoning ON: verify request payload contains reasoning config', async () => {
       const logPath = buildLogPathFor(TEST_FILE);
       fs.mkdirSync(path.dirname(logPath), { recursive: true });
-      fs.writeFileSync(logPath, '');
+      const resetLog = () => fs.writeFileSync(logPath, '');
+      resetLog();
 
       const spec = makeSpec({
         messages: [
@@ -65,15 +102,12 @@ for (let i = 0; i < testRuns.length; i++) {
         llmPriority: runCfg.llmPriority,
         settings: mergeSettings(runCfg.settings, { temperature: 0.2, maxTokens: 200, reasoning: { enabled: true, budget: 1024 } })
       });
-      const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
-
-      if (result.code !== 0) {
-        // Skip if call failed (e.g., network error)
-        console.log('Call failed, skipping test');
-        return;
-      }
-
-      expect(result.code).toBe(0);
+      const result = await runCoordinatorWithRetries({
+        spec,
+        env: withLiveEnv({ TEST_FILE }),
+        attempts: 3,
+        beforeAttempt: resetLog
+      });
 
       // CRITICAL: Verify the REQUEST payload contains reasoning configuration
       // This is the key check that was missing in the original test (issue #73)
@@ -104,14 +138,11 @@ for (let i = 0; i < testRuns.length; i++) {
         llmPriority: runCfg.llmPriority,
         settings: mergeSettings(runCfg.settings, { temperature: 0.2, maxTokens: 200, reasoning: { enabled: false } })
       });
-      const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
-
-      if (result.code !== 0) {
-        console.log('Call failed, skipping test');
-        return;
-      }
-
-      expect(result.code).toBe(0);
+      const result = await runCoordinatorWithRetries({
+        spec,
+        env: withLiveEnv({ TEST_FILE }),
+        attempts: 3
+      });
       const payload = JSON.parse(result.stdout.trim());
       // When reasoning is OFF, we accept any response (provider-dependent behavior)
       expect(payload).toBeDefined();
