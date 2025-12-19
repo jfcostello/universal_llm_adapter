@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { parseLaunchConfig, buildJestArgs } from './launcher/index.js';
 import { maxWorkersDefault } from './config.ts';
+import { getTestPathPatternsFromJestArgs, getMissingRequiredEnv } from './required-env.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -157,8 +158,43 @@ async function main() {
 
   const { nodeArgs, jestArgs } = buildJestArgs({ maxWorkers, passthrough });
 
+  dotenv.config({ path: path.join(rootDir, '.env') });
+
   const baseEnv: NodeJS.ProcessEnv = { ...process.env, LLM_LIVE: '1' };
   if (provider) baseEnv.LLM_TEST_PROVIDERS = provider;
+
+  const testPathPatterns = getTestPathPatternsFromJestArgs(jestArgs);
+
+  const selectedProviders =
+    provider && String(provider).trim() !== ''
+      ? [String(provider).trim()]
+      : (baseEnv.LLM_TEST_PROVIDERS || '')
+          .split(',')
+          .map(p => p.trim())
+          .filter(Boolean);
+
+  const patterns = testPathPatterns.join(' ');
+  const wantsAllLive = /\blive\b/i.test(patterns);
+  const wantsEmbeddings = /\bembeddings\b|15-embeddings/i.test(patterns);
+  const wantsVector = /\bvector\b|16-vector-store|17-vector-cli|18-vector-auto-inject|19-vector-search-locks/i.test(patterns);
+
+  // LLM provider API keys are only required if this run is expected to execute the LLM live suites.
+  const expectsLlmSuites = selectedProviders.length > 0 || wantsAllLive || (!wantsEmbeddings && !wantsVector);
+  const effectiveProviders = expectsLlmSuites
+    ? selectedProviders.length > 0
+      ? selectedProviders
+      : ['anthropic', 'openai-responses', 'openrouter', 'google']
+    : [];
+
+  const missingEnv = getMissingRequiredEnv({ selectedProviders: effectiveProviders, testPathPatterns, env: baseEnv });
+  if (missingEnv.length > 0) {
+    console.error(
+      `Live tests require env var(s) that are missing/empty: ${missingEnv.join(', ')}. ` +
+        `Refusing to run.`
+    );
+    process.exitCode = 1;
+    return;
+  }
 
   const runJest = async (extraEnv: NodeJS.ProcessEnv): Promise<number> => {
     return spawnAndWait(process.execPath, [...nodeArgs, ...jestArgs], {
@@ -168,17 +204,14 @@ async function main() {
     });
   };
 
-  // Default behavior remains CLI-driven live tests
-  if (transport === 'cli') {
-    process.exitCode = await runJest({ LLM_LIVE_TRANSPORT: 'cli' });
-    return;
-  }
-
-  // Server-based transports require dist/ for running the server outside Jest.
-  dotenv.config({ path: path.join(rootDir, '.env') });
+  const commonJestEnv = { LLM_SKIP_TS_BUILD: '1' };
   await buildDistOnce();
 
-  const commonJestEnv = { LLM_SKIP_TS_BUILD: '1' };
+  // Default behavior remains CLI-driven live tests
+  if (transport === 'cli') {
+    process.exitCode = await runJest({ ...commonJestEnv, LLM_LIVE_TRANSPORT: 'cli' });
+    return;
+  }
 
   if (transport === 'both') {
     const cliCode = await runJest({ ...commonJestEnv, LLM_LIVE_TRANSPORT: 'cli' });
