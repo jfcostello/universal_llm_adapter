@@ -503,10 +503,120 @@ export function createUnifiedProgram(
     stdout.write(`${JSON.stringify(env)}\n`);
   };
 
-  program
+  type RealtimeClientSecretRequest = {
+    provider: string;
+    model?: unknown;
+    systemPrompt?: unknown;
+    expiresAfterSeconds?: unknown;
+  };
+
+  const realtime = program
     .command('realtime')
     .description('Realtime session over stdin/stdout JSON protocol')
     .option('-p, --plugins <path>', 'Path to plugins directory', './plugins')
+    ;
+
+  realtime
+    .command('client-secret')
+    .description('Mint a short-lived realtime WebRTC client secret')
+    .option('-f, --file <path>', 'Path to request JSON file')
+    .option('-s, --spec <json>', 'Request as JSON string')
+    .option('-p, --plugins <path>', 'Path to plugins directory', './plugins')
+    .option('--pretty', 'Pretty print output')
+    .action(async (options) => {
+      try {
+        const { loadSpec } = await import('./spec-loader.js');
+        const { writeJsonToStdout } = await import('./stdout-writer.js');
+
+        const body = await loadSpec<RealtimeClientSecretRequest>(options);
+        const providerId = String((body as any)?.provider ?? '').trim();
+        const model = (body as any)?.model !== undefined ? String((body as any).model) : undefined;
+        const systemPrompt =
+          (body as any)?.systemPrompt !== undefined ? String((body as any).systemPrompt) : undefined;
+
+        const expiresAfterSecondsRaw = (body as any)?.expiresAfterSeconds;
+        const expiresAfterSeconds =
+          expiresAfterSecondsRaw === undefined || expiresAfterSecondsRaw === null
+            ? undefined
+            : Number(expiresAfterSecondsRaw);
+
+        const MIN_CLIENT_SECRET_EXPIRES_AFTER_SECONDS = 30;
+        const MAX_CLIENT_SECRET_EXPIRES_AFTER_SECONDS = 600;
+
+        if (!providerId) {
+          throw new Error('Missing provider');
+        }
+
+        if (expiresAfterSeconds !== undefined) {
+          if (!Number.isFinite(expiresAfterSeconds)) {
+            throw new Error('Invalid expiresAfterSeconds');
+          }
+          if (!Number.isInteger(expiresAfterSeconds)) {
+            throw new Error('expiresAfterSeconds must be an integer');
+          }
+          if (
+            expiresAfterSeconds < MIN_CLIENT_SECRET_EXPIRES_AFTER_SECONDS ||
+            expiresAfterSeconds > MAX_CLIENT_SECRET_EXPIRES_AFTER_SECONDS
+          ) {
+            throw new Error(
+              `expiresAfterSeconds must be between ${MIN_CLIENT_SECRET_EXPIRES_AFTER_SECONDS} and ${MAX_CLIENT_SECRET_EXPIRES_AFTER_SECONDS}`
+            );
+          }
+        }
+
+        const registry = await deps.createRegistry(options.plugins);
+        if (typeof (registry as any).loadAll === 'function') {
+          await (registry as any).loadAll();
+        }
+
+        const reg = registry as any;
+        if (typeof reg.getRealtimeProvider !== 'function' || typeof reg.getRealtimeCompat !== 'function') {
+          throw new Error('Registry does not support realtime client-secret minting');
+        }
+
+        const provider = await reg.getRealtimeProvider(providerId);
+        const compatKind = provider?.compat;
+        if (!compatKind) {
+          throw new Error(`Realtime client-secret minting not supported for provider '${providerId}'`);
+        }
+
+        const compat = await reg.getRealtimeCompat(compatKind);
+        if (!compat || typeof compat.mintClientSecret !== 'function') {
+          throw new Error(`Realtime client-secret minting not supported for provider '${providerId}'`);
+        }
+
+        const result = await compat.mintClientSecret({
+          provider,
+          spec: {
+            provider: providerId,
+            ...(model ? { model } : {}),
+            ...(systemPrompt ? { systemPrompt } : {}),
+            transport: { type: 'webrtc' }
+          },
+          ...(expiresAfterSeconds !== undefined ? { expiresAfterSeconds } : {})
+        });
+
+        const clientSecret = String(result?.clientSecret ?? '');
+        if (!clientSecret) {
+          throw new Error('Realtime client secret response missing client secret value');
+        }
+
+        await writeJsonToStdout(
+          {
+            clientSecret,
+            ...(result?.expiresAt !== undefined ? { expiresAt: result.expiresAt } : {})
+          },
+          { pretty: options.pretty }
+        );
+
+        deps.exit(0);
+      } catch (error: any) {
+        deps.error(JSON.stringify({ error: error?.message ?? String(error) }));
+        deps.exit(1);
+      }
+    });
+
+  realtime
     .action(async (options) => {
       const { stdin, stdout, stderr } = deps.getRealtimeStdio();
 

@@ -124,6 +124,13 @@ describe('cli/internal/unified-cli', () => {
       expect(realtimeCmd).toBeDefined();
     });
 
+    test('realtime has client-secret subcommand', () => {
+      const program = createUnifiedProgram(mockDeps);
+      const realtimeCmd = program.commands.find(c => c.name() === 'realtime');
+      const csCmd = realtimeCmd?.commands.find((c: Command) => c.name() === 'client-secret');
+      expect(csCmd).toBeDefined();
+    });
+
     test('vector has run subcommand', () => {
       const program = createUnifiedProgram(mockDeps);
       const vectorCmd = program.commands.find(c => c.name() === 'vector');
@@ -677,6 +684,329 @@ describe('cli/internal/unified-cli', () => {
       const envelopes = lines.map(l => JSON.parse(l));
       expect(envelopes.some(e => e.type === 'error' && e.error.code === 'already_open')).toBe(true);
       expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+    });
+  });
+
+  describe('realtime client-secret command', () => {
+    test('mints a client secret via realtime compat and writes JSON response', async () => {
+      const providerId = 'test-realtime-provider';
+      const compatKind = 'test-realtime-compat';
+
+      const providerManifest = { id: providerId, compat: compatKind };
+      const mintClientSecret = jest.fn().mockResolvedValue({ clientSecret: 'client_secret_value', expiresAt: 123 });
+      const registry = {
+        loadAll: jest.fn().mockResolvedValue(undefined),
+        getRealtimeProvider: jest.fn().mockResolvedValue(providerManifest),
+        getRealtimeCompat: jest.fn().mockResolvedValue({ mintClientSecret })
+      };
+
+      const written: string[] = [];
+      jest.spyOn(process.stdout, 'write').mockImplementation((chunk: any, encodingOrCb?: any, cb?: any) => {
+        written.push(chunk.toString());
+        const callback = typeof encodingOrCb === 'function' ? encodingOrCb : cb;
+        if (callback) setImmediate(callback);
+        return true;
+      });
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        createRegistry: jest.fn().mockResolvedValue(registry)
+      });
+
+      const req = {
+        provider: providerId,
+        model: 'test-model',
+        systemPrompt: 'hello',
+        expiresAfterSeconds: 60
+      };
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--plugins',
+        './test-plugins',
+        '--spec',
+        JSON.stringify(req)
+      ]);
+
+      expect(registry.getRealtimeProvider).toHaveBeenCalledWith(providerId);
+      expect(registry.getRealtimeCompat).toHaveBeenCalledWith(compatKind);
+      expect(mintClientSecret).toHaveBeenCalledWith({
+        provider: providerManifest,
+        spec: {
+          provider: providerId,
+          model: 'test-model',
+          systemPrompt: 'hello',
+          transport: { type: 'webrtc' }
+        },
+        expiresAfterSeconds: 60
+      });
+
+      const output = written.join('');
+      expect(output).toContain('"clientSecret"');
+      expect(output).toContain('client_secret_value');
+      expect(output).toContain('"expiresAt"');
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(0);
+
+      jest.spyOn(process.stdout, 'write').mockRestore();
+    });
+
+    test('supports minimal request (no model/systemPrompt/expiresAfterSeconds) and omits expiresAt in response', async () => {
+      const providerId = 'test-realtime-provider';
+      const compatKind = 'test-realtime-compat';
+
+      const providerManifest = { id: providerId, compat: compatKind };
+      const mintClientSecret = jest.fn().mockResolvedValue({ clientSecret: 'client_secret_value' });
+      const registry = {
+        loadAll: jest.fn().mockResolvedValue(undefined),
+        getRealtimeProvider: jest.fn().mockResolvedValue(providerManifest),
+        getRealtimeCompat: jest.fn().mockResolvedValue({ mintClientSecret })
+      };
+
+      const written: string[] = [];
+      jest.spyOn(process.stdout, 'write').mockImplementation((chunk: any, encodingOrCb?: any, cb?: any) => {
+        written.push(chunk.toString());
+        const callback = typeof encodingOrCb === 'function' ? encodingOrCb : cb;
+        if (callback) setImmediate(callback);
+        return true;
+      });
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        createRegistry: jest.fn().mockResolvedValue(registry)
+      });
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--plugins',
+        './test-plugins',
+        '--spec',
+        JSON.stringify({ provider: providerId })
+      ]);
+
+      expect(mintClientSecret).toHaveBeenCalledWith({
+        provider: providerManifest,
+        spec: {
+          provider: providerId,
+          transport: { type: 'webrtc' }
+        }
+      });
+
+      const output = written.join('');
+      expect(output).toContain('"clientSecret"');
+      expect(output).toContain('client_secret_value');
+      expect(output).not.toContain('"expiresAt"');
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(0);
+
+      jest.spyOn(process.stdout, 'write').mockRestore();
+    });
+
+    test('fails validation on missing provider', async () => {
+      const registry = { loadAll: jest.fn().mockResolvedValue(undefined) };
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        createRegistry: jest.fn().mockResolvedValue(registry)
+      });
+
+      await program.parseAsync(['node', 'llm-adapter', 'realtime', 'client-secret', '--spec', '{}']);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('Missing provider');
+    });
+
+    test('fails validation on invalid expiresAfterSeconds (non-finite)', async () => {
+      const program = createUnifiedProgram(mockDeps);
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--spec',
+        JSON.stringify({ provider: 'p', expiresAfterSeconds: 'Infinity' })
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('Invalid expiresAfterSeconds');
+    });
+
+    test('fails validation on non-integer expiresAfterSeconds', async () => {
+      const program = createUnifiedProgram(mockDeps);
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--spec',
+        JSON.stringify({ provider: 'p', expiresAfterSeconds: 1.5 })
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('must be an integer');
+    });
+
+    test('fails validation on out-of-range expiresAfterSeconds', async () => {
+      const registry = { loadAll: jest.fn().mockResolvedValue(undefined) };
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        createRegistry: jest.fn().mockResolvedValue(registry)
+      });
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--spec',
+        JSON.stringify({ provider: 'p', expiresAfterSeconds: 999999 })
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('expiresAfterSeconds must be between');
+    });
+
+    test('fails when registry does not support realtime client-secret minting', async () => {
+      const registry = { loadAll: jest.fn().mockResolvedValue(undefined) };
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        createRegistry: jest.fn().mockResolvedValue(registry)
+      });
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--spec',
+        JSON.stringify({ provider: 'test-realtime-provider' })
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain(
+        'Registry does not support realtime client-secret minting'
+      );
+    });
+
+    test('fails when provider is missing compat mapping', async () => {
+      const providerId = 'test-realtime-provider';
+      const registry = {
+        loadAll: jest.fn().mockResolvedValue(undefined),
+        getRealtimeProvider: jest.fn().mockResolvedValue({ id: providerId }),
+        getRealtimeCompat: jest.fn()
+      };
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        createRegistry: jest.fn().mockResolvedValue(registry)
+      });
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--spec',
+        JSON.stringify({ provider: providerId })
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('not supported for provider');
+    });
+
+    test('fails when compat does not support client-secret minting', async () => {
+      const providerId = 'test-realtime-provider';
+      const compatKind = 'test-realtime-compat';
+
+      const registry = {
+        loadAll: jest.fn().mockResolvedValue(undefined),
+        getRealtimeProvider: jest.fn().mockResolvedValue({ id: providerId, compat: compatKind }),
+        getRealtimeCompat: jest.fn().mockResolvedValue({})
+      };
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        createRegistry: jest.fn().mockResolvedValue(registry)
+      });
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--spec',
+        JSON.stringify({ provider: providerId })
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('client-secret minting not supported');
+    });
+
+    test('fails when compat response is missing clientSecret', async () => {
+      const providerId = 'test-realtime-provider';
+      const compatKind = 'test-realtime-compat';
+
+      const registry = {
+        loadAll: jest.fn().mockResolvedValue(undefined),
+        getRealtimeProvider: jest.fn().mockResolvedValue({ id: providerId, compat: compatKind }),
+        getRealtimeCompat: jest.fn().mockResolvedValue({
+          mintClientSecret: jest.fn().mockResolvedValue({ expiresAt: 123 })
+        })
+      };
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        createRegistry: jest.fn().mockResolvedValue(registry)
+      });
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--spec',
+        JSON.stringify({ provider: providerId })
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('missing client secret');
+    });
+
+    test('handles non-Error failures from compat mintClientSecret', async () => {
+      const providerId = 'test-realtime-provider';
+      const compatKind = 'test-realtime-compat';
+
+      const registry = {
+        loadAll: jest.fn().mockResolvedValue(undefined),
+        getRealtimeProvider: jest.fn().mockResolvedValue({ id: providerId, compat: compatKind }),
+        getRealtimeCompat: jest.fn().mockResolvedValue({
+          mintClientSecret: jest.fn().mockImplementation(() => {
+            throw 'boom';
+          })
+        })
+      };
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        createRegistry: jest.fn().mockResolvedValue(registry)
+      });
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--spec',
+        JSON.stringify({ provider: providerId })
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('boom');
     });
   });
 

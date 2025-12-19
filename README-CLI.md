@@ -30,6 +30,7 @@ llm-adapter <command> [options]
 | `embeddings run` | Execute embedding operation |
 | `serve` | Start HTTP/SSE server |
 | `realtime` | Realtime session over stdin/stdout JSON protocol |
+| `realtime client-secret` | Mint a short-lived realtime WebRTC client secret |
 
 ---
 
@@ -422,6 +423,47 @@ llm-adapter realtime [options]
 
 - The first emitted event must be `{ "type": "ready", ... }`.
 - The `spec` field is passed through to the realtime session factory and is treated as an opaque object by the CLI.
+
+### `llm-adapter realtime client-secret`
+
+Mint a short-lived realtime **WebRTC client secret** (for browser/mobile WebRTC session establishment).
+
+```bash
+llm-adapter realtime client-secret [options]
+```
+
+**Options:**
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-f, --file <path>` | Path to request JSON file | |
+| `-s, --spec <json>` | Request as JSON string | |
+| `-p, --plugins <path>` | Path to plugins directory | `./plugins` |
+| `--pretty` | Pretty print output | |
+
+**Request JSON (file/spec/stdin):**
+
+```json
+{
+  "provider": "…",
+  "model": "…",
+  "systemPrompt": "…",
+  "expiresAfterSeconds": 60
+}
+```
+
+Notes:
+- `provider` must be a realtime provider id from `plugins/realtime-providers/*.json`.
+- `expiresAfterSeconds` (when provided) must be an integer between `30` and `600` (inclusive), matching the server endpoint validation.
+
+**Response (stdout):**
+
+```json
+{
+  "clientSecret": "…",
+  "expiresAt": 1730000000
+}
+```
 
 ---
 
