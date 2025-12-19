@@ -154,6 +154,9 @@ async function runToolViaServer(target: ToolTarget, options: CliRunOptions): Pro
     };
   }
 
+  const serverApiKey = env.LLM_TEST_SERVER_API_KEY ?? env.LLM_TEST_REALTIME_API_KEY;
+  const serverAuthHeaderName = 'x-api-key';
+
   const { spec: rawSpec, args } = findSpecFromArgs(options);
   const command = args[0] || 'run';
 
@@ -188,11 +191,15 @@ async function runToolViaServer(target: ToolTarget, options: CliRunOptions): Pro
 
   const { spec, correlationId } = injectLiveMetadata(rawSpec, env);
 
+  const authHeaders = serverApiKey
+    ? { [serverAuthHeaderName]: String(serverApiKey) }
+    : {};
+
   try {
     if (command === 'run') {
       const res = await fetch(new URL(endpointPath, serverUrl), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify(spec)
       });
 
@@ -219,7 +226,7 @@ async function runToolViaServer(target: ToolTarget, options: CliRunOptions): Pro
     // stream
     const res = await fetch(new URL(endpointPath, serverUrl), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(spec)
     });
 

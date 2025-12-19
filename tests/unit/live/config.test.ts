@@ -150,6 +150,57 @@ describe('tests/live/config', () => {
     });
   });
 
+  describe('getFilteredRealtimeTestRuns', () => {
+    test('returns all realtime test runs when LLM_TEST_PROVIDERS is not set', async () => {
+      delete process.env.LLM_TEST_PROVIDERS;
+      const { getFilteredRealtimeTestRuns, realtimeTestRuns } = await import('@tests/live/config.ts');
+
+      const result = getFilteredRealtimeTestRuns();
+      expect(result).toEqual(realtimeTestRuns);
+      expect(result.length).toBe(realtimeTestRuns.length);
+    });
+
+    test('returns all realtime test runs when LLM_TEST_PROVIDERS is empty string', async () => {
+      process.env.LLM_TEST_PROVIDERS = '';
+      const { getFilteredRealtimeTestRuns, realtimeTestRuns } = await import('@tests/live/config.ts');
+
+      const result = getFilteredRealtimeTestRuns();
+      expect(result).toEqual(realtimeTestRuns);
+    });
+
+    test('filters to single realtime provider when specified', async () => {
+      delete process.env.LLM_TEST_PROVIDERS;
+      const { realtimeTestRuns } = await import('@tests/live/config.ts');
+      const firstProviderName = realtimeTestRuns[0].name;
+
+      jest.resetModules();
+      process.env.LLM_TEST_PROVIDERS = firstProviderName;
+      const { getFilteredRealtimeTestRuns } = await import('@tests/live/config.ts');
+
+      const result = getFilteredRealtimeTestRuns();
+      expect(result.length).toBe(1);
+      expect(result[0].name).toBe(firstProviderName);
+    });
+
+    test('returns empty array with warning when no realtime providers match', async () => {
+      process.env.LLM_TEST_PROVIDERS = 'nonexistent';
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const { getFilteredRealtimeTestRuns } = await import('@tests/live/config.ts');
+
+      const result = getFilteredRealtimeTestRuns();
+      expect(result).toEqual([]);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('No realtime test runs matched providers: nonexistent')
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Available:')
+      );
+
+      warnSpy.mockRestore();
+    });
+  });
+
   describe('filteredTestRuns export', () => {
     test('is pre-computed at module load time based on env var', async () => {
       delete process.env.LLM_TEST_PROVIDERS;
@@ -162,6 +213,21 @@ describe('tests/live/config', () => {
 
       expect(filteredTestRuns.length).toBe(1);
       expect(filteredTestRuns[0].name).toBe(firstProviderName);
+    });
+  });
+
+  describe('filteredRealtimeTestRuns export', () => {
+    test('is pre-computed at module load time based on env var', async () => {
+      delete process.env.LLM_TEST_PROVIDERS;
+      const { realtimeTestRuns } = await import('@tests/live/config.ts');
+      const firstProviderName = realtimeTestRuns[0].name;
+
+      jest.resetModules();
+      process.env.LLM_TEST_PROVIDERS = firstProviderName;
+      const { filteredRealtimeTestRuns } = await import('@tests/live/config.ts');
+
+      expect(filteredRealtimeTestRuns.length).toBe(1);
+      expect(filteredRealtimeTestRuns[0].name).toBe(firstProviderName);
     });
   });
 

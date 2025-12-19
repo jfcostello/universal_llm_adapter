@@ -7,6 +7,7 @@ Owns LLM orchestration (non-streaming + streaming), including:
 
 ## Compatibility Fallbacks
 - **Unsupported reasoning params:** if a provider returns an `unsupported_parameter` error for `reasoning`/`reasoning.*`, `LLMManager` retries once with reasoning stripped. For non-live runs, it caches the `(provider, model)` pair to avoid repeated failures.
+- **Reasoning disable rejected:** if a provider rejects an explicit attempt to disable reasoning (e.g. "reasoning cannot be disabled"), `LLMManager` retries once with reasoning stripped so the call can proceed.
 - **Rate limit detection:** treats HTTP `429` and `Retry-After` as rate limits, and scans response bodies for configured retry keywords.
 
 ## Import Rules

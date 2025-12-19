@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import DailyRotateFile from 'winston-daily-rotate-file';
 import TransportStream from 'winston-transport';
 import type { TransformableInfo } from 'logform';
-import { genericRedactHeaders } from '../../security/index.js';
+import { genericRedactHeaders, redactUrl } from '../../security/index.js';
 import { readEnvFloat, readEnvInt } from './retention.js';
 import { applyRetentionOnce } from './retention-manager.js';
 import { getDefaults } from '../../kernel/index.js';
@@ -221,7 +221,7 @@ export class BaseAdapterLogger {
   debugRaw(payload: any): void {
     const serialized = typeof payload === 'string'
       ? payload
-      : JSON.stringify(payload, this.jsonReplacer);
+      : JSON.stringify(payload, (key, value) => this.jsonReplacer(key, value));
     this.logger.debug('Raw payload', { raw: serialized });
   }
 
@@ -274,10 +274,36 @@ export class BaseAdapterLogger {
     return genericRedactHeaders(headers);
   }
 
-  protected jsonReplacer(_key: string, value: any): any {
+  protected jsonReplacer(key: string, value: any): any {
+    const lowerKey = key.toLowerCase();
+
+    if (lowerKey.endsWith('base64')) {
+      return '[REDACTED_BASE64]';
+    }
+
+    if (lowerKey.includes('token')) {
+      return '[REDACTED_TOKEN]';
+    }
+
+    if (lowerKey === 'authorization') {
+      if (typeof value === 'string') {
+        return this.redactHeaders({ Authorization: value }).Authorization;
+      }
+      return '[REDACTED_AUTH]';
+    }
+
+    if (lowerKey.includes('apikey') || lowerKey.includes('api_key') || lowerKey.includes('api-key')) {
+      return '[REDACTED_API_KEY]';
+    }
+
     if (value instanceof Buffer || value instanceof Uint8Array) {
       return Buffer.from(value).toString('base64');
     }
+
+    if (typeof value === 'string' && /^(https?|wss?):\/\//.test(value)) {
+      return redactUrl(value);
+    }
+
     return value;
   }
 

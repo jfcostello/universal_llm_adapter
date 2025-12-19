@@ -115,6 +115,24 @@ Accepts the same options and defaults as `createServer`.
 - Body: `EmbeddingCallSpec` JSON.
 - Response: `application/json` `{ type: "response", data: <EmbeddingOperationResult> }`.
 
+### `POST /realtime/webrtc/client-secret`
+
+Mints a short-lived client credential suitable for establishing a realtime WebRTC session from a browser/mobile client **without** exposing long-lived provider credentials.
+
+- Auth: **required** (server `auth.enabled` must be true).
+- Rate limiting: uses the server rate limiter when enabled.
+- Body:
+  - `provider` (string, required) — realtime provider id from `plugins/realtime-providers/*.json`
+  - `model` (string, optional)
+  - `systemPrompt` (string, optional)
+  - `expiresAfterSeconds` (integer, optional) — must be between 30 and 600 seconds when provided
+- Response: `application/json` `{ clientSecret: string, expiresAt?: number }`
+  - `expiresAt` is a unix timestamp in seconds (when provided by the provider).
+
+Security guidance:
+- Never send long-lived provider API keys to browsers/mobile clients.
+- Prefer routing all client-secret minting through your own authenticated backend, and apply additional per-user authorization and rate limits as appropriate for your application.
+
 ## Validation, Limits, Concurrency
 
 - **Content-Type**: If `Content-Type` is present and not `application/json`, the server returns `415`.
@@ -128,6 +146,28 @@ Accepts the same options and defaults as `createServer`.
   When saturated, requests enter a bounded FIFO queue up to `maxQueueSize`.
   Queue waits longer than `queueTimeoutMs` return `503` with `error.code="queue_timeout"`.
   Vector and embedding limiters can be tuned independently via the `vector*` and `embedding*` options.
+
+## Distributed / multi-instance deployments
+
+All limiters in `modules/server` are **in-memory** and **per-process**:
+
+- Concurrency + queues (`maxConcurrent*`, `maxQueueSize`) apply **per server instance**.
+- Rate limiting (`rateLimit.*`) applies **per server instance** (no shared state across replicas).
+- Realtime WebSocket limits (for `/realtime/ws`) like `maxConcurrentSessions` and audio throughput limits
+  are also **per server instance**.
+
+Implications behind a load balancer with `N` replicas:
+
+- Effective caps are roughly `perInstanceLimit × N` (assuming traffic is spread evenly).
+- For realtime WebSockets, you typically also need **sticky sessions / connection affinity** so that a
+  given client stays on one instance for the lifetime of the WS connection.
+
+Production guidance:
+
+- If you need **global** rate limits or global concurrency/session caps, enforce them at a higher layer
+  (API gateway / reverse proxy) or via a distributed limiter (e.g. Redis-backed) that all instances share.
+- In Kubernetes, configure your ingress/controller for WebSocket support and consider session affinity
+  if you rely on per-instance connection caps for realtime sessions.
 
 ## Auth & Security Controls
 

@@ -1,0 +1,11 @@
+{
+  "id": "google",
+  "compat": "gemini",
+  "endpoint": {
+    "urlTemplate": "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
+    "headers": {},
+    "query": {
+      "key": "${GEMINI_API_KEY}"
+    }
+  }
+}

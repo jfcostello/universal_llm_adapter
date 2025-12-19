@@ -29,6 +29,8 @@ llm-adapter <command> [options]
 | `vector collections` | Manage collections |
 | `embeddings run` | Execute embedding operation |
 | `serve` | Start HTTP/SSE server |
+| `realtime` | Realtime session over stdin/stdout JSON protocol |
+| `realtime client-secret` | Mint a short-lived realtime WebRTC client secret |
 
 ---
 
@@ -383,6 +385,84 @@ llm-adapter serve [options]
 
 ```bash
 llm-adapter serve --port 3000
+```
+
+---
+
+## Realtime Command
+
+### `llm-adapter realtime`
+
+Run a realtime session over a newline-delimited JSON protocol on stdin/stdout.
+
+```bash
+llm-adapter realtime [options]
+```
+
+**Options:**
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-p, --plugins <path>` | Path to plugins directory | `./plugins` |
+
+**Input messages (stdin):**
+
+- `open`: `{ "type": "open", "protocolVersion": 1, "spec": { ... } }`
+- `send_text`: `{ "type": "send_text", "text": "…", "role": "system" | "user" }`
+- `send_audio`: `{ "type": "send_audio", "frame": { "format": "…", "sampleRateHz": 24000, "channels": 1, "dataBase64": "…", "timestampMs": 0 } }`
+- `commit`: `{ "type": "commit" }`
+- `interrupt`: `{ "type": "interrupt", "reason": "…" }`
+- `close`: `{ "type": "close" }`
+
+**Output envelopes (stdout):**
+
+- Events: `{ "type": "event", "event": { ... } }`
+- Errors: `{ "type": "error", "error": { "message": "…", "code": "…" } }`
+
+**Contract notes:**
+
+- The first emitted event must be `{ "type": "ready", ... }`.
+- The `spec` field is passed through to the realtime session factory and is treated as an opaque object by the CLI.
+
+### `llm-adapter realtime client-secret`
+
+Mint a short-lived realtime **WebRTC client secret** (for browser/mobile WebRTC session establishment).
+
+```bash
+llm-adapter realtime client-secret [options]
+```
+
+**Options:**
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-f, --file <path>` | Path to request JSON file | |
+| `-s, --spec <json>` | Request as JSON string | |
+| `-p, --plugins <path>` | Path to plugins directory | `./plugins` |
+| `--pretty` | Pretty print output | |
+
+**Request JSON (file/spec/stdin):**
+
+```json
+{
+  "provider": "…",
+  "model": "…",
+  "systemPrompt": "…",
+  "expiresAfterSeconds": 60
+}
+```
+
+Notes:
+- `provider` must be a realtime provider id from `plugins/realtime-providers/*.json`.
+- `expiresAfterSeconds` (when provided) must be an integer between `30` and `600` (inclusive), matching the server endpoint validation.
+
+**Response (stdout):**
+
+```json
+{
+  "clientSecret": "…",
+  "expiresAt": 1730000000
+}
 ```
 
 ---

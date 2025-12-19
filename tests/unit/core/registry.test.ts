@@ -258,6 +258,167 @@ describe('core/registry', () => {
     }
   });
 
+  describe('realtime compats', () => {
+    test('loads realtime compat module from plugins/realtime-compat and enforces module name safety', async () => {
+      await withTempCwd('registry-realtime-compat', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const previousCwd = process.cwd();
+        const rtCompatRoot = path.join(ROOT_DIR, 'plugins', 'realtime-compat');
+        const rtCompatLocal = path.join(pluginsDir, 'realtime-compat');
+        fs.mkdirSync(rtCompatRoot, { recursive: true });
+        fs.mkdirSync(rtCompatLocal, { recursive: true });
+
+        const tempDir = path.join(rtCompatRoot, 'registry-rt-temp');
+        const tempDirIndex = path.join(tempDir, 'index.js');
+        const tempObject = path.join(rtCompatRoot, 'registry-rt-object.js');
+        const localDuplicate = path.join(rtCompatLocal, 'registry-rt-temp.js');
+
+        fs.mkdirSync(tempDir, { recursive: true });
+        fs.writeFileSync(
+          tempDirIndex,
+          'export default class RegistryRtTempDir { constructor() { this.kind = \"dir\"; } }',
+          'utf-8'
+        );
+        // Duplicate in local plugins dir; dist/plugins should win.
+        fs.writeFileSync(
+          localDuplicate,
+          'export default class RegistryRtTempDuplicate { constructor() { this.kind = \"duplicate\"; } }',
+          'utf-8'
+        );
+        fs.writeFileSync(tempObject, 'export default { kind: \"object\" };', 'utf-8');
+
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+        try {
+          process.chdir(ROOT_DIR);
+
+          const registry = new PluginRegistry(pluginsDir);
+
+          const compatA = await registry.getRealtimeCompat('registry-rt-temp');
+          const compatB = await registry.getRealtimeCompat('registry-rt-temp');
+          expect(compatA).not.toBe(compatB);
+          expect((compatA as any).kind).toBe('dir');
+
+          await expect(registry.getRealtimeCompat('definitely-missing')).rejects.toThrow(ManifestError);
+          await expect(registry.getRealtimeCompat('registry-rt-object')).rejects.toThrow(ManifestError);
+          expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('registry-rt-object'));
+
+          await expect(registry.getRealtimeCompat('../evil')).rejects.toThrow(ManifestError);
+        } finally {
+          process.chdir(previousCwd);
+          warnSpy.mockRestore();
+
+          if (fs.existsSync(tempObject)) fs.unlinkSync(tempObject);
+          if (fs.existsSync(localDuplicate)) fs.unlinkSync(localDuplicate);
+          if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+      });
+    });
+
+  });
+
+  describe('realtime providers', () => {
+    test('loads realtime provider manifests from plugins/realtime-providers and validates referenced realtime compats', async () => {
+      await withTempCwd('registry-realtime-providers', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        process.env.TEST_LLM_ENDPOINT = 'http://localhost';
+
+        const rtCompatLocal = path.join(pluginsDir, 'realtime-compat');
+        fs.mkdirSync(rtCompatLocal, { recursive: true });
+        fs.writeFileSync(
+          path.join(rtCompatLocal, 'rt-validate-ok.js'),
+          'module.exports = class RtValidateOk { constructor() { this.kind = \"ok\"; } }',
+          'utf-8'
+        );
+
+        const rtProvidersDir = path.join(pluginsDir, 'realtime-providers');
+        fs.mkdirSync(rtProvidersDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(rtProvidersDir, 'test-rt.json'),
+          JSON.stringify(
+            {
+              id: 'test-rt',
+              compat: 'rt-validate-ok',
+              endpoint: { urlTemplate: 'ws://localhost/realtime', headers: {} }
+            },
+            null,
+            2
+          ),
+          'utf-8'
+        );
+
+        const registry = new PluginRegistry(pluginsDir);
+        // Ensure we exercise strict loading path for realtime provider manifests.
+        await expect(registry.validateAll()).resolves.toBeUndefined();
+
+        const rt = await registry.getRealtimeProvider('test-rt');
+        expect(rt.id).toBe('test-rt');
+        expect(rt.compat).toBe('rt-validate-ok');
+      });
+    });
+
+    test('validateAll fails when a realtime provider references a missing realtime compat', async () => {
+      await withTempCwd('registry-realtime-providers-missing-compat', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const rtProvidersDir = path.join(pluginsDir, 'realtime-providers');
+        fs.mkdirSync(rtProvidersDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(rtProvidersDir, 'test-rt-missing.json'),
+          JSON.stringify(
+            {
+              id: 'test-rt-missing',
+              compat: 'rt-missing',
+              endpoint: { urlTemplate: 'ws://localhost/realtime', headers: {} }
+            },
+            null,
+            2
+          ),
+          'utf-8'
+        );
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.getRealtimeProvider('test-rt-missing')).resolves.toBeDefined();
+        await expect(registry.validateAll()).rejects.toThrow(ManifestError);
+      });
+    });
+
+    test('non-strict loading skips invalid realtime provider manifests with a warning', async () => {
+      await withTempCwd('registry-realtime-providers-invalid-json', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const rtProvidersDir = path.join(pluginsDir, 'realtime-providers');
+        fs.mkdirSync(rtProvidersDir, { recursive: true });
+        fs.writeFileSync(path.join(rtProvidersDir, 'invalid.json'), '{ invalid json', 'utf-8');
+
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          const registry = new PluginRegistry(pluginsDir);
+          await expect(registry.getRealtimeProvider('nonexistent')).rejects.toThrow(ManifestError);
+          expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Skipping realtime provider manifest'));
+        } finally {
+          warnSpy.mockRestore();
+        }
+      });
+    });
+
+    test('throws ManifestError for unknown realtime provider', async () => {
+      await withTempCwd('registry-realtime-providers-missing', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.getRealtimeProvider('nonexistent')).rejects.toThrow(ManifestError);
+      });
+    });
+  });
+
   describe('embedding providers and compats', () => {
     test('loads embedding provider config from plugins/embeddings', async () => {
       process.env.TEST_LLM_ENDPOINT = 'http://localhost';
@@ -637,9 +798,21 @@ describe('core/registry', () => {
         copyFixturePlugins(pluginsDir);
 
         const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.getCompatModule('.')).rejects.toThrow(ManifestError);
+        await expect(registry.getCompatModule('..')).rejects.toThrow(ManifestError);
+        await expect(registry.getCompatModule('a..b')).rejects.toThrow(ManifestError);
         await expect(registry.getCompatModule('../evil')).rejects.toThrow(ManifestError);
+        await expect(registry.getEmbeddingCompat('.')).rejects.toThrow(ManifestError);
+        await expect(registry.getEmbeddingCompat('..')).rejects.toThrow(ManifestError);
+        await expect(registry.getEmbeddingCompat('a..b')).rejects.toThrow(ManifestError);
         await expect(registry.getEmbeddingCompat('../evil')).rejects.toThrow(ManifestError);
+        await expect(registry.getVectorStoreCompat('.')).rejects.toThrow(ManifestError);
+        await expect(registry.getVectorStoreCompat('..')).rejects.toThrow(ManifestError);
+        await expect(registry.getVectorStoreCompat('a..b')).rejects.toThrow(ManifestError);
         await expect(registry.getVectorStoreCompat('../evil')).rejects.toThrow(ManifestError);
+        await expect(registry.getRealtimeCompat('.')).rejects.toThrow(ManifestError);
+        await expect(registry.getRealtimeCompat('..')).rejects.toThrow(ManifestError);
+        await expect(registry.getRealtimeCompat('a..b')).rejects.toThrow(ManifestError);
       });
     });
 

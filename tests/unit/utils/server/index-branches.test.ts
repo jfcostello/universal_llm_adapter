@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals';
+import { createRequire } from 'module';
 
 import { createServer, createServerHandlerWithDefaults } from '@/modules/server/index.ts';
 
@@ -74,6 +75,7 @@ describe('utils/server index default branches', () => {
         getDefaults: () => DEFAULTS_WITHOUT_NESTED,
         createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
         createCoordinator: jest.fn(),
+        createRealtimeSession: undefined,
         closeLogger: jest.fn().mockResolvedValue(undefined)
       }
     } as any);
@@ -110,6 +112,159 @@ describe('utils/server index default branches', () => {
 
   test('createServer uses default options when omitted', async () => {
     const running = await createServer();
+    await running.close();
+  });
+
+  test('createServer rejects realtime WS when auth is not enabled', async () => {
+    await expect(createServer({
+      realtime: { enabled: true },
+      deps: {
+        getDefaults: () => DEFAULTS_WITHOUT_NESTED,
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any)).rejects.toThrow('Realtime WS requires server auth to be enabled');
+  });
+
+  test('createServer attaches realtime WS when enabled', async () => {
+    const require = createRequire(import.meta.url);
+    const WsClient = require('ws');
+
+    let closeResolve: (() => void) | undefined;
+    const closed = new Promise<void>((resolve) => {
+      closeResolve = resolve;
+    });
+
+    const session = {
+      close: jest.fn().mockImplementation(async () => closeResolve?.()),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+        await closed;
+        yield { type: 'closed', reason: 'client_close' };
+      }
+    };
+
+    const createRealtimeSession = jest.fn().mockResolvedValue(session);
+
+    const running = await createServer({
+      realtime: { enabled: true, wsIdleTimeoutMs: 0, maxWsMessageBytes: 1024 },
+      auth: { enabled: true, apiKeys: ['test-key'] },
+      rateLimit: { enabled: true, requestsPerMinute: 60, burst: 10 },
+      deps: {
+        getDefaults: () => DEFAULTS_WITHOUT_NESTED,
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn(),
+        createRealtimeSession,
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    const url = new URL(running.url);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    url.pathname = '/realtime/ws';
+    url.search = '';
+
+    const ws = new WsClient(url.toString(), { headers: { 'x-api-key': 'test-key' } });
+    const messages: any[] = [];
+    const closePromise = new Promise<void>((resolve) => {
+      ws.on('close', () => resolve());
+    });
+
+    ws.on('message', (data: any) => {
+      try {
+        const text = typeof data === 'string' ? data : Buffer.from(data).toString('utf-8');
+        messages.push(JSON.parse(text));
+      } catch {
+        // ignore
+      }
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on('error', (err: any) => reject(err));
+      ws.on('open', () => resolve());
+    });
+
+    ws.send(JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }));
+
+    const start = Date.now();
+    let readySeen = false;
+    while (Date.now() - start < 2000) {
+      const found = messages.find(m => m?.type === 'event' && m?.event?.type === 'ready');
+      if (found) {
+        readySeen = true;
+        break;
+      }
+      await new Promise(res => setTimeout(res, 10));
+    }
+
+    expect(createRealtimeSession).toHaveBeenCalled();
+    expect(readySeen).toBe(true);
+
+    ws.send(JSON.stringify({ type: 'close' }));
+    await closePromise;
+    try { ws.close(); } catch {}
+
+    await running.close();
+  });
+
+  test('realtime WS errors when session factory is missing', async () => {
+    const require = createRequire(import.meta.url);
+    const WsClient = require('ws');
+
+    const running = await createServer({
+      realtime: { enabled: true, wsIdleTimeoutMs: 0, maxWsMessageBytes: 1024 },
+      auth: { enabled: true, apiKeys: ['test-key'] },
+      deps: {
+        getDefaults: () => DEFAULTS_WITHOUT_NESTED,
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn(),
+        createRealtimeSession: undefined,
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    const url = new URL(running.url);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    url.pathname = '/realtime/ws';
+    url.search = '';
+
+    const ws = new WsClient(url.toString(), { headers: { 'x-api-key': 'test-key' } });
+    const messages: any[] = [];
+    const closePromise = new Promise<void>((resolve) => {
+      ws.on('close', () => resolve());
+    });
+
+    ws.on('message', (data: any) => {
+      try {
+        const text = typeof data === 'string' ? data : Buffer.from(data).toString('utf-8');
+        messages.push(JSON.parse(text));
+      } catch {
+        // ignore
+      }
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on('error', (err: any) => reject(err));
+      ws.on('open', () => resolve());
+    });
+
+    ws.send(JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }));
+
+    const start = Date.now();
+    let found: any | undefined;
+    while (Date.now() - start < 2000) {
+      found = messages.find(m => m?.type === 'error');
+      if (found) {
+        break;
+      }
+      await new Promise(res => setTimeout(res, 10));
+    }
+    expect(found).toBeDefined();
+    expect(String(found.error.message)).toContain('Realtime session factory unavailable');
+
+    await closePromise;
+    try { ws.close(); } catch {}
     await running.close();
   });
 

@@ -12,11 +12,14 @@
  */
 
 import { runCoordinator, runEmbeddingCoordinator, runVectorCoordinator } from '@tests/helpers/node-cli.ts';
+import { requireEnv } from '@tests/helpers/require-env.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const required = ['QDRANT_CLOUD_URL', 'QDRANT_API_KEY', 'OPENROUTER_API_KEY'];
-const missing = required.filter(key => !process.env[key]);
-const describeLive = runLive && missing.length === 0 ? describe : describe.skip;
+if (runLive) {
+  requireEnv({ required, label: '19-vector-search-locks' });
+}
+const describeLive = runLive ? describe : describe.skip;
 
 const pluginsPath = './plugins';
 const testCollection = `test-locks-${Date.now()}`;
@@ -62,11 +65,6 @@ const expectNoVectorErrors = (response: any) => {
 
 describeLive('19-vector-search-locks (transported)', () => {
   beforeAll(async () => {
-    if (missing.length > 0) {
-      console.warn(`Missing environment variables: ${missing.join(', ')}`);
-      return;
-    }
-
     const dimsRes = await runEmbedding({
       operation: 'dimensions',
       provider: 'openrouter-embeddings'
@@ -127,8 +125,6 @@ describeLive('19-vector-search-locks (transported)', () => {
   }, 180000);
 
   afterAll(async () => {
-    if (missing.length > 0) return;
-
     try {
       await runVector({
         operation: 'collections',
@@ -386,4 +382,3 @@ describeLive('19-vector-search-locks (transported)', () => {
     }, 180000);
   });
 });
-

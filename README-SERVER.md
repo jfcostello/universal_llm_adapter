@@ -92,6 +92,18 @@ await server.close();
 | `embeddingMaxQueueSize` | `--embedding-max-queue-size <n>` | `1000` | Max queued embedding requests |
 | `embeddingQueueTimeoutMs` | `--embedding-queue-timeout-ms <n>` | `30000` | Timeout for queued embedding requests |
 
+### Realtime (WebSocket)
+
+| Option | CLI Flag | Default | Description |
+|--------|----------|---------|-------------|
+| `realtime.enabled` | `--realtime-enabled` | `false` | Enable realtime WebSocket endpoint |
+| `realtime.wsPath` | `--realtime-ws-path <path>` | `/realtime/ws` | WebSocket path for realtime sessions |
+| `realtime.maxWsMessageBytes` | `--realtime-max-ws-message-bytes <n>` | `262144` | Maximum WebSocket message size |
+| `realtime.wsIdleTimeoutMs` | `--realtime-ws-idle-timeout-ms <n>` | `60000` | WebSocket idle timeout |
+| `realtime.maxConcurrentSessions` | `--realtime-max-concurrent-sessions <n>` | `20` | Max concurrent realtime sessions |
+| `realtime.maxAudioBytesPerSecond` | `--realtime-max-audio-bytes-per-second <n>` | `256000` | Max audio throughput per session (bytes/sec) |
+| `realtime.maxSessionDurationMs` | `--realtime-max-session-duration-ms <n>` | `3600000` | Max realtime session duration |
+
 ### Security: Authentication
 
 | Option | CLI Flag | Default | Description |
@@ -172,6 +184,24 @@ curl http://127.0.0.1:3000/ready
 ```json
 {"ok": false}
 ```
+
+### Realtime WebSocket
+
+```
+GET /realtime/ws
+```
+
+Realtime sessions over WebSocket using the same message/envelope contract as `llm-adapter realtime`:
+
+- Client messages: `open`, `send_text`, `send_audio`, `commit`, `interrupt`, `close`
+- Server envelopes: `{ "type": "event", ... }` and `{ "type": "error", ... }`
+
+**Contract notes:**
+
+- The first emitted event must be `{ "type": "ready", ... }`.
+- `spec.provider` must reference a realtime provider id from `plugins/realtime-providers/*.json`.
+- Authentication must be enabled (`auth.enabled: true`) for this endpoint.
+- Configure limits via the `realtime.*` options (message size, idle timeout, concurrency, audio rate, max duration).
 
 ### LLM Run (Non-Streaming)
 

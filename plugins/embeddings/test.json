@@ -1,0 +1,13 @@
+{
+  "id": "test-embeddings",
+  "kind": "test",
+  "endpoint": {
+    "urlTemplate": "http://localhost/embeddings",
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  },
+  "model": "test-model",
+  "dimensions": 64
+}
+

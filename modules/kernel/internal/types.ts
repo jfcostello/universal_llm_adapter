@@ -435,6 +435,41 @@ export interface EndpointConfig {
   streamingQuery?: Record<string, string>;
 }
 
+export interface RealtimeEndpointConfig {
+  urlTemplate: string;
+  headers: Record<string, string>;
+  query?: Record<string, string>;
+}
+
+export interface RealtimeWebrtcEndpointConfig {
+  urlTemplate: string;
+  headers?: Record<string, string>;
+  query?: Record<string, string>;
+}
+
+export interface RealtimeClientSecretEndpointConfig {
+  urlTemplate: string;
+  headers?: Record<string, string>;
+  query?: Record<string, string>;
+}
+
+/**
+ * Realtime provider manifest (loaded from JSON).
+ *
+ * This is intentionally separate from `ProviderManifest` so realtime providers
+ * can be configured independently from standard LLM request/response providers.
+ */
+export interface RealtimeProviderManifest {
+  id: string;
+  compat: string;
+  endpoint: RealtimeEndpointConfig;
+  webrtc?: {
+    endpoint: RealtimeWebrtcEndpointConfig;
+    clientSecretEndpoint?: RealtimeClientSecretEndpointConfig;
+  };
+  metadata?: JsonObject;
+}
+
 export interface ProviderPayloadExtension {
   name: string;
   settingsKey: string;

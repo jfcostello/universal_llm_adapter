@@ -1,5 +1,6 @@
 import { jest } from '@jest/globals';
 import { Command } from 'commander';
+import { Readable, Writable } from 'stream';
 
 describe('cli/internal/unified-cli', () => {
   let createUnifiedProgram: typeof import('@/modules/cli/internal/unified-cli.ts').createUnifiedProgram;
@@ -73,6 +74,14 @@ describe('cli/internal/unified-cli', () => {
   });
 
   describe('program structure', () => {
+    test('defaultDependencies exposes getRealtimeStdio', async () => {
+      const module = await import('@/modules/cli/internal/unified-cli.ts');
+      const stdio = module.defaultDependencies.getRealtimeStdio();
+      expect(stdio.stdin).toBe(process.stdin);
+      expect(stdio.stdout).toBe(process.stdout);
+      expect(stdio.stderr).toBe(process.stderr);
+    });
+
     test('creates program with correct name and description', () => {
       const program = createUnifiedProgram(mockDeps);
       expect(program.name()).toBe('llm-adapter');
@@ -109,6 +118,19 @@ describe('cli/internal/unified-cli', () => {
       expect(serveCmd).toBeDefined();
     });
 
+    test('has realtime command', () => {
+      const program = createUnifiedProgram(mockDeps);
+      const realtimeCmd = program.commands.find(c => c.name() === 'realtime');
+      expect(realtimeCmd).toBeDefined();
+    });
+
+    test('realtime has client-secret subcommand', () => {
+      const program = createUnifiedProgram(mockDeps);
+      const realtimeCmd = program.commands.find(c => c.name() === 'realtime');
+      const csCmd = realtimeCmd?.commands.find((c: Command) => c.name() === 'client-secret');
+      expect(csCmd).toBeDefined();
+    });
+
     test('vector has run subcommand', () => {
       const program = createUnifiedProgram(mockDeps);
       const vectorCmd = program.commands.find(c => c.name() === 'vector');
@@ -128,6 +150,863 @@ describe('cli/internal/unified-cli', () => {
       const embeddingsCmd = program.commands.find(c => c.name() === 'embeddings');
       const runCmd = embeddingsCmd?.commands.find((c: Command) => c.name() === 'run');
       expect(runCmd).toBeDefined();
+    });
+  });
+
+  describe('realtime command', () => {
+    const makeCaptureWritable = () => {
+      let buf = '';
+      const writable = new Writable({
+        write(chunk, _enc, cb) {
+          buf += chunk.toString();
+          cb();
+        }
+      });
+      return { writable, get: () => buf };
+    };
+
+    test('runs v1 wire protocol over stdio', async () => {
+      const stdoutCap = makeCaptureWritable();
+      const stderrCap = makeCaptureWritable();
+
+      let closeResolve: (() => void) | undefined;
+      const closed = new Promise<void>(resolve => {
+        closeResolve = resolve;
+      });
+
+      const mockSession = {
+        sendText: jest.fn().mockResolvedValue(undefined),
+        injectContext: jest.fn().mockResolvedValue(undefined),
+        sendAudio: jest.fn().mockResolvedValue(undefined),
+        commit: jest.fn().mockResolvedValue(undefined),
+        interrupt: jest.fn().mockResolvedValue(undefined),
+        close: jest.fn().mockImplementation(async () => closeResolve?.()),
+        events: async function* () {
+          yield { type: 'ready', sessionId: 'test-session' };
+          await closed;
+          yield { type: 'closed', reason: 'client_close' };
+        }
+      };
+
+      const stdin = Readable.from([
+        '\n',
+        JSON.stringify({ type: 'open', protocolVersion: 1, spec: { any: true } }) + '\n',
+        JSON.stringify({ type: 'send_text', text: 'hi', role: 'user' }) + '\n',
+        JSON.stringify({ type: 'inject_context', items: [{ role: 'system', text: 'Remember TOKEN_123' }] }) + '\n',
+        JSON.stringify({
+          type: 'send_audio',
+          frame: { format: 'pcm16', sampleRateHz: 24000, channels: 1, dataBase64: 'AA==' }
+        }) + '\n',
+        JSON.stringify({ type: 'commit' }) + '\n',
+        JSON.stringify({ type: 'interrupt', reason: 'interrupt' }) + '\n',
+        JSON.stringify({ type: 'close' }) + '\n'
+      ]);
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        getRealtimeStdio: () => ({
+          stdin: stdin as any,
+          stdout: stdoutCap.writable as any,
+          stderr: stderrCap.writable as any
+        }),
+        createRealtimeSession: jest.fn().mockResolvedValue(mockSession)
+      });
+
+      await program.parseAsync(['node', 'llm-adapter', 'realtime', '--plugins', './test-plugins']);
+
+      expect(mockDeps.createRegistry).toHaveBeenCalledWith('./test-plugins');
+      expect(mockSession.sendText).toHaveBeenCalledWith({ text: 'hi', role: 'user' });
+      expect(mockSession.injectContext).toHaveBeenCalledWith([{ role: 'system', text: 'Remember TOKEN_123' }]);
+      expect(mockSession.sendAudio).toHaveBeenCalledWith({
+        format: 'pcm16',
+        sampleRateHz: 24000,
+        channels: 1,
+        dataBase64: 'AA=='
+      });
+      expect(mockSession.commit).toHaveBeenCalled();
+      expect(mockSession.interrupt).toHaveBeenCalledWith({ reason: 'interrupt' });
+      expect(mockSession.close).toHaveBeenCalled();
+
+      const lines = stdoutCap.get().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const envelopes = lines.map(l => JSON.parse(l));
+      expect(envelopes[0].type).toBe('event');
+      expect(envelopes[0].event.type).toBe('ready');
+      expect(envelopes.some(e => e.type === 'event' && e.event.type === 'closed')).toBe(true);
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(0);
+    });
+
+    test('propagates non-Error failures from message handler', async () => {
+      const stdoutCap = makeCaptureWritable();
+      const stderrCap = makeCaptureWritable();
+
+      let closeResolve: (() => void) | undefined;
+      const closed = new Promise<void>(resolve => {
+        closeResolve = resolve;
+      });
+
+      const session = {
+        sendText: jest.fn().mockImplementation(() => {
+          throw 'boom';
+        }),
+        close: jest.fn().mockImplementation(async () => closeResolve?.()),
+        events: async function* () {
+          yield { type: 'ready', sessionId: 's' };
+          await closed;
+          yield { type: 'closed', reason: 'client_close' };
+        }
+      };
+
+      const stdin = Readable.from([
+        JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }) + '\n',
+        JSON.stringify({ type: 'send_text', text: 'hi' }) + '\n'
+      ]);
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        getRealtimeStdio: () => ({
+          stdin: stdin as any,
+          stdout: stdoutCap.writable as any,
+          stderr: stderrCap.writable as any
+        }),
+        createRealtimeSession: jest.fn().mockResolvedValue(session)
+      });
+
+      await program.parseAsync(['node', 'llm-adapter', 'realtime']);
+
+      const lines = stdoutCap.get().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const envelopes = lines.map(l => JSON.parse(l));
+      const errorEnvelope = envelopes.find(e => e.type === 'error');
+      expect(errorEnvelope).toBeDefined();
+      expect(String(errorEnvelope.error.message)).toContain('boom');
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+    });
+
+    test('writes error envelope when realtime command throws (Error)', async () => {
+      const stdoutCap = makeCaptureWritable();
+      const stderrCap = makeCaptureWritable();
+
+      let closeResolve: (() => void) | undefined;
+      const closed = new Promise<void>(resolve => {
+        closeResolve = resolve;
+      });
+
+      const session = {
+        close: jest.fn().mockImplementation(async () => closeResolve?.()),
+        events: async function* () {
+          yield { type: 'ready', sessionId: 's' };
+          await closed;
+          yield { type: 'closed', reason: 'client_close' };
+        }
+      };
+
+      const stdin = Readable.from([
+        JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }) + '\n',
+        JSON.stringify({ type: 'close' }) + '\n'
+      ]);
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        exit: (code: number) => {
+          if (code === 0) throw new Error('exit boom');
+          capturedExitCodes.push(code);
+        },
+        getRealtimeStdio: () => ({
+          stdin: stdin as any,
+          stdout: stdoutCap.writable as any,
+          stderr: stderrCap.writable as any
+        }),
+        createRealtimeSession: jest.fn().mockResolvedValue(session)
+      });
+
+      await program.parseAsync(['node', 'llm-adapter', 'realtime']);
+
+      const lines = stdoutCap.get().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const envelopes = lines.map(l => JSON.parse(l));
+      const errorEnvelope = envelopes.find(e => e.type === 'error' && String(e.error.message).includes('exit boom'));
+      expect(errorEnvelope).toBeDefined();
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+    });
+
+    test('writes error envelope when realtime command throws (non-Error)', async () => {
+      const stdoutCap = makeCaptureWritable();
+      const stderrCap = makeCaptureWritable();
+
+      let closeResolve: (() => void) | undefined;
+      const closed = new Promise<void>(resolve => {
+        closeResolve = resolve;
+      });
+
+      const session = {
+        close: jest.fn().mockImplementation(async () => closeResolve?.()),
+        events: async function* () {
+          yield { type: 'ready', sessionId: 's' };
+          await closed;
+          yield { type: 'closed', reason: 'client_close' };
+        }
+      };
+
+      const stdin = Readable.from([
+        JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }) + '\n',
+        JSON.stringify({ type: 'close' }) + '\n'
+      ]);
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        exit: (code: number) => {
+          if (code === 0) throw 'exit boom';
+          capturedExitCodes.push(code);
+        },
+        getRealtimeStdio: () => ({
+          stdin: stdin as any,
+          stdout: stdoutCap.writable as any,
+          stderr: stderrCap.writable as any
+        }),
+        createRealtimeSession: jest.fn().mockResolvedValue(session)
+      });
+
+      await program.parseAsync(['node', 'llm-adapter', 'realtime']);
+
+      const lines = stdoutCap.get().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const envelopes = lines.map(l => JSON.parse(l));
+      const errorEnvelope = envelopes.find(e => e.type === 'error' && String(e.error.message).includes('exit boom'));
+      expect(errorEnvelope).toBeDefined();
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+    });
+
+    test('fails on message before open', async () => {
+      const stdoutCap = makeCaptureWritable();
+      const stderrCap = makeCaptureWritable();
+
+      const stdin = Readable.from([JSON.stringify({ type: 'send_text', text: 'hi' }) + '\n']);
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        getRealtimeStdio: () => ({
+          stdin: stdin as any,
+          stdout: stdoutCap.writable as any,
+          stderr: stderrCap.writable as any
+        }),
+        createRealtimeSession: jest.fn()
+      });
+
+      await program.parseAsync(['node', 'llm-adapter', 'realtime']);
+
+      const lines = stdoutCap.get().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const envelope = JSON.parse(lines[0]);
+      expect(envelope.type).toBe('error');
+      expect(String(envelope.error.message)).toContain('Session not open');
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+    });
+
+    test('fails on invalid JSON', async () => {
+      const stdoutCap = makeCaptureWritable();
+      const stderrCap = makeCaptureWritable();
+
+      const stdin = Readable.from(['{not-json\n']);
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        getRealtimeStdio: () => ({
+          stdin: stdin as any,
+          stdout: stdoutCap.writable as any,
+          stderr: stderrCap.writable as any
+        }),
+        createRealtimeSession: jest.fn()
+      });
+
+      await program.parseAsync(['node', 'llm-adapter', 'realtime']);
+
+      const lines = stdoutCap.get().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const envelope = JSON.parse(lines[0]);
+      expect(envelope.type).toBe('error');
+      expect(envelope.error.code).toBe('invalid_json');
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+    });
+
+    test('fails on unsupported protocolVersion', async () => {
+      const stdoutCap = makeCaptureWritable();
+      const stderrCap = makeCaptureWritable();
+
+      const stdin = Readable.from([JSON.stringify({ type: 'open', protocolVersion: 2, spec: {} }) + '\n']);
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        getRealtimeStdio: () => ({
+          stdin: stdin as any,
+          stdout: stdoutCap.writable as any,
+          stderr: stderrCap.writable as any
+        }),
+        createRealtimeSession: jest.fn()
+      });
+
+      await program.parseAsync(['node', 'llm-adapter', 'realtime']);
+
+      const lines = stdoutCap.get().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const envelope = JSON.parse(lines[0]);
+      expect(envelope.type).toBe('error');
+      expect(envelope.error.code).toBe('unsupported_protocol');
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+    });
+
+    test('fails when realtime session factory is missing', async () => {
+      const stdoutCap = makeCaptureWritable();
+      const stderrCap = makeCaptureWritable();
+
+      const stdin = Readable.from([JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }) + '\n']);
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        getRealtimeStdio: () => ({
+          stdin: stdin as any,
+          stdout: stdoutCap.writable as any,
+          stderr: stderrCap.writable as any
+        }),
+        createRealtimeSession: undefined
+      });
+
+      await program.parseAsync(['node', 'llm-adapter', 'realtime']);
+
+      const lines = stdoutCap.get().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const envelope = JSON.parse(lines[0]);
+      expect(envelope.type).toBe('error');
+      expect(envelope.error.code).toBe('realtime_unavailable');
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+    });
+
+    test('fails when session does not emit ready first / closes before ready', async () => {
+      const stdoutCap1 = makeCaptureWritable();
+      const stderrCap1 = makeCaptureWritable();
+
+      const sessionClosedImmediately = {
+        close: jest.fn().mockResolvedValue(undefined),
+        events: async function* () {
+          // no events
+        }
+      };
+
+      const program1 = createUnifiedProgram({
+        ...mockDeps,
+        getRealtimeStdio: () => ({
+          stdin: Readable.from([JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }) + '\n']) as any,
+          stdout: stdoutCap1.writable as any,
+          stderr: stderrCap1.writable as any
+        }),
+        createRealtimeSession: jest.fn().mockResolvedValue(sessionClosedImmediately)
+      });
+
+      await program1.parseAsync(['node', 'llm-adapter', 'realtime']);
+      const lines1 = stdoutCap1.get().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const env1 = JSON.parse(lines1[0]);
+      expect(env1.type).toBe('error');
+      expect(env1.error.code).toBe('closed_before_ready');
+
+      const stdoutCap2 = makeCaptureWritable();
+      const stderrCap2 = makeCaptureWritable();
+
+      const sessionMissingReady = {
+        close: jest.fn().mockResolvedValue(undefined),
+        events: async function* () {
+          yield { type: 'not_ready' };
+        }
+      };
+
+      const program2 = createUnifiedProgram({
+        ...mockDeps,
+        getRealtimeStdio: () => ({
+          stdin: Readable.from([JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }) + '\n']) as any,
+          stdout: stdoutCap2.writable as any,
+          stderr: stderrCap2.writable as any
+        }),
+        createRealtimeSession: jest.fn().mockResolvedValue(sessionMissingReady)
+      });
+
+      await program2.parseAsync(['node', 'llm-adapter', 'realtime']);
+      const lines2 = stdoutCap2.get().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const env2 = JSON.parse(lines2[0]);
+      expect(env2.type).toBe('error');
+      expect(env2.error.code).toBe('missing_ready');
+    });
+
+    test('fails on unknown message type after open (and closes session)', async () => {
+      const stdoutCap = makeCaptureWritable();
+      const stderrCap = makeCaptureWritable();
+
+      let closeResolve: (() => void) | undefined;
+      const closed = new Promise<void>(resolve => {
+        closeResolve = resolve;
+      });
+
+      const session = {
+        close: jest.fn().mockImplementation(async () => closeResolve?.()),
+        events: async function* () {
+          yield { type: 'ready', sessionId: 's' };
+          await closed;
+          yield { type: 'closed', reason: 'client_close' };
+        }
+      };
+
+      const stdin = Readable.from([
+        JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }) + '\n',
+        JSON.stringify({ type: 'nope' }) + '\n'
+      ]);
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        getRealtimeStdio: () => ({
+          stdin: stdin as any,
+          stdout: stdoutCap.writable as any,
+          stderr: stderrCap.writable as any
+        }),
+        createRealtimeSession: jest.fn().mockResolvedValue(session)
+      });
+
+      await program.parseAsync(['node', 'llm-adapter', 'realtime']);
+
+      const lines = stdoutCap.get().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const envelopes = lines.map(l => JSON.parse(l));
+      expect(envelopes.some(e => e.type === 'event' && e.event.type === 'ready')).toBe(true);
+      expect(envelopes.some(e => e.type === 'error' && e.error.code === 'unknown_type')).toBe(true);
+      expect(session.close).toHaveBeenCalled();
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+    });
+
+    test('supports registries without loadAll', async () => {
+      const stdoutCap = makeCaptureWritable();
+      const stderrCap = makeCaptureWritable();
+
+      let closeResolve: (() => void) | undefined;
+      const closed = new Promise<void>(resolve => {
+        closeResolve = resolve;
+      });
+
+      const session = {
+        close: jest.fn().mockImplementation(async () => closeResolve?.()),
+        events: async function* () {
+          yield { type: 'ready', sessionId: 's' };
+          await closed;
+          yield { type: 'closed', reason: 'client_close' };
+        },
+        sendText: jest.fn().mockResolvedValue(undefined),
+        sendAudio: jest.fn().mockResolvedValue(undefined),
+        commit: jest.fn().mockResolvedValue(undefined),
+        interrupt: jest.fn().mockResolvedValue(undefined)
+      };
+
+      const stdin = Readable.from([
+        JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }) + '\n',
+        JSON.stringify({ type: 'close' }) + '\n'
+      ]);
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        createRegistry: jest.fn().mockResolvedValue({}),
+        getRealtimeStdio: () => ({
+          stdin: stdin as any,
+          stdout: stdoutCap.writable as any,
+          stderr: stderrCap.writable as any
+        }),
+        createRealtimeSession: jest.fn().mockResolvedValue(session)
+      });
+
+      await program.parseAsync(['node', 'llm-adapter', 'realtime']);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(0);
+    });
+
+    test('propagates non-Error failures from event pump', async () => {
+      const stdoutCap = makeCaptureWritable();
+      const stderrCap = makeCaptureWritable();
+
+      const session = {
+        close: jest.fn().mockResolvedValue(undefined),
+        events: async function* () {
+          throw 'boom';
+        }
+      };
+
+      const stdin = Readable.from([JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }) + '\n']);
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        getRealtimeStdio: () => ({
+          stdin: stdin as any,
+          stdout: stdoutCap.writable as any,
+          stderr: stderrCap.writable as any
+        }),
+        createRealtimeSession: jest.fn().mockResolvedValue(session)
+      });
+
+      await program.parseAsync(['node', 'llm-adapter', 'realtime']);
+
+      const lines = stdoutCap.get().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const envelope = JSON.parse(lines.find(l => JSON.parse(l).type === 'error')!);
+      expect(envelope.type).toBe('error');
+      expect(String(envelope.error.message)).toContain('boom');
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+    });
+
+    test('fails when open is repeated', async () => {
+      const stdoutCap = makeCaptureWritable();
+      const stderrCap = makeCaptureWritable();
+
+      let closeResolve: (() => void) | undefined;
+      const closed = new Promise<void>(resolve => {
+        closeResolve = resolve;
+      });
+
+      const session = {
+        close: jest.fn().mockImplementation(async () => closeResolve?.()),
+        events: async function* () {
+          yield { type: 'ready', sessionId: 's' };
+          await closed;
+          yield { type: 'closed', reason: 'client_close' };
+        }
+      };
+
+      const stdin = Readable.from([
+        JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }) + '\n',
+        JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }) + '\n'
+      ]);
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        getRealtimeStdio: () => ({
+          stdin: stdin as any,
+          stdout: stdoutCap.writable as any,
+          stderr: stderrCap.writable as any
+        }),
+        createRealtimeSession: jest.fn().mockResolvedValue(session)
+      });
+
+      await program.parseAsync(['node', 'llm-adapter', 'realtime']);
+
+      const lines = stdoutCap.get().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const envelopes = lines.map(l => JSON.parse(l));
+      expect(envelopes.some(e => e.type === 'error' && e.error.code === 'already_open')).toBe(true);
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+    });
+  });
+
+  describe('realtime client-secret command', () => {
+    test('mints a client secret via realtime compat and writes JSON response', async () => {
+      const providerId = 'test-realtime-provider';
+      const compatKind = 'test-realtime-compat';
+
+      const providerManifest = { id: providerId, compat: compatKind };
+      const mintClientSecret = jest.fn().mockResolvedValue({ clientSecret: 'client_secret_value', expiresAt: 123 });
+      const registry = {
+        loadAll: jest.fn().mockResolvedValue(undefined),
+        getRealtimeProvider: jest.fn().mockResolvedValue(providerManifest),
+        getRealtimeCompat: jest.fn().mockResolvedValue({ mintClientSecret })
+      };
+
+      const written: string[] = [];
+      jest.spyOn(process.stdout, 'write').mockImplementation((chunk: any, encodingOrCb?: any, cb?: any) => {
+        written.push(chunk.toString());
+        const callback = typeof encodingOrCb === 'function' ? encodingOrCb : cb;
+        if (callback) setImmediate(callback);
+        return true;
+      });
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        createRegistry: jest.fn().mockResolvedValue(registry)
+      });
+
+      const req = {
+        provider: providerId,
+        model: 'test-model',
+        systemPrompt: 'hello',
+        expiresAfterSeconds: 60
+      };
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--plugins',
+        './test-plugins',
+        '--spec',
+        JSON.stringify(req)
+      ]);
+
+      expect(registry.getRealtimeProvider).toHaveBeenCalledWith(providerId);
+      expect(registry.getRealtimeCompat).toHaveBeenCalledWith(compatKind);
+      expect(mintClientSecret).toHaveBeenCalledWith({
+        provider: providerManifest,
+        spec: {
+          provider: providerId,
+          model: 'test-model',
+          systemPrompt: 'hello',
+          transport: { type: 'webrtc' }
+        },
+        expiresAfterSeconds: 60
+      });
+
+      const output = written.join('');
+      expect(output).toContain('"clientSecret"');
+      expect(output).toContain('client_secret_value');
+      expect(output).toContain('"expiresAt"');
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(0);
+
+      jest.spyOn(process.stdout, 'write').mockRestore();
+    });
+
+    test('supports minimal request (no model/systemPrompt/expiresAfterSeconds) and omits expiresAt in response', async () => {
+      const providerId = 'test-realtime-provider';
+      const compatKind = 'test-realtime-compat';
+
+      const providerManifest = { id: providerId, compat: compatKind };
+      const mintClientSecret = jest.fn().mockResolvedValue({ clientSecret: 'client_secret_value' });
+      const registry = {
+        loadAll: jest.fn().mockResolvedValue(undefined),
+        getRealtimeProvider: jest.fn().mockResolvedValue(providerManifest),
+        getRealtimeCompat: jest.fn().mockResolvedValue({ mintClientSecret })
+      };
+
+      const written: string[] = [];
+      jest.spyOn(process.stdout, 'write').mockImplementation((chunk: any, encodingOrCb?: any, cb?: any) => {
+        written.push(chunk.toString());
+        const callback = typeof encodingOrCb === 'function' ? encodingOrCb : cb;
+        if (callback) setImmediate(callback);
+        return true;
+      });
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        createRegistry: jest.fn().mockResolvedValue(registry)
+      });
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--plugins',
+        './test-plugins',
+        '--spec',
+        JSON.stringify({ provider: providerId })
+      ]);
+
+      expect(mintClientSecret).toHaveBeenCalledWith({
+        provider: providerManifest,
+        spec: {
+          provider: providerId,
+          transport: { type: 'webrtc' }
+        }
+      });
+
+      const output = written.join('');
+      expect(output).toContain('"clientSecret"');
+      expect(output).toContain('client_secret_value');
+      expect(output).not.toContain('"expiresAt"');
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(0);
+
+      jest.spyOn(process.stdout, 'write').mockRestore();
+    });
+
+    test('fails validation on missing provider', async () => {
+      const registry = { loadAll: jest.fn().mockResolvedValue(undefined) };
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        createRegistry: jest.fn().mockResolvedValue(registry)
+      });
+
+      await program.parseAsync(['node', 'llm-adapter', 'realtime', 'client-secret', '--spec', '{}']);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('Missing provider');
+    });
+
+    test('fails validation on invalid expiresAfterSeconds (non-finite)', async () => {
+      const program = createUnifiedProgram(mockDeps);
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--spec',
+        JSON.stringify({ provider: 'p', expiresAfterSeconds: 'Infinity' })
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('Invalid expiresAfterSeconds');
+    });
+
+    test('fails validation on non-integer expiresAfterSeconds', async () => {
+      const program = createUnifiedProgram(mockDeps);
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--spec',
+        JSON.stringify({ provider: 'p', expiresAfterSeconds: 1.5 })
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('must be an integer');
+    });
+
+    test('fails validation on out-of-range expiresAfterSeconds', async () => {
+      const registry = { loadAll: jest.fn().mockResolvedValue(undefined) };
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        createRegistry: jest.fn().mockResolvedValue(registry)
+      });
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--spec',
+        JSON.stringify({ provider: 'p', expiresAfterSeconds: 999999 })
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('expiresAfterSeconds must be between');
+    });
+
+    test('fails when registry does not support realtime client-secret minting', async () => {
+      const registry = { loadAll: jest.fn().mockResolvedValue(undefined) };
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        createRegistry: jest.fn().mockResolvedValue(registry)
+      });
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--spec',
+        JSON.stringify({ provider: 'test-realtime-provider' })
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain(
+        'Registry does not support realtime client-secret minting'
+      );
+    });
+
+    test('fails when provider is missing compat mapping', async () => {
+      const providerId = 'test-realtime-provider';
+      const registry = {
+        loadAll: jest.fn().mockResolvedValue(undefined),
+        getRealtimeProvider: jest.fn().mockResolvedValue({ id: providerId }),
+        getRealtimeCompat: jest.fn()
+      };
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        createRegistry: jest.fn().mockResolvedValue(registry)
+      });
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--spec',
+        JSON.stringify({ provider: providerId })
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('not supported for provider');
+    });
+
+    test('fails when compat does not support client-secret minting', async () => {
+      const providerId = 'test-realtime-provider';
+      const compatKind = 'test-realtime-compat';
+
+      const registry = {
+        loadAll: jest.fn().mockResolvedValue(undefined),
+        getRealtimeProvider: jest.fn().mockResolvedValue({ id: providerId, compat: compatKind }),
+        getRealtimeCompat: jest.fn().mockResolvedValue({})
+      };
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        createRegistry: jest.fn().mockResolvedValue(registry)
+      });
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--spec',
+        JSON.stringify({ provider: providerId })
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('client-secret minting not supported');
+    });
+
+    test('fails when compat response is missing clientSecret', async () => {
+      const providerId = 'test-realtime-provider';
+      const compatKind = 'test-realtime-compat';
+
+      const registry = {
+        loadAll: jest.fn().mockResolvedValue(undefined),
+        getRealtimeProvider: jest.fn().mockResolvedValue({ id: providerId, compat: compatKind }),
+        getRealtimeCompat: jest.fn().mockResolvedValue({
+          mintClientSecret: jest.fn().mockResolvedValue({ expiresAt: 123 })
+        })
+      };
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        createRegistry: jest.fn().mockResolvedValue(registry)
+      });
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--spec',
+        JSON.stringify({ provider: providerId })
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('missing client secret');
+    });
+
+    test('handles non-Error failures from compat mintClientSecret', async () => {
+      const providerId = 'test-realtime-provider';
+      const compatKind = 'test-realtime-compat';
+
+      const registry = {
+        loadAll: jest.fn().mockResolvedValue(undefined),
+        getRealtimeProvider: jest.fn().mockResolvedValue({ id: providerId, compat: compatKind }),
+        getRealtimeCompat: jest.fn().mockResolvedValue({
+          mintClientSecret: jest.fn().mockImplementation(() => {
+            throw 'boom';
+          })
+        })
+      };
+
+      const program = createUnifiedProgram({
+        ...mockDeps,
+        createRegistry: jest.fn().mockResolvedValue(registry)
+      });
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'realtime',
+        'client-secret',
+        '--spec',
+        JSON.stringify({ provider: providerId })
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('boom');
     });
   });
 
@@ -471,6 +1350,7 @@ describe('cli/internal/unified-cli', () => {
       const serverOptions = mockDeps.createServer.mock.calls[0][0];
       expect(serverOptions.host).toBe('127.0.0.1');
       expect(serverOptions.pluginsPath).toBe('./plugins');
+      expect(serverOptions.realtime).toBeUndefined();
     });
 
     test('starts server with custom host and port', async () => {
@@ -523,6 +1403,44 @@ describe('cli/internal/unified-cli', () => {
 
       const serverOptions = mockDeps.createServer.mock.calls[0][0];
       expect(serverOptions.cors).toEqual({ enabled: true });
+    });
+
+    test('passes realtime options', async () => {
+      const program = createUnifiedProgram(mockDeps);
+
+      await program.parseAsync([
+        'node', 'llm-adapter', 'serve',
+        '--realtime-enabled',
+        '--realtime-ws-path', '/realtime/ws2',
+        '--realtime-max-ws-message-bytes', '123',
+        '--realtime-ws-idle-timeout-ms', '456',
+        '--realtime-max-concurrent-sessions', '7',
+        '--realtime-max-audio-bytes-per-second', '890',
+        '--realtime-max-session-duration-ms', '123456'
+      ]);
+
+      const serverOptions = mockDeps.createServer.mock.calls[0][0];
+      expect(serverOptions.realtime).toEqual({
+        enabled: true,
+        wsPath: '/realtime/ws2',
+        maxWsMessageBytes: 123,
+        wsIdleTimeoutMs: 456,
+        maxConcurrentSessions: 7,
+        maxAudioBytesPerSecond: 890,
+        maxSessionDurationMs: 123456
+      });
+    });
+
+    test('passes minimal realtime config when only enabled flag is provided', async () => {
+      const program = createUnifiedProgram(mockDeps);
+
+      await program.parseAsync([
+        'node', 'llm-adapter', 'serve',
+        '--realtime-enabled'
+      ]);
+
+      const serverOptions = mockDeps.createServer.mock.calls[0][0];
+      expect(serverOptions.realtime).toEqual({ enabled: true });
     });
 
     test('logs server URL on start', async () => {
@@ -951,6 +1869,23 @@ describe('cli/internal/unified-cli', () => {
 
       // Clean up
       await server.close();
+    });
+
+    test('createRealtimeSession calls realtime createRealtimeSession', async () => {
+      jest.resetModules();
+
+      const createRealtimeSessionMock = jest.fn().mockResolvedValue({ ok: true });
+      (jest as any).unstable_mockModule('../../../modules/realtime/index.js', () => ({
+        createRealtimeSession: createRealtimeSessionMock
+      }));
+
+      const module = await import('@/modules/cli/internal/unified-cli.ts');
+      const deps = module.defaultDependencies;
+
+      const result = await deps.createRealtimeSession?.({ registry: true } as any, { provider: 'p' } as any);
+
+      expect(result).toEqual({ ok: true });
+      expect(createRealtimeSessionMock).toHaveBeenCalledWith({ registry: true }, { provider: 'p' });
     });
 
     test('closeLogger calls lifecycle closeLogger', async () => {

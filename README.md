@@ -11,6 +11,7 @@ Provider-agnostic LLM adapter with a unified interface across multiple providers
 - **MCP Integration**: Model Context Protocol server support
 - **Vector Stores**: Integration with vector databases for RAG applications
 - **Streaming**: Real-time streaming responses with tool support
+- **Realtime Sessions**: Bidirectional sessions (audio/text in, audio/transcripts/tools out) via `llm-adapter/realtime`
 - **100% Test Coverage**: Comprehensive test suite with full coverage
 
 ## Quick Start
@@ -35,6 +36,7 @@ universal_llm_adapter/
 │   ├── kernel/                   # Core primitives: types, defaults, registry, config
 │   ├── cli/                      # Unified CLI program and handlers
 │   ├── llm/                      # LLM coordinator and manager
+│   ├── realtime/                 # Realtime session entrypoint + controller
 │   ├── server/                   # HTTP/SSE server
 │   ├── vector/                   # Vector store coordinator and manager
 │   ├── embeddings/               # Embedding coordinator and manager
@@ -52,9 +54,11 @@ universal_llm_adapter/
 │   └── string/                   # String utilities
 ├── plugins/                      # Provider-specific implementations
 │   ├── providers/                # LLM provider configs (.json)
+│   ├── realtime-providers/       # Realtime provider configs (.json)
 │   ├── embeddings/               # Embedding provider configs (.json)
 │   ├── vector/                   # Vector store configs (.json)
 │   ├── compat/                   # LLM provider compat implementations
+│   ├── realtime-compat/          # Realtime provider compat implementations
 │   ├── embedding-compat/         # Embedding provider compat implementations
 │   ├── vector-compat/            # Vector store compat implementations
 │   ├── tools/                    # Tool definitions (.json)
@@ -115,6 +119,25 @@ Provider compat implementations live in `plugins/compat/<provider>/index.ts` and
 - `serializeToolChoice()` - Serialize tool choice
 - `applyProviderExtensions()` - Apply provider payload extensions (optional)
 - `callSDK()` / `streamSDK()` - Optional SDK-based overrides (when available)
+
+### Realtime Providers
+
+Realtime provider configurations live in `plugins/realtime-providers/*.json` and are intentionally separate from LLM providers.
+
+```json
+{
+  "id": "example-realtime",
+  "compat": "example-realtime",
+  "endpoint": {
+    "urlTemplate": "wss://example.com/realtime?model={model}",
+    "headers": {
+      "Authorization": "Bearer ${REALTIME_API_KEY}"
+    }
+  }
+}
+```
+
+Realtime compat implementations live in `plugins/realtime-compat/<kind>/index.ts` and implement `IRealtimeCompat`.
 
 ### Compat templates
 
@@ -389,6 +412,16 @@ All non-provider-specific defaults are in `plugins/configs/defaults.json`:
   }
 }
 ```
+
+### Production Limits
+
+For production deployments, be aware of per-process resource limits enforced by the server and realtime modules:
+
+- **Server**: `maxConcurrentRequests`, `maxConcurrentStreams`, `maxQueueSize` (see `plugins/configs/defaults.json`)
+- **Realtime WS**: `maxConcurrentSessions`, `maxMessageBytes`, `maxAudioBytesPerSecond`, `idleTimeoutMs`, `maxSessionDurationMs`
+- **Twilio Bridge**: `maxPendingInboundFrames`, `maxPendingOutboundAudioMs`, `maxWsMessageBytes`
+
+These limits protect against resource exhaustion. Tune them based on your expected concurrency and available memory.
 
 ### Accessing Defaults in Code
 

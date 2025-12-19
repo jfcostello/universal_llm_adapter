@@ -12,6 +12,12 @@ export interface TestRun {
   };
 }
 
+export interface RealtimeTestRun {
+  name: string;
+  provider: string;
+  model: string;
+}
+
 /**
  * All available test runs - each run uses a different provider configuration.
  * Use getFilteredTestRuns() or filteredTestRuns to respect LLM_TEST_PROVIDERS filtering.
@@ -72,6 +78,23 @@ export const testRuns: TestRun[] = [
 ];
 
 /**
+ * All available realtime test runs - each run uses a different realtime provider configuration.
+ * Use getFilteredRealtimeTestRuns() or filteredRealtimeTestRuns to respect LLM_TEST_PROVIDERS filtering.
+ */
+export const realtimeTestRuns: RealtimeTestRun[] = [
+  {
+    name: 'openai',
+    provider: 'openai',
+    model: 'gpt-realtime'
+  },
+  {
+    name: 'google',
+    provider: 'google',
+    model: 'gemini-2.5-flash-native-audio-preview-12-2025'
+  }
+];
+
+/**
  * Filter test runs based on LLM_TEST_PROVIDERS environment variable.
  * Allows running live tests for specific providers only.
  *
@@ -108,10 +131,46 @@ export function getFilteredTestRuns(): TestRun[] {
 }
 
 /**
+ * Filter realtime test runs based on LLM_TEST_PROVIDERS environment variable.
+ * Allows running realtime live tests for specific providers only.
+ *
+ * @example
+ * // Run only openai realtime tests:
+ * LLM_TEST_PROVIDERS=openai npm run test:live:realtime
+ */
+export function getFilteredRealtimeTestRuns(): RealtimeTestRun[] {
+  const providerFilter = process.env.LLM_TEST_PROVIDERS;
+  if (!providerFilter || providerFilter.trim() === '') {
+    return realtimeTestRuns;
+  }
+
+  const requestedProviders = providerFilter.split(',').map(p => p.trim().toLowerCase());
+  const filtered = realtimeTestRuns.filter(run =>
+    requestedProviders.includes(run.name.toLowerCase())
+  );
+
+  if (filtered.length === 0) {
+    console.warn(
+      `Warning: No realtime test runs matched providers: ${providerFilter}. ` +
+      `Available: ${realtimeTestRuns.map(r => r.name).join(', ')}`
+    );
+    return [];
+  }
+
+  return filtered;
+}
+
+/**
  * Pre-computed filtered test runs based on LLM_TEST_PROVIDERS environment variable.
  * Use this in test files instead of testRuns to respect provider filtering.
  */
 export const filteredTestRuns = getFilteredTestRuns();
+
+/**
+ * Pre-computed filtered realtime test runs based on LLM_TEST_PROVIDERS environment variable.
+ * Use this in realtime test files instead of realtimeTestRuns to respect provider filtering.
+ */
+export const filteredRealtimeTestRuns = getFilteredRealtimeTestRuns();
 
 // Backwards compatibility exports (use first run as default)
 export const llmPriority = testRuns[0].llmPriority;

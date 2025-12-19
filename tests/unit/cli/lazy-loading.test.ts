@@ -241,6 +241,7 @@ describe('unified CLI lazy loading', () => {
       expect(typeof defaultDependencies.createVectorCoordinator).toBe('function');
       expect(typeof defaultDependencies.createEmbeddingCoordinator).toBe('function');
       expect(typeof defaultDependencies.createServer).toBe('function');
+      expect(typeof defaultDependencies.createRealtimeSession).toBe('function');
       expect(typeof defaultDependencies.closeLogger).toBe('function');
 
       // These should return promises (indicating async/dynamic imports)

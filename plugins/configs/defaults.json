@@ -64,7 +64,7 @@
       "allowBearer": true,
       "allowApiKeyHeader": true,
       "headerName": "x-api-key",
-      "apiKeys": [],
+      "apiKeys": "${LLM_ADAPTER_API_KEYS?}",
       "hashedKeys": [],
       "realm": "llm-adapter"
     },

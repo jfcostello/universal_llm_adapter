@@ -13,6 +13,14 @@
       "types": "./dist/modules/llm/index.d.ts",
       "import": "./dist/modules/llm/index.js"
     },
+    "./realtime": {
+      "types": "./dist/modules/realtime/index.d.ts",
+      "import": "./dist/modules/realtime/index.js"
+    },
+    "./audio": {
+      "types": "./dist/modules/audio/index.d.ts",
+      "import": "./dist/modules/audio/index.js"
+    },
     "./server": {
       "types": "./dist/modules/server/index.d.ts",
       "import": "./dist/modules/server/index.js"
@@ -49,9 +57,10 @@
     "prebuild": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "tsc",
     "dev": "tsx watch bin/cli.ts serve",
-    "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand --forceExit",
+    "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
     "test:all": "tsx tests/live/run-all.ts",
     "test:live": "tsx tests/live/run-live.ts",
+    "test:live:realtime": "tsx tests/live/run-live.ts --testPathPattern=20-realtime",
     "test:live:anthropic": "tsx tests/live/run-live.ts anthropic",
     "test:live:openai": "tsx tests/live/run-live.ts openai-responses",
     "test:live:openrouter": "tsx tests/live/run-live.ts openrouter",
@@ -72,6 +81,7 @@
     "glob": "^10.3.10",
     "minimatch": "^9.0.3",
     "openai": "^6.7.0",
+    "ws": "^8.18.3",
     "winston": "^3.11.0",
     "winston-daily-rotate-file": "^4.7.1",
     "yaml": "^2.8.2"

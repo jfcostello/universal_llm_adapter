@@ -6,6 +6,7 @@ import { loadJsonFile } from './config.js';
 import { PACKAGE_ROOT } from './paths.js';
 import {
   ProviderManifest,
+  RealtimeProviderManifest,
   UnifiedTool,
   MCPServerConfig,
   VectorStoreConfig,
@@ -15,6 +16,7 @@ import {
   IEmbeddingCompat,
   IVectorStoreCompat
 } from './types.js';
+import type { IRealtimeCompat } from './realtime-types.js';
 import { ManifestError } from './errors.js';
 
 const distRoot = PACKAGE_ROOT;
@@ -22,6 +24,7 @@ const distRoot = PACKAGE_ROOT;
 export class PluginRegistry {
   private rootPath: string;
   private providers = new Map<string, ProviderManifest>();
+  private realtimeProviders = new Map<string, RealtimeProviderManifest>();
   private tools = new Map<string, UnifiedTool>();
   private mcpServers = new Map<string, MCPServerConfig>();
   private vectorStores = new Map<string, VectorStoreConfig>();
@@ -30,9 +33,11 @@ export class PluginRegistry {
   private embeddingProviders = new Map<string, EmbeddingProviderConfig>();
   private embeddingCompats = new Map<string, () => IEmbeddingCompat>();
   private vectorStoreCompats = new Map<string, () => IVectorStoreCompat>();
+  private realtimeCompats = new Map<string, () => IRealtimeCompat>();
 
   // Lazy loading flags
   private providersLoaded = false;
+  private realtimeProvidersLoaded = false;
   private toolsLoaded = false;
   private mcpServersLoaded = false;
   private vectorStoresLoaded = false;
@@ -41,6 +46,7 @@ export class PluginRegistry {
   private embeddingProvidersLoaded = false;
   private embeddingCompatsLoaded = false;
   private vectorStoreCompatsLoaded = false;
+  private realtimeCompatsLoaded = false;
 
   constructor(rootPath: string) {
     this.rootPath = path.isAbsolute(rootPath)
@@ -57,7 +63,7 @@ export class PluginRegistry {
     // All loading is now lazy and on-demand
   }
 
-  private getPluginCodeCandidates(area: 'compat' | 'embedding-compat' | 'vector-compat'): string[] {
+  private getPluginCodeCandidates(area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat'): string[] {
     return [
       path.resolve(distRoot, 'plugins', area),
       path.join(this.rootPath, area),
@@ -66,7 +72,7 @@ export class PluginRegistry {
   }
 
   private resolvePluginCodeEntry(
-    area: 'compat' | 'embedding-compat' | 'vector-compat',
+    area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat',
     moduleName: string
   ): string | undefined {
     const candidates = this.getPluginCodeCandidates(area);
@@ -106,10 +112,16 @@ export class PluginRegistry {
     return imported.default ?? imported[Object.keys(imported)[0]];
   }
 
-  private assertSafePluginModuleName(area: 'compat' | 'embedding-compat' | 'vector-compat', moduleName: string): void {
+  private assertSafePluginModuleName(
+    area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat',
+    moduleName: string
+  ): void {
     // Module names come from manifests; harden against path traversal and invalid paths.
     // Allow only simple names like "example-compat" or "example_store".
     if (!/^[a-zA-Z0-9._-]+$/.test(moduleName)) {
+      throw new ManifestError(`Invalid ${area} module name '${moduleName}'`);
+    }
+    if (moduleName === '.' || moduleName === '..' || moduleName.includes('..')) {
       throw new ManifestError(`Invalid ${area} module name '${moduleName}'`);
     }
   }
@@ -194,6 +206,31 @@ export class PluginRegistry {
     }
   }
 
+  private async ensureRealtimeCompatLoaded(kind: string): Promise<void> {
+    if (this.realtimeCompats.has(kind)) return;
+
+    this.realtimeCompatsLoaded = true;
+
+    this.assertSafePluginModuleName('realtime-compat', kind);
+
+    const modulePath = this.resolvePluginCodeEntry('realtime-compat', kind);
+    if (!modulePath) {
+      throw new ManifestError(`No realtime compat module found for '${kind}'`);
+    }
+
+    try {
+      const imported = await this.importPluginCodeModule(modulePath);
+      const CompatClass = this.getDefaultOrFirstExport(imported);
+      if (typeof CompatClass !== 'function') {
+        throw new Error('module did not export a constructor');
+      }
+      this.realtimeCompats.set(kind, () => new (CompatClass as any)());
+    } catch (error: any) {
+      console.warn(`Failed to load realtime compat module ${kind}: ${error.message}`);
+      throw new ManifestError(`No realtime compat module found for '${kind}'`);
+    }
+  }
+
   private async loadProviders(): Promise<void> {
     return this.loadProvidersInternal();
   }
@@ -218,6 +255,32 @@ export class PluginRegistry {
     }
 
     this.providersLoaded = true;
+  }
+
+  private async loadRealtimeProviders(): Promise<void> {
+    return this.loadRealtimeProvidersInternal();
+  }
+
+  private async loadRealtimeProvidersInternal(options: { strict?: boolean } = {}): Promise<void> {
+    if (this.realtimeProvidersLoaded) return;
+
+    const files = glob.sync('realtime-providers/*.json', { cwd: this.rootPath });
+    for (const file of files) {
+      if (options.strict) {
+        const manifest = loadJsonFile(path.join(this.rootPath, file)) as RealtimeProviderManifest;
+        this.realtimeProviders.set(manifest.id, manifest);
+        continue;
+      }
+
+      try {
+        const manifest = loadJsonFile(path.join(this.rootPath, file)) as RealtimeProviderManifest;
+        this.realtimeProviders.set(manifest.id, manifest);
+      } catch (error: any) {
+        console.warn(`Skipping realtime provider manifest ${file}: ${error.message}`);
+      }
+    }
+
+    this.realtimeProvidersLoaded = true;
   }
 
   private async loadTools(): Promise<void> {
@@ -367,6 +430,7 @@ export class PluginRegistry {
    */
   async validateAll(): Promise<void> {
     await this.loadProvidersInternal({ strict: true });
+    await this.loadRealtimeProvidersInternal({ strict: true });
     await this.loadToolsInternal({ strict: true });
     await this.loadMCPServersInternal({ strict: true });
     await this.loadVectorStoresInternal({ strict: true });
@@ -376,6 +440,10 @@ export class PluginRegistry {
     // Validate that referenced plugin code modules exist and can be imported.
     for (const provider of this.providers.values()) {
       await this.ensureCompatModuleLoaded(provider.compat);
+    }
+
+    for (const provider of this.realtimeProviders.values()) {
+      await this.ensureRealtimeCompatLoaded(provider.compat);
     }
 
     for (const store of this.vectorStores.values()) {
@@ -392,6 +460,15 @@ export class PluginRegistry {
     const provider = this.providers.get(id);
     if (!provider) {
       throw new ManifestError(`Unknown provider '${id}'`);
+    }
+    return provider;
+  }
+
+  async getRealtimeProvider(id: string): Promise<RealtimeProviderManifest> {
+    await this.loadRealtimeProviders();
+    const provider = this.realtimeProviders.get(id);
+    if (!provider) {
+      throw new ManifestError(`Unknown realtime provider '${id}'`);
     }
     return provider;
   }
@@ -478,5 +555,10 @@ export class PluginRegistry {
   async getVectorStoreCompat(kind: string): Promise<IVectorStoreCompat> {
     await this.ensureVectorStoreCompatLoaded(kind);
     return this.vectorStoreCompats.get(kind)!();
+  }
+
+  async getRealtimeCompat(kind: string): Promise<IRealtimeCompat> {
+    await this.ensureRealtimeCompatLoaded(kind);
+    return this.realtimeCompats.get(kind)!();
   }
 }
