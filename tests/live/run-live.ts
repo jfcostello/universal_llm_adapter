@@ -11,6 +11,20 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..', '..');
 
+function getMissingLiveEnvForProvider(provider: string | null, env: NodeJS.ProcessEnv): string[] {
+  if (!provider) return [];
+
+  const requiredByProvider: Record<string, string[]> = {
+    anthropic: ['ANTHROPIC_API_KEY'],
+    'openai-responses': ['OPENAI_API_KEY'],
+    openrouter: ['OPENROUTER_API_KEY'],
+    google: ['GEMINI_API_KEY']
+  };
+
+  const required = requiredByProvider[String(provider)] ?? [];
+  return required.filter(key => !env?.[key] || String(env[key]).trim() === '');
+}
+
 function createRunId(prefix: string): string {
   // File-safe + stable, avoids characters that are invalid in env-derived IDs.
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -167,6 +181,15 @@ async function main() {
 
   const baseEnv: NodeJS.ProcessEnv = { ...process.env, LLM_LIVE: '1' };
   if (provider) baseEnv.LLM_TEST_PROVIDERS = provider;
+
+  const missingEnv = getMissingLiveEnvForProvider(provider, baseEnv);
+  if (missingEnv.length > 0) {
+    console.warn(
+      `Skipping live tests for '${provider}': missing required env var(s): ${missingEnv.join(', ')}.`
+    );
+    process.exitCode = 0;
+    return;
+  }
 
   // Live suites invoke the built CLI entrypoint under `dist/` (and server mode runs `dist/bin/cli.js`),
   // so ensure `dist/` is up to date for *all* transports (cli/server/both) for deterministic results.

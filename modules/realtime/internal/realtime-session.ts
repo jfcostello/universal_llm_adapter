@@ -45,6 +45,8 @@ type ToolCoordinatorLike = {
 
 class RealtimeSessionController implements RealtimeSession {
   private readonly queue = new AsyncQueue<RealtimeEvent>();
+  private maxBufferedEvents: number | undefined;
+  private bufferOverflowed = false;
   private startedAtMs = Date.now();
   private lastActivityAtMs = Date.now();
   private maxDurationMs: number;
@@ -70,6 +72,12 @@ class RealtimeSessionController implements RealtimeSession {
     this.idleTimeoutMs = timeoutCfg.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
     this.onTimeout = timeoutCfg.onTimeout ?? DEFAULT_ON_TIMEOUT;
 
+    const eventBufferCfg = options.spec.eventBuffer ?? {};
+    const maxEvents = Number((eventBufferCfg as any).maxEvents);
+    if (Number.isFinite(maxEvents) && maxEvents > 0) {
+      this.maxBufferedEvents = Math.floor(maxEvents);
+    }
+
     const dtmfCfg = options.spec.dtmf ?? {};
     this.dtmfMode = dtmfCfg.mode ?? 'digit';
     this.dtmfTerminators = new Set((dtmfCfg.terminators ?? ['#']).map(s => String(s)));
@@ -88,6 +96,35 @@ class RealtimeSessionController implements RealtimeSession {
     }
     this.eventsConsumed = true;
     return this.queue.iterate();
+  }
+
+  private pushEvent(event: RealtimeEvent): void {
+    if (this.closed) return;
+
+    if (!this.bufferOverflowed && this.maxBufferedEvents !== undefined) {
+      if (this.queue.getBufferedCount() >= this.maxBufferedEvents) {
+        void this.handleEventBufferOverflow();
+        return;
+      }
+    }
+
+    this.queue.push(event);
+  }
+
+  private async handleEventBufferOverflow(): Promise<void> {
+    this.bufferOverflowed = true;
+
+    // Drop buffered events to free memory; downstream consumers will receive an explicit error + close.
+    this.queue.clear();
+    const now = Date.now();
+    this.queue.push({
+      type: 'error',
+      message: 'Realtime event buffer overflow: consumer is not draining events()',
+      code: 'event_buffer_overflow'
+    });
+    this.queue.push({ type: 'playback.clear_requested', reason: 'error', atMs: now });
+
+    await this.closeInternal({ reason: 'error', emitClosedEvent: true });
   }
 
   async sendText(options: { text: string; role?: 'system' | 'user' }): Promise<void> {
@@ -117,7 +154,7 @@ class RealtimeSessionController implements RealtimeSession {
     } else if (this.dtmfMode === 'digit') {
       await this.maybeBargeIn('user_dtmf.digit');
     }
-    this.queue.push({ type: 'user_dtmf.digit', digit: d });
+    this.pushEvent({ type: 'user_dtmf.digit', digit: d });
 
     if (this.dtmfMode === 'digit') {
       await this.options.compatSession.sendText({ text: `DTMF: ${d}`, role: 'user' });
@@ -137,7 +174,7 @@ class RealtimeSessionController implements RealtimeSession {
     if (!this.dtmfBargedInThisBuffer) {
       await this.maybeBargeIn('user_dtmf.sequence');
     }
-    this.queue.push({ type: 'user_dtmf.sequence', digits, ...(terminator ? { terminator } : {}) });
+    this.pushEvent({ type: 'user_dtmf.sequence', digits, ...(terminator ? { terminator } : {}) });
 
     await this.options.compatSession.sendText({ text: `DTMF sequence: ${digits}`, role: 'user' });
     await this.options.compatSession.commit();
@@ -160,7 +197,7 @@ class RealtimeSessionController implements RealtimeSession {
     this.ensureOpen();
     this.onActivity();
     await this.options.compatSession.interrupt({ reason: _options.reason });
-    this.queue.push({
+    this.pushEvent({
       type: 'playback.clear_requested',
       reason: 'interrupt',
       atMs: Date.now()
@@ -222,14 +259,14 @@ class RealtimeSessionController implements RealtimeSession {
     const elapsedMs = reason === 'idle' ? now - this.lastActivityAtMs : now - this.startedAtMs;
     const configuredMs = reason === 'idle' ? this.idleTimeoutMs : this.maxDurationMs;
 
-    this.queue.push({
+    this.pushEvent({
       type: 'timeout',
       reason,
       elapsedMs,
       configuredMs
     });
 
-    this.queue.push({
+    this.pushEvent({
       type: 'playback.clear_requested',
       reason: 'timeout',
       atMs: now
@@ -250,7 +287,7 @@ class RealtimeSessionController implements RealtimeSession {
         return;
       }
       if (!first.value || (first.value as any).type !== 'ready') {
-        this.queue.push({ type: 'error', message: 'First realtime event must be ready', code: 'invalid_first_event' });
+        this.pushEvent({ type: 'error', message: 'First realtime event must be ready', code: 'invalid_first_event' });
         await this.closeInternal({ reason: 'error', emitClosedEvent: true });
         return;
       }
@@ -260,7 +297,7 @@ class RealtimeSessionController implements RealtimeSession {
         try {
           await this.options.compatSession.injectContext(history);
         } catch (err: any) {
-          this.queue.push({
+          this.pushEvent({
             type: 'error',
             message: err?.message ?? String(err),
             code: 'history_injection_failed'
@@ -271,7 +308,7 @@ class RealtimeSessionController implements RealtimeSession {
       }
 
       this.onActivity();
-      this.queue.push(first.value);
+      this.pushEvent(first.value);
 
       while (true) {
         const next = await iter.next();
@@ -285,7 +322,7 @@ class RealtimeSessionController implements RealtimeSession {
       }
     } catch (error: any) {
       if (!this.closed) {
-        this.queue.push({ type: 'error', message: error?.message ?? String(error), code: 'compat_error' });
+        this.pushEvent({ type: 'error', message: error?.message ?? String(error), code: 'compat_error' });
         await this.closeInternal({ reason: 'error', emitClosedEvent: true });
       }
     }
@@ -301,7 +338,7 @@ class RealtimeSessionController implements RealtimeSession {
       await this.maybeBargeIn('user_transcript.delta');
     }
 
-    this.queue.push(event);
+    this.pushEvent(event);
 
     if (event.type === 'tool_call.end') {
       await this.handleToolCallEnd(event);
@@ -322,7 +359,7 @@ class RealtimeSessionController implements RealtimeSession {
     if (!triggers.includes(trigger)) return false;
 
     await this.options.compatSession.interrupt({ reason: 'barge_in' });
-    this.queue.push({ type: 'playback.clear_requested', reason: 'barge_in', atMs: Date.now() });
+    this.pushEvent({ type: 'playback.clear_requested', reason: 'barge_in', atMs: Date.now() });
     return true;
   }
 
@@ -339,13 +376,13 @@ class RealtimeSessionController implements RealtimeSession {
 
   private async handleToolCallEnd(event: Extract<RealtimeEvent, { type: 'tool_call.end' }>): Promise<void> {
     if (!this.enabledToolNames) {
-      this.queue.push({ type: 'error', message: 'Tool call received but tools are not enabled', code: 'tools_disabled' });
+      this.pushEvent({ type: 'error', message: 'Tool call received but tools are not enabled', code: 'tools_disabled' });
       await this.closeInternal({ reason: 'error', emitClosedEvent: true });
       return;
     }
 
     if (!this.enabledToolNames.has(event.name)) {
-      this.queue.push({ type: 'error', message: `Tool not enabled: ${event.name}`, code: 'tool_not_enabled' });
+      this.pushEvent({ type: 'error', message: `Tool not enabled: ${event.name}`, code: 'tool_not_enabled' });
       await this.closeInternal({ reason: 'error', emitClosedEvent: true });
       return;
     }
@@ -365,9 +402,9 @@ class RealtimeSessionController implements RealtimeSession {
         toolCallId: event.toolCallId,
         result: result as JsonValue
       });
-      this.queue.push({ type: 'tool_result.sent', toolCallId: event.toolCallId });
+      this.pushEvent({ type: 'tool_result.sent', toolCallId: event.toolCallId });
     } catch (error: any) {
-      this.queue.push({ type: 'error', message: `Tool execution failed: ${error?.message ?? String(error)}`, code: 'tool_error' });
+      this.pushEvent({ type: 'error', message: `Tool execution failed: ${error?.message ?? String(error)}`, code: 'tool_error' });
       await this.closeInternal({ reason: 'error', emitClosedEvent: true });
     }
   }

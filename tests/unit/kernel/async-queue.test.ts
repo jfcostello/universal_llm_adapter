@@ -36,4 +36,18 @@ describe('kernel/async-queue', () => {
     const res = await pending;
     expect(res.done).toBe(true);
   });
+
+  test('getBufferedCount() reports buffered items and clear() drops them', async () => {
+    const q = new AsyncQueue<number>();
+    expect(q.getBufferedCount()).toBe(0);
+
+    q.push(1);
+    q.push(2);
+    expect(q.getBufferedCount()).toBe(2);
+
+    q.clear();
+    expect(q.getBufferedCount()).toBe(0);
+
+    q.close();
+  });
 });

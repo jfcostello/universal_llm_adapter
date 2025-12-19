@@ -154,7 +154,10 @@ export function getFilteredRealtimeTestRuns(): RealtimeTestRun[] {
       `Warning: No realtime test runs matched providers: ${providerFilter}. ` +
       `Available: ${realtimeTestRuns.map(r => r.name).join(', ')}`
     );
-    return realtimeTestRuns;
+    // Unlike base LLM live tests, realtime runs are not interchangeable; when a provider filter
+    // doesn't match any realtime runs, treat it as "no realtime runs selected" rather than
+    // silently running a different realtime provider.
+    return [];
   }
 
   return filtered;
@@ -172,9 +175,9 @@ export const filteredTestRuns = getFilteredTestRuns();
  */
 export const filteredRealtimeTestRuns = getFilteredRealtimeTestRuns();
 
-// Backwards compatibility exports (use first run as default)
-export const llmPriority = testRuns[0].llmPriority;
-export const defaultSettings = testRuns[0].settings;
+// Backwards compatibility exports (use first *filtered* run as default)
+export const llmPriority = filteredTestRuns[0]?.llmPriority ?? testRuns[0].llmPriority;
+export const defaultSettings = filteredTestRuns[0]?.settings ?? testRuns[0].settings;
 export const primaryProvider = llmPriority[0]?.provider ?? '';
 
 export const invalidPriorityEntry = {

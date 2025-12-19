@@ -7,6 +7,10 @@ import { filteredRealtimeTestRuns as testRuns } from '../config.ts';
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
 
+if (testRuns.length === 0) {
+  test.skip('20-realtime — skipped (no matching realtime providers)', () => {});
+}
+
 function fixturePath(name: string): string {
   return path.resolve(process.cwd(), 'tests', 'live', 'fixtures', 'realtime', name);
 }

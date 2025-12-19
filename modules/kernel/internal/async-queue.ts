@@ -3,6 +3,14 @@ export class AsyncQueue<T> {
   private resolvers: Array<(value: IteratorResult<T>) => void> = [];
   private closed = false;
 
+  getBufferedCount(): number {
+    return this.items.length;
+  }
+
+  clear(): void {
+    this.items.length = 0;
+  }
+
   push(item: T): void {
     if (this.closed) return;
     const next = this.resolvers.shift();
@@ -40,4 +48,3 @@ export class AsyncQueue<T> {
     }
   }
 }
-
