@@ -6,6 +6,7 @@ import { filteredRealtimeTestRuns as testRuns } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
+const describeLive = runLive ? describe : describe.skip;
 
 function fixturePath(name: string): string {
   return path.resolve(process.cwd(), 'tests', 'live', 'fixtures', 'realtime', name);
@@ -48,10 +49,20 @@ function parseRememberedNumberFromTranscript(text: string): string | null {
   return null;
 }
 
-for (let i = 0; i < testRuns.length; i++) {
-  const runCfg = testRuns[i];
+if (testRuns.length === 0) {
+  describeLive('20-realtime — provider selection', () => {
+    test('requires a realtime provider selection', () => {
+      throw new Error(
+        'No realtime live test runs are selected. ' +
+          'Set LLM_TEST_PROVIDERS=openai|google (or unset it to run all realtime providers).'
+      );
+    });
+  });
+} else {
+  for (let i = 0; i < testRuns.length; i++) {
+    const runCfg = testRuns[i];
 
-  (runLive ? describe : describe.skip)(`20-realtime — ${runCfg.name}`, () => {
+    describeLive(`20-realtime — ${runCfg.name}`, () => {
     const provider = runCfg.provider;
     const model = runCfg.model;
 
@@ -417,5 +428,6 @@ for (let i = 0; i < testRuns.length; i++) {
         runOne('papaya', 'session-3')
       ]);
     }, 180000);
-  });
+    });
+  }
 }

@@ -263,6 +263,49 @@ export class LLMManager {
           }
         }
 
+        // Some providers require reasoning for certain endpoints and reject explicit attempts to disable it.
+        // When this happens, retry once with reasoning removed so the call can proceed.
+        if (
+          response.status >= 400 &&
+          finalPayload?.reasoning !== undefined &&
+          this.isReasoningExplicitlyDisabled(finalPayload) &&
+          this.isReasoningDisabledNotAllowedError(response.data)
+        ) {
+          logger?.warning('Provider rejected explicit reasoning disable; retrying without reasoning', {
+            provider: provider.id,
+            model
+          });
+
+          const retryPayload = this.stripReasoning(finalPayload);
+          response = await sendRequest(retryPayload);
+
+          if (logger) {
+            logger.logLLMResponse({
+              status: response.status,
+              statusText: response.statusText,
+              headers: response.headers,
+              body: response.data
+            });
+          }
+
+          if (process.env.LLM_LIVE === '1') {
+            try {
+              const { logResponse } = await import('./live-test-logger.js');
+              logResponse(
+                {
+                  status: response.status,
+                  statusText: response.statusText,
+                  headers: response.headers,
+                  body: response.data
+                },
+                context.metadata
+              );
+            } catch (e) {
+              // Live logger not available, skip
+            }
+          }
+        }
+
         if (response.status >= 400) {
           const isRateLimit = this.isRateLimitResponse(provider, response);
 
@@ -580,6 +623,14 @@ export class LLMManager {
     return next;
   }
 
+  private isReasoningExplicitlyDisabled(payload: any): boolean {
+    const reasoning = payload?.reasoning;
+    if (!reasoning || typeof reasoning !== 'object' || Array.isArray(reasoning)) {
+      return false;
+    }
+    return reasoning.enabled === false || reasoning.exclude === true;
+  }
+
   private isUnsupportedReasoningParamError(data: any): boolean {
     const error = data?.error;
     if (!error || typeof error !== 'object') {
@@ -603,6 +654,15 @@ export class LLMManager {
     }
 
     return false;
+  }
+
+  private isReasoningDisabledNotAllowedError(data: any): boolean {
+    const message = data?.error?.message;
+    if (typeof message !== 'string') {
+      return false;
+    }
+    const normalized = message.toLowerCase();
+    return normalized.includes('reasoning') && normalized.includes('cannot be disabled');
   }
 
   private isHttpUrlTemplate(urlTemplate: unknown): boolean {

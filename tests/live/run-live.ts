@@ -4,8 +4,10 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
 import { parseLaunchConfig, buildJestArgs } from './launcher/index.js';
 import { maxWorkersDefault } from './config.ts';
+import { getTestPathPatternsFromJestArgs, getMissingRequiredEnv } from './required-env.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -165,8 +167,57 @@ async function main() {
 
   const { nodeArgs, jestArgs } = buildJestArgs({ maxWorkers, passthrough });
 
+  const hasCustomPattern = (passthrough || []).some(arg => String(arg).startsWith('--testPathPattern'));
+  if (provider && !hasCustomPattern) {
+    const idx = jestArgs.findIndex(arg => String(arg).startsWith('--testPathPattern='));
+    if (idx !== -1) {
+      // Provider-specific runs should not pull in realtime suite by default.
+      jestArgs[idx] = '--testPathPattern=tests[\\\\/]live(?![\\\\/]test-files[\\\\/]20-realtime)';
+    }
+  }
+
+  dotenv.config({ path: path.join(rootDir, '.env') });
+
   const baseEnv: NodeJS.ProcessEnv = { ...process.env, LLM_LIVE: '1' };
   if (provider) baseEnv.LLM_TEST_PROVIDERS = provider;
+
+  const testPathPatterns = getTestPathPatternsFromJestArgs(jestArgs);
+
+  const selectedProviders =
+    provider && String(provider).trim() !== ''
+      ? [String(provider).trim()]
+      : (baseEnv.LLM_TEST_PROVIDERS || '')
+          .split(',')
+          .map(p => p.trim())
+          .filter(Boolean);
+
+  const patterns = testPathPatterns.join(' ');
+  const wantsAllLive = /\blive\b/i.test(patterns);
+  const wantsEmbeddings = /\bembeddings\b|15-embeddings/i.test(patterns);
+  const wantsVector =
+    /\bvector\b|16-vector-store|17-vector-cli|18-vector-auto-inject|19-vector-search-locks/i.test(patterns);
+  const wantsRealtime = /\brealtime\b|20-realtime/i.test(patterns);
+
+  const expectsLlmSuites = wantsAllLive || (!wantsEmbeddings && !wantsVector && !wantsRealtime);
+
+  const effectiveProviders =
+    selectedProviders.length > 0
+      ? selectedProviders
+      : wantsRealtime
+        ? ['openai', 'google']
+        : expectsLlmSuites
+          ? ['anthropic', 'openai-responses', 'openrouter', 'google']
+          : [];
+
+  const missingEnv = getMissingRequiredEnv({ selectedProviders: effectiveProviders, testPathPatterns, env: baseEnv });
+  if (missingEnv.length > 0) {
+    console.error(
+      `Live tests require env var(s) that are missing/empty: ${missingEnv.join(', ')}. ` +
+        `Refusing to run.`
+    );
+    process.exitCode = 1;
+    return;
+  }
 
   // Live suites invoke the built CLI entrypoint under `dist/` (and server mode runs `dist/bin/cli.js`),
   // so ensure `dist/` is up to date for *all* transports (cli/server/both) for deterministic results.
