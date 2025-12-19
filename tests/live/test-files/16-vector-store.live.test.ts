@@ -12,11 +12,16 @@
  */
 
 import { runEmbeddingCoordinator, runVectorCoordinator } from '@tests/helpers/node-cli.ts';
+import { requireEnv } from '@tests/helpers/require-env.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
-const hasQdrantConfig = Boolean(process.env.QDRANT_CLOUD_URL && process.env.QDRANT_API_KEY);
-const hasEmbeddingKey = Boolean(process.env.OPENROUTER_API_KEY);
-const describeLive = runLive && hasQdrantConfig && hasEmbeddingKey ? describe : describe.skip;
+if (runLive) {
+  requireEnv({
+    required: ['QDRANT_CLOUD_URL', 'QDRANT_API_KEY', 'OPENROUTER_API_KEY'],
+    label: '16-vector-store'
+  });
+}
+const describeLive = runLive ? describe : describe.skip;
 
 const pluginsPath = './plugins';
 const testCollection = `test_collection_${Date.now()}`;
@@ -218,4 +223,3 @@ describeLive('16-vector-store (transported)', () => {
     expect(stillHasDoc).toBe(false);
   }, 90000);
 });
-
