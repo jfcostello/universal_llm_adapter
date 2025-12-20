@@ -32,19 +32,6 @@ describe('coordinator utility helpers', () => {
     expect(sanitize(long)).toHaveLength(64);
   });
 
-  test('normalizeFlag covers booleans, numbers, strings, and fallback', () => {
-    const coordinator = instance();
-    const normalize = (coordinator as any).normalizeFlag.bind(coordinator);
-
-    expect(normalize(undefined, true)).toBe(true);
-    expect(normalize(false, true)).toBe(false);
-    expect(normalize(1, false)).toBe(true);
-    expect(normalize('yes', false)).toBe(true);
-    expect(normalize('off', true)).toBe(false);
-    expect(normalize('maybe', true)).toBe(true);
-    expect(normalize({}, false)).toBe(true);
-  });
-
   test('attachUsageCostIfNeeded computes usage cost when enabled', async () => {
     const coordinator = instance();
     const response = {

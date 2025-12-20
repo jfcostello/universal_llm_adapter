@@ -8,6 +8,7 @@ import type {
   AdapterLogger
 } from '../../kernel/index.js';
 import { StreamEventType, ToolCallEventType, getDefaults } from '../../kernel/index.js';
+import { normalizeFlag } from '../../shared/index.js';
 import { pruneToolResults, pruneReasoning } from '../../context/index.js';
 import { partitionSettings } from '../../settings/index.js';
 import { usageStatsToJson } from '../../usage/index.js';
@@ -344,17 +345,4 @@ export class StreamCoordinator {
     };
   }
 
-}
-
-function normalizeFlag(value: unknown, defaultValue: boolean): boolean {
-  if (value === null || value === undefined) return defaultValue;
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') return Boolean(value);
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
-    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
-    return defaultValue;
-  }
-  return Boolean(value);
 }

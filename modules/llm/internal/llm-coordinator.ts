@@ -22,6 +22,7 @@ import {
   resolveLoggingDeps
 } from '../../kernel/index.js';
 import { LLMManager } from './llm-manager.js';
+import { normalizeFlag } from '../../shared/index.js';
 import { pruneToolResults, pruneReasoning } from '../../context/index.js';
 import { partitionSettings, mergeProviderSettings } from '../../settings/index.js';
 import { prepareMessages, appendAssistantToolCalls, appendToolResult } from '../../messages/index.js';
@@ -600,7 +601,7 @@ export class LLMCoordinator {
 
   private shouldCalculateUsageCost(settings: LLMCallSettings): boolean {
     const defaults = getDefaults();
-    return this.normalizeFlag(settings.usageCost, defaults.usageCost);
+    return normalizeFlag(settings.usageCost, defaults.usageCost);
   }
 
   private async attachUsageCostIfNeeded(
@@ -633,19 +634,6 @@ export class LLMCoordinator {
     }
     const parsed = parseInt(String(value), 10);
     return Number.isFinite(parsed) ? Math.max(0, parsed) : 10;
-  }
-
-  private normalizeFlag(value: any, defaultValue: boolean): boolean {
-    if (value === null || value === undefined) return defaultValue;
-    if (typeof value === 'boolean') return value;
-    if (typeof value === 'number') return Boolean(value);
-    if (typeof value === 'string') {
-      const normalized = value.trim().toLowerCase();
-      if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
-      if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
-      return defaultValue;
-    }
-    return Boolean(value);
   }
 
   async close(): Promise<void> {

@@ -48,6 +48,7 @@ universal_llm_adapter/
 │   ├── logging/                  # Logger factories (LLM, Embedding, Vector)
 │   ├── security/                 # Security utilities, header redaction
 │   ├── settings/                 # Settings splitting and merging
+│   ├── shared/                   # Small shared utilities (lazy-loaded)
 │   ├── retry/                    # Retry policies and sequencing
 │   ├── usage/                    # Usage/cost metadata normalization
 │   ├── usage-cost/               # Optional usage cost calculation
