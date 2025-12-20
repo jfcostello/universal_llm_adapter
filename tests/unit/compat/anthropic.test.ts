@@ -505,6 +505,36 @@ describe('compat/anthropic', () => {
         reasoningTokens: undefined
       });
     });
+
+    test('computes totalTokens when only prompt tokens are present', () => {
+      const stats = (compat as any).extractUsageStats({
+        usage: {
+          input_tokens: 9
+        }
+      });
+
+      expect(stats).toEqual({
+        promptTokens: 9,
+        completionTokens: undefined,
+        totalTokens: 9,
+        reasoningTokens: undefined
+      });
+    });
+
+    test('computes totalTokens when only completion tokens are present', () => {
+      const stats = (compat as any).extractUsageStats({
+        usage: {
+          output_tokens: 11
+        }
+      });
+
+      expect(stats).toEqual({
+        promptTokens: undefined,
+        completionTokens: 11,
+        totalTokens: 11,
+        reasoningTokens: undefined
+      });
+    });
   });
 
   describe('parseResponse', () => {

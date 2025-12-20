@@ -1,6 +1,6 @@
 import type { ContentPart, LLMResponse, TextContent, ToolCall, UsageStats } from '../../../../modules/kernel/index.js';
 import { Role, safeJsonParse } from '../../../../modules/kernel/index.js';
-import { extractUsageStats } from '../../../../modules/usage/index.js';
+import { extractUniversalUsageStats } from '../../../../modules/usage/index.js';
 
 const responsesUsageSpec = {
   promptTokens: 'input_tokens',
@@ -9,7 +9,7 @@ const responsesUsageSpec = {
 } as const;
 
 export function parseUsage(usage: unknown): UsageStats | undefined {
-  return extractUsageStats(usage, responsesUsageSpec);
+  return extractUniversalUsageStats(usage, responsesUsageSpec);
 }
 
 export function parseSDKResponse(raw: any, model: string): LLMResponse {
@@ -61,4 +61,3 @@ export function parseSDKResponse(raw: any, model: string): LLMResponse {
     raw
   };
 }
-

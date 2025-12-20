@@ -87,7 +87,7 @@ export function enforceRetention(dir: string, opts: RetentionOptions): string[] 
       }
     })
     .filter((e): e is NonNullable<typeof e> => e !== null)
-    .sort((a, b) => (b.mtimeMs - a.mtimeMs) || a.name.localeCompare(b.name));
+    .sort((a, b) => (b.mtimeMs - a.mtimeMs) || b.name.localeCompare(a.name));
 
   const toKeep = Math.max(0, opts.maxFiles);
   const survivors: string[] = [];
@@ -119,4 +119,3 @@ function removePath(target: string, isDir: boolean) {
     // best-effort; ignore failures
   }
 }
-

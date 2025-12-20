@@ -1167,6 +1167,130 @@ describe('compat/openai', () => {
       expect(parsed.usage?.cost).toBe(0.00125);
     });
 
+    test('parseResponse returns nulls when usage fields are null only', () => {
+      const raw = {
+        choices: [
+          {
+            message: { content: 'response' },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: null,
+          completion_tokens: null,
+          total_tokens: null,
+          cost: null,
+          completion_tokens_details: { reasoning_tokens: null },
+          prompt_tokens_details: { cached_tokens: null, audio_tokens: null }
+        }
+      };
+
+      const parsed = compat.parseResponse(raw, 'gpt-4o');
+      expect(parsed.usage).toEqual({
+        promptTokens: null,
+        completionTokens: null,
+        totalTokens: null,
+        reasoningTokens: null,
+        cost: null,
+        cachedTokens: null,
+        audioTokens: null
+      });
+    });
+
+    test('parseResponse overrides null prompt tokens when completion tokens present', () => {
+      const raw = {
+        choices: [
+          {
+            message: { content: 'response' },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: null,
+          completion_tokens: 4,
+          total_tokens: 4
+        }
+      };
+
+      const parsed = compat.parseResponse(raw, 'gpt-4o');
+      expect(parsed.usage).toEqual({
+        promptTokens: null,
+        completionTokens: 4,
+        totalTokens: 4
+      });
+    });
+
+    test('parseResponse overrides null completion tokens when prompt tokens present', () => {
+      const raw = {
+        choices: [
+          {
+            message: { content: 'response' },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: 3,
+          completion_tokens: null
+        }
+      };
+
+      const parsed = compat.parseResponse(raw, 'gpt-4o');
+      expect(parsed.usage).toEqual({
+        promptTokens: 3,
+        completionTokens: null,
+        totalTokens: undefined,
+        reasoningTokens: undefined,
+        cost: undefined,
+        cachedTokens: undefined,
+        audioTokens: undefined
+      });
+    });
+
+    test('parseResponse overrides nullable extended usage fields', () => {
+      const raw = {
+        choices: [
+          {
+            message: { content: 'response' },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: 5,
+          completion_tokens: 6,
+          total_tokens: null,
+          cost: null,
+          completion_tokens_details: { reasoning_tokens: null },
+          prompt_tokens_details: { cached_tokens: null, audio_tokens: null }
+        }
+      };
+
+      const parsed = compat.parseResponse(raw, 'gpt-4o');
+      expect(parsed.usage).toEqual({
+        promptTokens: 5,
+        completionTokens: 6,
+        totalTokens: null,
+        reasoningTokens: null,
+        cost: null,
+        cachedTokens: null,
+        audioTokens: null
+      });
+    });
+
+    test('parseResponse returns undefined when usage has no extractable fields', () => {
+      const raw = {
+        choices: [
+          {
+            message: { content: 'response' },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: { other: 'nope' }
+      };
+
+      const parsed = compat.parseResponse(raw, 'gpt-4o');
+      expect(parsed.usage).toBeUndefined();
+    });
+
     test('parseResponse extracts cached_tokens from prompt_tokens_details', () => {
       const raw = {
         choices: [

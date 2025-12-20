@@ -205,6 +205,33 @@ describe('plugins/realtime-compat/openai — client secret minting', () => {
     expect(result).toEqual({ clientSecret: 'ek_456' });
   });
 
+  test('mintClientSecret reads expiresAt from client_secret payload', async () => {
+    const compat = new OpenAIRealtimeCompat() as any;
+
+    restoreFetch = installFetch(async (_url, _init) => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => ({ client_secret: { value: 'ek_999', expires_at: 321 } })
+    }));
+
+    const result = await compat.mintClientSecret({
+      provider: {
+        id: 'openai',
+        compat: 'openai',
+        endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} },
+        webrtc: {
+          endpoint: { urlTemplate: 'https://sdp?model={model}' },
+          clientSecretEndpoint: { urlTemplate: 'https://client-secrets.test/realtime/client_secrets' }
+        },
+        metadata: { defaultModel: 'dm' }
+      },
+      spec: { provider: 'openai' }
+    });
+
+    expect(result).toEqual({ clientSecret: 'ek_999', expiresAt: 321 });
+  });
+
   test('mintClientSecret throws when model is missing and no defaultModel is configured', async () => {
     const compat = new OpenAIRealtimeCompat() as any;
 

@@ -10,7 +10,7 @@ import type {
 import { StreamEventType, ToolCallEventType } from '../../kernel/index.js';
 import { pruneToolResults, pruneReasoning } from '../../context/index.js';
 import { partitionSettings } from '../../settings/index.js';
-import { usageStatsToJson } from '../../usage/index.js';
+import { finalizeUsageStats, usageStatsToJson } from '../../usage/index.js';
 
 interface StreamingContext {
   provider: string;
@@ -308,6 +308,15 @@ export class StreamCoordinator {
         }
       }
       }
+    }
+
+    if (latestUsage) {
+      latestUsage = await finalizeUsageStats({
+        usage: latestUsage,
+        provider,
+        model,
+        settings: executionSpec.settings
+      });
     }
 
     // Signal completion with final response

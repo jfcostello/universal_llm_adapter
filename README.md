@@ -400,6 +400,10 @@ All non-provider-specific defaults are in `plugins/configs/defaults.json`:
     "embeddingHttp": 60000,
     "loggerFlush": 2000
   },
+  "usageCost": {
+    "enabled": false,
+    "costsPath": "./plugins/configs/costs.json"
+  },
   "server": {
     "maxRequestBytes": 26214400,
     "bodyReadTimeoutMs": 10000,

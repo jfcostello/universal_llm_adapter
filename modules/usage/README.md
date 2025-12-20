@@ -9,3 +9,5 @@ Helpers for normalizing and presenting usage/cost metadata.
 ## Exports
 - `usageStatsToJson(usage)` – normalizes optional usage fields to explicit `null`s.
 - `extractUsageStats(raw, spec)` – spec-driven extraction from provider-shaped usage payloads.
+- `extractUniversalUsageStats(raw, spec?)` – merges shared usage paths with compat-specific paths.
+- `finalizeUsageStats({ usage, provider, model, settings })` – optional cost estimation when providers omit cost.

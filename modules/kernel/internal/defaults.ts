@@ -53,6 +53,10 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
     embeddingHttp: 60000,
     loggerFlush: 2000
   },
+  usageCost: {
+    enabled: false,
+    costsPath: './plugins/configs/costs.json'
+  },
   server: {
     maxRequestBytes: 25 * 1024 * 1024,
     bodyReadTimeoutMs: 10000,

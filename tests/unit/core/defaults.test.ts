@@ -21,6 +21,7 @@ describe('core/defaults', () => {
       expect(defaults).toHaveProperty('chunking');
       expect(defaults).toHaveProperty('tokenEstimation');
       expect(defaults).toHaveProperty('timeouts');
+      expect(defaults).toHaveProperty('usageCost');
       expect(defaults).toHaveProperty('server');
       expect(defaults).toHaveProperty('paths');
     });
@@ -86,6 +87,14 @@ describe('core/defaults', () => {
       expect(timeouts.llmHttp).toBe(60000);
       expect(timeouts.embeddingHttp).toBe(60000);
       expect(timeouts.loggerFlush).toBe(2000);
+    });
+
+    test('returns correct usage cost defaults', async () => {
+      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { usageCost } = getDefaults();
+
+      expect(usageCost.enabled).toBe(false);
+      expect(usageCost.costsPath).toBe('./plugins/configs/costs.json');
     });
 
 	    test('returns correct server defaults', async () => {

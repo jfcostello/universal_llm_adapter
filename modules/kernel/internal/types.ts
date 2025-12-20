@@ -147,8 +147,13 @@ export interface LLMCallSettings {
   parallelToolExecution?: boolean;
   toolResultMaxChars?: number;
   batchId?: string;
+  usageCost?: UsageCostSettings;
   provider?: Record<string, any>;
   [key: string]: any;
+}
+
+export interface UsageCostSettings {
+  enabled?: boolean;
 }
 
 export const RUNTIME_SETTING_KEYS = [
@@ -178,7 +183,8 @@ export const PROVIDER_SETTING_KEYS = [
   'logprobs',
   'topLogprobs',
   'reasoning',
-  'reasoningBudget'
+  'reasoningBudget',
+  'usageCost'
 ] as const;
 
 export interface LLMPriorityItem {
@@ -400,16 +406,16 @@ export interface LLMCallSpec {
 }
 
 export interface UsageStats {
-  promptTokens?: number;
-  completionTokens?: number;
-  totalTokens?: number;
-  reasoningTokens?: number;
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  totalTokens?: number | null;
+  reasoningTokens?: number | null;
   /** Optional cost returned by the provider */
-  cost?: number;
+  cost?: number | null;
   /** Tokens read from cache (if supported) */
-  cachedTokens?: number;
+  cachedTokens?: number | null;
   /** Audio tokens (if supported) */
-  audioTokens?: number;
+  audioTokens?: number | null;
 }
 
 export interface LLMResponse {
@@ -993,6 +999,11 @@ export interface PathDefaults {
   plugins: string;
 }
 
+export interface UsageCostDefaults {
+  enabled: boolean;
+  costsPath: string;
+}
+
 /**
  * Root interface containing all default settings categories.
  * Loaded from plugins/configs/defaults.json
@@ -1005,5 +1016,6 @@ export interface DefaultSettings {
   tokenEstimation: TokenEstimationDefaults;
   timeouts: TimeoutDefaults;
   server: ServerDefaults;
+  usageCost: UsageCostDefaults;
   paths: PathDefaults;
 }

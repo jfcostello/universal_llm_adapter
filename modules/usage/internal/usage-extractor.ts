@@ -55,6 +55,34 @@ function readNumberByPaths(raw: unknown, paths: UsagePath[]): number | undefined
   return undefined;
 }
 
+export function mergeUsageExtractionSpecs(
+  ...specs: Array<UsageExtractionSpec | undefined>
+): UsageExtractionSpec {
+  const merged: UsageExtractionSpec = {};
+  const fields: Array<keyof UsageExtractionSpec> = [
+    'promptTokens',
+    'completionTokens',
+    'totalTokens',
+    'reasoningTokens',
+    'cost',
+    'cachedTokens',
+    'audioTokens'
+  ];
+
+  for (const field of fields) {
+    const paths: UsagePath[] = [];
+    for (const spec of specs) {
+      if (!spec?.[field]) continue;
+      paths.push(...toPathList(spec[field]));
+    }
+    if (paths.length > 0) {
+      merged[field] = paths;
+    }
+  }
+
+  return merged;
+}
+
 export function extractUsageStats(raw: unknown, spec: UsageExtractionSpec): UsageStats | undefined {
   const usage: UsageStats = {};
 

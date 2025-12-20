@@ -7,7 +7,7 @@ import type {
   UsageStats
 } from '../../../../modules/kernel/index.js';
 import { Role } from '../../../../modules/kernel/index.js';
-import { extractUsageStats } from '../../../../modules/usage/index.js';
+import { extractUniversalUsageStats } from '../../../../modules/usage/index.js';
 
 const googleUsageSpec = {
   promptTokens: 'promptTokenCount',
@@ -41,7 +41,7 @@ export function extractToolCalls(parts?: any[]): ToolCall[] | undefined {
 }
 
 export function extractUsage(usage?: unknown): UsageStats | undefined {
-  return extractUsageStats(usage, googleUsageSpec);
+  return extractUniversalUsageStats(usage, googleUsageSpec);
 }
 
 export function extractReasoning(parts?: any[]): ReasoningData | undefined {
@@ -87,4 +87,3 @@ export function parseSDKResponse(raw: any, model: string): LLMResponse {
     raw
   };
 }
-

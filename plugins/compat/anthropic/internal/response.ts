@@ -6,6 +6,8 @@ import type {
   UsageStats
 } from '../../../../modules/kernel/index.js';
 import { Role } from '../../../../modules/kernel/index.js';
+import { extractUniversalUsageStats } from '../../../../modules/usage/index.js';
+import { ANTHROPIC_USAGE_SPEC } from './mappings.js';
 import { ANTHROPIC_STOP_REASON_MAP } from './mappings.js';
 
 function parseContent(contentBlocks: any[]): ContentPart[] {
@@ -37,11 +39,19 @@ function parseToolCalls(contentBlocks: any[]): ToolCall[] | undefined {
 
 function parseUsage(usage: any): UsageStats | undefined {
   if (!usage) return undefined;
+  const extracted = extractUniversalUsageStats({ usage }, ANTHROPIC_USAGE_SPEC) ?? {};
+  const promptTokens = usage.input_tokens === null ? null : extracted.promptTokens;
+  const completionTokens = usage.output_tokens === null ? null : extracted.completionTokens;
+  const totalTokens = extracted.totalTokens ?? (
+    (typeof promptTokens === 'number' ? promptTokens : 0) +
+    (typeof completionTokens === 'number' ? completionTokens : 0)
+  );
 
   return {
-    promptTokens: usage.input_tokens,
-    completionTokens: usage.output_tokens,
-    totalTokens: (usage.input_tokens || 0) + (usage.output_tokens || 0)
+    ...extracted,
+    promptTokens,
+    completionTokens,
+    totalTokens
   };
 }
 

@@ -1,9 +1,11 @@
 import path from 'path';
+import fs from 'fs';
 import { jest } from '@jest/globals';
 import { PluginRegistry } from '@/modules/kernel/index.ts';
 import { LLMCoordinator } from '@/modules/llm/index.ts';
 import { Role, LLMResponse, LLMCallSettings } from '@/modules/kernel/index.ts';
 import { LLMManager } from '@/modules/llm/index.ts';
+import { resetDefaultsCache } from '@/modules/kernel/index.ts';
 import { ROOT_DIR, resolveFixture } from '@tests/helpers/paths.ts';
 
 const specBase = {
@@ -32,18 +34,31 @@ const specBase = {
 
 describe('coordinator/coordinator integration', () => {
   const originalCwd = process.cwd();
+  const costsPath = path.join(ROOT_DIR, 'plugins', 'configs', 'costs.json');
+  let originalCosts: string | null = null;
 
   beforeAll(() => {
     process.chdir(ROOT_DIR);
     process.env.TEST_LLM_ENDPOINT = 'http://localhost';
+    if (fs.existsSync(costsPath)) {
+      originalCosts = fs.readFileSync(costsPath, 'utf-8');
+    }
   });
 
   afterAll(() => {
+    if (originalCosts !== null) {
+      fs.writeFileSync(costsPath, originalCosts, 'utf-8');
+    }
+    resetDefaultsCache();
     process.chdir(originalCwd);
   });
 
   afterEach(() => {
     jest.restoreAllMocks();
+    if (originalCosts !== null) {
+      fs.writeFileSync(costsPath, originalCosts, 'utf-8');
+    }
+    resetDefaultsCache();
   });
 
   async function createCoordinator(options: { enableLogging?: boolean } = {}): Promise<LLMCoordinator> {
@@ -451,9 +466,111 @@ describe('coordinator/coordinator integration', () => {
       expect(firstCallSettings.maxTokens).toBe(500);
       expect(secondCallSettings.maxTokens).toBe(500);
 
-      await coordinator.close();
-    });
+    await coordinator.close();
   });
+
+  test('enriches usage with estimated cost when enabled', async () => {
+    fs.writeFileSync(
+      costsPath,
+      JSON.stringify(
+        {
+          'test-openai': {
+            'stub-model': {
+              input: 1,
+              output: 2,
+              cached: 0.5
+            }
+          }
+        },
+        null,
+        2
+      ),
+      'utf-8'
+    );
+    resetDefaultsCache();
+
+    const coordinator = await createCoordinator();
+    const callProviderMock = jest
+      .spyOn(LLMManager.prototype, 'callProvider')
+      .mockResolvedValue({
+        provider: 'test-openai',
+        model: 'stub-model',
+        role: Role.ASSISTANT,
+        content: [{ type: 'text', text: 'done' }],
+        finishReason: 'stop',
+        usage: {
+          promptTokens: 120,
+          completionTokens: 30,
+          cachedTokens: 20
+        }
+      } as LLMResponse);
+
+    const spec = {
+      ...specBase,
+      settings: {
+        ...specBase.settings,
+        usageCost: { enabled: true }
+      }
+    };
+
+    const result = await coordinator.run(spec as any);
+    expect(result.usage?.cost).toBe(0.00017);
+    expect(callProviderMock).toHaveBeenCalledTimes(1);
+
+    await coordinator.close();
+  });
+
+  test('respects usage cost override disable', async () => {
+    fs.writeFileSync(
+      costsPath,
+      JSON.stringify(
+        {
+          'test-openai': {
+            'stub-model': {
+              input: 1,
+              output: 2,
+              cached: 0.5
+            }
+          }
+        },
+        null,
+        2
+      ),
+      'utf-8'
+    );
+    resetDefaultsCache();
+
+    const coordinator = await createCoordinator();
+    const callProviderMock = jest
+      .spyOn(LLMManager.prototype, 'callProvider')
+      .mockResolvedValue({
+        provider: 'test-openai',
+        model: 'stub-model',
+        role: Role.ASSISTANT,
+        content: [{ type: 'text', text: 'done' }],
+        finishReason: 'stop',
+        usage: {
+          promptTokens: 120,
+          completionTokens: 30,
+          cachedTokens: 20
+        }
+      } as LLMResponse);
+
+    const spec = {
+      ...specBase,
+      settings: {
+        ...specBase.settings,
+        usageCost: { enabled: false }
+      }
+    };
+
+    const result = await coordinator.run(spec as any);
+    expect(result.usage?.cost).toBeUndefined();
+    expect(callProviderMock).toHaveBeenCalledTimes(1);
+
+    await coordinator.close();
+  });
+});
 
   describe('vector context with schema overrides', () => {
     test('passes alias map to tool coordinator when toolSchemaOverrides are configured', async () => {

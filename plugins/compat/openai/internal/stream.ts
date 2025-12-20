@@ -1,7 +1,7 @@
 import type { ParsedStreamChunk, ReasoningData, UsageStats } from '../../../../modules/kernel/index.js';
 import { ToolCallEventType } from '../../../../modules/kernel/index.js';
-import { extractUsageStats } from '../../../../modules/usage/index.js';
-import { OPENAI_USAGE_SPEC_STREAM } from './mappings.js';
+import { extractUniversalUsageStats } from '../../../../modules/usage/index.js';
+import { OPENAI_USAGE_SPEC } from './mappings.js';
 
 export interface OpenAIStreamState {
   toolCallState: Map<string, { name?: string; arguments: string }>;
@@ -18,7 +18,7 @@ export function createOpenAIStreamState(): OpenAIStreamState {
 }
 
 export function normalizeUsageStats(raw: any): UsageStats {
-  return extractUsageStats(raw, OPENAI_USAGE_SPEC_STREAM) ?? {};
+  return extractUniversalUsageStats(raw, OPENAI_USAGE_SPEC) ?? {};
 }
 
 export function extractReasoningFromDelta(delta: any): ReasoningData | undefined {

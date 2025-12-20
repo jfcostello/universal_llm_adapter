@@ -6,6 +6,8 @@ import type {
   UsageStats
 } from '../../../../modules/kernel/index.js';
 import { Role, safeJsonParse } from '../../../../modules/kernel/index.js';
+import { extractUniversalUsageStats } from '../../../../modules/usage/index.js';
+import { OPENAI_USAGE_SPEC } from './mappings.js';
 
 function parseContent(content: any): ContentPart[] {
   if (!content) return [];
@@ -60,16 +62,34 @@ function parseToolCalls(rawCalls: any, reasoningDetails?: any[]): ToolCall[] | u
 
 function parseUsage(raw: any): UsageStats | undefined {
   const usage = raw?.usage;
-  if (!usage) return undefined;
+  const extracted = extractUniversalUsageStats(raw, OPENAI_USAGE_SPEC);
+  if (!usage) {
+    return extracted;
+  }
+
+  if (!extracted) {
+    const fallback: UsageStats = {};
+    if (usage.prompt_tokens === null) fallback.promptTokens = null;
+    if (usage.completion_tokens === null) fallback.completionTokens = null;
+    if (usage.total_tokens === null) fallback.totalTokens = null;
+    if (usage.completion_tokens_details?.reasoning_tokens === null) fallback.reasoningTokens = null;
+    if (usage.cost === null) fallback.cost = null;
+    if (usage.prompt_tokens_details?.cached_tokens === null) fallback.cachedTokens = null;
+    if (usage.prompt_tokens_details?.audio_tokens === null) fallback.audioTokens = null;
+    return Object.keys(fallback).length > 0 ? fallback : undefined;
+  }
 
   return {
-    promptTokens: usage.prompt_tokens,
-    completionTokens: usage.completion_tokens,
-    totalTokens: usage.total_tokens,
-    reasoningTokens: usage.completion_tokens_details?.reasoning_tokens,
-    cost: usage.cost,
-    cachedTokens: usage.prompt_tokens_details?.cached_tokens,
-    audioTokens: usage.prompt_tokens_details?.audio_tokens
+    ...extracted,
+    promptTokens: usage.prompt_tokens === null ? null : extracted.promptTokens,
+    completionTokens: usage.completion_tokens === null ? null : extracted.completionTokens,
+    totalTokens: usage.total_tokens === null ? null : extracted.totalTokens,
+    reasoningTokens: usage.completion_tokens_details?.reasoning_tokens === null
+      ? null
+      : extracted.reasoningTokens,
+    cost: usage.cost === null ? null : extracted.cost,
+    cachedTokens: usage.prompt_tokens_details?.cached_tokens === null ? null : extracted.cachedTokens,
+    audioTokens: usage.prompt_tokens_details?.audio_tokens === null ? null : extracted.audioTokens
   };
 }
 

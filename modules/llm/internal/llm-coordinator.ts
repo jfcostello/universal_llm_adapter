@@ -23,6 +23,7 @@ import {
 import { LLMManager } from './llm-manager.js';
 import { pruneToolResults, pruneReasoning } from '../../context/index.js';
 import { partitionSettings, mergeProviderSettings } from '../../settings/index.js';
+import { finalizeUsageStats } from '../../usage/index.js';
 import { prepareMessages, appendAssistantToolCalls, appendToolResult } from '../../messages/index.js';
 import { processDocumentContent } from '../../documents/index.js';
 import { withRetries } from '../../retry/index.js';
@@ -223,6 +224,12 @@ export class LLMCoordinator {
           );
 
           this.ensureValidAssistantResponse(response, providerManifest.id);
+          response.usage = await finalizeUsageStats({
+            usage: response.usage,
+            provider: providerManifest.id,
+            model: item.model,
+            settings: mergedSettings
+          });
 
           runLogger.info('Provider response processed', {
             provider: providerManifest.id,
@@ -260,6 +267,12 @@ export class LLMCoordinator {
           );
 
           this.ensureValidAssistantResponse(response, providerManifest.id);
+          response.usage = await finalizeUsageStats({
+            usage: response.usage,
+            provider: providerManifest.id,
+            model: item.model,
+            settings: mergedSettings
+          });
 
           return response;
         }
