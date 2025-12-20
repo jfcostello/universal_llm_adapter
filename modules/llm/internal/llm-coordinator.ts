@@ -626,7 +626,6 @@ export class LLMCoordinator {
     }
   }
 
-
   private parseMaxToolIterations(value: unknown): number {
     if (value === null || value === undefined) return 10;
     if (typeof value === 'number') {
