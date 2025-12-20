@@ -50,6 +50,7 @@ universal_llm_adapter/
 │   ├── settings/                 # Settings splitting and merging
 │   ├── retry/                    # Retry policies and sequencing
 │   ├── usage/                    # Usage/cost metadata normalization
+│   ├── usage-cost/               # Optional usage cost calculation
 │   ├── lifecycle/                # Coordinator lifecycle wrappers
 │   └── string/                   # String utilities
 ├── plugins/                      # Provider-specific implementations
@@ -67,7 +68,8 @@ universal_llm_adapter/
 │   ├── mcp-servers/              # MCP server implementations (.mjs)
 │   ├── modules/                  # Plugin modules for tools
 │   └── configs/
-│       └── defaults.json         # Centralized defaults
+│       ├── defaults.json         # Centralized defaults
+│       └── usage-costs.json      # Usage cost table (per provider/model)
 ├── tests/
 │   ├── live/                     # Live integration tests
 │   └── sandbox/                  # Ad-hoc CLI runner

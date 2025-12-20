@@ -13,6 +13,72 @@ export interface UsageExtractionSpec {
   audioTokens?: UsagePath | UsagePath[];
 }
 
+const GLOBAL_USAGE_SPEC: UsageExtractionSpec = {
+  promptTokens: [
+    ['usage', 'prompt_tokens'],
+    ['usage', 'input_tokens'],
+    ['usage', 'promptTokens'],
+    ['usage', 'inputTokens'],
+    ['prompt_tokens'],
+    ['input_tokens'],
+    ['promptTokens'],
+    ['inputTokens']
+  ],
+  completionTokens: [
+    ['usage', 'completion_tokens'],
+    ['usage', 'output_tokens'],
+    ['usage', 'completionTokens'],
+    ['usage', 'outputTokens'],
+    ['completion_tokens'],
+    ['output_tokens'],
+    ['completionTokens'],
+    ['outputTokens']
+  ],
+  totalTokens: [
+    ['usage', 'total_tokens'],
+    ['usage', 'totalTokens'],
+    ['total_tokens'],
+    ['totalTokens']
+  ],
+  reasoningTokens: [
+    ['usage', 'completion_tokens_details', 'reasoning_tokens'],
+    ['usage', 'reasoning_tokens'],
+    ['usage', 'reasoningTokens'],
+    ['reasoning_tokens'],
+    ['reasoningTokens'],
+    ['usage', 'thoughtsTokenCount'],
+    ['thoughtsTokenCount']
+  ],
+  cost: [
+    ['usage', 'cost'],
+    ['usage', 'total_cost'],
+    ['usage', 'totalCost'],
+    ['cost'],
+    ['total_cost'],
+    ['totalCost'],
+    ['usage', 'cost_usd'],
+    ['cost_usd']
+  ],
+  cachedTokens: [
+    ['usage', 'prompt_tokens_details', 'cached_tokens'],
+    ['usage', 'cached_tokens'],
+    ['usage', 'cachedTokens'],
+    ['cached_tokens'],
+    ['cachedTokens']
+  ],
+  audioTokens: [
+    ['usage', 'prompt_tokens_details', 'audio_tokens'],
+    ['usage', 'audio_tokens'],
+    ['usage', 'audioTokens'],
+    ['audio_tokens'],
+    ['audioTokens']
+  ]
+};
+
+export function getGlobalUsageSpec(): UsageExtractionSpec {
+  return mergeUsageExtractionSpecs(GLOBAL_USAGE_SPEC);
+}
+
 function toPathList(value?: UsagePath | UsagePath[]): UsagePath[] {
   if (!value) return [];
   if (!Array.isArray(value)) return [value];
@@ -31,6 +97,62 @@ function toPathList(value?: UsagePath | UsagePath[]): UsagePath[] {
   return [value as PathSegment[]];
 }
 
+function clonePath(path: UsagePath): UsagePath {
+  return Array.isArray(path) ? [...path] : path;
+}
+
+function serializePath(path: UsagePath): string {
+  return Array.isArray(path) ? path.map(segment => String(segment)).join('.') : path;
+}
+
+function mergePaths(base?: UsagePath | UsagePath[], override?: UsagePath | UsagePath[]): UsagePath[] {
+  const merged: UsagePath[] = [];
+  const seen = new Set<string>();
+
+  const pushPath = (path: UsagePath) => {
+    const key = serializePath(path);
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(clonePath(path));
+  };
+
+  for (const path of toPathList(override)) {
+    pushPath(path);
+  }
+
+  for (const path of toPathList(base)) {
+    pushPath(path);
+  }
+
+  return merged;
+}
+
+export function mergeUsageExtractionSpecs(
+  base: UsageExtractionSpec,
+  override?: UsageExtractionSpec
+): UsageExtractionSpec {
+  const merged: UsageExtractionSpec = {};
+
+  const fields: Array<keyof UsageExtractionSpec> = [
+    'promptTokens',
+    'completionTokens',
+    'totalTokens',
+    'reasoningTokens',
+    'cost',
+    'cachedTokens',
+    'audioTokens'
+  ];
+
+  for (const field of fields) {
+    const paths = mergePaths(base[field], override?.[field]);
+    if (paths.length > 0) {
+      merged[field] = paths;
+    }
+  }
+
+  return merged;
+}
+
 function coerceToNumber(value: unknown): number | undefined {
   if (typeof value === 'number') {
     return Number.isFinite(value) ? value : undefined;
@@ -44,9 +166,12 @@ function coerceToNumber(value: unknown): number | undefined {
   return undefined;
 }
 
-function readNumberByPaths(raw: unknown, paths: UsagePath[]): number | undefined {
+function readNumberByPaths(raw: unknown, paths: UsagePath[]): number | null | undefined {
   for (const p of paths) {
     const value = getByPath(raw, p);
+    if (value === null) {
+      return null;
+    }
     const num = coerceToNumber(value);
     if (num !== undefined) {
       return num;

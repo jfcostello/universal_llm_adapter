@@ -6,6 +6,7 @@ import type {
   ReasoningData,
   UnifiedTool,
   DocumentContent,
+  LLMCallSettings,
   RuntimeSettings,
   VectorContextConfig,
   PluginRegistry,
@@ -222,6 +223,7 @@ export class LLMCoordinator {
             runContext
           );
 
+          await this.attachUsageCostIfNeeded(response, mergedSettings, providerManifest.id, item.model);
           this.ensureValidAssistantResponse(response, providerManifest.id);
 
           runLogger.info('Provider response processed', {
@@ -259,6 +261,7 @@ export class LLMCoordinator {
             toolNameMap
           );
 
+          await this.attachUsageCostIfNeeded(response, mergedSettings, providerManifest.id, item.model);
           this.ensureValidAssistantResponse(response, providerManifest.id);
 
           return response;
@@ -593,6 +596,34 @@ export class LLMCoordinator {
 
   private sanitizeToolName(name: string): string {
     return sanitizeToolName(name);
+  }
+
+  private shouldCalculateUsageCost(settings: LLMCallSettings): boolean {
+    const defaults = getDefaults();
+    return this.normalizeFlag(settings.usageCost, defaults.usageCost);
+  }
+
+  private async attachUsageCostIfNeeded(
+    response: LLMResponse,
+    settings: LLMCallSettings,
+    provider: string,
+    model: string
+  ): Promise<void> {
+    if (!response?.usage) return;
+    if (typeof response.usage.cost === 'number') return;
+    if (!this.shouldCalculateUsageCost(settings)) return;
+    if (typeof response.usage.promptTokens !== 'number' || typeof response.usage.completionTokens !== 'number') return;
+
+    const { calculateUsageCost } = await import('../../usage-cost/index.js');
+    const cost = calculateUsageCost({
+      usage: response.usage,
+      provider,
+      model
+    });
+
+    if (typeof cost === 'number') {
+      response.usage.cost = cost;
+    }
   }
 
 

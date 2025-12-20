@@ -147,6 +147,8 @@ export interface LLMCallSettings {
   parallelToolExecution?: boolean;
   toolResultMaxChars?: number;
   batchId?: string;
+  /** Enable optional usage cost calculation when provider omits cost */
+  usageCost?: boolean;
   provider?: Record<string, any>;
   [key: string]: any;
 }
@@ -178,7 +180,8 @@ export const PROVIDER_SETTING_KEYS = [
   'logprobs',
   'topLogprobs',
   'reasoning',
-  'reasoningBudget'
+  'reasoningBudget',
+  'usageCost'
 ] as const;
 
 export interface LLMPriorityItem {
@@ -400,16 +403,16 @@ export interface LLMCallSpec {
 }
 
 export interface UsageStats {
-  promptTokens?: number;
-  completionTokens?: number;
-  totalTokens?: number;
-  reasoningTokens?: number;
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  totalTokens?: number | null;
+  reasoningTokens?: number | null;
   /** Optional cost returned by the provider */
-  cost?: number;
+  cost?: number | null;
   /** Tokens read from cache (if supported) */
-  cachedTokens?: number;
+  cachedTokens?: number | null;
   /** Audio tokens (if supported) */
-  audioTokens?: number;
+  audioTokens?: number | null;
 }
 
 export interface LLMResponse {
@@ -1000,6 +1003,7 @@ export interface PathDefaults {
 export interface DefaultSettings {
   retry: RetryDefaults;
   tools: ToolDefaults;
+  usageCost: boolean;
   vector: VectorDefaults;
   chunking: ChunkingDefaults;
   tokenEstimation: TokenEstimationDefaults;

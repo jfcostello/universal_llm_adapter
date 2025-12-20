@@ -12,3 +12,26 @@ export function usageStatsToJson(usage: UsageStats): JsonObject {
   };
 }
 
+export function stripNullUsageStats(usage: UsageStats | undefined): UsageStats | undefined {
+  if (!usage) return usage;
+
+  const cleaned: UsageStats = {};
+  const fields: Array<keyof UsageStats> = [
+    'promptTokens',
+    'completionTokens',
+    'totalTokens',
+    'reasoningTokens',
+    'cost',
+    'cachedTokens',
+    'audioTokens'
+  ];
+
+  for (const field of fields) {
+    const value = usage[field];
+    if (value !== null && value !== undefined) {
+      cleaned[field] = value;
+    }
+  }
+
+  return cleaned;
+}

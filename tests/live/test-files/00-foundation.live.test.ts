@@ -7,6 +7,45 @@ import { withLiveEnv, buildLogPathFor, redactionFoundIn, makeSpec, mergeSettings
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
 
+function loadUsageCostTable(): Record<string, any> | null {
+  const candidates = [
+    './plugins/configs/usage-costs.json',
+    './dist/plugins/configs/usage-costs.json'
+  ];
+  for (const p of candidates) {
+    if (!fs.existsSync(p)) continue;
+    try {
+      const raw = fs.readFileSync(p, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') return parsed as Record<string, any>;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function assertUsageCost(payload: any, usageCostEnabled: boolean): void {
+  const usage = payload?.usage;
+  if (!usage) return;
+
+  const provider = payload?.provider;
+  const model = payload?.model;
+  const table = loadUsageCostTable();
+  const hasRates = Boolean(table?.[provider]?.[model]);
+  const hasTokens = typeof usage.promptTokens === 'number' && typeof usage.completionTokens === 'number';
+
+  if (typeof usage.cost === 'number') {
+    expect(Number.isFinite(usage.cost)).toBe(true);
+    expect(usage.cost).toBeGreaterThanOrEqual(0);
+    return;
+  }
+
+  if (usageCostEnabled && hasRates && hasTokens) {
+    throw new Error(`Expected usage.cost to be computed for ${provider}/${model}`);
+  }
+}
+
 for (let i = 0; i < testRuns.length; i++) {
   const runCfg = testRuns[i];
 
@@ -30,7 +69,7 @@ for (let i = 0; i < testRuns.length; i++) {
           { role: 'user', content: [{ type: 'text', text: 'Reply exactly with: INTEGRATION_TEST_OK' }]}
         ],
         llmPriority: [invalidPriorityEntry as any, ...runCfg.llmPriority],
-        settings: mergeSettings(runCfg.settings, { temperature: 0, maxTokens: 60000, fakeField: 'fakeValue' }),
+        settings: mergeSettings(runCfg.settings, { temperature: 0, maxTokens: 60000, fakeField: 'fakeValue', usageCost: true }),
         functionToolNames: []
       });
 
@@ -45,6 +84,7 @@ for (let i = 0; i < testRuns.length; i++) {
       const text = payload.content?.[0]?.text || '';
       expect(text.includes('INTEGRATION_TEST_OK')).toBe(true);
       expect(payload.provider).toBe(runCfg.llmPriority[0].provider);
+      assertUsageCost(payload, spec.settings?.usageCost === true);
       const extrasLogFound = result.logs.some(line => line.includes('Extra field not supported by provider') && line.includes('fakeField'));
       expect(extrasLogFound).toBe(true);
       const logPath = buildLogPathFor(testFileBase);
@@ -82,4 +122,3 @@ for (let i = 0; i < testRuns.length; i++) {
     }, 120000);
   });
 }
-

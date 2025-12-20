@@ -324,6 +324,7 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
       runContext
     );
 
+    await maybeAttachUsageCost(response, providerManifest, model, providerSettings);
     logger.info('Follow-up provider response processed', {
       provider: providerManifest.id,
       model,
@@ -333,7 +334,10 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
         ? {
             promptTokens: response.usage.promptTokens,
             completionTokens: response.usage.completionTokens,
-            reasoningTokens: response.usage.reasoningTokens
+            reasoningTokens: response.usage.reasoningTokens,
+            cachedTokens: response.usage.cachedTokens,
+            cost: response.usage.cost,
+            audioTokens: response.usage.audioTokens
           }
         : undefined
     });
@@ -364,6 +368,7 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
         : undefined
     );
 
+    await maybeAttachUsageCost(response, providerManifest, model, providerSettings);
     logger.info('Final response requested after tool budget exhausted', {
       provider: providerManifest.id,
       model
@@ -657,6 +662,35 @@ function normalizeFlag(value: unknown, defaultValue: boolean): boolean {
   return Boolean(value);
 }
 
+async function maybeAttachUsageCost(
+  response: LLMResponse,
+  providerManifest: ProviderManifest,
+  model: string,
+  providerSettings: Record<string, any>
+): Promise<void> {
+  if (!response?.usage) return;
+  if (typeof response.usage.cost === 'number') return;
+
+  const defaults = getDefaults();
+  const enabled = normalizeFlag((providerSettings as any).usageCost, defaults.usageCost);
+  if (!enabled) return;
+
+  if (typeof response.usage.promptTokens !== 'number' || typeof response.usage.completionTokens !== 'number') {
+    return;
+  }
+
+  const { calculateUsageCost } = await import('../../usage-cost/index.js');
+  const cost = calculateUsageCost({
+    usage: response.usage,
+    provider: providerManifest.id,
+    model
+  });
+
+  if (typeof cost === 'number') {
+    response.usage.cost = cost;
+  }
+}
+
 function parseMaxToolIterations(value: unknown, defaultValue: number = 10): number {
   if (value === null || value === undefined) return defaultValue;
   if (typeof value === 'number') {
@@ -703,5 +737,6 @@ export const __toolLoopTestUtils__ = {
   normalizeFlag,
   parseMaxToolIterations,
   createProgressFields,
-  resolveCountdownText
+  resolveCountdownText,
+  maybeAttachUsageCost
 };

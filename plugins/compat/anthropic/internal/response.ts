@@ -6,7 +6,8 @@ import type {
   UsageStats
 } from '../../../../modules/kernel/index.js';
 import { Role } from '../../../../modules/kernel/index.js';
-import { ANTHROPIC_STOP_REASON_MAP } from './mappings.js';
+import { extractUsageStats, getGlobalUsageSpec, mergeUsageExtractionSpecs } from '../../../../modules/usage/index.js';
+import { ANTHROPIC_STOP_REASON_MAP, ANTHROPIC_USAGE_SPEC } from './mappings.js';
 
 function parseContent(contentBlocks: any[]): ContentPart[] {
   if (!contentBlocks || !Array.isArray(contentBlocks)) {
@@ -35,14 +36,35 @@ function parseToolCalls(contentBlocks: any[]): ToolCall[] | undefined {
   }));
 }
 
+const ANTHROPIC_RESPONSE_USAGE_SPEC = mergeUsageExtractionSpecs(
+  getGlobalUsageSpec(),
+  ANTHROPIC_USAGE_SPEC
+);
+
 function parseUsage(usage: any): UsageStats | undefined {
   if (!usage) return undefined;
 
-  return {
-    promptTokens: usage.input_tokens,
-    completionTokens: usage.output_tokens,
-    totalTokens: (usage.input_tokens || 0) + (usage.output_tokens || 0)
-  };
+  const extracted = extractUsageStats(usage, ANTHROPIC_RESPONSE_USAGE_SPEC);
+  if (!extracted) {
+    return {
+      promptTokens: undefined,
+      completionTokens: undefined,
+      totalTokens: 0
+    };
+  }
+
+  if (extracted.totalTokens === undefined) {
+    const prompt = extracted.promptTokens;
+    const completion = extracted.completionTokens;
+    const hasNull = prompt === null || completion === null;
+    const hasPromptNumber = typeof prompt === 'number';
+    const hasCompletionNumber = typeof completion === 'number';
+    if (!hasNull && (hasPromptNumber || hasCompletionNumber)) {
+      extracted.totalTokens = (hasPromptNumber ? prompt : 0) + (hasCompletionNumber ? completion : 0);
+    }
+  }
+
+  return extracted;
 }
 
 function parseReasoning(contentBlocks: any[]): ReasoningData | undefined {

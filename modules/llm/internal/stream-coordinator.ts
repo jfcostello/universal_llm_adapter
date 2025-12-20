@@ -7,7 +7,7 @@ import type {
   ReasoningData,
   AdapterLogger
 } from '../../kernel/index.js';
-import { StreamEventType, ToolCallEventType } from '../../kernel/index.js';
+import { StreamEventType, ToolCallEventType, getDefaults } from '../../kernel/index.js';
 import { pruneToolResults, pruneReasoning } from '../../context/index.js';
 import { partitionSettings } from '../../settings/index.js';
 import { usageStatsToJson } from '../../usage/index.js';
@@ -311,6 +311,24 @@ export class StreamCoordinator {
     }
 
     // Signal completion with final response
+    if (latestUsage && typeof latestUsage.cost !== 'number') {
+      const defaults = getDefaults();
+      const usageCostEnabled = normalizeFlag((providerSettings as any).usageCost, defaults.usageCost);
+
+      if (usageCostEnabled && typeof latestUsage.promptTokens === 'number' && typeof latestUsage.completionTokens === 'number') {
+        const { calculateUsageCost } = await import('../../usage-cost/index.js');
+        const cost = calculateUsageCost({
+          usage: latestUsage,
+          provider,
+          model
+        });
+
+        if (typeof cost === 'number') {
+          latestUsage = { ...latestUsage, cost };
+        }
+      }
+    }
+
     yield {
       type: StreamEventType.DONE,
       response: {
@@ -326,4 +344,17 @@ export class StreamCoordinator {
     };
   }
 
+}
+
+function normalizeFlag(value: unknown, defaultValue: boolean): boolean {
+  if (value === null || value === undefined) return defaultValue;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Boolean(value);
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
+    return defaultValue;
+  }
+  return Boolean(value);
 }

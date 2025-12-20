@@ -1,5 +1,8 @@
 import { LLMCoordinator } from '@/modules/llm/index.ts';
-import { sanitizeToolChoice } from '@/modules/kernel/index.ts';
+import * as kernel from '@/modules/kernel/index.ts';
+import { calculateUsageCost } from '@/modules/usage-cost/index.ts';
+
+const { sanitizeToolChoice } = kernel;
 
 function instance(): any {
   return new LLMCoordinator({
@@ -40,6 +43,65 @@ describe('coordinator utility helpers', () => {
     expect(normalize('off', true)).toBe(false);
     expect(normalize('maybe', true)).toBe(true);
     expect(normalize({}, false)).toBe(true);
+  });
+
+  test('attachUsageCostIfNeeded computes usage cost when enabled', async () => {
+    const coordinator = instance();
+    const response = {
+      usage: {
+        promptTokens: 100,
+        completionTokens: 50,
+        cachedTokens: 20
+      }
+    } as any;
+
+    const settings = { usageCost: true } as any;
+    const provider = 'example-provider';
+    const model = 'example-model';
+
+    const expected = calculateUsageCost({ provider, model, usage: response.usage });
+    await (coordinator as any).attachUsageCostIfNeeded(response, settings, provider, model);
+
+    expect(response.usage.cost).toBe(expected);
+  });
+
+  test('attachUsageCostIfNeeded skips when cost already set', async () => {
+    const coordinator = instance();
+    const response = {
+      usage: {
+        promptTokens: 10,
+        completionTokens: 5,
+        cost: 0.123
+      }
+    } as any;
+
+    await (coordinator as any).attachUsageCostIfNeeded(response, { usageCost: true } as any, 'example-provider', 'example-model');
+    expect(response.usage.cost).toBe(0.123);
+  });
+
+  test('attachUsageCostIfNeeded skips when usageCost disabled', async () => {
+    const coordinator = instance();
+    const response = {
+      usage: {
+        promptTokens: 10,
+        completionTokens: 5
+      }
+    } as any;
+
+    await (coordinator as any).attachUsageCostIfNeeded(response, { usageCost: false } as any, 'example-provider', 'example-model');
+    expect(response.usage.cost).toBeUndefined();
+  });
+
+  test('attachUsageCostIfNeeded skips when tokens are missing', async () => {
+    const coordinator = instance();
+    const missingPrompt = { usage: { completionTokens: 4 } } as any;
+    const missingCompletion = { usage: { promptTokens: 4 } } as any;
+
+    await (coordinator as any).attachUsageCostIfNeeded(missingPrompt, { usageCost: true } as any, 'example-provider', 'example-model');
+    await (coordinator as any).attachUsageCostIfNeeded(missingCompletion, { usageCost: true } as any, 'example-provider', 'example-model');
+
+    expect(missingPrompt.usage.cost).toBeUndefined();
+    expect(missingCompletion.usage.cost).toBeUndefined();
   });
 });
 

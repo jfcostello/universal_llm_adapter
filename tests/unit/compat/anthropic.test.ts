@@ -539,6 +539,26 @@ describe('compat/anthropic', () => {
       });
     });
 
+    test('defaults usage totals when usage fields are missing', () => {
+      const raw = {
+        id: 'msg_456',
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'No usage fields' }],
+        model: 'claude-haiku-4-5',
+        stop_reason: 'end_turn',
+        usage: { other: 'value' }
+      };
+
+      const response = compat.parseResponse(raw, 'claude-haiku-4-5');
+
+      expect(response.usage).toEqual({
+        promptTokens: undefined,
+        completionTokens: undefined,
+        totalTokens: 0
+      });
+    });
+
     test('parses response with tool calls', () => {
       const raw = {
         id: 'msg_456',

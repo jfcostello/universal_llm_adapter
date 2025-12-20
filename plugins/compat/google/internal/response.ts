@@ -7,14 +7,28 @@ import type {
   UsageStats
 } from '../../../../modules/kernel/index.js';
 import { Role } from '../../../../modules/kernel/index.js';
-import { extractUsageStats } from '../../../../modules/usage/index.js';
+import { extractUsageStats, getGlobalUsageSpec, mergeUsageExtractionSpecs } from '../../../../modules/usage/index.js';
 
 const googleUsageSpec = {
-  promptTokens: 'promptTokenCount',
-  completionTokens: 'candidatesTokenCount',
-  totalTokens: 'totalTokenCount',
-  reasoningTokens: 'thoughtsTokenCount'
-} as const;
+  promptTokens: [
+    ['usageMetadata', 'promptTokenCount'],
+    ['promptTokenCount']
+  ],
+  completionTokens: [
+    ['usageMetadata', 'candidatesTokenCount'],
+    ['candidatesTokenCount']
+  ],
+  totalTokens: [
+    ['usageMetadata', 'totalTokenCount'],
+    ['totalTokenCount']
+  ],
+  reasoningTokens: [
+    ['usageMetadata', 'thoughtsTokenCount'],
+    ['thoughtsTokenCount']
+  ]
+};
+
+const GOOGLE_USAGE_SPEC = mergeUsageExtractionSpecs(getGlobalUsageSpec(), googleUsageSpec);
 
 export function extractToolCalls(parts?: any[]): ToolCall[] | undefined {
   if (!parts || !Array.isArray(parts) || parts.length === 0) return undefined;
@@ -41,7 +55,7 @@ export function extractToolCalls(parts?: any[]): ToolCall[] | undefined {
 }
 
 export function extractUsage(usage?: unknown): UsageStats | undefined {
-  return extractUsageStats(usage, googleUsageSpec);
+  return extractUsageStats(usage, GOOGLE_USAGE_SPEC);
 }
 
 export function extractReasoning(parts?: any[]): ReasoningData | undefined {
@@ -87,4 +101,3 @@ export function parseSDKResponse(raw: any, model: string): LLMResponse {
     raw
   };
 }
-

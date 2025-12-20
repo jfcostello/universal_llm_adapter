@@ -526,7 +526,10 @@ The specification for LLM calls (`run` and `stream` commands).
     "parallelToolExecution": false,
     "preserveToolResults": 3,
     "preserveReasoning": 3,
-    "toolResultMaxChars": 50000
+    "toolResultMaxChars": 50000,
+
+    // Optional usage cost calculation (when provider omits cost)
+    "usageCost": false
   },
 
   // Tools (optional)
@@ -564,6 +567,12 @@ The specification for LLM calls (`run` and `stream` commands).
   }
 }
 ```
+
+### Usage Cost Calculation
+
+When a provider response omits cost, set `settings.usageCost` to opt into local cost calculation.
+Costs are loaded from `plugins/configs/usage-costs.json` and are defined per provider/model in
+**cost-per-million tokens**.
 
 ### Message Content Types
 

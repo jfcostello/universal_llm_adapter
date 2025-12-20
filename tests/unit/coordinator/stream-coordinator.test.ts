@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 import { StreamCoordinator } from '@/modules/llm/index.ts';
 import { StreamEventType, ToolCallEventType, Role } from '@/modules/kernel/index.ts';
+import { calculateUsageCost } from '@/modules/usage-cost/index.ts';
 
 function createCoordinator(overrides: Partial<any> = {}) {
   const compatModule = {
@@ -493,4 +494,113 @@ describe('StreamCoordinator', () => {
     expect(toolCallEvents.length).toBeGreaterThan(0);
     expect(toolCallEvents[0].toolCall.metadata).toEqual({ thoughtSignature });
   });
+
+  test('coordinateStream normalizes usageCost flags and attaches usage cost when enabled', async () => {
+    const baseUsage = { promptTokens: 10, completionTokens: 5, cachedTokens: 2 };
+    const compatModule = {
+      parseStreamChunk: jest.fn(() => ({
+        text: 'hello',
+        usage: { ...baseUsage }
+      }))
+    };
+
+    const { coordinator } = createCoordinator({
+      compatModule,
+      registry: {
+        getProvider: jest.fn(() => ({ id: 'example-provider', compat: 'openai' })),
+        getCompatModule: jest.fn(() => compatModule)
+      },
+      llmManager: {
+        streamProvider: jest.fn(async function* () {
+          yield { choices: [{ delta: { content: 'hello' } }] };
+        })
+      }
+    });
+
+    const context = createContext();
+    context.provider = 'example-provider';
+    context.model = 'example-model';
+
+    const baseSpec: any = {
+      llmPriority: [{ provider: 'example-provider', model: 'example-model' }],
+      settings: {}
+    };
+
+    const run = async (usageCost: any) => {
+      const spec = { ...baseSpec, settings: { usageCost } };
+      const events: any[] = [];
+      for await (const event of coordinator.coordinateStream(spec, [], [], context)) {
+        events.push(event);
+      }
+      return events.at(-1)?.response?.usage;
+    };
+
+    const expected = calculateUsageCost({
+      provider: 'example-provider',
+      model: 'example-model',
+      usage: baseUsage
+    });
+
+    const usageWithCost = await run(true);
+    expect(usageWithCost?.cost).toBe(expected);
+
+    await run(false);
+    await run(1);
+    await run('yes');
+    await run('off');
+    await run('maybe');
+    await run({});
+  });
+
+  test('coordinateStream skips usage cost when tokens are missing', async () => {
+    const compatModule = {
+      parseStreamChunk: jest
+        .fn()
+        .mockImplementationOnce(() => ({
+          text: 'hello',
+          usage: { promptTokens: 10 }
+        }))
+        .mockImplementationOnce(() => ({
+          text: 'hello',
+          usage: { completionTokens: 5 }
+        }))
+    };
+
+    const { coordinator } = createCoordinator({
+      compatModule,
+      registry: {
+        getProvider: jest.fn(() => ({ id: 'example-provider', compat: 'openai' })),
+        getCompatModule: jest.fn(() => compatModule)
+      },
+      llmManager: {
+        streamProvider: jest.fn(async function* () {
+          yield { choices: [{ delta: { content: 'hello' } }] };
+        })
+      }
+    });
+
+    const spec: any = {
+      llmPriority: [{ provider: 'example-provider', model: 'example-model' }],
+      settings: { usageCost: true }
+    };
+
+    const context = createContext();
+    context.provider = 'example-provider';
+    context.model = 'example-model';
+
+    const runOnce = async () => {
+      const events: any[] = [];
+      for await (const event of coordinator.coordinateStream(spec, [], [], context)) {
+        events.push(event);
+      }
+      return events.at(-1);
+    };
+
+    const doneMissingCompletion = await runOnce();
+    expect(doneMissingCompletion?.response?.usage?.cost).toBeUndefined();
+
+    const doneMissingPrompt = await runOnce();
+    expect(doneMissingPrompt?.response?.usage?.cost).toBeUndefined();
+  });
+
 });

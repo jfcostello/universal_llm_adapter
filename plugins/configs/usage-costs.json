@@ -1,0 +1,9 @@
+{
+  "example-provider": {
+    "example-model": {
+      "input": 0.25,
+      "output": 0.5,
+      "cached": 0.1
+    }
+  }
+}

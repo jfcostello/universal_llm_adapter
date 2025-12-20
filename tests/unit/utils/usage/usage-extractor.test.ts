@@ -1,4 +1,4 @@
-import { extractUsageStats } from '@/modules/usage/index.ts';
+import { extractUsageStats, mergeUsageExtractionSpecs, getGlobalUsageSpec } from '@/modules/usage/index.ts';
 
 describe('utils/usage/usage-extractor', () => {
   test('extracts token usage from nested objects and computes total when missing', () => {
@@ -76,6 +76,28 @@ describe('utils/usage/usage-extractor', () => {
     expect(usage).toBeUndefined();
   });
 
+  test('preserves explicit null token values', () => {
+    const raw = {
+      usage: {
+        prompt_tokens: null,
+        completion_tokens: null,
+        total_tokens: null
+      }
+    };
+
+    const usage = extractUsageStats(raw, {
+      promptTokens: 'usage.prompt_tokens',
+      completionTokens: 'usage.completion_tokens',
+      totalTokens: 'usage.total_tokens'
+    });
+
+    expect(usage).toEqual({
+      promptTokens: null,
+      completionTokens: null,
+      totalTokens: null
+    });
+  });
+
   test('extracts extended usage fields when present', () => {
     const raw = {
       usage: {
@@ -107,6 +129,52 @@ describe('utils/usage/usage-extractor', () => {
       cost: 0.01,
       cachedTokens: 4,
       audioTokens: 5
+    });
+  });
+});
+
+describe('utils/usage/usage-extractor global mapping', () => {
+  test('global mapping extracts common usage shapes', () => {
+    const raw = {
+      usage: {
+        prompt_tokens: 12,
+        completion_tokens: 8,
+        total_tokens: 20,
+        completion_tokens_details: { reasoning_tokens: 2 },
+        prompt_tokens_details: { cached_tokens: 3, audio_tokens: 1 },
+        cost: 0.0042
+      }
+    };
+
+    const usage = extractUsageStats(raw, getGlobalUsageSpec());
+    expect(usage).toEqual({
+      promptTokens: 12,
+      completionTokens: 8,
+      totalTokens: 20,
+      reasoningTokens: 2,
+      cachedTokens: 3,
+      audioTokens: 1,
+      cost: 0.0042
+    });
+  });
+
+  test('mergeUsageExtractionSpecs prepends overrides', () => {
+    const globalSpec = getGlobalUsageSpec();
+    const merged = mergeUsageExtractionSpecs(globalSpec, {
+      promptTokens: ['meta.prompt_tokens'],
+      completionTokens: ['meta.completion_tokens']
+    });
+
+    const raw = {
+      meta: { prompt_tokens: 5, completion_tokens: 7 },
+      usage: { prompt_tokens: 1, completion_tokens: 1 }
+    };
+
+    const usage = extractUsageStats(raw, merged);
+    expect(usage).toEqual({
+      promptTokens: 5,
+      completionTokens: 7,
+      totalTokens: 12
     });
   });
 });

@@ -30,6 +30,16 @@ describe('settings-partitioner', () => {
     });
   });
 
+  test('treats usageCost as provider setting (not provider extra)', () => {
+    const { provider, providerExtras } = partitionSettings({
+      usageCost: true,
+      fakeField: 'value'
+    });
+
+    expect(provider).toEqual({ usageCost: true, fakeField: 'value' });
+    expect(providerExtras).toEqual({ fakeField: 'value' });
+  });
+
   test('includes known provider settings without duplicating extras', () => {
     const { runtime, provider, providerExtras } = partitionSettings({
       temperature: 0.7,

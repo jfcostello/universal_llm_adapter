@@ -145,11 +145,11 @@ describe('coordinator handleTools loop behaviour', () => {
       'Follow-up provider response processed',
       expect.objectContaining({
         finishReason: 'stop',
-        usage: {
+        usage: expect.objectContaining({
           promptTokens: 100,
           completionTokens: 50,
           reasoningTokens: 25
-        }
+        })
       })
     );
     expect(result).toMatchObject({
