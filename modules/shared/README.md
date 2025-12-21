@@ -52,3 +52,32 @@ normalizeFlag('maybe', false);   // false (unrecognized → default)
 - `string` → `'true'/'1'/'yes'/'y'/'on'` → true, `'false'/'0'/'no'/'n'/'off'` → false
 - `null/undefined` → returns `defaultValue`
 - other → converted via `Boolean()`
+
+### `createDeferred<T>()`
+
+Creates a deferred promise with externally accessible resolve/reject handlers.
+Equivalent to the ES2024 `Promise.withResolvers()` API.
+
+```typescript
+import { createDeferred } from '../shared/index.js';
+
+// Basic usage (void)
+const signal = createDeferred();
+setTimeout(() => signal.resolve(), 1000);
+await signal.promise;
+
+// With value type
+const deferred = createDeferred<string>();
+deferred.resolve('hello');
+const value = await deferred.promise; // 'hello'
+
+// Error handling
+const failing = createDeferred<number>();
+failing.reject(new Error('oops'));
+await failing.promise; // throws Error('oops')
+```
+
+**Returns:** `Deferred<T>` object with:
+- `promise` - The Promise instance
+- `resolve(value: T)` - Function to resolve the promise
+- `reject(reason?: unknown)` - Function to reject the promise
