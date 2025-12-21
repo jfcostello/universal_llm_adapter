@@ -365,8 +365,8 @@ describe('modules/usage-cost loading fallback', () => {
       __esModule: true,
       PACKAGE_ROOT: pkgRoot,
       loadJsonFile: (filePath: string) => {
-        if (String(filePath).startsWith(pkgRoot)) {
-          throw new Error('bad table in package path');
+        if (String(filePath).startsWith(process.cwd())) {
+          throw new Error('bad table in cwd path');
         }
         return goodTable;
       },
@@ -378,6 +378,39 @@ describe('modules/usage-cost loading fallback', () => {
 
     const loaded = loadUsageCostTable();
     expect(loaded).toEqual(goodTable);
+
+    jest.resetModules();
+  });
+
+  test('prefers cwd table when both cwd and package tables exist', async () => {
+    const fsMock: any = {
+      __esModule: true,
+      existsSync: jest.fn(() => true)
+    };
+    fsMock.default = fsMock;
+
+    (jest as any).unstable_mockModule('fs', () => fsMock);
+
+    const pkgRoot = '/tmp/pkg-root-usage-cost-test';
+    const cwdTable = { providerC: { modelA: { input: 1, output: 2 } } };
+    const pkgTable = { providerD: { modelB: { input: 3, output: 4 } } };
+
+    (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
+      __esModule: true,
+      PACKAGE_ROOT: pkgRoot,
+      loadJsonFile: (filePath: string) => {
+        if (String(filePath).startsWith(process.cwd())) return cwdTable;
+        if (String(filePath).startsWith(pkgRoot)) return pkgTable;
+        return undefined;
+      },
+      getByPath: () => undefined
+    }));
+
+    const { loadUsageCostTable, resetUsageCostTableCache } = await import('@/modules/usage-cost/index.ts');
+    resetUsageCostTableCache();
+
+    const loaded = loadUsageCostTable();
+    expect(loaded).toEqual(cwdTable);
 
     jest.resetModules();
   });

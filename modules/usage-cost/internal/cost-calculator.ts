@@ -16,10 +16,12 @@ const COST_TABLE_FILENAME = 'usage-costs.json';
 let cachedTable: UsageCostTable | null | undefined;
 
 function resolveCostTablePaths(): string[] {
-  return [
-    path.resolve(PACKAGE_ROOT, 'plugins', 'configs', COST_TABLE_FILENAME),
-    path.resolve(process.cwd(), 'plugins', 'configs', COST_TABLE_FILENAME)
+  const candidates = [
+    path.resolve(process.cwd(), 'plugins', 'configs', COST_TABLE_FILENAME),
+    path.resolve(PACKAGE_ROOT, 'plugins', 'configs', COST_TABLE_FILENAME)
   ];
+
+  return [...new Set(candidates)];
 }
 
 function coerceNumber(value: unknown): number | undefined {
