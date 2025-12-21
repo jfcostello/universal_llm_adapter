@@ -1,4 +1,4 @@
-import { usageStatsToJson, stripNullUsageStats } from '@/modules/usage/index.ts';
+import { usageStatsToJson, stripNullUsageStats, setPromptTokensIncludeCached, getPromptTokensIncludeCached } from '@/modules/usage/index.ts';
 
 describe('utils/usage/usage-utils', () => {
   test('usageStatsToJson normalizes optional values to null', () => {
@@ -105,6 +105,14 @@ describe('utils/usage/usage-utils', () => {
       completionTokens: 2,
       cachedTokens: 0
     });
+  });
+
+  test('stripNullUsageStats preserves prompt token accounting metadata', () => {
+    const usage = { promptTokens: 5, completionTokens: 1 };
+    setPromptTokensIncludeCached(usage, false);
+
+    const cleaned = stripNullUsageStats(usage);
+    expect(getPromptTokensIncludeCached(cleaned)).toBe(false);
   });
 
   test('stripNullUsageStats returns empty object when all fields are nullish', () => {

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type { UsageStats } from '../../kernel/index.js';
 import { loadJsonFile, PACKAGE_ROOT } from '../../kernel/index.js';
+import { getPromptTokensIncludeCached } from '../../usage/index.js';
 
 export interface UsageCostRates {
   input: number;
@@ -120,8 +121,10 @@ export function calculateUsageCost(options: {
   const safePrompt = Math.max(0, promptTokens);
   const safeCompletion = Math.max(0, completionTokens);
   const safeCached = Math.max(0, cachedTokens);
-  const effectiveCached = Math.min(safeCached, safePrompt);
-  const effectivePrompt = safePrompt - effectiveCached;
+
+  const promptIncludesCached = getPromptTokensIncludeCached(usage) ?? true;
+  const effectiveCached = promptIncludesCached ? Math.min(safeCached, safePrompt) : safeCached;
+  const effectivePrompt = promptIncludesCached ? safePrompt - effectiveCached : safePrompt;
 
   const inputRate = rates.input / 1_000_000;
   const outputRate = rates.output / 1_000_000;

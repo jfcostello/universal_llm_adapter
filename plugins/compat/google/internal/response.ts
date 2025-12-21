@@ -8,11 +8,12 @@ import type {
 } from '../../../../modules/kernel/index.js';
 import { Role } from '../../../../modules/kernel/index.js';
 import { extractUsageStats, getGlobalUsageSpec, mergeUsageExtractionSpecs } from '../../../../modules/usage/index.js';
+import type { UsageExtractionSpec } from '../../../../modules/usage/index.js';
 
-const googleUsageSpec = {
+const googleUsageSpec: UsageExtractionSpec = {
   promptTokens: [
-    ['usageMetadata', 'promptTokenCount'],
-    ['promptTokenCount']
+    { mode: 'sum', paths: [['usageMetadata', 'promptTokenCount'], ['usageMetadata', 'cachedContentTokenCount']] },
+    { mode: 'sum', paths: [['promptTokenCount'], ['cachedContentTokenCount']] }
   ],
   completionTokens: [
     ['usageMetadata', 'candidatesTokenCount'],
@@ -25,7 +26,12 @@ const googleUsageSpec = {
   reasoningTokens: [
     ['usageMetadata', 'thoughtsTokenCount'],
     ['thoughtsTokenCount']
-  ]
+  ],
+  cachedTokens: [
+    ['usageMetadata', 'cachedContentTokenCount'],
+    ['cachedContentTokenCount']
+  ],
+  promptTokensIncludeCached: true
 };
 
 const GOOGLE_USAGE_SPEC = mergeUsageExtractionSpecs(getGlobalUsageSpec(), googleUsageSpec);

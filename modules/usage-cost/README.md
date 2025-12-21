@@ -28,3 +28,6 @@ All values are **cost per million tokens**. `cached` is optional; when missing, 
 - `getUsageCostRates(provider, model, table?)` – resolves normalized rates for a provider/model.
 - `loadUsageCostTable()` – loads/caches the cost table (searches package + cwd).
 - `resetUsageCostTableCache()` – clears cache (tests).
+
+## Cached token accounting
+`calculateUsageCost` assumes `usage.promptTokens` includes cached tokens and subtracts `usage.cachedTokens` before applying input rates. If a compat reports prompt tokens **excluding** cached tokens, set `promptTokensIncludeCached: false` in the usage extraction spec so cached tokens are billed without subtraction.

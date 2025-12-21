@@ -246,8 +246,9 @@ describe('unit/compat/google', () => {
       ],
       usageMetadata: {
         promptTokenCount: 10,
+        cachedContentTokenCount: 5,
         candidatesTokenCount: 20,
-        totalTokenCount: 30
+        totalTokenCount: 35
       }
     };
 
@@ -263,9 +264,10 @@ describe('unit/compat/google', () => {
       arguments: { param: 'value' }
     });
     expect(result.usage).toEqual({
-      promptTokens: 10,
+      promptTokens: 15,
       completionTokens: 20,
-      totalTokens: 30
+      totalTokens: 35,
+      cachedTokens: 5
     });
   });
 

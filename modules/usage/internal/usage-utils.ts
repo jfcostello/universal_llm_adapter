@@ -1,4 +1,5 @@
 import type { UsageStats, JsonObject } from '../../kernel/index.js';
+import { getPromptTokensIncludeCached, setPromptTokensIncludeCached } from './usage-extractor.js';
 
 export function usageStatsToJson(usage: UsageStats): JsonObject {
   return {
@@ -31,6 +32,11 @@ export function stripNullUsageStats(usage: UsageStats | undefined): UsageStats |
     if (value !== null && value !== undefined) {
       cleaned[field] = value;
     }
+  }
+
+  const promptTokensIncludeCached = getPromptTokensIncludeCached(usage);
+  if (typeof promptTokensIncludeCached === 'boolean') {
+    setPromptTokensIncludeCached(cleaned, promptTokensIncludeCached);
   }
 
   return cleaned;

@@ -1,4 +1,5 @@
 import { calculateUsageCost, loadUsageCostTable, resetUsageCostTableCache, getUsageCostRates } from '@/modules/usage-cost/index.ts';
+import { setPromptTokensIncludeCached } from '@/modules/usage/index.ts';
 import { jest } from '@jest/globals';
 
 describe('modules/usage-cost', () => {
@@ -40,6 +41,21 @@ describe('modules/usage-cost', () => {
 
     // ((1000-100)*0.25 + 100*0.1 + 2000*1) / 1_000_000 = 0.002235
     expect(cost).toBe(0.002235);
+  });
+
+  test('does not subtract cached tokens when prompt tokens exclude cached tokens', () => {
+    const usage = { promptTokens: 100, completionTokens: 50, cachedTokens: 20 };
+    setPromptTokensIncludeCached(usage, false);
+
+    const cost = calculateUsageCost({
+      provider: 'providerA',
+      model: 'modelX',
+      usage,
+      table
+    });
+
+    // (100*0.25 + 20*0.1 + 50*1) / 1_000_000 = 0.000077
+    expect(cost).toBe(0.000077);
   });
 
   test('falls back to input rate when cached rate is missing', () => {
@@ -293,7 +309,8 @@ describe('modules/usage-cost loading fallback', () => {
       PACKAGE_ROOT: process.cwd(),
       loadJsonFile: () => {
         throw new Error('boom');
-      }
+      },
+      getByPath: () => undefined
     }));
 
     const { loadUsageCostTable, resetUsageCostTableCache } = await import('@/modules/usage-cost/index.ts');

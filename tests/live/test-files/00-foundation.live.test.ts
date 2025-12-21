@@ -2,7 +2,7 @@
 import fs from 'fs';
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { filteredTestRuns as testRuns, invalidPriorityEntry } from '../config.ts';
-import { withLiveEnv, buildLogPathFor, redactionFoundIn, makeSpec, mergeSettings } from '@tests/helpers/live-v2.ts';
+import { withLiveEnv, buildLogPathFor, redactionFoundIn, makeSpec, mergeSettings, parseLogBodies } from '@tests/helpers/live-v2.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
@@ -43,6 +43,48 @@ function assertUsageCost(payload: any, usageCostEnabled: boolean): void {
 
   if (usageCostEnabled && hasRates && hasTokens) {
     throw new Error(`Expected usage.cost to be computed for ${provider}/${model}`);
+  }
+}
+
+function readCachedTokensFromBody(body: any): number | null {
+  const cachedOpenAI = body?.usage?.prompt_tokens_details?.cached_tokens ??
+    body?.usage?.input_tokens_details?.cached_tokens ??
+    body?.usage?.input_token_details?.cached_tokens;
+  if (typeof cachedOpenAI === 'number') return cachedOpenAI;
+
+  const cachedAnthropicRead = body?.usage?.cache_read_input_tokens;
+  const cachedAnthropicCreate = body?.usage?.cache_creation_input_tokens;
+  if (typeof cachedAnthropicRead === 'number' || typeof cachedAnthropicCreate === 'number') {
+    return (typeof cachedAnthropicRead === 'number' ? cachedAnthropicRead : 0) +
+      (typeof cachedAnthropicCreate === 'number' ? cachedAnthropicCreate : 0);
+  }
+
+  const cachedGoogle = body?.usageMetadata?.cachedContentTokenCount;
+  if (typeof cachedGoogle === 'number') return cachedGoogle;
+
+  return null;
+}
+
+function assertCachedTokensExtracted(payload: any, logPath: string): void {
+  const bodies = parseLogBodies(logPath);
+  let cachedRaw: number | null = null;
+
+  for (let i = bodies.length - 1; i >= 0; i--) {
+    const candidate = readCachedTokensFromBody(bodies[i]);
+    if (typeof candidate === 'number') {
+      cachedRaw = candidate;
+      break;
+    }
+  }
+
+  if (cachedRaw === null) return;
+
+  const cachedUnified = payload?.usage?.cachedTokens;
+  if (typeof cachedUnified !== 'number') {
+    throw new Error('Expected usage.cachedTokens to be set when cached tokens are present in the raw response');
+  }
+  if (cachedUnified !== cachedRaw) {
+    throw new Error(`Expected usage.cachedTokens to equal ${cachedRaw}, got ${cachedUnified}`);
   }
 }
 
@@ -95,6 +137,7 @@ for (let i = 0; i < testRuns.length; i++) {
       if (!isSDKBased) {
         expect(redactionFoundIn(logText)).toBe(true);
       }
+      assertCachedTokensExtracted(payload, logPath);
     }, 120000);
 
     test('Call 2: deterministic math', async () => {

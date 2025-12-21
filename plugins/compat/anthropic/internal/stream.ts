@@ -1,6 +1,13 @@
 import type { ParsedStreamChunk, ReasoningData, UsageStats } from '../../../../modules/kernel/index.js';
 import { ToolCallEventType } from '../../../../modules/kernel/index.js';
-import { extractUsageStats as extractUsageStatsGeneric, getGlobalUsageSpec, mergeUsageExtractionSpecs, stripNullUsageStats } from '../../../../modules/usage/index.js';
+import {
+  extractUsageStats as extractUsageStatsGeneric,
+  getGlobalUsageSpec,
+  mergeUsageExtractionSpecs,
+  stripNullUsageStats,
+  getPromptTokensIncludeCached,
+  setPromptTokensIncludeCached
+} from '../../../../modules/usage/index.js';
 import { ANTHROPIC_USAGE_SPEC } from './mappings.js';
 
 export interface AnthropicStreamState {
@@ -31,12 +38,20 @@ export function extractUsageStats(chunk: any): UsageStats | undefined {
   const completionTokens = extracted.completionTokens;
   const totalTokens = extracted.totalTokens ?? (promptTokens ?? 0) + (completionTokens ?? 0);
 
-  return {
+  const result: UsageStats = {
     promptTokens,
     completionTokens,
     totalTokens,
-    reasoningTokens: extracted.reasoningTokens
+    reasoningTokens: extracted.reasoningTokens,
+    cachedTokens: extracted.cachedTokens
   };
+
+  const promptTokensIncludeCached = getPromptTokensIncludeCached(extracted);
+  if (typeof promptTokensIncludeCached === 'boolean') {
+    setPromptTokensIncludeCached(result, promptTokensIncludeCached);
+  }
+
+  return result;
 }
 
 export function extractReasoning(chunk: any): ReasoningData | undefined {

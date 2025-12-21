@@ -32,7 +32,7 @@ export const testRuns: TestRun[] = [
       }
     ],
     settings: {
-      temperature: 0.3,
+      temperature: 1,
       maxTokens: 60000
     }
   },
@@ -71,7 +71,7 @@ export const testRuns: TestRun[] = [
       }
     ],
     settings: {
-      temperature: 0.3,
+      temperature: 0,
       maxTokens: 60000
     }
   }

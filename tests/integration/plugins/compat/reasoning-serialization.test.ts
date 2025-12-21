@@ -201,18 +201,18 @@ describe('integration/plugins/compat/reasoning-serialization', () => {
       expect(payload.thinking.budget_tokens).toBe(2048);
     });
 
-    test('uses default budget_tokens when only enabled is set', () => {
-      const settings = { reasoning: { enabled: true } };
-      const payload = compat.buildPayload('claude-3', settings, baseMessages, [], undefined);
+	    test('uses default budget_tokens when only enabled is set', () => {
+	      const settings = { maxTokens: 60000, reasoning: { enabled: true } };
+	      const payload = compat.buildPayload('claude-3', settings, baseMessages, [], undefined);
 
       expect(payload.thinking).toBeDefined();
       expect(payload.thinking.type).toBe('enabled');
       expect(payload.thinking.budget_tokens).toBe(51200); // default
     });
 
-    test('uses reasoningBudget fallback for budget_tokens', () => {
-      const settings = { reasoning: { enabled: true }, reasoningBudget: 8192 };
-      const payload = compat.buildPayload('claude-3', settings, baseMessages, [], undefined);
+	    test('uses reasoningBudget fallback for budget_tokens', () => {
+	      const settings = { maxTokens: 60000, reasoning: { enabled: true }, reasoningBudget: 8192 };
+	      const payload = compat.buildPayload('claude-3', settings, baseMessages, [], undefined);
 
       expect(payload.thinking.budget_tokens).toBe(8192);
     });
