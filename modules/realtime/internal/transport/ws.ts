@@ -22,6 +22,21 @@ export interface RealtimeTransport {
   close: () => void;
 }
 
+/**
+ * Decode ws message payload to string.
+ * The ws library can deliver payloads as string, Buffer, ArrayBuffer, or Buffer[].
+ */
+export function decodeWsMessage(data: unknown): string {
+  if (typeof data === 'string') return data;
+  if (Buffer.isBuffer(data)) return data.toString('utf8');
+  if (data instanceof ArrayBuffer) return Buffer.from(data).toString('utf8');
+  if (Array.isArray(data) && data.length > 0 && data.every(Buffer.isBuffer)) {
+    return Buffer.concat(data).toString('utf8');
+  }
+  // Fallback: attempt to stringify unknown types
+  return String(data);
+}
+
 export function createWsTransport(options: { url: string; headers?: Record<string, string> }): RealtimeTransport {
   const require = createRequire(import.meta.url);
   const wsLib = require('ws');
@@ -30,11 +45,14 @@ export function createWsTransport(options: { url: string; headers?: Record<strin
   const WS_OPEN: number = wsLib.WebSocket.OPEN;
 
   const queue = new AsyncQueue<RealtimeTransportEvent>();
-  let closed = false;
 
-  const closeOnce = () => {
-    if (closed) return;
-    closed = true;
+  // Split state: sendClosed guards send(), queueEnded guards queue termination
+  let sendClosed = false;
+  let queueEnded = false;
+
+  const endQueueOnce = () => {
+    if (queueEnded) return;
+    queueEnded = true;
     queue.push({ type: 'close' });
     queue.close();
   };
@@ -43,9 +61,14 @@ export function createWsTransport(options: { url: string; headers?: Record<strin
     queue.push({ type: 'open' });
   });
 
-  ws.on('message', (data: any) => {
-    const text = Buffer.from(data as any).toString('utf-8');
-    queue.push({ type: 'message', data: text });
+  ws.on('message', (data: unknown) => {
+    try {
+      const text = decodeWsMessage(data);
+      queue.push({ type: 'message', data: text });
+    } catch (err: any) {
+      /* istanbul ignore next -- defensive error handling for malformed ws messages */
+      queue.push({ type: 'error', error: err, code: 'ws_message_decode_error' });
+    }
   });
 
   ws.on('error', (err: any) => {
@@ -53,12 +76,13 @@ export function createWsTransport(options: { url: string; headers?: Record<strin
   });
 
   ws.on('close', () => {
-    closeOnce();
+    sendClosed = true;
+    endQueueOnce();
   });
 
   return {
     send(data: string) {
-      if (closed) throw new Error('Transport is closed');
+      if (sendClosed) throw new Error('Transport is closed');
       if (ws.readyState !== WS_OPEN) throw new Error('Realtime websocket not open');
       ws.send(data);
     },
@@ -66,8 +90,8 @@ export function createWsTransport(options: { url: string; headers?: Record<strin
       return queue.iterate();
     },
     close() {
-      if (closed) return;
-      closed = true;
+      if (sendClosed) return;
+      sendClosed = true;
       try {
         if (ws.readyState === WS_OPEN) {
           ws.close(1000, 'client_close');
@@ -75,7 +99,7 @@ export function createWsTransport(options: { url: string; headers?: Record<strin
           ws.terminate();
         }
       } catch {}
-      closeOnce();
+      endQueueOnce();
     }
   };
 }
