@@ -81,7 +81,7 @@ describe('StreamCoordinator', () => {
     expect(events[1].response).toBeDefined();
   });
 
-  test('coordinateStream dispatches tool events and follow-up streaming', async () => {
+	  test('coordinateStream dispatches tool events and follow-up streaming', async () => {
     const streamResponses = [
       (async function* () {
         yield { choices: [{ delta: { content: 'token-1' } }] };
@@ -153,6 +153,7 @@ describe('StreamCoordinator', () => {
     const deltaEvents = events.filter(e => e.type === 'delta');
     const toolEvents = events.filter(e => e.type === StreamEventType.TOOL);
     const doneEvents = events.filter(e => e.type === 'done');
+    const toolCallEvents = events.filter(e => e.type === 'tool_call');
 
     expect(deltaEvents.length).toBeGreaterThanOrEqual(2);
     expect(deltaEvents[0].content).toBe('token-1');
@@ -166,6 +167,144 @@ describe('StreamCoordinator', () => {
 
     expect(doneEvents.length).toBe(1);
     expect(doneEvents[0].response).toBeDefined();
+
+    // Ensure tool_call events and DONE.toolCalls are not duplicated.
+	    expect(toolCallEvents.filter(e => e.toolCall?.id === '1').length).toBe(1);
+	    expect(doneEvents[0].response.toolCalls?.filter((tc: any) => tc.id === '1').length).toBe(1);
+	  });
+
+	  test('coordinateStream ignores pending tool-call state for already-detected callIds', async () => {
+	    const streamResponses = [
+	      (async function* () {
+	        yield { choices: [{ delta: { content: 'token-1' } }] };
+	      })(),
+	      (async function* () {
+	        yield { choices: [{ delta: { content: 'follow-up' } }] };
+	      })()
+	    ];
+
+	    let parseCallCount = 0;
+	    const { coordinator, llmManager, toolCoordinator, compatModule } = createCoordinator({
+	      compatModule: {
+	        parseStreamChunk: jest.fn((chunk: any) => {
+	          parseCallCount++;
+	          if (parseCallCount === 1) {
+	            return {
+	              text: chunk.choices?.[0]?.delta?.content,
+	              toolEvents: [
+	                { type: ToolCallEventType.TOOL_CALL_START, callId: '1', name: 'tool.sanitized' },
+	                { type: ToolCallEventType.TOOL_CALL_END, callId: '1', name: 'tool.sanitized', arguments: '{}' },
+	                // Duplicate START reintroduces pending state after the callId has been detected.
+	                { type: ToolCallEventType.TOOL_CALL_START, callId: '1', name: 'tool.sanitized' }
+	              ]
+	            };
+	          }
+	          return {
+	            text: chunk.choices?.[0]?.delta?.content,
+	            toolEvents: undefined
+	          };
+	        })
+	      },
+	      llmManager: {
+	        streamProvider: jest.fn(() => streamResponses.shift()!)
+	      },
+	      toolCoordinator: {
+	        routeAndInvoke: jest.fn().mockResolvedValue({ ok: true })
+	      }
+	    });
+
+	    const spec: any = {
+	      llmPriority: [{ provider: 'provider', model: 'model' }],
+	      settings: { maxToolIterations: 2, toolCountdownEnabled: true },
+	      metadata: {}
+	    };
+
+	    const context = createContext();
+	    context.toolNameMap = new Map([['tool.sanitized', 'tool.original']]);
+
+	    const events: any[] = [];
+	    for await (const event of coordinator.coordinateStream(spec, [], [{ name: 'tool.original' }], context)) {
+	      events.push(event);
+	    }
+
+	    expect(compatModule.parseStreamChunk).toHaveBeenCalled();
+	    expect(toolCoordinator.routeAndInvoke).toHaveBeenCalledWith(
+	      'tool.original',
+	      '1',
+	      {},
+	      expect.objectContaining({ provider: 'provider', model: 'model' })
+	    );
+
+	    const toolCallEvents = events.filter(e => e.type === 'tool_call');
+	    const doneEvents = events.filter(e => e.type === 'done');
+
+	    expect(toolCallEvents.filter(e => e.toolCall?.id === '1').length).toBe(1);
+	    expect(doneEvents[0].response.toolCalls?.filter((tc: any) => tc.id === '1').length).toBe(1);
+	  });
+
+	  test('coordinateStream does not crash on malformed tool-call args JSON', async () => {
+	    const streamResponses = [
+	      (async function* () {
+        yield { choices: [{ delta: { content: 'token-1' } }] };
+      })(),
+      (async function* () {
+        yield { choices: [{ delta: { content: 'follow-up' } }] };
+      })()
+    ];
+
+    let parseCallCount = 0;
+    const { coordinator, llmManager, toolCoordinator, compatModule } = createCoordinator({
+      compatModule: {
+        parseStreamChunk: jest.fn((chunk: any) => {
+          parseCallCount++;
+          if (parseCallCount === 1) {
+            return {
+              text: chunk.choices?.[0]?.delta?.content,
+              toolEvents: [
+                { type: ToolCallEventType.TOOL_CALL_START, callId: 'bad-1', name: 'tool.sanitized' },
+                { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: 'bad-1', argumentsDelta: '}{' },
+                { type: ToolCallEventType.TOOL_CALL_END, callId: 'bad-1', name: 'tool.sanitized', arguments: '}{' }
+              ]
+            };
+          }
+
+          return {
+            text: chunk.choices?.[0]?.delta?.content,
+            toolEvents: undefined
+          };
+        })
+      },
+      llmManager: {
+        streamProvider: jest.fn(() => streamResponses.shift()!)
+      },
+      toolCoordinator: {
+        routeAndInvoke: jest.fn().mockResolvedValue({ ok: true })
+      }
+    });
+
+    const spec: any = {
+      llmPriority: [{ provider: 'provider', model: 'model' }],
+      settings: { maxToolIterations: 2, toolCountdownEnabled: true },
+      metadata: {}
+    };
+
+    const context = createContext();
+    context.toolNameMap = new Map([['tool.sanitized', 'tool.original']]);
+
+    const events: any[] = [];
+    for await (const event of coordinator.coordinateStream(spec, [], [{ name: 'tool.original' }], context)) {
+      events.push(event);
+    }
+
+    expect(compatModule.parseStreamChunk).toHaveBeenCalled();
+    expect(llmManager.streamProvider).toHaveBeenCalledTimes(2);
+    expect(toolCoordinator.routeAndInvoke).toHaveBeenCalledWith(
+      'tool.original',
+      'bad-1',
+      {},
+      expect.objectContaining({ provider: 'provider', model: 'model' })
+    );
+    expect(events.at(-1)?.type).toBe('done');
   });
 
   test('coordinateStream handles exhausted tool budget in streaming follow-up', async () => {
