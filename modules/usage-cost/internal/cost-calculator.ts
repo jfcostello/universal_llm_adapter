@@ -64,7 +64,7 @@ export function loadUsageCostTable(): UsageCostTable | undefined {
         return cachedTable;
       }
     } catch {
-      // Continue to next candidate path (e.g., package path -> cwd path).
+      // Continue to next candidate path (e.g., cwd -> package fallback).
       continue;
     }
   }
