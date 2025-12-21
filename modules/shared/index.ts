@@ -36,3 +36,31 @@ export function normalizeFlag(value: unknown, defaultValue: boolean): boolean {
   }
   return Boolean(value);
 }
+
+/**
+ * A deferred promise with externally accessible resolve/reject handlers.
+ */
+export interface Deferred<T = void> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
+}
+
+/**
+ * Creates a deferred promise with externally accessible resolve/reject.
+ * Equivalent to the ES2024 Promise.withResolvers() API.
+ *
+ * @example
+ * const deferred = createDeferred<string>();
+ * setTimeout(() => deferred.resolve('done'), 1000);
+ * await deferred.promise; // 'done'
+ */
+export function createDeferred<T = void>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}

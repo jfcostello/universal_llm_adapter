@@ -6,6 +6,7 @@ import type {
   RealtimeSessionSpec
 } from '../../../../modules/kernel/index.js';
 import { AsyncQueue, LruMap, resolveRealtimeToolCallTrackingMaxEntries } from '../../../../modules/kernel/index.js';
+import { createDeferred, type Deferred } from '../../../../modules/shared/index.js';
 
 import {
   buildConversationItemCreateEvent,
@@ -75,15 +76,7 @@ export function createOpenAIRealtimeCompatSessionWithTransport(
   const forceToolChoiceOnCommit = typeof spec.toolChoice === 'object' && spec.toolChoice?.type === 'single';
   const preReadyEvents: RealtimeEvent[] = [];
 
-  let pendingCancel: { promise: Promise<void>; resolve: () => void } | undefined;
-
-  const createDeferred = (): { promise: Promise<void>; resolve: () => void } => {
-    let resolve!: () => void;
-    const promise = new Promise<void>((res) => {
-      resolve = res;
-    });
-    return { promise, resolve };
-  };
+  let pendingCancel: Deferred<void> | undefined;
 
   const send = (event: any): void => {
     transport.send(JSON.stringify(event));
