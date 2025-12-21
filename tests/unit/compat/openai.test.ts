@@ -1284,6 +1284,11 @@ describe('compat/openai', () => {
       expect(stats.cachedTokens).toBe(30);
       expect(stats.audioTokens).toBe(8);
     });
+
+    test('normalizeUsageStats returns empty object when no usage data is present', () => {
+      const stats = (compat as any).normalizeUsageStats({});
+      expect(stats).toEqual({});
+    });
   });
 
   // Issue #78: reasoning_details preservation for OpenRouter/Gemini

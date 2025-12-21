@@ -17,6 +17,7 @@ describe('core/defaults', () => {
       // Verify all categories exist
       expect(defaults).toHaveProperty('retry');
       expect(defaults).toHaveProperty('tools');
+      expect(defaults).toHaveProperty('usageCost');
       expect(defaults).toHaveProperty('vector');
       expect(defaults).toHaveProperty('chunking');
       expect(defaults).toHaveProperty('tokenEstimation');
@@ -46,6 +47,13 @@ describe('core/defaults', () => {
       expect(tools.preserveReasoning).toBe(3);
       expect(tools.maxIterations).toBe(10);
       expect(tools.timeoutMs).toBe(120000);
+    });
+
+    test('returns correct usage cost defaults', async () => {
+      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const defaults = getDefaults();
+
+      expect(defaults.usageCost).toBe(false);
     });
 
     test('returns correct vector defaults', async () => {
@@ -160,6 +168,7 @@ describe('core/defaults', () => {
       expect(defaults.retry.baseDelayMs).toBe(250);
       expect(defaults.tools.countdownEnabled).toBe(true);
       expect(defaults.tools.maxIterations).toBe(10);
+      expect(defaults.usageCost).toBe(false);
       expect(defaults.vector.topK).toBe(5);
       expect(defaults.chunking.size).toBe(500);
       expect(defaults.tokenEstimation.textDivisor).toBe(4);

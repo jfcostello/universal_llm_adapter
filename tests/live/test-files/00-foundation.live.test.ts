@@ -2,10 +2,91 @@
 import fs from 'fs';
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { filteredTestRuns as testRuns, invalidPriorityEntry } from '../config.ts';
-import { withLiveEnv, buildLogPathFor, redactionFoundIn, makeSpec, mergeSettings } from '@tests/helpers/live-v2.ts';
+import { withLiveEnv, buildLogPathFor, redactionFoundIn, makeSpec, mergeSettings, parseLogBodies } from '@tests/helpers/live-v2.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
+
+function loadUsageCostTable(): Record<string, any> | null {
+  const candidates = [
+    './plugins/configs/usage-costs.json',
+    './dist/plugins/configs/usage-costs.json'
+  ];
+  for (const p of candidates) {
+    if (!fs.existsSync(p)) continue;
+    try {
+      const raw = fs.readFileSync(p, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') return parsed as Record<string, any>;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function assertUsageCost(payload: any, usageCostEnabled: boolean): void {
+  const usage = payload?.usage;
+  if (!usage) return;
+
+  const provider = payload?.provider;
+  const model = payload?.model;
+  const table = loadUsageCostTable();
+  const hasRates = Boolean(table?.[provider]?.[model]);
+  const hasTokens = typeof usage.promptTokens === 'number' && typeof usage.completionTokens === 'number';
+
+  if (typeof usage.cost === 'number') {
+    expect(Number.isFinite(usage.cost)).toBe(true);
+    expect(usage.cost).toBeGreaterThanOrEqual(0);
+    return;
+  }
+
+  if (usageCostEnabled && hasRates && hasTokens) {
+    throw new Error(`Expected usage.cost to be computed for ${provider}/${model}`);
+  }
+}
+
+function readCachedTokensFromBody(body: any): number | null {
+  const cachedOpenAI = body?.usage?.prompt_tokens_details?.cached_tokens ??
+    body?.usage?.input_tokens_details?.cached_tokens ??
+    body?.usage?.input_token_details?.cached_tokens;
+  if (typeof cachedOpenAI === 'number') return cachedOpenAI;
+
+  const cachedAnthropicRead = body?.usage?.cache_read_input_tokens;
+  const cachedAnthropicCreate = body?.usage?.cache_creation_input_tokens;
+  if (typeof cachedAnthropicRead === 'number' || typeof cachedAnthropicCreate === 'number') {
+    return (typeof cachedAnthropicRead === 'number' ? cachedAnthropicRead : 0) +
+      (typeof cachedAnthropicCreate === 'number' ? cachedAnthropicCreate : 0);
+  }
+
+  const cachedGoogle = body?.usageMetadata?.cachedContentTokenCount;
+  if (typeof cachedGoogle === 'number') return cachedGoogle;
+
+  return null;
+}
+
+function assertCachedTokensExtracted(payload: any, logPath: string): void {
+  const bodies = parseLogBodies(logPath);
+  let cachedRaw: number | null = null;
+
+  for (let i = bodies.length - 1; i >= 0; i--) {
+    const candidate = readCachedTokensFromBody(bodies[i]);
+    if (typeof candidate === 'number') {
+      cachedRaw = candidate;
+      break;
+    }
+  }
+
+  if (cachedRaw === null) return;
+
+  const cachedUnified = payload?.usage?.cachedTokens;
+  if (typeof cachedUnified !== 'number') {
+    throw new Error('Expected usage.cachedTokens to be set when cached tokens are present in the raw response');
+  }
+  if (cachedUnified !== cachedRaw) {
+    throw new Error(`Expected usage.cachedTokens to equal ${cachedRaw}, got ${cachedUnified}`);
+  }
+}
 
 for (let i = 0; i < testRuns.length; i++) {
   const runCfg = testRuns[i];
@@ -30,7 +111,7 @@ for (let i = 0; i < testRuns.length; i++) {
           { role: 'user', content: [{ type: 'text', text: 'Reply exactly with: INTEGRATION_TEST_OK' }]}
         ],
         llmPriority: [invalidPriorityEntry as any, ...runCfg.llmPriority],
-        settings: mergeSettings(runCfg.settings, { temperature: 0, maxTokens: 60000, fakeField: 'fakeValue' }),
+        settings: mergeSettings(runCfg.settings, { temperature: 0, maxTokens: 60000, fakeField: 'fakeValue', usageCost: true }),
         functionToolNames: []
       });
 
@@ -45,6 +126,7 @@ for (let i = 0; i < testRuns.length; i++) {
       const text = payload.content?.[0]?.text || '';
       expect(text.includes('INTEGRATION_TEST_OK')).toBe(true);
       expect(payload.provider).toBe(runCfg.llmPriority[0].provider);
+      assertUsageCost(payload, spec.settings?.usageCost === true);
       const extrasLogFound = result.logs.some(line => line.includes('Extra field not supported by provider') && line.includes('fakeField'));
       expect(extrasLogFound).toBe(true);
       const logPath = buildLogPathFor(testFileBase);
@@ -55,6 +137,7 @@ for (let i = 0; i < testRuns.length; i++) {
       if (!isSDKBased) {
         expect(redactionFoundIn(logText)).toBe(true);
       }
+      assertCachedTokensExtracted(payload, logPath);
     }, 120000);
 
     test('Call 2: deterministic math', async () => {
@@ -82,4 +165,3 @@ for (let i = 0; i < testRuns.length; i++) {
     }, 120000);
   });
 }
-

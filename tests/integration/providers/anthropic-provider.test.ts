@@ -236,14 +236,15 @@ describe('integration/providers/anthropic-provider', () => {
       });
     });
 
-    describe('1.4 Settings Mapping', () => {
-      test('maps supported settings', () => {
-        const payload = compat.buildPayload('claude-3', allSettings, baseMessages, [], undefined);
+	    describe('1.4 Settings Mapping', () => {
+	      test('maps supported settings', () => {
+	        const payload = compat.buildPayload('claude-3', allSettings, baseMessages, [], undefined);
 
-        expect(payload.temperature).toBe(0.7);
-        expect(payload.top_p).toBe(0.9);
-        expect(payload.stop_sequences).toEqual(['STOP', 'END']);
-      });
+	        // Temperature is forced to 1 when thinking is enabled.
+	        expect(payload.temperature).toBe(1);
+	        expect(payload.top_p).toBe(0.9);
+	        expect(payload.stop_sequences).toEqual(['STOP', 'END']);
+	      });
 
       test('requires max_tokens (defaults to 8192)', () => {
         const payload = compat.buildPayload('claude-3', {}, baseMessages, [], undefined);
@@ -297,7 +298,7 @@ describe('integration/providers/anthropic-provider', () => {
         const settings = { reasoning: { enabled: true } };
         const payload = compat.buildPayload('claude-3', settings, messages, [], undefined);
 
-        expect(payload.thinking?.budget_tokens).toBe(51200);
+        expect(payload.thinking?.budget_tokens).toBe(payload.max_tokens - 1);
       });
 
       test('injects thinking blocks at start of assistant messages', () => {

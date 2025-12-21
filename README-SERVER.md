@@ -458,7 +458,8 @@ curl http://127.0.0.1:3000/embeddings/run \
       "enabled": true,
       "effort": "medium",
       "budget": 10000
-    }
+    },
+    "usageCost": false
   },
 
   // Tools (optional)
@@ -481,6 +482,12 @@ curl http://127.0.0.1:3000/embeddings/run \
   }
 }
 ```
+
+### Usage Cost Calculation
+
+When a provider response omits cost, set `settings.usageCost` to opt into local cost calculation.
+Costs are loaded from `plugins/configs/usage-costs.json` and are defined per provider/model in
+**cost-per-million tokens**.
 
 ### VectorCallSpec
 

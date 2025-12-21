@@ -1,4 +1,9 @@
-import { extractUsageStats } from '@/modules/usage/index.ts';
+import {
+  extractUsageStats,
+  mergeUsageExtractionSpecs,
+  getGlobalUsageSpec,
+  getPromptTokensIncludeCached
+} from '@/modules/usage/index.ts';
 
 describe('utils/usage/usage-extractor', () => {
   test('extracts token usage from nested objects and computes total when missing', () => {
@@ -48,6 +53,62 @@ describe('utils/usage/usage-extractor', () => {
     expect(usage).toEqual({ promptTokens: 7 });
   });
 
+  test('supports sum-mode candidates across multiple paths', () => {
+    const raw = { usage: { a: 2, b: 3 } };
+    const usage = extractUsageStats(raw, {
+      promptTokens: { mode: 'sum', paths: ['usage.a', 'usage.b'] }
+    });
+
+    expect(usage).toEqual({ promptTokens: 5 });
+  });
+
+  test('sum-mode returns null when any path is explicitly null', () => {
+    const raw = { usage: { a: null, b: 2 } };
+    const usage = extractUsageStats(raw, {
+      promptTokens: { mode: 'sum', paths: ['usage.a', 'usage.b'] }
+    });
+
+    expect(usage).toEqual({ promptTokens: null });
+  });
+
+  test('sum-mode falls back to later candidates when no values are found', () => {
+    const raw = { usage: { prompt_tokens: 7 } };
+    const usage = extractUsageStats(raw, {
+      promptTokens: [
+        { mode: 'sum', paths: ['usage.missing_a', 'usage.missing_b'] },
+        'usage.prompt_tokens'
+      ]
+    });
+
+    expect(usage).toEqual({ promptTokens: 7 });
+  });
+
+  test('stores promptTokensIncludeCached flag when provided', () => {
+    const raw = { usage: { prompt_tokens: 4 } };
+    const usage = extractUsageStats(raw, {
+      promptTokens: 'usage.prompt_tokens',
+      promptTokensIncludeCached: false
+    });
+
+    expect(getPromptTokensIncludeCached(usage)).toBe(false);
+  });
+
+  test('returns undefined for empty string path candidates', () => {
+    const raw = { usage: { prompt_tokens: 4 } };
+    const usage = extractUsageStats(raw, { promptTokens: '' });
+    expect(usage).toBeUndefined();
+  });
+
+  test('returns undefined for empty array path candidates', () => {
+    const raw = { usage: { prompt_tokens: 4 } };
+    const usage = extractUsageStats(raw, { promptTokens: [[]] });
+    expect(usage).toBeUndefined();
+  });
+
+  test('getPromptTokensIncludeCached returns undefined for missing usage', () => {
+    expect(getPromptTokensIncludeCached(undefined)).toBeUndefined();
+  });
+
   test('returns undefined when no fields are extracted', () => {
     const usage = extractUsageStats({ ok: true }, { totalTokens: 'usage.total_tokens' });
     expect(usage).toBeUndefined();
@@ -74,6 +135,28 @@ describe('utils/usage/usage-extractor', () => {
     });
 
     expect(usage).toBeUndefined();
+  });
+
+  test('preserves explicit null token values', () => {
+    const raw = {
+      usage: {
+        prompt_tokens: null,
+        completion_tokens: null,
+        total_tokens: null
+      }
+    };
+
+    const usage = extractUsageStats(raw, {
+      promptTokens: 'usage.prompt_tokens',
+      completionTokens: 'usage.completion_tokens',
+      totalTokens: 'usage.total_tokens'
+    });
+
+    expect(usage).toEqual({
+      promptTokens: null,
+      completionTokens: null,
+      totalTokens: null
+    });
   });
 
   test('extracts extended usage fields when present', () => {
@@ -108,5 +191,68 @@ describe('utils/usage/usage-extractor', () => {
       cachedTokens: 4,
       audioTokens: 5
     });
+  });
+});
+
+describe('utils/usage/usage-extractor global mapping', () => {
+  test('global mapping extracts common usage shapes', () => {
+    const raw = {
+      usage: {
+        prompt_tokens: 12,
+        completion_tokens: 8,
+        total_tokens: 20,
+        completion_tokens_details: { reasoning_tokens: 2 },
+        prompt_tokens_details: { cached_tokens: 3, audio_tokens: 1 },
+        cost: 0.0042
+      }
+    };
+
+    const usage = extractUsageStats(raw, getGlobalUsageSpec());
+    expect(usage).toEqual({
+      promptTokens: 12,
+      completionTokens: 8,
+      totalTokens: 20,
+      reasoningTokens: 2,
+      cachedTokens: 3,
+      audioTokens: 1,
+      cost: 0.0042
+    });
+  });
+
+  test('mergeUsageExtractionSpecs prepends overrides', () => {
+    const globalSpec = getGlobalUsageSpec();
+    const merged = mergeUsageExtractionSpecs(globalSpec, {
+      promptTokens: ['meta.prompt_tokens'],
+      completionTokens: ['meta.completion_tokens']
+    });
+
+    const raw = {
+      meta: { prompt_tokens: 5, completion_tokens: 7 },
+      usage: { prompt_tokens: 1, completion_tokens: 1 }
+    };
+
+    const usage = extractUsageStats(raw, merged);
+    expect(usage).toEqual({
+      promptTokens: 5,
+      completionTokens: 7,
+      totalTokens: 12
+    });
+  });
+
+  test('mergeUsageExtractionSpecs retains base promptTokensIncludeCached when override missing', () => {
+    const merged = mergeUsageExtractionSpecs(
+      { promptTokens: 'usage.prompt_tokens', promptTokensIncludeCached: true },
+      { completionTokens: 'usage.completion_tokens' }
+    );
+
+    expect(merged.promptTokensIncludeCached).toBe(true);
+  });
+
+  test('mergeUsageExtractionSpecs tolerates sum specs with missing paths', () => {
+    const merged = mergeUsageExtractionSpecs({
+      promptTokens: { mode: 'sum', paths: undefined as any }
+    });
+
+    expect(merged.promptTokens).toEqual([{ mode: 'sum', paths: [] }]);
   });
 });

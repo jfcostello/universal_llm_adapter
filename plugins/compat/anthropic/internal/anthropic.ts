@@ -67,11 +67,29 @@ export default class AnthropicCompat implements ICompatModule {
     }
 
     if (thinkingEnabled && reasoning) {
-      const budget = reasoning.budget || settings.reasoningBudget || 51200;
+      const MIN_BUDGET_TOKENS = 1024;
+
+      const requestedBudgetTokens = reasoning.budget || settings.reasoningBudget || 51200;
+      const normalizedBudgetTokens = Math.max(requestedBudgetTokens, MIN_BUDGET_TOKENS);
+
+      let maxTokens = payload.max_tokens;
+
+      if (maxTokens <= MIN_BUDGET_TOKENS) {
+        // Anthropic requires: max_tokens > thinking.budget_tokens (and budget_tokens >= 1024).
+        // If the caller requested too few tokens, bump max_tokens to the minimum valid value.
+        maxTokens = MIN_BUDGET_TOKENS + 1;
+        payload.max_tokens = maxTokens;
+      }
+
+      const budgetTokens = Math.min(normalizedBudgetTokens, maxTokens - 1);
       payload.thinking = {
         type: 'enabled',
-        budget_tokens: budget
+        budget_tokens: budgetTokens
       };
+
+      if (payload.temperature !== undefined && payload.temperature !== 1) {
+        payload.temperature = 1;
+      }
     }
 
     return payload;

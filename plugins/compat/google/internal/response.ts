@@ -7,14 +7,34 @@ import type {
   UsageStats
 } from '../../../../modules/kernel/index.js';
 import { Role } from '../../../../modules/kernel/index.js';
-import { extractUsageStats } from '../../../../modules/usage/index.js';
+import { extractUsageStats, getGlobalUsageSpec, mergeUsageExtractionSpecs } from '../../../../modules/usage/index.js';
+import type { UsageExtractionSpec } from '../../../../modules/usage/index.js';
 
-const googleUsageSpec = {
-  promptTokens: 'promptTokenCount',
-  completionTokens: 'candidatesTokenCount',
-  totalTokens: 'totalTokenCount',
-  reasoningTokens: 'thoughtsTokenCount'
-} as const;
+const googleUsageSpec: UsageExtractionSpec = {
+  promptTokens: [
+    { mode: 'sum', paths: [['usageMetadata', 'promptTokenCount'], ['usageMetadata', 'cachedContentTokenCount']] },
+    { mode: 'sum', paths: [['promptTokenCount'], ['cachedContentTokenCount']] }
+  ],
+  completionTokens: [
+    ['usageMetadata', 'candidatesTokenCount'],
+    ['candidatesTokenCount']
+  ],
+  totalTokens: [
+    ['usageMetadata', 'totalTokenCount'],
+    ['totalTokenCount']
+  ],
+  reasoningTokens: [
+    ['usageMetadata', 'thoughtsTokenCount'],
+    ['thoughtsTokenCount']
+  ],
+  cachedTokens: [
+    ['usageMetadata', 'cachedContentTokenCount'],
+    ['cachedContentTokenCount']
+  ],
+  promptTokensIncludeCached: true
+};
+
+const GOOGLE_USAGE_SPEC = mergeUsageExtractionSpecs(getGlobalUsageSpec(), googleUsageSpec);
 
 export function extractToolCalls(parts?: any[]): ToolCall[] | undefined {
   if (!parts || !Array.isArray(parts) || parts.length === 0) return undefined;
@@ -41,7 +61,7 @@ export function extractToolCalls(parts?: any[]): ToolCall[] | undefined {
 }
 
 export function extractUsage(usage?: unknown): UsageStats | undefined {
-  return extractUsageStats(usage, googleUsageSpec);
+  return extractUsageStats(usage, GOOGLE_USAGE_SPEC);
 }
 
 export function extractReasoning(parts?: any[]): ReasoningData | undefined {
@@ -87,4 +107,3 @@ export function parseSDKResponse(raw: any, model: string): LLMResponse {
     raw
   };
 }
-

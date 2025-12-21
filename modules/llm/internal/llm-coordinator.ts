@@ -6,6 +6,7 @@ import type {
   ReasoningData,
   UnifiedTool,
   DocumentContent,
+  LLMCallSettings,
   RuntimeSettings,
   VectorContextConfig,
   PluginRegistry,
@@ -14,13 +15,13 @@ import type {
 } from '../../kernel/index.js';
 import {
   Role,
-  StreamEventType,
   sanitizeToolName,
   ProviderExecutionError,
   getDefaults,
   resolveLoggingDeps
 } from '../../kernel/index.js';
 import { LLMManager } from './llm-manager.js';
+import { normalizeFlag } from '../../shared/index.js';
 import { pruneToolResults, pruneReasoning } from '../../context/index.js';
 import { partitionSettings, mergeProviderSettings } from '../../settings/index.js';
 import { prepareMessages, appendAssistantToolCalls, appendToolResult } from '../../messages/index.js';
@@ -222,6 +223,7 @@ export class LLMCoordinator {
             runContext
           );
 
+          await this.attachUsageCostIfNeeded(response, mergedSettings, providerManifest.id, item.model);
           this.ensureValidAssistantResponse(response, providerManifest.id);
 
           runLogger.info('Provider response processed', {
@@ -259,6 +261,7 @@ export class LLMCoordinator {
             toolNameMap
           );
 
+          await this.attachUsageCostIfNeeded(response, mergedSettings, providerManifest.id, item.model);
           this.ensureValidAssistantResponse(response, providerManifest.id);
 
           return response;
@@ -380,160 +383,6 @@ export class LLMCoordinator {
     );
   }
 
-  private async *executeToolsAndContinueStreaming(
-    spec: LLMCallSpec,
-    runtime: RuntimeSettings,
-    messages: Message[],
-    tools: UnifiedTool[],
-    toolCalls: any[],
-    providerManifest: any,
-    model: string,
-    toolNameMap: Record<string, string>,
-    providerExtras: Record<string, any>,
-    logger: AdapterLogger,
-    toolChoice: any,
-    reasoning?: ReasoningData
-  ): AsyncGenerator<LLMStreamEvent, string | undefined> {
-    logger.info('executeToolsAndContinueStreaming started', { toolCallCount: toolCalls.length });
-
-    const toolDefaults = getDefaults().tools;
-    const preserveToolResults = runtime.preserveToolResults ?? toolDefaults.preserveResults;
-    const preserveReasoning = runtime.preserveReasoning ?? toolDefaults.preserveReasoning;
-
-    // Add assistant message with tool calls (use sanitized names for API compatibility)
-    appendAssistantToolCalls(
-      messages,
-      toolCalls.map(tc => ({
-        id: tc.id,
-        name: tc.name,
-        arguments: tc.arguments
-      })),
-      { sanitizeName: sanitizeToolName, content: [], reasoning }
-    );
-
-    // Execute each tool and add results to messages
-    for (const toolCall of toolCalls) {
-      logger.info('Invoking tool', {
-        toolName: toolCall.name,
-        callId: toolCall.id
-      });
-
-      try {
-        logger.info('About to invoke tool', { toolName: toolCall.name });
-        const result = await this.toolCoordinator.routeAndInvoke(
-          toolCall.name,
-          toolCall.id,
-          toolCall.arguments,
-          {
-            provider: providerManifest.id,
-            model,
-            metadata: spec.metadata,
-            logger
-          }
-        );
-        logger.info('Tool invoked successfully', { toolName: toolCall.name, result });
-
-        appendToolResult(messages, {
-          toolName: toolCall.name,
-          callId: toolCall.id,
-          result,
-          resultText: typeof result === 'string' ? result : JSON.stringify(result)
-        });
-        logger.info('Added tool result to messages', { toolName: toolCall.name });
-      } catch (error) {
-        logger.error('Tool execution failed', {
-          toolName: toolCall.name,
-          callId: toolCall.id,
-          error: error instanceof Error ? error.message : String(error)
-        });
-
-        // Add error as tool result
-        const errorResult = {
-          error: 'tool_execution_failed',
-          message: error instanceof Error ? error.message : String(error)
-        };
-
-        appendToolResult(messages, {
-          toolName: toolCall.name,
-          callId: toolCall.id,
-          result: errorResult,
-          resultText: JSON.stringify(errorResult)
-        });
-      }
-    }
-
-    // Continue streaming with updated messages (keep tools and toolChoice like non-streaming version)
-    logger.info('Starting follow-up stream', {
-      messagesCount: messages.length,
-      lastMessage: messages[messages.length - 1],
-      toolsCount: tools.length,
-      toolChoice
-    });
-
-    // Prune old tool results and reasoning before follow-up stream
-    pruneToolResults(messages, preserveToolResults);
-    pruneReasoning(messages, preserveReasoning);
-
-    let followUpStream;
-    try {
-      followUpStream = this.llmManager.streamProvider(
-        providerManifest,
-        model,
-        spec.settings,
-        messages,
-        tools,  // Keep tools available for potential multi-turn tool use
-        toolChoice,
-        providerExtras,
-        logger,
-        { metadata: spec.metadata }
-      );
-      logger.info('Follow-up stream created successfully');
-    } catch (error) {
-      logger.error('Error creating follow-up stream', {
-        error: error instanceof Error ? error.message : String(error)
-      });
-      throw error;
-    }
-
-    let followUpContent = '';
-    let chunkCount = 0;
-    logger.info('About to iterate follow-up stream');
-
-    const compat = await this.registry.getCompatModule(providerManifest.compat);
-
-    try {
-      for await (const chunk of followUpStream) {
-        chunkCount++;
-        const parsed = compat.parseStreamChunk(chunk);
-
-        logger.info('Follow-up chunk received', {
-          chunkNumber: chunkCount,
-          hasText: !!parsed.text,
-          text: parsed.text,
-          chunk: JSON.stringify(chunk).substring(0, 200)
-        });
-
-        if (parsed.text) {
-          followUpContent += parsed.text;
-          yield {
-            type: StreamEventType.DELTA,
-            content: parsed.text
-          };
-        }
-      }
-    } catch (error) {
-      logger.error('Error iterating follow-up stream', {
-        error: error instanceof Error ? error.message : String(error)
-      });
-      throw error;
-    }
-
-    logger.info('Follow-up stream loop ended', { chunkCount, followUpContent });
-
-    logger.info('Follow-up stream complete', { followUpContent });
-    return followUpContent;
-  }
-
   private async handleTools(
     spec: LLMCallSpec,
     runtime: RuntimeSettings,
@@ -595,6 +444,28 @@ export class LLMCoordinator {
     return sanitizeToolName(name);
   }
 
+  private shouldCalculateUsageCost(settings: LLMCallSettings): boolean {
+    const defaults = getDefaults();
+    return normalizeFlag(settings.usageCost, defaults.usageCost);
+  }
+
+  private async attachUsageCostIfNeeded(
+    response: LLMResponse,
+    settings: LLMCallSettings,
+    provider: string,
+    model: string
+  ): Promise<void> {
+    if (!response?.usage) return;
+    if (typeof response.usage.cost === 'number') return;
+    if (!this.shouldCalculateUsageCost(settings)) return;
+
+    const { attachUsageCostIfMissing } = await import('../../usage-cost/index.js');
+    attachUsageCostIfMissing({
+      usage: response.usage,
+      provider,
+      model
+    });
+  }
 
   private parseMaxToolIterations(value: unknown): number {
     if (value === null || value === undefined) return 10;
@@ -603,19 +474,6 @@ export class LLMCoordinator {
     }
     const parsed = parseInt(String(value), 10);
     return Number.isFinite(parsed) ? Math.max(0, parsed) : 10;
-  }
-
-  private normalizeFlag(value: any, defaultValue: boolean): boolean {
-    if (value === null || value === undefined) return defaultValue;
-    if (typeof value === 'boolean') return value;
-    if (typeof value === 'number') return Boolean(value);
-    if (typeof value === 'string') {
-      const normalized = value.trim().toLowerCase();
-      if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
-      if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
-      return defaultValue;
-    }
-    return Boolean(value);
   }
 
   async close(): Promise<void> {

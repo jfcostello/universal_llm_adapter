@@ -335,25 +335,25 @@ describe('integration/providers/anthropic-provider-extended', () => {
       });
     });
 
-    test('uses reasoningBudget fallback', () => {
-      const messages = [
-        { role: Role.ASSISTANT, content: [{ type: 'text' as const, text: 'a' }], reasoning: { text: 't' } }
-      ];
-      const settings = { reasoning: { enabled: true }, reasoningBudget: 10000 };
-      const payload = compat.buildPayload('claude-3', settings, messages, [], undefined);
+	    test('uses reasoningBudget fallback', () => {
+	      const messages = [
+	        { role: Role.ASSISTANT, content: [{ type: 'text' as const, text: 'a' }], reasoning: { text: 't' } }
+	      ];
+	      const settings = { reasoning: { enabled: true }, reasoningBudget: 6000 };
+	      const payload = compat.buildPayload('claude-3', settings, messages, [], undefined);
 
-      expect(payload.thinking?.budget_tokens).toBe(10000);
-    });
+	      expect(payload.thinking?.budget_tokens).toBe(6000);
+	    });
 
-    test('uses default budget when not specified', () => {
-      const messages = [
-        { role: Role.ASSISTANT, content: [{ type: 'text' as const, text: 'a' }], reasoning: { text: 't' } }
-      ];
-      const settings = { reasoning: { enabled: true } };
-      const payload = compat.buildPayload('claude-3', settings, messages, [], undefined);
+	    test('uses default budget when not specified', () => {
+	      const messages = [
+	        { role: Role.ASSISTANT, content: [{ type: 'text' as const, text: 'a' }], reasoning: { text: 't' } }
+	      ];
+	      const settings = { reasoning: { enabled: true } };
+	      const payload = compat.buildPayload('claude-3', settings, messages, [], undefined);
 
-      expect(payload.thinking?.budget_tokens).toBe(51200);
-    });
+	      expect(payload.thinking?.budget_tokens).toBe(payload.max_tokens - 1);
+	    });
 
     test('maintains thinking block order: thinking → text → tool_use', () => {
       const messages = [

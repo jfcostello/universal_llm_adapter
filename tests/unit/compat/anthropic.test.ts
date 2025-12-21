@@ -42,6 +42,56 @@ describe('compat/anthropic', () => {
       expect(payload.max_tokens).toBe(1000);
     });
 
+    test('forces temperature to 1 when thinking is enabled', () => {
+      const payload = compat.buildPayload(
+        'claude-haiku-4-5',
+        {
+          temperature: 0.2,
+          reasoning: { enabled: true, budget: 1024 }
+        },
+        [
+          {
+            role: Role.USER,
+            content: [{ type: 'text', text: 'Hello' }]
+          }
+        ],
+        [],
+        undefined
+      );
+
+      expect(payload.thinking).toEqual({
+        type: 'enabled',
+        budget_tokens: 1024
+      });
+      expect(payload.temperature).toBe(1);
+    });
+
+    test('bumps max_tokens when maxTokens is too small for thinking', () => {
+      const payload = compat.buildPayload(
+        'claude-haiku-4-5',
+        {
+          maxTokens: 200,
+          temperature: 0.2,
+          reasoning: { enabled: true, budget: 1024 }
+        },
+        [
+          {
+            role: Role.USER,
+            content: [{ type: 'text', text: 'Hello' }]
+          }
+        ],
+        [],
+        undefined
+      );
+
+      expect(payload.max_tokens).toBe(1025);
+      expect(payload.thinking).toEqual({
+        type: 'enabled',
+        budget_tokens: 1024
+      });
+      expect(payload.temperature).toBe(1);
+    });
+
     test('consumes pre-aggregated system message', () => {
       const aggregatedMessages = aggregateSystemMessages([
         {
@@ -478,6 +528,25 @@ describe('compat/anthropic', () => {
       });
     });
 
+    test('sums cached input tokens when cache fields are present', () => {
+      const stats = (compat as any).extractUsageStats({
+        usage: {
+          input_tokens: 5,
+          cache_creation_input_tokens: 7,
+          cache_read_input_tokens: 11,
+          output_tokens: 3
+        }
+      });
+
+      expect(stats).toEqual({
+        promptTokens: 23,
+        completionTokens: 3,
+        totalTokens: 26,
+        reasoningTokens: undefined,
+        cachedTokens: 18
+      });
+    });
+
     test('falls back to prompt/completion token aliases', () => {
       const stats = (compat as any).extractUsageStats({
         delta: {
@@ -536,6 +605,51 @@ describe('compat/anthropic', () => {
         promptTokens: 10,
         completionTokens: 5,
         totalTokens: 15
+      });
+    });
+
+    test('parses cached usage fields in responses', () => {
+      const raw = {
+        id: 'msg_789',
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Cached' }],
+        stop_reason: 'end_turn',
+        usage: {
+          input_tokens: 8,
+          cache_creation_input_tokens: 4,
+          cache_read_input_tokens: 6,
+          output_tokens: 2
+        }
+      };
+
+      const response = compat.parseResponse(raw, 'claude-haiku-4-5');
+
+      expect(response.usage).toEqual({
+        promptTokens: 18,
+        completionTokens: 2,
+        totalTokens: 20,
+        cachedTokens: 10
+      });
+    });
+
+    test('defaults usage totals when usage fields are missing', () => {
+      const raw = {
+        id: 'msg_456',
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'No usage fields' }],
+        model: 'claude-haiku-4-5',
+        stop_reason: 'end_turn',
+        usage: { other: 'value' }
+      };
+
+      const response = compat.parseResponse(raw, 'claude-haiku-4-5');
+
+      expect(response.usage).toEqual({
+        promptTokens: undefined,
+        completionTokens: undefined,
+        totalTokens: 0
       });
     });
 
@@ -1080,7 +1194,7 @@ describe('compat/anthropic', () => {
       const payload = compat.buildPayload(
         'claude-haiku-4-5',
         {
-          maxTokens: 1000,
+          maxTokens: 60000,
           reasoning: { enabled: true }
         },
         [
@@ -1103,7 +1217,7 @@ describe('compat/anthropic', () => {
       const payload = compat.buildPayload(
         'claude-haiku-4-5',
         {
-          maxTokens: 1000,
+          maxTokens: 60000,
           reasoning: { enabled: true, budget: 10000 }
         },
         [
@@ -1126,7 +1240,7 @@ describe('compat/anthropic', () => {
       const payload = compat.buildPayload(
         'claude-haiku-4-5',
         {
-          maxTokens: 1000,
+          maxTokens: 60000,
           reasoning: { enabled: true },
           reasoningBudget: 20000
         },
@@ -1150,7 +1264,7 @@ describe('compat/anthropic', () => {
       const payload = compat.buildPayload(
         'claude-haiku-4-5',
         {
-          maxTokens: 1000,
+          maxTokens: 60000,
           reasoning: { enabled: true, budget: 15000 },
           reasoningBudget: 20000
         },
@@ -1261,16 +1375,16 @@ describe('compat/anthropic', () => {
       expect(payload.thinking).toBeUndefined();
     });
 
-    test('settings.reasoning takes precedence over extra.reasoning', () => {
-      const payload = compat.buildPayload(
-        'claude-haiku-4-5',
-        {
-          maxTokens: 1000,
-          reasoning: { enabled: true, budget: 10000 },
-          extra: {
-            reasoning: { enabled: true, budget: 30000 }
-          }
-        },
+	    test('settings.reasoning takes precedence over extra.reasoning', () => {
+	      const payload = compat.buildPayload(
+	        'claude-haiku-4-5',
+	        {
+	          maxTokens: 60000,
+	          reasoning: { enabled: true, budget: 10000 },
+	          extra: {
+	            reasoning: { enabled: true, budget: 30000 }
+	          }
+	        },
         [
           {
             role: Role.USER,

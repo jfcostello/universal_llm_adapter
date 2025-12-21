@@ -1,4 +1,4 @@
-import { usageStatsToJson } from '@/modules/usage/index.ts';
+import { usageStatsToJson, stripNullUsageStats, setPromptTokensIncludeCached, getPromptTokensIncludeCached } from '@/modules/usage/index.ts';
 
 describe('utils/usage/usage-utils', () => {
   test('usageStatsToJson normalizes optional values to null', () => {
@@ -91,5 +91,41 @@ describe('utils/usage/usage-utils', () => {
       cachedTokens: null,
       audioTokens: null
     });
+  });
+
+  test('stripNullUsageStats drops null fields but keeps numbers', () => {
+    const cleaned = stripNullUsageStats({
+      promptTokens: null,
+      completionTokens: 2,
+      totalTokens: undefined,
+      cachedTokens: 0
+    });
+
+    expect(cleaned).toEqual({
+      completionTokens: 2,
+      cachedTokens: 0
+    });
+  });
+
+  test('stripNullUsageStats preserves prompt token accounting metadata', () => {
+    const usage = { promptTokens: 5, completionTokens: 1 };
+    setPromptTokensIncludeCached(usage, false);
+
+    const cleaned = stripNullUsageStats(usage);
+    expect(getPromptTokensIncludeCached(cleaned)).toBe(false);
+  });
+
+  test('stripNullUsageStats returns empty object when all fields are nullish', () => {
+    const cleaned = stripNullUsageStats({
+      promptTokens: null,
+      completionTokens: undefined,
+      totalTokens: null
+    });
+
+    expect(cleaned).toEqual({});
+  });
+
+  test('stripNullUsageStats returns undefined for undefined input', () => {
+    expect(stripNullUsageStats(undefined)).toBeUndefined();
   });
 });

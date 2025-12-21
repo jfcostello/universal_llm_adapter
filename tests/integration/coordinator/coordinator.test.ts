@@ -4,6 +4,7 @@ import { PluginRegistry } from '@/modules/kernel/index.ts';
 import { LLMCoordinator } from '@/modules/llm/index.ts';
 import { Role, LLMResponse, LLMCallSettings } from '@/modules/kernel/index.ts';
 import { LLMManager } from '@/modules/llm/index.ts';
+import { normalizeFlag } from '@/modules/shared/index.ts';
 import { ROOT_DIR, resolveFixture } from '@tests/helpers/paths.ts';
 
 const specBase = {
@@ -221,13 +222,14 @@ describe('coordinator/coordinator integration', () => {
     await coordinator.close();
   });
 
-  test('normalizeFlag and sanitizeToolName helpers', async () => {
+  test('normalizeFlag (from shared) and sanitizeToolName helpers', async () => {
     const coordinator = await createCoordinator();
-    const normalize = (coordinator as any).normalizeFlag.bind(coordinator);
-    expect(normalize(undefined, true)).toBe(true);
-    expect(normalize('yes', false)).toBe(true);
-    expect(normalize('no', true)).toBe(false);
-    expect(normalize(0, true)).toBe(false);
+
+    // normalizeFlag is now imported from modules/shared
+    expect(normalizeFlag(undefined, true)).toBe(true);
+    expect(normalizeFlag('yes', false)).toBe(true);
+    expect(normalizeFlag('no', true)).toBe(false);
+    expect(normalizeFlag(0, true)).toBe(false);
 
     const sanitize = (coordinator as any).sanitizeToolName.bind(coordinator);
     expect(sanitize('tool/name?')).toBe('tool_name_');

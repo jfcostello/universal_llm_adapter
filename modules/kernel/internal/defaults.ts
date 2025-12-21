@@ -24,6 +24,7 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
     maxIterations: 10,
     timeoutMs: 120000
   },
+  usageCost: false,
   vector: {
     topK: 5,
     injectTemplate: 'Relevant context:\n{{results}}',

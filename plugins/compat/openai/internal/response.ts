@@ -6,6 +6,8 @@ import type {
   UsageStats
 } from '../../../../modules/kernel/index.js';
 import { Role, safeJsonParse } from '../../../../modules/kernel/index.js';
+import { extractUsageStats, getGlobalUsageSpec, mergeUsageExtractionSpecs } from '../../../../modules/usage/index.js';
+import { OPENAI_USAGE_SPEC_RESPONSE } from './mappings.js';
 
 function parseContent(content: any): ContentPart[] {
   if (!content) return [];
@@ -58,19 +60,13 @@ function parseToolCalls(rawCalls: any, reasoningDetails?: any[]): ToolCall[] | u
   });
 }
 
-function parseUsage(raw: any): UsageStats | undefined {
-  const usage = raw?.usage;
-  if (!usage) return undefined;
+const OPENAI_USAGE_SPEC = mergeUsageExtractionSpecs(
+  getGlobalUsageSpec(),
+  OPENAI_USAGE_SPEC_RESPONSE
+);
 
-  return {
-    promptTokens: usage.prompt_tokens,
-    completionTokens: usage.completion_tokens,
-    totalTokens: usage.total_tokens,
-    reasoningTokens: usage.completion_tokens_details?.reasoning_tokens,
-    cost: usage.cost,
-    cachedTokens: usage.prompt_tokens_details?.cached_tokens,
-    audioTokens: usage.prompt_tokens_details?.audio_tokens
-  };
+function parseUsage(raw: any): UsageStats | undefined {
+  return extractUsageStats(raw, OPENAI_USAGE_SPEC);
 }
 
 function parseReasoning(message: any): ReasoningData | undefined {

@@ -2,6 +2,7 @@ import { describe, expect, jest, test } from '@jest/globals';
 import { runToolLoop, __toolLoopTestUtils__ } from '@/modules/tools/index.ts';
 import { ToolCallBudget } from '@/modules/tools/index.ts';
 import { Role, StreamEventType, ToolCallEventType } from '@/modules/kernel/index.ts';
+import { calculateUsageCost } from '@/modules/usage-cost/index.ts';
 
 const providerManifest: any = {
   id: 'provider',
@@ -631,6 +632,65 @@ describe('utils/tools/runToolLoop', () => {
     expect(resolveCountdownText(false, budget)).toBeUndefined();
     budget.maxCalls = 2;
     expect(resolveCountdownText(true, budget)).toBe('Tool calls used 0 of 2 - 2 remaining.');
+  });
+
+  test('maybeAttachUsageCost skips when cost already set', async () => {
+    const { maybeAttachUsageCost } = __toolLoopTestUtils__;
+    const response = {
+      usage: {
+        promptTokens: 10,
+        completionTokens: 5,
+        cost: 0.5
+      }
+    } as any;
+
+    await maybeAttachUsageCost(response, { id: 'example-provider' } as any, 'example-model', { usageCost: true });
+    expect(response.usage.cost).toBe(0.5);
+  });
+
+  test('maybeAttachUsageCost skips when usageCost is missing', async () => {
+    const { maybeAttachUsageCost } = __toolLoopTestUtils__;
+    const response = {
+      usage: {
+        promptTokens: 10,
+        completionTokens: 5
+      }
+    } as any;
+
+    await maybeAttachUsageCost(response, { id: 'example-provider' } as any, 'example-model', {});
+    expect(response.usage.cost).toBeUndefined();
+  });
+
+  test('maybeAttachUsageCost skips when tokens are missing', async () => {
+    const { maybeAttachUsageCost } = __toolLoopTestUtils__;
+    const missingPrompt = { usage: { completionTokens: 2 } } as any;
+    const missingCompletion = { usage: { promptTokens: 2 } } as any;
+
+    await maybeAttachUsageCost(missingPrompt, { id: 'example-provider' } as any, 'example-model', { usageCost: true });
+    await maybeAttachUsageCost(missingCompletion, { id: 'example-provider' } as any, 'example-model', { usageCost: true });
+
+    expect(missingPrompt.usage.cost).toBeUndefined();
+    expect(missingCompletion.usage.cost).toBeUndefined();
+  });
+
+  test('maybeAttachUsageCost computes cost when enabled', async () => {
+    const { maybeAttachUsageCost } = __toolLoopTestUtils__;
+    const response = {
+      usage: {
+        promptTokens: 10,
+        completionTokens: 5,
+        cachedTokens: 2
+      }
+    } as any;
+
+    const expected = calculateUsageCost({
+      provider: 'example-provider',
+      model: 'example-model',
+      usage: response.usage
+    });
+
+    await maybeAttachUsageCost(response, { id: 'example-provider' } as any, 'example-model', { usageCost: true });
+    expect(response.usage.cost).toBe(expected);
   });
 
   test('final prompt branch handles absent run context', async () => {

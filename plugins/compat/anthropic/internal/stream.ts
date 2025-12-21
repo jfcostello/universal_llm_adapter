@@ -1,6 +1,13 @@
 import type { ParsedStreamChunk, ReasoningData, UsageStats } from '../../../../modules/kernel/index.js';
 import { ToolCallEventType } from '../../../../modules/kernel/index.js';
-import { extractUsageStats as extractUsageStatsGeneric } from '../../../../modules/usage/index.js';
+import {
+  extractUsageStats as extractUsageStatsGeneric,
+  getGlobalUsageSpec,
+  mergeUsageExtractionSpecs,
+  stripNullUsageStats,
+  getPromptTokensIncludeCached,
+  setPromptTokensIncludeCached
+} from '../../../../modules/usage/index.js';
 import { ANTHROPIC_USAGE_SPEC } from './mappings.js';
 
 export interface AnthropicStreamState {
@@ -15,22 +22,36 @@ export function createAnthropicStreamState(): AnthropicStreamState {
   };
 }
 
+const ANTHROPIC_STREAM_USAGE_SPEC = mergeUsageExtractionSpecs(
+  getGlobalUsageSpec(),
+  ANTHROPIC_USAGE_SPEC
+);
+
 export function extractUsageStats(chunk: any): UsageStats | undefined {
   const usage = chunk.usage ?? chunk.delta?.usage;
   if (!usage) {
     return undefined;
   }
 
-  const extracted = extractUsageStatsGeneric(usage, ANTHROPIC_USAGE_SPEC) ?? {};
+  const extracted = stripNullUsageStats(extractUsageStatsGeneric(usage, ANTHROPIC_STREAM_USAGE_SPEC)) ?? {};
   const promptTokens = extracted.promptTokens;
   const completionTokens = extracted.completionTokens;
+  const totalTokens = extracted.totalTokens ?? (promptTokens ?? 0) + (completionTokens ?? 0);
 
-  return {
+  const result: UsageStats = {
     promptTokens,
     completionTokens,
-    totalTokens: (promptTokens ?? 0) + (completionTokens ?? 0),
-    reasoningTokens: extracted.reasoningTokens
+    totalTokens,
+    reasoningTokens: extracted.reasoningTokens,
+    cachedTokens: extracted.cachedTokens
   };
+
+  const promptTokensIncludeCached = getPromptTokensIncludeCached(extracted);
+  if (typeof promptTokensIncludeCached === 'boolean') {
+    setPromptTokensIncludeCached(result, promptTokensIncludeCached);
+  }
+
+  return result;
 }
 
 export function extractReasoning(chunk: any): ReasoningData | undefined {
@@ -159,4 +180,3 @@ export function parseStreamChunk(chunk: any, state: AnthropicStreamState): Parse
 
   return result;
 }
-
