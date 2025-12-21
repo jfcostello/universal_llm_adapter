@@ -30,7 +30,8 @@ export function getMissingRequiredEnv(options: {
     openai: ['OPENAI_API_KEY'],
     'openai-responses': ['OPENAI_API_KEY'],
     openrouter: ['OPENROUTER_API_KEY'],
-    google: ['GEMINI_API_KEY']
+    google: ['GEMINI_API_KEY'],
+    grok: ['XAI_API_KEY']
   };
 
   for (const provider of options.selectedProviders) {
@@ -56,4 +57,3 @@ export function getMissingRequiredEnv(options: {
 
   return [...required].filter(key => !options.env?.[key] || String(options.env[key]).trim() === '');
 }
-
