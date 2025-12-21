@@ -319,6 +319,55 @@ describe('LLMCoordinator runStream', () => {
     )).toBe(true);
   });
 
+  test('executeToolsAndContinueStreaming falls back to toolCall.name when no mapping exists', async () => {
+    const registry = {
+      getProvider: jest.fn().mockReturnValue({ id: 'provider', compat: 'mock' }),
+      getCompatModule: jest.fn().mockReturnValue({
+        parseStreamChunk: jest.fn().mockReturnValue({})
+      }),
+      getMCPServers: jest.fn().mockReturnValue([]),
+      getProcessRoutes: jest.fn().mockReturnValue([])
+    } as any;
+
+    const coordinator = new LLMCoordinator(registry);
+    const logger = { info: jest.fn(), error: jest.fn() };
+
+    const routeAndInvoke = jest.fn().mockResolvedValue('ok');
+    (coordinator as any).toolCoordinator = { routeAndInvoke };
+
+    (coordinator as any).llmManager = {
+      streamProvider: jest.fn().mockReturnValue((async function* () {})())
+    };
+
+    const messages: any[] = [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }];
+    const tools = [{ name: 'tool_sanitized', description: 'tool', parametersJsonSchema: { type: 'object' } }];
+
+    const generator = (coordinator as any).executeToolsAndContinueStreaming(
+      { settings: {}, metadata: {} },
+      { toolCountdownEnabled: false },
+      messages,
+      tools,
+      [{ id: 'call-1', name: 'tool_sanitized', arguments: {} }],
+      { id: 'provider', compat: 'mock' },
+      'model',
+      {}, // no mapping for tool_sanitized
+      {},
+      logger,
+      'auto'
+    );
+
+    for await (const _event of generator) {
+      // exhaust generator
+    }
+
+    expect(routeAndInvoke).toHaveBeenCalledWith(
+      'tool_sanitized',
+      'call-1',
+      {},
+      expect.objectContaining({ provider: 'provider', model: 'model' })
+    );
+  });
+
   test('executeToolsAndContinueStreaming serializes non-string tool results', async () => {
     const registry = {
       getProvider: jest.fn().mockReturnValue({ id: 'provider', compat: 'mock' }),

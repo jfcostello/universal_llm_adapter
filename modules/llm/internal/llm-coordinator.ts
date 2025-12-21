@@ -384,6 +384,7 @@ export class LLMCoordinator {
     );
   }
 
+  // Intentionally retained for tests (accessed via `(coordinator as any)`).
   private async *executeToolsAndContinueStreaming(
     spec: LLMCallSpec,
     runtime: RuntimeSettings,
@@ -417,15 +418,16 @@ export class LLMCoordinator {
 
     // Execute each tool and add results to messages
     for (const toolCall of toolCalls) {
+      const targetToolName = toolNameMap[toolCall.name] ?? toolCall.name;
+
       logger.info('Invoking tool', {
-        toolName: toolCall.name,
+        toolName: targetToolName,
         callId: toolCall.id
       });
 
       try {
-        logger.info('About to invoke tool', { toolName: toolCall.name });
         const result = await this.toolCoordinator.routeAndInvoke(
-          toolCall.name,
+          targetToolName,
           toolCall.id,
           toolCall.arguments,
           {
@@ -435,18 +437,16 @@ export class LLMCoordinator {
             logger
           }
         );
-        logger.info('Tool invoked successfully', { toolName: toolCall.name, result });
 
         appendToolResult(messages, {
-          toolName: toolCall.name,
+          toolName: targetToolName,
           callId: toolCall.id,
           result,
           resultText: typeof result === 'string' ? result : JSON.stringify(result)
         });
-        logger.info('Added tool result to messages', { toolName: toolCall.name });
       } catch (error) {
         logger.error('Tool execution failed', {
-          toolName: toolCall.name,
+          toolName: targetToolName,
           callId: toolCall.id,
           error: error instanceof Error ? error.message : String(error)
         });
@@ -458,7 +458,7 @@ export class LLMCoordinator {
         };
 
         appendToolResult(messages, {
-          toolName: toolCall.name,
+          toolName: targetToolName,
           callId: toolCall.id,
           result: errorResult,
           resultText: JSON.stringify(errorResult)
@@ -466,17 +466,11 @@ export class LLMCoordinator {
       }
     }
 
-    // Continue streaming with updated messages (keep tools and toolChoice like non-streaming version)
-    logger.info('Starting follow-up stream', {
-      messagesCount: messages.length,
-      lastMessage: messages[messages.length - 1],
-      toolsCount: tools.length,
-      toolChoice
-    });
-
     // Prune old tool results and reasoning before follow-up stream
     pruneToolResults(messages, preserveToolResults);
     pruneReasoning(messages, preserveReasoning);
+
+    const compat = await this.registry.getCompatModule(providerManifest.compat);
 
     let followUpStream;
     try {
@@ -485,13 +479,12 @@ export class LLMCoordinator {
         model,
         spec.settings,
         messages,
-        tools,  // Keep tools available for potential multi-turn tool use
+        tools,
         toolChoice,
         providerExtras,
         logger,
         { metadata: spec.metadata }
       );
-      logger.info('Follow-up stream created successfully');
     } catch (error) {
       logger.error('Error creating follow-up stream', {
         error: error instanceof Error ? error.message : String(error)
@@ -500,23 +493,10 @@ export class LLMCoordinator {
     }
 
     let followUpContent = '';
-    let chunkCount = 0;
-    logger.info('About to iterate follow-up stream');
-
-    const compat = await this.registry.getCompatModule(providerManifest.compat);
 
     try {
       for await (const chunk of followUpStream) {
-        chunkCount++;
         const parsed = compat.parseStreamChunk(chunk);
-
-        logger.info('Follow-up chunk received', {
-          chunkNumber: chunkCount,
-          hasText: !!parsed.text,
-          text: parsed.text,
-          chunk: JSON.stringify(chunk).substring(0, 200)
-        });
-
         if (parsed.text) {
           followUpContent += parsed.text;
           yield {
@@ -532,9 +512,6 @@ export class LLMCoordinator {
       throw error;
     }
 
-    logger.info('Follow-up stream loop ended', { chunkCount, followUpContent });
-
-    logger.info('Follow-up stream complete', { followUpContent });
     return followUpContent;
   }
 
@@ -613,18 +590,13 @@ export class LLMCoordinator {
     if (!response?.usage) return;
     if (typeof response.usage.cost === 'number') return;
     if (!this.shouldCalculateUsageCost(settings)) return;
-    if (typeof response.usage.promptTokens !== 'number' || typeof response.usage.completionTokens !== 'number') return;
 
-    const { calculateUsageCost } = await import('../../usage-cost/index.js');
-    const cost = calculateUsageCost({
+    const { attachUsageCostIfMissing } = await import('../../usage-cost/index.js');
+    attachUsageCostIfMissing({
       usage: response.usage,
       provider,
       model
     });
-
-    if (typeof cost === 'number') {
-      response.usage.cost = cost;
-    }
   }
 
   private parseMaxToolIterations(value: unknown): number {
