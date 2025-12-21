@@ -89,6 +89,7 @@ plugins/tools/**
 
 .claude
 claude.md
+.codex
 agents*.md
 jest-summary.json
 .history/
