@@ -25,6 +25,7 @@ All values are **cost per million tokens**. `cached` is optional; when missing, 
 
 ## Exports
 - `calculateUsageCost({ provider, model, usage, table? })` – returns cost rounded to 6 decimals or `undefined`.
+- `attachUsageCostIfMissing({ provider, model, usage, table? })` – mutates `usage.cost` when computable and returns the computed cost (or `undefined`).
 - `getUsageCostRates(provider, model, table?)` – resolves normalized rates for a provider/model.
 - `loadUsageCostTable()` – loads/caches the cost table (searches package + cwd).
 - `resetUsageCostTableCache()` – clears cache (tests).

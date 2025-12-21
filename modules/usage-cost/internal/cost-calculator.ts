@@ -57,13 +57,13 @@ export function loadUsageCostTable(): UsageCostTable | undefined {
     if (!fs.existsSync(candidate)) continue;
     try {
       const data = loadJsonFile(candidate);
-      if (data && typeof data === 'object') {
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
         cachedTable = data as UsageCostTable;
         return cachedTable;
       }
     } catch {
-      cachedTable = null;
-      return undefined;
+      // Continue to next candidate path (e.g., package path -> cwd path).
+      continue;
     }
   }
 
@@ -134,4 +134,21 @@ export function calculateUsageCost(options: {
   const rounded = Math.round(cost * 1_000_000) / 1_000_000;
 
   return Number.isFinite(rounded) ? rounded : undefined;
+}
+
+export function attachUsageCostIfMissing(options: {
+  provider: string;
+  model: string;
+  usage: UsageStats | undefined;
+  table?: UsageCostTable;
+}): number | undefined {
+  const { provider, model, usage, table } = options;
+  if (!usage) return undefined;
+  if (typeof usage.cost === 'number') return undefined;
+
+  const cost = calculateUsageCost({ provider, model, usage, table });
+  if (typeof cost !== 'number') return undefined;
+
+  usage.cost = cost;
+  return cost;
 }

@@ -1,4 +1,4 @@
-import { calculateUsageCost, loadUsageCostTable, resetUsageCostTableCache, getUsageCostRates } from '@/modules/usage-cost/index.ts';
+import { calculateUsageCost, loadUsageCostTable, resetUsageCostTableCache, getUsageCostRates, attachUsageCostIfMissing } from '@/modules/usage-cost/index.ts';
 import { setPromptTokensIncludeCached } from '@/modules/usage/index.ts';
 import { jest } from '@jest/globals';
 
@@ -254,9 +254,37 @@ describe('modules/usage-cost', () => {
     expect(cost).toBeUndefined();
   });
 
-  test('loads usage cost table from file', () => {
-    resetUsageCostTableCache();
-    const loaded = loadUsageCostTable();
+	  test('attachUsageCostIfMissing mutates usage when cost is computable', () => {
+	    const usage: any = { promptTokens: 10, completionTokens: 5, cachedTokens: 2 };
+	    const expected = calculateUsageCost({ provider: 'providerA', model: 'modelX', usage, table });
+
+	    const attached = attachUsageCostIfMissing({ provider: 'providerA', model: 'modelX', usage, table });
+	    expect(attached).toBe(expected);
+	    expect(usage.cost).toBe(expected);
+	  });
+
+	  test('attachUsageCostIfMissing returns undefined when usage is missing', () => {
+	    const attached = attachUsageCostIfMissing({ provider: 'providerA', model: 'modelX', usage: undefined, table });
+	    expect(attached).toBeUndefined();
+	  });
+
+	  test('attachUsageCostIfMissing is a no-op when cost already exists', () => {
+	    const usage: any = { promptTokens: 10, completionTokens: 5, cost: 123 };
+	    const attached = attachUsageCostIfMissing({ provider: 'providerA', model: 'modelX', usage, table });
+	    expect(attached).toBeUndefined();
+	    expect(usage.cost).toBe(123);
+	  });
+
+	  test('attachUsageCostIfMissing returns undefined when cost cannot be computed', () => {
+	    const usage: any = { promptTokens: 10, completionTokens: 5 };
+	    const attached = attachUsageCostIfMissing({ provider: 'providerA', model: 'missing-model', usage, table });
+	    expect(attached).toBeUndefined();
+	    expect(usage.cost).toBeUndefined();
+	  });
+
+	  test('loads usage cost table from file', () => {
+	    resetUsageCostTableCache();
+	    const loaded = loadUsageCostTable();
     expect(loaded).toBeDefined();
   });
 
@@ -317,6 +345,39 @@ describe('modules/usage-cost loading fallback', () => {
     resetUsageCostTableCache();
     const loaded = loadUsageCostTable();
     expect(loaded).toBeUndefined();
+
+    jest.resetModules();
+  });
+
+  test('continues to the next candidate when the first candidate fails to load', async () => {
+    const fsMock: any = {
+      __esModule: true,
+      existsSync: jest.fn(() => true)
+    };
+    fsMock.default = fsMock;
+
+    (jest as any).unstable_mockModule('fs', () => fsMock);
+
+    const pkgRoot = '/tmp/pkg-root-usage-cost-test';
+    const goodTable = { providerB: { modelZ: { input: 1, output: 2 } } };
+
+    (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
+      __esModule: true,
+      PACKAGE_ROOT: pkgRoot,
+      loadJsonFile: (filePath: string) => {
+        if (String(filePath).startsWith(pkgRoot)) {
+          throw new Error('bad table in package path');
+        }
+        return goodTable;
+      },
+      getByPath: () => undefined
+    }));
+
+    const { loadUsageCostTable, resetUsageCostTableCache } = await import('@/modules/usage-cost/index.ts');
+    resetUsageCostTableCache();
+
+    const loaded = loadUsageCostTable();
+    expect(loaded).toEqual(goodTable);
 
     jest.resetModules();
   });

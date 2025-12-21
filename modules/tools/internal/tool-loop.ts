@@ -663,20 +663,8 @@ async function maybeAttachUsageCost(
   const enabled = normalizeFlag((providerSettings as any).usageCost, defaults.usageCost);
   if (!enabled) return;
 
-  if (typeof response.usage.promptTokens !== 'number' || typeof response.usage.completionTokens !== 'number') {
-    return;
-  }
-
-  const { calculateUsageCost } = await import('../../usage-cost/index.js');
-  const cost = calculateUsageCost({
-    usage: response.usage,
-    provider: providerManifest.id,
-    model
-  });
-
-  if (typeof cost === 'number') {
-    response.usage.cost = cost;
-  }
+  const { attachUsageCostIfMissing } = await import('../../usage-cost/index.js');
+  attachUsageCostIfMissing({ usage: response.usage, provider: providerManifest.id, model });
 }
 
 function parseMaxToolIterations(value: unknown, defaultValue: number = 10): number {
