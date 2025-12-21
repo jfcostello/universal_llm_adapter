@@ -3,6 +3,7 @@
 
 export type { RealtimeSession } from './internal/realtime-session.js';
 export { createRealtimeSession } from './internal/create-session.js';
+export { createWsTransport } from './internal/transport/ws.js';
 
 // Re-export spec and event types for convenience.
 export type {

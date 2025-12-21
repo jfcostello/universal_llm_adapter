@@ -1,0 +1,14 @@
+{
+  "id": "grok",
+  "compat": "grok",
+  "endpoint": {
+    "urlTemplate": "wss://api.x.ai/v1/realtime",
+    "headers": {
+      "Authorization": "Bearer ${XAI_API_KEY}"
+    }
+  },
+  "metadata": {
+    "defaultVoice": "ara"
+  }
+}
+

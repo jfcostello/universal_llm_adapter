@@ -326,12 +326,9 @@ if (testRuns.length === 0) {
 
       expect(result.code).toBe(0);
       const events = result.envelopes.filter(e => e.type === 'event').map(e => (e as any).event);
-      const assistantFinals = events
-        .filter(e => e?.type === 'assistant_text.final' || e?.type === 'assistant_transcript.final')
-        .map(e => String(e?.text ?? '').trim())
-        .filter(Boolean)
-        .join('\n');
-      expect(assistantFinals.includes('4')).toBe(true);
+      const assistantText = getFinalTranscript(events, 'assistant');
+      const normalized = assistantText.toLowerCase();
+      expect(/\b4\b/.test(normalized) || /\bfour\b/.test(normalized)).toBe(true);
     }, 120000);
 
     test('Telephony mode (g711_ulaw @ 8k)', async () => {
