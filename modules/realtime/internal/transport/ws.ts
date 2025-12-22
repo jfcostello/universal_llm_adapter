@@ -25,7 +25,7 @@ export interface RealtimeTransport {
 /**
  * Decode ws message payload to string.
  * The ws library can deliver payloads as string, Buffer, ArrayBuffer, Buffer[], or Blob.
- * Blob is only available in browser environments but we handle it for completeness.
+ * Note: createWsTransport uses the sync decoder in the message handler to preserve ordering.
  */
 export async function decodeWsMessageAsync(data: unknown): Promise<string> {
   if (typeof data === 'string') return data;
@@ -45,7 +45,7 @@ export async function decodeWsMessageAsync(data: unknown): Promise<string> {
 /**
  * Synchronous decode for ws message payload.
  * For Blob payloads, falls back to String() since async is not supported here.
- * Use decodeWsMessageAsync if Blob support is critical.
+ * Use decodeWsMessageAsync in environments where ws emits Blob payloads (e.g., binaryType: 'blob').
  */
 export function decodeWsMessage(data: unknown): string {
   if (typeof data === 'string') return data;
@@ -124,4 +124,3 @@ export function createWsTransport(options: { url: string; headers?: Record<strin
     }
   };
 }
-
