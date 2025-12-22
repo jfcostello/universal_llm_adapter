@@ -155,10 +155,14 @@ export function getFilteredRealtimeTestRuns(): RealtimeTestRun[] {
   );
 
   if (filtered.length === 0) {
-    console.warn(
-      `Warning: No realtime test runs matched providers: ${providerFilter}. ` +
-      `Available: ${realtimeTestRuns.map(r => r.name).join(', ')}`
-    );
+    // Avoid spamming logs for non-realtime live runs (many test files import this config).
+    // `tests/live/run-live.ts` sets LLM_LIVE_WANTS_REALTIME when the realtime suite is selected.
+    if (process.env.LLM_LIVE_WANTS_REALTIME === '1') {
+      console.warn(
+        `Warning: No realtime test runs matched providers: ${providerFilter}. ` +
+        `Available: ${realtimeTestRuns.map(r => r.name).join(', ')}`
+      );
+    }
     return [];
   }
 
@@ -183,7 +187,9 @@ export const defaultSettings = testRuns[0].settings;
 export const primaryProvider = llmPriority[0]?.provider ?? '';
 
 export const invalidPriorityEntry = {
-  provider: primaryProvider,
+  // Intentionally invalid provider/model to exercise fallback paths without
+  // depending on any real provider credentials or model availability.
+  provider: 'nonexistent-provider',
   model: 'fakemodel/fakename'
 };
 

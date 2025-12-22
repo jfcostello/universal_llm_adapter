@@ -101,33 +101,19 @@ export async function closeLogger(): Promise<void> {
   return closeLogger();
 }
 
-export async function runWithCoordinatorLifecycle<
-  S,
-  R extends import('./modules/lifecycle/index.js').PluginRegistryLike,
-  C,
-  T
->(
-  options: Parameters<
-    typeof import('./modules/lifecycle/index.js').runWithCoordinatorLifecycle
-  >[0]
-): Promise<T> {
-  const { runWithCoordinatorLifecycle } = await loadLifecycle();
-  return runWithCoordinatorLifecycle(options as any) as Promise<T>;
-}
+export const runWithCoordinatorLifecycle: typeof import('./modules/lifecycle/index.js').runWithCoordinatorLifecycle = async (
+  options
+) => {
+  const { runWithCoordinatorLifecycle: run } = await loadLifecycle();
+  return run(options);
+};
 
-export async function* streamWithCoordinatorLifecycle<
-  S,
-  R extends import('./modules/lifecycle/index.js').PluginRegistryLike,
-  C,
-  E
->(
-  options: Parameters<
-    typeof import('./modules/lifecycle/index.js').streamWithCoordinatorLifecycle
-  >[0]
-): AsyncGenerator<E> {
-  const { streamWithCoordinatorLifecycle } = await loadLifecycle();
-  yield* streamWithCoordinatorLifecycle(options as any) as AsyncGenerator<E>;
-}
+export const streamWithCoordinatorLifecycle: typeof import('./modules/lifecycle/index.js').streamWithCoordinatorLifecycle = async function* (
+  options
+) {
+  const { streamWithCoordinatorLifecycle: stream } = await loadLifecycle();
+  yield* stream(options);
+};
 
 // ==================== Realtime ====================
 
@@ -136,12 +122,12 @@ export async function createRealtimeSession(
   spec: Parameters<typeof import('./modules/realtime/index.js').createRealtimeSession>[1]
 ): Promise<import('./modules/realtime/index.js').RealtimeSession> {
   const { createRealtimeSession } = await loadRealtime();
-  return createRealtimeSession(registry as any, spec as any);
+  return createRealtimeSession(registry, spec);
 }
 
 export async function createWsTransport(
   options: Parameters<typeof import('./modules/realtime/index.js').createWsTransport>[0]
 ): Promise<ReturnType<typeof import('./modules/realtime/index.js').createWsTransport>> {
   const { createWsTransport } = await loadRealtime();
-  return createWsTransport(options as any);
+  return createWsTransport(options);
 }

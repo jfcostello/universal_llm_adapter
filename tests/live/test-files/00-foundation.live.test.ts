@@ -107,8 +107,8 @@ for (let i = 0; i < testRuns.length; i++) {
 
       const spec = makeSpec({
         messages: [
-          { role: 'system', content: [{ type: 'text', text: `You are a precise test assistant.\n\nCRITICAL INSTRUCTIONS — FOLLOW EXACTLY:\n1) When asked to reply with an exact phrase, reply with exactly that phrase and nothing else.\n2) Do not add explanations, prefixes, suffixes, or punctuation.\n3) If the phrase contains uppercase letters, preserve them exactly.` }]},
-          { role: 'user', content: [{ type: 'text', text: 'Reply exactly with: INTEGRATION_TEST_OK' }]}
+          { role: 'system', content: [{ type: 'text', text: 'Reply with exactly: INTEGRATION_TEST_OK' }]},
+          { role: 'user', content: [{ type: 'text', text: 'Reply now.' }]}
         ],
         llmPriority: [invalidPriorityEntry as any, ...runCfg.llmPriority],
         settings: mergeSettings(runCfg.settings, { temperature: 0, maxTokens: 60000, fakeField: 'fakeValue', usageCost: true }),

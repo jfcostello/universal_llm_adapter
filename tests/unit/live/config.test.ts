@@ -184,6 +184,7 @@ describe('tests/live/config', () => {
 
     test('returns empty array with warning when no realtime providers match', async () => {
       process.env.LLM_TEST_PROVIDERS = 'nonexistent';
+      process.env.LLM_LIVE_WANTS_REALTIME = '1';
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       const { getFilteredRealtimeTestRuns } = await import('@tests/live/config.ts');

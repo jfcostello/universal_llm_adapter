@@ -22,6 +22,7 @@ for (let i = 0; i < testRuns.length; i++) {
         ],
         llmPriority: runCfg.llmPriority,
         functionToolNames: ['test.echo'],
+        toolChoice: { type: 'required', allowed: ['test.echo'] },
         settings: mergeSettings(runCfg.settings, { temperature: 0.1, maxTokens: 60000, provider: { require_parameters: true } })
       });
       const result = await runCoordinator({ args: ['stream', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
@@ -40,11 +41,12 @@ for (let i = 0; i < testRuns.length; i++) {
     test('Call 2 (stream) — multiple in streaming', async () => {
       const spec = makeSpec({
         messages: [
-          { role: 'system', content: [{ type: 'text', text: 'When needed, call the reflection function twice as instructed and wait for actual results.' }]},
-          { role: 'user', content: [{ type: 'text', text: 'Call the reflecting function twice: first with "quantum" and then with "paradigm".' }]}
+          { role: 'system', content: [{ type: 'text', text: 'Make exactly two separate tool calls when instructed. Do not combine inputs into a single tool call.' }]},
+          { role: 'user', content: [{ type: 'text', text: 'Call test.echo twice: (1) message="quantum" then (2) message="paradigm".' }]}
         ],
         llmPriority: runCfg.llmPriority,
         functionToolNames: ['test.echo'],
+        toolChoice: { type: 'required', allowed: ['test.echo'] },
         settings: mergeSettings(runCfg.settings, { temperature: 0.1, maxTokens: 60000, provider: { require_parameters: true } })
       });
       const result = await runCoordinator({ args: ['stream', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
@@ -58,4 +60,3 @@ for (let i = 0; i < testRuns.length; i++) {
     }, 180000);
   });
 }
-
