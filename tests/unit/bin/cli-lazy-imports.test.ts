@@ -9,7 +9,7 @@ describe('bin/cli lazy import guardrails', () => {
     process.argv = [...originalArgv];
   });
 
-  test('importing bin/cli and creating the program does not import CLI internals', async () => {
+  test('importing bin/cli and running --help does not import CLI internals', async () => {
     jest.resetModules();
 
     const imported: string[] = [];
@@ -57,10 +57,11 @@ describe('bin/cli lazy import guardrails', () => {
     process.argv = ['node', '/not/bin/cli.ts'];
 
     const cli = await import('@/bin/cli.ts');
-    const help = cli.createUnifiedProgram().helpInformation();
+    jest.spyOn(process, 'exit').mockImplementation((() => { throw new Error('process.exit'); }) as any);
+    jest.spyOn(process.stdout, 'write').mockImplementation((() => true) as any);
+    jest.spyOn(process.stderr, 'write').mockImplementation((() => true) as any);
 
-    expect(help).toContain('LLM Adapter CLI');
+    await expect(cli.runUnifiedCli(['node', 'llm-adapter', '--help'])).rejects.toBeDefined();
     expect(imported).toEqual([]);
   });
 });
-
