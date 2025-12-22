@@ -2,12 +2,12 @@
   "name": "llm-adapter",
   "version": "1.0.0",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/modules/kernel/index.js",
+  "types": "./dist/modules/kernel/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./dist/modules/kernel/index.d.ts",
+      "import": "./dist/modules/kernel/index.js"
     },
     "./llm": {
       "types": "./dist/modules/llm/index.d.ts",

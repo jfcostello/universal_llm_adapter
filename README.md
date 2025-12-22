@@ -431,7 +431,7 @@ These limits protect against resource exhaustion. Tune them based on your expect
 ```typescript
 import { getDefaults } from 'llm-adapter';
 
-const defaults = await getDefaults();
+const defaults = getDefaults();
 console.log(defaults.retry.maxAttempts);   // 3
 console.log(defaults.tools.maxIterations); // 10
 ```
@@ -455,72 +455,67 @@ Provider-specific environment variables are defined in provider manifests with `
 ### LLM Coordinator
 
 ```typescript
-import { createRegistry, createLlmCoordinator, closeLogger } from 'llm-adapter';
+import { LLMCoordinator } from 'llm-adapter/llm';
+import { PluginRegistry } from 'llm-adapter';
 
-const registry = await createRegistry('./plugins');
-await registry.loadAll?.();
-const coordinator = await createLlmCoordinator(registry);
+const registry = new PluginRegistry('./plugins');
+const coordinator = new LLMCoordinator(registry);
 
 const response = await coordinator.run({
   messages: [
     { role: 'user', content: [{ type: 'text', text: 'Hello' }] }
   ],
   llmPriority: [
-    { provider: '...', model: '...' }
+    { provider: 'example-llm', model: 'example-model' }
   ],
   settings: { temperature: 0.7 }
 });
-
-await coordinator.close();
-await closeLogger();
 ```
 
-### Embedding Coordinator
+### Embedding Manager
 
 ```typescript
-import { createRegistry, createEmbeddingCoordinator, closeLogger } from 'llm-adapter';
+import { EmbeddingManager } from 'llm-adapter/embeddings';
+import { PluginRegistry } from 'llm-adapter';
 
-const registry = await createRegistry('./plugins');
-await registry.loadAll?.();
-const embeddings = await createEmbeddingCoordinator(registry);
+const registry = new PluginRegistry('./plugins');
+const embeddingManager = new EmbeddingManager(registry);
 
-const result = await embeddings.execute({
-  operation: 'embed',
-  input: { text: 'Hello world' },
-  embeddingPriority: [{ provider: '...' }]
-});
+const result = await embeddingManager.embed('Hello world', [
+  { provider: 'example-embeddings' }
+]);
 
 console.log(result.vectors);    // [[0.1, 0.2, ...]]
 console.log(result.dimensions); // 1536
-
-await embeddings.close();
-await closeLogger();
 ```
 
-### Vector Store Coordinator
+### Vector Store Manager
 
 ```typescript
-import { createRegistry, createVectorCoordinator, closeLogger } from 'llm-adapter';
+import { VectorStoreManager } from 'llm-adapter/vector';
+import { EmbeddingManager } from 'llm-adapter/embeddings';
+import { PluginRegistry } from 'llm-adapter';
 
-const registry = await createRegistry('./plugins');
-await registry.loadAll?.();
-const vector = await createVectorCoordinator(registry);
+const registry = new PluginRegistry('./plugins');
+const embeddingManager = new EmbeddingManager(registry);
+const vectorStore = new VectorStoreManager(
+  new Map(),
+  new Map(),
+  embeddingManager.createEmbedderFn([{ provider: 'example-embeddings' }]),
+  registry
+);
 
-const { results } = await vector.execute({
-  operation: 'query',
-  store: '...',
-  input: { query: 'What is machine learning?', topK: 5 },
-  embeddingPriority: [{ provider: '...' }]
-}) as any;
-
-await vector.close();
-await closeLogger();
+const { results } = await vectorStore.queryWithPriority(
+  ['memory-local'],
+  'What is machine learning?',
+  5
+);
 ```
 
 ### Server
 
 ```typescript
-import { createServer } from 'llm-adapter';
+import { createServer } from 'llm-adapter/server';
 
 const server = await createServer({ port: 3000 });
 console.log(server.url);  // http://127.0.0.1:3000
