@@ -54,7 +54,7 @@ export const testRuns: TestRun[] = [
     llmPriority: [
       {
         provider: 'openrouter',
-        model: 'google/gemini-3-pro-preview'
+        model: 'x-ai/grok-4.1-fast'
       }
     ],
     settings: {
@@ -67,7 +67,7 @@ export const testRuns: TestRun[] = [
     llmPriority: [
       {
         provider: 'google',
-        model: 'gemini-3-pro-preview'
+        model: 'gemini-3-flash-preview'
       }
     ],
     settings: {
