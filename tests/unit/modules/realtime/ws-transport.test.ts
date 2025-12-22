@@ -7,9 +7,8 @@ const { WebSocketServer } = require('ws');
 /**
  * Unit tests for the WS transport module.
  *
- * Note: The createWsTransport function is tested via live tests (test:live:realtime)
- * since it requires a real WebSocket connection. The decodeWsMessage function is
- * tested here as it's a pure function.
+ * decodeWsMessage / decodeWsMessageAsync are pure utilities, and createWsTransport
+ * close semantics are tested against a local WebSocketServer.
  */
 describe('modules/realtime/internal/transport/ws', () => {
   describe('decodeWsMessage (sync)', () => {
@@ -146,11 +145,27 @@ describe('modules/realtime/internal/transport/ws', () => {
 
     beforeAll(async () => {
       server = new WebSocketServer({ port: 0 });
-      port = (server.address() as any).port;
+      await new Promise<void>((resolve, reject) => {
+        const address = server.address();
+        if (address && typeof address === 'object') {
+          resolve();
+          return;
+        }
+
+        server.once('listening', resolve);
+        server.once('error', reject);
+      });
+
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Expected TCP address');
+      }
+
+      port = address.port;
     });
 
     afterAll(async () => {
-      server.close();
+      await new Promise<void>(resolve => server.close(() => resolve()));
     });
 
     test('close() terminates events() iterator and emits exactly one close event', async () => {
