@@ -9,10 +9,10 @@
 
 import * as path from 'path';
 import { pathToFileURL } from 'url';
-import { runUnifiedCli } from '../index.js';
+import { runUnifiedCli } from '../modules/cli/index.js';
 
-export { runUnifiedCli } from '../index.js';
-export type { UnifiedCliDependencies } from '../index.js';
+export type { UnifiedCliDependencies } from '../modules/cli/index.js';
+export { createUnifiedProgram, runUnifiedCli } from '../modules/cli/index.js';
 
 const isEntryPoint = Boolean(
   process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url

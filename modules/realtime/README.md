@@ -7,11 +7,10 @@ Provider-agnostic realtime session coordinator.
 ### Create a session
 
 ```ts
-import { createRegistry } from 'llm-adapter';
+import { PluginRegistry } from 'llm-adapter';
 import { createRealtimeSession } from 'llm-adapter/realtime';
 
-const registry = await createRegistry('./plugins');
-await registry.loadAll?.();
+const registry = new PluginRegistry('./plugins');
 const session = await createRealtimeSession(registry, {
   provider: '...',
   model: '...',
