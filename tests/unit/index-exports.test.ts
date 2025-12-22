@@ -1,54 +1,43 @@
 describe('package public exports', () => {
-  test('root index exports all public modules', async () => {
+  test('root index exposes call-based switchboard functions only', async () => {
     const module = await import('@/index.ts');
 
-    // Kernel exports
-    expect(module.PluginRegistry).toBeDefined();
-    expect(module.getDefaults).toBeDefined();
-    expect(module.ManifestError).toBeDefined();
+    // CLI
+    expect(typeof module.runUnifiedCli).toBe('function');
 
-    // LLM module exports
-    expect(module.LLMCoordinator).toBeDefined();
-    expect(module.LLMManager).toBeDefined();
+    // Defaults
+    expect(typeof module.getDefaults).toBe('function');
 
-    // Server module exports
-    expect(module.createServer).toBeDefined();
-    expect(module.createServerHandlerWithDefaults).toBeDefined();
+    // Server
+    expect(typeof module.createServer).toBe('function');
+    expect(typeof module.createServerHandlerWithDefaults).toBe('function');
 
-    // Vector module exports
-    expect(module.VectorStoreCoordinator).toBeDefined();
+    // Lifecycle helpers (used by both CLI and server)
+    expect(typeof module.createRegistry).toBe('function');
+    expect(typeof module.createLlmCoordinator).toBe('function');
+    expect(typeof module.createVectorCoordinator).toBe('function');
+    expect(typeof module.createEmbeddingCoordinator).toBe('function');
+    expect(typeof module.runWithCoordinatorLifecycle).toBe('function');
+    expect(typeof module.streamWithCoordinatorLifecycle).toBe('function');
+    expect(typeof module.closeLogger).toBe('function');
 
-    // Embeddings module exports
-    expect(module.EmbeddingCoordinator).toBeDefined();
+    // Realtime
+    expect(typeof module.createRealtimeSession).toBe('function');
+    expect(typeof module.createWsTransport).toBe('function');
 
-    // Realtime module exports
-    expect(module.createRealtimeSession).toBeDefined();
-
-    // Audio module exports
-    expect(module.base64ToBytes).toBeDefined();
-    expect(module.bytesToBase64).toBeDefined();
-
-    // MCP module exports
-    expect(module.MCPConnection).toBeDefined();
-    expect(module.MCPClientPool).toBeDefined();
-
-    // Tools module exports
-    expect(module.ToolCoordinator).toBeDefined();
-
-    // Logging module exports (excluding AdapterLogger class to avoid kernel conflict)
-    expect(module.getLLMLogger).toBeDefined();
-    expect(module.LLMLogger).toBeDefined();
-    expect(module.closeLogger).toBeDefined();
-
-    // CLI module exports
-    expect(module.runUnifiedCli).toBeDefined();
+    // Root must not export classes (keep programmatic API call-based).
+    expect(module.PluginRegistry).toBeUndefined();
+    expect(module.LLMCoordinator).toBeUndefined();
+    expect(module.VectorStoreCoordinator).toBeUndefined();
+    expect(module.EmbeddingCoordinator).toBeUndefined();
+    expect(module.ToolCoordinator).toBeUndefined();
+    expect(module.MCPConnection).toBeUndefined();
+    expect(module.LLMLogger).toBeUndefined();
   });
 
-  test('AdapterLogger from root is the kernel interface (not the logging class)', async () => {
+  test('root does not export AdapterLogger runtime values', async () => {
     const module = await import('@/index.ts');
 
-    // AdapterLogger should be the kernel's interface type, not the logging class
-    // This verifies we correctly handle the naming conflict
-    expect(module.AdapterLogger).toBeUndefined(); // Interface only, not runtime value
+    expect(module.AdapterLogger).toBeUndefined();
   });
 });
