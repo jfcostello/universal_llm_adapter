@@ -95,7 +95,6 @@ export function buildJestArgs({ maxWorkers, passthrough }) {
   // Increase per-test timeout for live suites (default jest config is 120s)
   args.push(
     `--maxWorkers=${maxWorkers}`,
-    '--forceExit',
     '--coverage=false',
     '--testTimeout=300000'
   );

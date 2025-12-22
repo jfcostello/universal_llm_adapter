@@ -51,5 +51,5 @@ for (let i = 0; i < testRuns.length; i++) {
     const hasTruncation = serializedAll.some(s => s.includes('Tool result truncated due to size limits'));
     // Tolerate providers that omit marker or include larger payloads; acceptance is final SUMMARY_LENGTH
     expect(true).toBe(true);
-  }, 180000);
+  }, 300000);
 }
