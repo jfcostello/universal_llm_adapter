@@ -95,26 +95,37 @@ describe('root switchboard', () => {
 
       const root = await import('@/index.ts');
 
-      await root.runUnifiedCli(['node', 'llm-adapter']);
-      await root.runUnifiedCli(['node', 'llm-adapter']);
+      await Promise.all([
+        root.runUnifiedCli(['node', 'llm-adapter']),
+        root.runUnifiedCli(['node', 'llm-adapter'])
+      ]);
       expect(cliImports).toBe(1);
 
-      expect(await root.getDefaults()).toEqual({ defaults: true });
-      expect(await root.getDefaults()).toEqual({ defaults: true });
+      const defaults = await Promise.all([root.getDefaults(), root.getDefaults()]);
+      expect(defaults).toEqual([{ defaults: true }, { defaults: true }]);
       expect(kernelImports).toBe(1);
 
-      await root.createServer();
-      await root.createServer({} as any);
-      await root.createServerHandlerWithDefaults();
-      await root.createServerHandlerWithDefaults({} as any);
-      await root.createServerHandlerWithDefaults({} as any);
+      await Promise.all([
+        root.createServer(),
+        root.createServer({} as any)
+      ]);
+      await Promise.all([
+        root.createServerHandlerWithDefaults(),
+        root.createServerHandlerWithDefaults({} as any),
+        root.createServerHandlerWithDefaults({} as any)
+      ]);
       expect(serverImports).toBe(1);
 
-      const registry = await root.createRegistry('./plugins');
-      await root.createRegistry('./plugins');
-      const llm = await root.createLlmCoordinator(registry as any);
-      const vector = await root.createVectorCoordinator(registry as any);
-      const embedding = await root.createEmbeddingCoordinator(registry as any);
+      const [registry] = await Promise.all([
+        root.createRegistry('./plugins'),
+        root.createRegistry('./plugins')
+      ]);
+
+      const [llm, vector, embedding] = await Promise.all([
+        root.createLlmCoordinator(registry as any),
+        root.createVectorCoordinator(registry as any),
+        root.createEmbeddingCoordinator(registry as any)
+      ]);
       await Promise.all([llm.close(), vector.close(), embedding.close()]);
       await root.closeLogger();
       expect(lifecycleImports).toBe(1);
@@ -139,10 +150,17 @@ describe('root switchboard', () => {
       }
       expect(streamed).toEqual([1, 2]);
 
-      expect(await root.createRealtimeSession({} as any, { provider: 'test' } as any)).toEqual({ session: true });
-      expect(await root.createRealtimeSession({} as any, { provider: 'test' } as any)).toEqual({ session: true });
-      expect(await root.createWsTransport({ url: 'ws://localhost' } as any)).toEqual({ transport: true });
-      expect(await root.createWsTransport({ url: 'ws://localhost' } as any)).toEqual({ transport: true });
+      const realtimeSessions = await Promise.all([
+        root.createRealtimeSession({} as any, { provider: 'test' } as any),
+        root.createRealtimeSession({} as any, { provider: 'test' } as any)
+      ]);
+      expect(realtimeSessions).toEqual([{ session: true }, { session: true }]);
+
+      const transports = await Promise.all([
+        root.createWsTransport({ url: 'ws://localhost' } as any),
+        root.createWsTransport({ url: 'ws://localhost' } as any)
+      ]);
+      expect(transports).toEqual([{ transport: true }, { transport: true }]);
       expect(realtimeImports).toBe(1);
 
       expect(calls).toEqual(
