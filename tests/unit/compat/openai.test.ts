@@ -106,7 +106,18 @@ describe('compat/openai', () => {
           content: []
         }
       ],
-      [],
+      [
+        {
+          name: 'a.tool',
+          description: 'a tool',
+          parametersJsonSchema: { type: 'object', properties: {} }
+        },
+        {
+          name: 'b.tool',
+          description: 'b tool',
+          parametersJsonSchema: { type: 'object', properties: {} }
+        }
+      ],
       { type: 'required', allowed: ['a.tool', 'b.tool'] }
     );
 
@@ -125,7 +136,13 @@ describe('compat/openai', () => {
       'gpt-3.5-turbo',
       { temperature: 0 },
       [],
-      [],
+      [
+        {
+          name: 'any.tool',
+          description: 'Any tool',
+          parametersJsonSchema: { type: 'object', properties: {} }
+        }
+      ],
       'auto'
     );
     expect(autoChoice.tool_choice).toBe('auto');
@@ -134,7 +151,13 @@ describe('compat/openai', () => {
       'gpt-4',
       { temperature: 0 },
       [],
-      [],
+      [
+        {
+          name: 'only.this',
+          description: 'Only tool',
+          parametersJsonSchema: { type: 'object', properties: {} }
+        }
+      ],
       { type: 'required', allowed: ['only.this'] }
     );
     expect(requiredSingle.tool_choice).toEqual({
@@ -146,7 +169,13 @@ describe('compat/openai', () => {
       'gpt-4',
       { temperature: 0 },
       [],
-      [],
+      [
+        {
+          name: 'some.tool',
+          description: 'Some tool',
+          parametersJsonSchema: { type: 'object', properties: {} }
+        }
+      ],
       { type: 'unsupported' } as unknown as any
     );
     expect(unsupportedChoice.tool_choice).toBeUndefined();
@@ -311,7 +340,7 @@ describe('compat/openai', () => {
       'none'
     );
 
-    expect(payload.tool_choice).toBe('none');
+    expect(payload.tool_choice).toBeUndefined();
     expect(payload.response_format).toEqual({ type: 'json_schema' });
   });
 
@@ -320,7 +349,18 @@ describe('compat/openai', () => {
       'gpt-4',
       { temperature: 0 },
       [],
-      [],
+      [
+        {
+          name: 'a.tool',
+          description: 'a tool',
+          parametersJsonSchema: { type: 'object', properties: {} }
+        },
+        {
+          name: 'b.tool',
+          description: 'b tool',
+          parametersJsonSchema: { type: 'object', properties: {} }
+        }
+      ],
       { type: 'required', allowed: ['a.tool', 'b.tool'] }
     );
     expect(payload.tool_choice).toBe('required');

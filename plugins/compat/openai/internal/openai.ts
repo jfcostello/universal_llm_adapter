@@ -32,12 +32,13 @@ export default class OpenAICompat implements ICompatModule {
     tools: UnifiedTool[],
     toolChoice?: ToolChoice
   ): any {
+    const hasTools = Array.isArray(tools) && tools.length > 0;
     const payload: any = {
       model,
       messages: serializeMessages(messages),
       ...serializeSettings(settings),
       ...this.serializeTools(tools),
-      ...this.serializeToolChoice(toolChoice)
+      ...(hasTools ? this.serializeToolChoice(toolChoice) : {})
     };
 
     // Auto-detect PDF documents and add plugins configuration.
@@ -94,4 +95,3 @@ export default class OpenAICompat implements ICompatModule {
     return extractReasoningFromDelta(delta);
   }
 }
-

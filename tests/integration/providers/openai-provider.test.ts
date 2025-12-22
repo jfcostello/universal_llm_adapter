@@ -220,6 +220,14 @@ describe('integration/providers/openai-provider', () => {
 
         expect(payload.tools).toBeUndefined();
       });
+
+      test('omits tool_choice when tools array is empty', () => {
+        const payload = compat.buildPayload('gpt-4', {}, baseMessages, [], 'none');
+
+        expect(payload.tools).toBeUndefined();
+        expect(payload.tool_choice).toBeUndefined();
+        expect(payload.allowed_tools).toBeUndefined();
+      });
     });
 
     describe('1.4 Settings Mapping', () => {
