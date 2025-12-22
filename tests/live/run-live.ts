@@ -196,9 +196,17 @@ async function main() {
   const wantsEmbeddings = /\bembeddings\b|15-embeddings/i.test(patterns);
   const wantsVector =
     /\bvector\b|16-vector-store|17-vector-cli|18-vector-auto-inject|19-vector-search-locks/i.test(patterns);
-  const wantsRealtime = /\brealtime\b|20-realtime/i.test(patterns);
+  const wantsRealtime = testPathPatterns.some((pattern) => {
+    const raw = String(pattern);
+    // Provider-specific runs exclude realtime via a negative lookahead, but the literal
+    // string "20-realtime" still appears in the pattern. Treat those as non-realtime.
+    if (/\(\?!.*20-realtime/i.test(raw)) return false;
+    return /\b20-realtime\b/i.test(raw) || /\brealtime\b/i.test(raw);
+  });
 
   const expectsLlmSuites = wantsAllLive || (!wantsEmbeddings && !wantsVector && !wantsRealtime);
+
+  baseEnv.LLM_LIVE_WANTS_REALTIME = wantsRealtime ? '1' : '0';
 
   const effectiveProviders =
     selectedProviders.length > 0
