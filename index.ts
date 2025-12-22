@@ -1,47 +1,147 @@
-// Package root entrypoint - all public modules accessible from here.
-// ES modules are inherently lazy-loaded, so only imported code is executed.
-// Subpath exports remain available for backwards compatibility.
+/**
+ * Package root entrypoint (switchboard).
+ *
+ * This file must remain extremely lean:
+ * - No static re-exports of feature modules.
+ * - Public API is call-based wrappers that `import()` modules on-demand.
+ * - First-use imports are promise-cached to be concurrency-safe.
+ *
+ * Subpath exports (e.g. `llm-adapter/server`) remain available for direct access
+ * and backwards compatibility.
+ */
 
-// Kernel exports (types, registry, defaults, etc.)
-export * from './modules/kernel/index.js';
+import type { RequestListener } from 'node:http';
 
-// Feature modules
-export * from './modules/llm/index.js';
-export * from './modules/embeddings/index.js';
-export * from './modules/vector/index.js';
-export * from './modules/server/index.js';
-export * from './modules/audio/index.js';
-export * from './modules/realtime/index.js';
-export * from './modules/mcp/index.js';
-export * from './modules/tools/index.js';
-export * from './modules/cli/index.js';
-
-// Logging module - exclude AdapterLogger class to avoid conflict with kernel's interface.
-// The kernel's AdapterLogger interface is the type contract; consumers wanting the class
-// implementation should import from 'llm-adapter/logging' or use getLLMLogger().
-export {
-  // Logger classes
-  BaseAdapterLogger,
-  LLMLogger,
-  EmbeddingLogger,
-  VectorLogger,
-  // Logger factory functions
-  getLLMLogger,
-  getEmbeddingLogger,
-  getVectorLogger,
-  getLogger,
-  closeLogger,
-  createLoggingDeps,
-  // Retention utilities
-  enforceRetention,
-  readEnvInt,
-  readEnvFloat,
-  applyRetentionOnce,
-  resetRetentionState
-} from './modules/logging/index.js';
-
-// Re-export types from logging
+export type { ServerOptions, RunningServer } from './modules/server/index.js';
+export type { UnifiedCliDependencies } from './modules/cli/index.js';
+export type { DefaultSettings } from './modules/kernel/index.js';
 export type {
-  RetentionOptions,
-  ApplyRetentionOnceOptions
-} from './modules/logging/index.js';
+  CoordinatorLifecycleDeps,
+  PluginRegistryLike,
+  FactoryPluginRegistryLike,
+  LLMCoordinatorLike,
+  VectorCoordinatorLike,
+  EmbeddingCoordinatorLike
+} from './modules/lifecycle/index.js';
+export type { RealtimeSession } from './modules/realtime/index.js';
+
+let kernelPromise: Promise<typeof import('./modules/kernel/index.js')> | null = null;
+const loadKernel = () => (kernelPromise ??= import('./modules/kernel/index.js'));
+
+let cliPromise: Promise<typeof import('./modules/cli/index.js')> | null = null;
+const loadCli = () => (cliPromise ??= import('./modules/cli/index.js'));
+
+let serverPromise: Promise<typeof import('./modules/server/index.js')> | null = null;
+const loadServer = () => (serverPromise ??= import('./modules/server/index.js'));
+
+let lifecyclePromise: Promise<typeof import('./modules/lifecycle/index.js')> | null = null;
+const loadLifecycle = () => (lifecyclePromise ??= import('./modules/lifecycle/index.js'));
+
+let realtimePromise: Promise<typeof import('./modules/realtime/index.js')> | null = null;
+const loadRealtime = () => (realtimePromise ??= import('./modules/realtime/index.js'));
+
+// ==================== CLI ====================
+
+export async function runUnifiedCli(argv?: string[]): Promise<void> {
+  const { runUnifiedCli: run } = await loadCli();
+  return run(argv);
+}
+
+// ==================== Defaults ====================
+
+export async function getDefaults(): Promise<import('./modules/kernel/index.js').DefaultSettings> {
+  const { getDefaults } = await loadKernel();
+  return getDefaults();
+}
+
+// ==================== Server ====================
+
+export async function createServer(options: import('./modules/server/index.js').ServerOptions = {}): Promise<import('./modules/server/index.js').RunningServer> {
+  const { createServer } = await loadServer();
+  return createServer(options);
+}
+
+export async function createServerHandlerWithDefaults(
+  options: import('./modules/server/index.js').ServerOptions = {}
+): Promise<RequestListener> {
+  const { createServerHandlerWithDefaults } = await loadServer();
+  return createServerHandlerWithDefaults(options);
+}
+
+// ==================== Lifecycle ====================
+
+export async function createRegistry(pluginsPath: string): Promise<import('./modules/lifecycle/index.js').FactoryPluginRegistryLike> {
+  const { createRegistry } = await loadLifecycle();
+  return createRegistry(pluginsPath);
+}
+
+export async function createLlmCoordinator(
+  registry: import('./modules/lifecycle/index.js').FactoryPluginRegistryLike
+): Promise<import('./modules/lifecycle/index.js').LLMCoordinatorLike> {
+  const { createLlmCoordinator } = await loadLifecycle();
+  return createLlmCoordinator(registry);
+}
+
+export async function createVectorCoordinator(
+  registry: import('./modules/lifecycle/index.js').FactoryPluginRegistryLike
+): Promise<import('./modules/lifecycle/index.js').VectorCoordinatorLike> {
+  const { createVectorCoordinator } = await loadLifecycle();
+  return createVectorCoordinator(registry);
+}
+
+export async function createEmbeddingCoordinator(
+  registry: import('./modules/lifecycle/index.js').FactoryPluginRegistryLike
+): Promise<import('./modules/lifecycle/index.js').EmbeddingCoordinatorLike> {
+  const { createEmbeddingCoordinator } = await loadLifecycle();
+  return createEmbeddingCoordinator(registry);
+}
+
+export async function closeLogger(): Promise<void> {
+  const { closeLogger } = await loadLifecycle();
+  return closeLogger();
+}
+
+export async function runWithCoordinatorLifecycle<
+  S,
+  R extends import('./modules/lifecycle/index.js').PluginRegistryLike,
+  C,
+  T
+>(
+  options: Parameters<
+    typeof import('./modules/lifecycle/index.js').runWithCoordinatorLifecycle
+  >[0]
+): Promise<T> {
+  const { runWithCoordinatorLifecycle } = await loadLifecycle();
+  return runWithCoordinatorLifecycle(options as any) as Promise<T>;
+}
+
+export async function* streamWithCoordinatorLifecycle<
+  S,
+  R extends import('./modules/lifecycle/index.js').PluginRegistryLike,
+  C,
+  E
+>(
+  options: Parameters<
+    typeof import('./modules/lifecycle/index.js').streamWithCoordinatorLifecycle
+  >[0]
+): AsyncGenerator<E> {
+  const { streamWithCoordinatorLifecycle } = await loadLifecycle();
+  yield* streamWithCoordinatorLifecycle(options as any) as AsyncGenerator<E>;
+}
+
+// ==================== Realtime ====================
+
+export async function createRealtimeSession(
+  registry: Parameters<typeof import('./modules/realtime/index.js').createRealtimeSession>[0],
+  spec: Parameters<typeof import('./modules/realtime/index.js').createRealtimeSession>[1]
+): Promise<import('./modules/realtime/index.js').RealtimeSession> {
+  const { createRealtimeSession } = await loadRealtime();
+  return createRealtimeSession(registry as any, spec as any);
+}
+
+export async function createWsTransport(
+  options: Parameters<typeof import('./modules/realtime/index.js').createWsTransport>[0]
+): Promise<ReturnType<typeof import('./modules/realtime/index.js').createWsTransport>> {
+  const { createWsTransport } = await loadRealtime();
+  return createWsTransport(options as any);
+}

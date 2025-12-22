@@ -15,11 +15,6 @@ describe('bin/* entrypoints', () => {
       expect(typeof module.__isEntryPoint).toBe('boolean');
     });
 
-    test('bin/cli exports createUnifiedProgram', async () => {
-      const module = await import('@/bin/cli.ts');
-      expect(typeof module.createUnifiedProgram).toBe('function');
-    });
-
     test('bin/cli exports runUnifiedCli', async () => {
       const module = await import('@/bin/cli.ts');
       expect(typeof module.runUnifiedCli).toBe('function');
@@ -28,16 +23,19 @@ describe('bin/* entrypoints', () => {
     test('bin/cli auto-runs when invoked directly', async () => {
       jest.resetModules();
 
-      jest.spyOn(process, 'exit').mockImplementation((() => undefined) as any);
-      jest.spyOn(console, 'log').mockImplementation(() => {});
-      jest.spyOn(console, 'error').mockImplementation(() => {});
-
       const moduleUrl = new URL('../../../bin/cli.ts', import.meta.url);
       const modulePath = decodeURIComponent(moduleUrl.pathname);
-      process.argv = ['node', modulePath, '--help'];
+      process.argv = ['node', modulePath];
 
-      const module = await import('@/bin/cli.ts');
-      expect(module.__isEntryPoint).toBe(true);
+      await jest.isolateModulesAsync(async () => {
+        // Avoid running the real CLI in this unit test (it calls process.exit by design).
+        (jest as any).unstable_mockModule('@/index.ts', () => ({
+          runUnifiedCli: async () => {}
+        }));
+
+        const module = await import('@/bin/cli.ts');
+        expect(module.__isEntryPoint).toBe(true);
+      });
     });
 
     test('bin/cli __isEntryPoint is false when not invoked directly', async () => {
