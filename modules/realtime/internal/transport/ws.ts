@@ -24,7 +24,28 @@ export interface RealtimeTransport {
 
 /**
  * Decode ws message payload to string.
- * The ws library can deliver payloads as string, Buffer, ArrayBuffer, or Buffer[].
+ * The ws library can deliver payloads as string, Buffer, ArrayBuffer, Buffer[], or Blob.
+ * Blob is only available in browser environments but we handle it for completeness.
+ */
+export async function decodeWsMessageAsync(data: unknown): Promise<string> {
+  if (typeof data === 'string') return data;
+  if (Buffer.isBuffer(data)) return data.toString('utf8');
+  if (data instanceof ArrayBuffer) return Buffer.from(data).toString('utf8');
+  if (Array.isArray(data) && data.length > 0 && data.every(Buffer.isBuffer)) {
+    return Buffer.concat(data).toString('utf8');
+  }
+  // Handle Blob (browser environments or Node 15.7.0+)
+  if (typeof Blob !== 'undefined' && data instanceof Blob) {
+    return data.text();
+  }
+  // Fallback: attempt to stringify unknown types
+  return String(data);
+}
+
+/**
+ * Synchronous decode for ws message payload.
+ * For Blob payloads, falls back to String() since async is not supported here.
+ * Use decodeWsMessageAsync if Blob support is critical.
  */
 export function decodeWsMessage(data: unknown): string {
   if (typeof data === 'string') return data;
@@ -33,7 +54,7 @@ export function decodeWsMessage(data: unknown): string {
   if (Array.isArray(data) && data.length > 0 && data.every(Buffer.isBuffer)) {
     return Buffer.concat(data).toString('utf8');
   }
-  // Fallback: attempt to stringify unknown types
+  // Fallback: attempt to stringify unknown types (includes Blob which would need async)
   return String(data);
 }
 
