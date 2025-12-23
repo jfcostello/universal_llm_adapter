@@ -12,6 +12,7 @@ import type {
 } from '../../kernel/index.js';
 import { ProviderExecutionError, getDefaults } from '../../kernel/index.js';
 import { aggregateSystemMessages } from '../../messages/index.js';
+import { redactJsonCredentials } from '../../security/index.js';
 import { buildFinalPayload } from './payload/payload-builder.js';
 
 export class LLMManager {
@@ -26,6 +27,44 @@ export class LLMManager {
   }
 
   /**
+   * Record an LLM request event to observability.
+   * Never throws - errors are logged and swallowed.
+   */
+  private recordObservabilityRequest(
+    context: RunContext,
+    provider: string,
+    model: string,
+    generationId: string | undefined,
+    timestamp: string,
+    messages: Message[],
+    tools: UnifiedTool[],
+    settings: LLMCallSettings,
+    requestPayload: unknown,
+    logger?: AdapterLogger
+  ): void {
+    if (!context.observability) return;
+
+    try {
+      context.observability.exporter.recordLLMRequest({
+        traceId: context.observability.traceId,
+        generationId,
+        timestamp,
+        provider,
+        model,
+        messages,
+        sessionId: context.observability.sessionId,
+        metadata: context.observability.metadata,
+        tools: tools.map(t => ({ name: t.name, description: t.description })),
+        settings,
+        requestPayload: redactJsonCredentials(requestPayload)
+      });
+    } catch (e) {
+      // Observability must never throw - log and continue
+      logger?.warning('Failed to record observability request event', { error: (e as Error).message });
+    }
+  }
+
+  /**
    * Record an LLM response event to observability.
    * Never throws - errors are logged and swallowed.
    */
@@ -36,6 +75,7 @@ export class LLMManager {
     generationId: string | undefined,
     startTime: number,
     response?: LLMResponse,
+    rawResponse?: unknown,
     error?: { message: string; code?: string; retryable?: boolean },
     logger?: AdapterLogger
   ): void {
@@ -50,6 +90,7 @@ export class LLMManager {
         provider,
         model,
         content: response?.content || [],
+        rawResponse: rawResponse === undefined ? undefined : redactJsonCredentials(rawResponse),
         metadata: context.observability.metadata,
         usage: response?.usage ? {
           promptTokens: response.usage.promptTokens ?? undefined,
@@ -83,30 +124,10 @@ export class LLMManager {
   ): Promise<LLMResponse> {
     const startTime = Date.now();
     const generationId = randomUUID();
+    const requestTimestamp = new Date().toISOString();
     const normalizedMessages = aggregateSystemMessages(messages);
     const compat = await this.registry.getCompatModule(provider.compat);
     const providerRequestsHttp = this.isHttpUrlTemplate(provider.endpoint?.urlTemplate);
-
-    // Record LLM request event if observability is enabled
-    if (context.observability) {
-      try {
-        context.observability.exporter.recordLLMRequest({
-          traceId: context.observability.traceId,
-          generationId,
-          timestamp: new Date().toISOString(),
-          provider: provider.id,
-          model,
-          messages: normalizedMessages,
-          sessionId: context.observability.sessionId,
-          metadata: context.observability.metadata,
-          tools: tools.map(t => ({ name: t.name, description: t.description })),
-          settings
-        });
-      } catch (e) {
-        // Observability must never throw - log and continue
-        logger?.warning('Failed to record observability request event', { error: (e as Error).message });
-      }
-    }
 
     // SDK-based providers: if compat has callSDK method, use it instead of HTTP
     if (!providerRequestsHttp && typeof compat.callSDK === 'function') {
@@ -158,6 +179,7 @@ export class LLMManager {
       }
 
       try {
+        const sdkRequestPayload = { model, messages: normalizedMessages, tools, toolChoice, settings, providerExtras };
         const response = await compat.callSDK(model, settings, normalizedMessages, tools, toolChoice, logger, provider.endpoint.headers);
         response.toolCalls = await this.normalizeToolCallsIfPresent(response.toolCalls);
         response.provider = provider.id;
@@ -187,6 +209,19 @@ export class LLMManager {
           }
         }
 
+        this.recordObservabilityRequest(
+          context,
+          provider.id,
+          model,
+          generationId,
+          requestTimestamp,
+          normalizedMessages,
+          tools,
+          settings,
+          sdkRequestPayload,
+          logger
+        );
+
         // Record successful response to observability
         this.recordObservabilityResponse(
           context,
@@ -195,12 +230,27 @@ export class LLMManager {
           generationId,
           startTime,
           response,
+          response.raw,
           undefined,
           logger
         );
 
         return response;
       } catch (error: any) {
+        const sdkRequestPayload = { model, messages: normalizedMessages, tools, toolChoice, settings, providerExtras };
+        this.recordObservabilityRequest(
+          context,
+          provider.id,
+          model,
+          generationId,
+          requestTimestamp,
+          normalizedMessages,
+          tools,
+          settings,
+          sdkRequestPayload,
+          logger
+        );
+
         // Record error response to observability
         this.recordObservabilityResponse(
           context,
@@ -208,6 +258,7 @@ export class LLMManager {
           model,
           generationId,
           startTime,
+          undefined,
           undefined,
           { message: error.message, retryable: error instanceof ProviderExecutionError ? error.isRateLimit : false },
           logger
@@ -250,8 +301,14 @@ export class LLMManager {
     // Build request
     const url = provider.endpoint.urlTemplate.replace('{model}', model);
 
+    let lastRequestPayload: any = undefined;
+    let lastRawResponse: any = undefined;
+
     try {
+      lastRequestPayload = finalPayload;
+
       const sendRequest = async (payload: any) => {
+        lastRequestPayload = payload;
         // Log beautiful formatted LLM request to dedicated log file
         if (logger) {
           logger.logLLMRequest({
@@ -289,6 +346,7 @@ export class LLMManager {
       };
 
       let response = await sendRequest(finalPayload);
+      lastRawResponse = response.data;
 
       // Log beautiful formatted LLM response to dedicated log file
       if (logger) {
@@ -328,6 +386,7 @@ export class LLMManager {
 
           const retryPayload = this.stripReasoning(finalPayload);
           response = await sendRequest(retryPayload);
+          lastRawResponse = response.data;
 
           // Log response for retry attempt
           if (logger) {
@@ -372,6 +431,7 @@ export class LLMManager {
 
           const retryPayload = this.stripReasoning(finalPayload);
           response = await sendRequest(retryPayload);
+          lastRawResponse = response.data;
 
           if (logger) {
             logger.logLLMResponse({
@@ -413,6 +473,18 @@ export class LLMManager {
           }
 
           // Record HTTP error response to observability
+          this.recordObservabilityRequest(
+            context,
+            provider.id,
+            model,
+            generationId,
+            requestTimestamp,
+            normalizedMessages,
+            tools,
+            settings,
+            lastRequestPayload,
+            logger
+          );
           this.recordObservabilityResponse(
             context,
             provider.id,
@@ -420,6 +492,7 @@ export class LLMManager {
             generationId,
             startTime,
             undefined,
+            lastRawResponse,
             { message: JSON.stringify(response.data), code: String(response.status), retryable: isRateLimit },
             logger
           );
@@ -437,6 +510,19 @@ export class LLMManager {
       parsed.toolCalls = await this.normalizeToolCallsIfPresent(parsed.toolCalls);
       parsed.provider = provider.id;
 
+      this.recordObservabilityRequest(
+        context,
+        provider.id,
+        model,
+        generationId,
+        requestTimestamp,
+        normalizedMessages,
+        tools,
+        settings,
+        lastRequestPayload,
+        logger
+      );
+
       // Record successful HTTP response to observability
       this.recordObservabilityResponse(
         context,
@@ -445,6 +531,7 @@ export class LLMManager {
         generationId,
         startTime,
         parsed,
+        lastRawResponse,
         undefined,
         logger
       );
@@ -454,6 +541,19 @@ export class LLMManager {
     } catch (error: any) {
       // Record error response to observability (only for errors not already recorded)
       if (!(error instanceof ProviderExecutionError && error.statusCode !== undefined)) {
+        this.recordObservabilityRequest(
+          context,
+          provider.id,
+          model,
+          generationId,
+          requestTimestamp,
+          normalizedMessages,
+          tools,
+          settings,
+          lastRequestPayload,
+          logger
+        );
+
         this.recordObservabilityResponse(
           context,
           provider.id,
@@ -461,6 +561,7 @@ export class LLMManager {
           generationId,
           startTime,
           undefined,
+          lastRawResponse,
           { message: error.message, retryable: false },
           logger
         );

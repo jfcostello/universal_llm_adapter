@@ -53,7 +53,7 @@ describe('LLMManager observability', () => {
       mockMessages,
       [],
       undefined,
-      {},
+      { api_key: 'sk-abcdef1234' },
       undefined,
       context
     );
@@ -70,6 +70,7 @@ describe('LLMManager observability', () => {
 
     const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
     expect(typeof requestArg.generationId).toBe('string');
+    expect(requestArg.requestPayload.providerExtras.api_key).toBe('***1234');
   });
 
   test('callProvider records LLM response on success', async () => {
@@ -77,7 +78,8 @@ describe('LLMManager observability', () => {
       content: [{ type: 'text', text: 'SDK response' }],
       role: Role.ASSISTANT,
       toolCalls: [{ id: 'tc-1', name: 'test_tool', arguments: { arg1: 'value1' } }],
-      usage: { promptTokens: 10, completionTokens: 20 }
+      usage: { promptTokens: 10, completionTokens: 20 },
+      raw: { token: 'abcd1234', ok: true }
     };
 
     const mockCompat = {
@@ -110,6 +112,7 @@ describe('LLMManager observability', () => {
         provider: 'test-sdk-provider',
         model: 'test-model',
         content: [{ type: 'text', text: 'SDK response' }],
+        rawResponse: { token: '***1234', ok: true },
         usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
         toolCalls: [{ id: 'tc-1', name: 'test_tool', arguments: { arg1: 'value1' } }],
         durationMs: expect.any(Number),

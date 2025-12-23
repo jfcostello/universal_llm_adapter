@@ -44,6 +44,7 @@ describe('LangfuseCompat', () => {
     ],
     tools: [{ name: 'calculator', description: 'Calculate' }],
     settings: { temperature: 0.7 },
+    requestPayload: { model: 'gpt-4', messages: [{ role: 'user', content: 'Hello' }], api_key: '***1234' },
     metadata: { custom: 'value' }
   };
 
@@ -54,6 +55,7 @@ describe('LangfuseCompat', () => {
     provider: 'openai',
     model: 'gpt-4',
     content: [{ type: 'text', text: 'Hello there!' }],
+    rawResponse: { id: 'resp-raw', ok: true },
     toolCalls: [{ id: 'call-1', name: 'calculator', arguments: { x: 1 } }],
     usage: {
       promptTokens: 10,
@@ -100,6 +102,7 @@ describe('LangfuseCompat', () => {
       expect(genEvent!.body.id).toBe('gen-abc');
       expect(genEvent!.body.model).toBe('gpt-4');
       expect(genEvent!.body.modelParameters).toEqual({ temperature: 0.7 });
+      expect((genEvent as any)!.body.metadata.requestPayload).toEqual(mockRequestEvent.requestPayload);
     });
 
     it('builds batch from response event', () => {
@@ -114,6 +117,7 @@ describe('LangfuseCompat', () => {
       expect(updateEvent.body.traceId).toBe('trace-123');
       expect(updateEvent.body.id).toBe('gen-abc');
       expect(updateEvent.body.output).toEqual(mockResponseEvent.content);
+      expect((updateEvent.body.metadata as any).rawResponse).toEqual(mockResponseEvent.rawResponse);
       expect(updateEvent.body.usage).toEqual({
         input: 10,
         output: 20,

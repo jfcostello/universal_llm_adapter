@@ -58,6 +58,12 @@ export interface ObservabilityLLMRequestEvent {
   /** Settings/parameters */
   settings?: Record<string, unknown>;
 
+  /**
+   * Final request payload actually sent to the provider (redacted).
+   * Shape is provider/compat specific and treated as opaque.
+   */
+  requestPayload?: unknown;
+
   /** Optional metadata */
   metadata?: Record<string, unknown>;
 }
@@ -87,6 +93,12 @@ export interface ObservabilityLLMResponseEvent {
 
   /** Response content */
   content: unknown[];
+
+  /**
+   * Raw provider response body (redacted) when available.
+   * Shape is provider/compat specific and treated as opaque.
+   */
+  rawResponse?: unknown;
 
   /** Tool calls in the response */
   toolCalls?: unknown[];

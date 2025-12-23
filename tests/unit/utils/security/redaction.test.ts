@@ -1,6 +1,7 @@
 import { describe, expect, test } from '@jest/globals';
 import {
   genericRedactHeaders,
+  redactJsonCredentials,
   redactUrlCredentials,
   redactUrlQueryCredentials,
   redactUrlQueryParams,
@@ -139,5 +140,141 @@ describe('utils/security/redaction', () => {
     expect(redactUrl('https://user:password@api.example.com?key=abcd1234')).toBe(
       'https://***:***@api.example.com/?key=***1234'
     );
+  });
+
+  describe('redactJsonCredentials', () => {
+    test('redacts common credential keys recursively', () => {
+      const input = {
+        api_key: 'sk-abcdef1234',
+        nested: {
+          token: 'abcd',
+          ok: 'value'
+        }
+      };
+
+      expect(redactJsonCredentials(input)).toEqual({
+        api_key: '***1234',
+        nested: {
+          token: '***',
+          ok: 'value'
+        }
+      });
+    });
+
+    test('preserves Bearer prefix when redacting authorization values', () => {
+      const input = {
+        authorization: 'Bearer sk-abcdef1234'
+      };
+
+      expect(redactJsonCredentials(input)).toEqual({
+        authorization: 'Bearer ***1234'
+      });
+    });
+
+    test('redacts short Bearer tokens without leaking full value (<= 4 chars)', () => {
+      expect(redactJsonCredentials({ authorization: 'Bearer abcd' })).toEqual({
+        authorization: 'Bearer ***'
+      });
+    });
+
+    test('redacts non-string sensitive values with a placeholder', () => {
+      const input = {
+        token: { nested: true }
+      };
+
+      expect(redactJsonCredentials(input)).toEqual({
+        token: '***'
+      });
+    });
+
+    test('preserves null/undefined sensitive values', () => {
+      const input = {
+        api_key: null,
+        secret: undefined
+      };
+
+      expect(redactJsonCredentials(input)).toEqual({
+        api_key: null,
+        secret: undefined
+      });
+    });
+
+    test('redacts URL credentials + sensitive query params inside URL-like strings', () => {
+      const input = {
+        url: 'https://user:pass@api.example.com/path?key=abcd1234&foo=bar'
+      };
+
+      expect(redactJsonCredentials(input)).toEqual({
+        url: 'https://***:***@api.example.com/path?key=***1234&foo=bar'
+      });
+    });
+
+    test('handles arrays and WebSocket URLs', () => {
+      const input = [
+        { token: 'abcd1234' },
+        'wss://api.example.com/realtime?token=abcd1234'
+      ];
+
+      expect(redactJsonCredentials(input)).toEqual([
+        { token: '***1234' },
+        'wss://api.example.com/realtime?token=***1234'
+      ]);
+    });
+
+    test('handles Date, Error, and Buffer values', () => {
+      const input = {
+        when: new Date('2024-01-01T00:00:00.000Z'),
+        err: new Error('boom'),
+        buf: Buffer.from('abc')
+      };
+
+      expect(redactJsonCredentials(input)).toEqual({
+        when: '2024-01-01T00:00:00.000Z',
+        err: { name: 'Error', message: 'boom' },
+        buf: { redacted: true, type: 'buffer', length: 3 }
+      });
+    });
+
+    test('handles circular references without throwing', () => {
+      const input: any = {};
+      input.self = input;
+      const result = redactJsonCredentials(input) as any;
+      expect(result).toBeDefined();
+      expect(result.self).toBe(result);
+    });
+
+    test('replaces overly deep values with [MaxDepth]', () => {
+      const input: any = {};
+      let cursor = input;
+      for (let i = 0; i < 30; i++) {
+        cursor.next = {};
+        cursor = cursor.next;
+      }
+
+      const result = redactJsonCredentials(input) as any;
+      cursor = result;
+      for (let i = 0; i < 25; i++) {
+        cursor = cursor.next;
+      }
+
+      expect(cursor.next).toBe('[MaxDepth]');
+    });
+
+    test('returns original input when traversal throws', () => {
+      const input = Object.defineProperty({}, 'boom', {
+        enumerable: true,
+        get() {
+          throw new Error('nope');
+        }
+      });
+
+      expect(redactJsonCredentials(input)).toBe(input);
+    });
+
+    test('preserves non-objects and does not throw', () => {
+      expect(redactJsonCredentials('hello')).toBe('hello');
+      expect(redactJsonCredentials(123)).toBe(123);
+      expect(redactJsonCredentials(null)).toBeNull();
+    });
   });
 });

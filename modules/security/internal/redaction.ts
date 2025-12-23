@@ -37,6 +37,28 @@ const DEFAULT_SENSITIVE_QUERY_PARAMS = [
   'credential'
 ];
 
+const DEFAULT_SENSITIVE_JSON_KEYS = [
+  ...DEFAULT_SENSITIVE_QUERY_PARAMS,
+  'authorization',
+  'x-api-key',
+  'x-goog-api-key'
+];
+
+function redactSensitiveString(value: string): string {
+  const match = value.match(/^Bearer\s+(.+)$/i);
+  if (match && match[1]) {
+    const token = match[1];
+    const redacted = token.length <= 4 ? '***' : `***${token.slice(-4)}`;
+    return `Bearer ${redacted}`;
+  }
+
+  return value.length <= 4 ? '***' : `***${value.slice(-4)}`;
+}
+
+function looksLikeUrl(value: string): boolean {
+  return /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(value);
+}
+
 /**
  * Redacts sensitive query parameters in a URL string.
  * Shows only the last 4 characters of sensitive values (for example `key=***1234`).
@@ -84,4 +106,81 @@ export function redactUrlQueryParams(url: string, sensitiveParams?: string[]): s
  */
 export function redactUrl(url: string): string {
   return redactUrlQueryCredentials(redactUrlCredentials(url));
+}
+
+/**
+ * Redacts credentials in JSON-like data structures (objects/arrays/primitives).
+ *
+ * - Redacts values for common credential key names (case-insensitive).
+ * - Redacts URL credentials + sensitive query params inside URL-like strings.
+ *
+ * This is intentionally conservative: it only redacts by key-name/URL parsing and does not attempt
+ * heuristic scanning of arbitrary text fields.
+ */
+export function redactJsonCredentials(value: unknown, sensitiveKeys?: string[]): unknown {
+  const keys = sensitiveKeys ?? DEFAULT_SENSITIVE_JSON_KEYS;
+  const keysLower = new Set(keys.map(k => k.toLowerCase()));
+  const seen = new WeakMap<object, any>();
+  const maxDepth = 25;
+
+  const walk = (input: unknown, depth: number): unknown => {
+    if (depth > maxDepth) return '[MaxDepth]';
+    if (input === null || input === undefined) return input;
+
+    const type = typeof input;
+    if (type === 'string') {
+      const str = String(input);
+      return looksLikeUrl(str) ? redactUrl(str) : str;
+    }
+
+    if (type !== 'object') {
+      return input;
+    }
+
+    if (input instanceof Date) {
+      return input.toISOString();
+    }
+
+    if (input instanceof Error) {
+      return { name: input.name, message: input.message };
+    }
+
+    if (Buffer.isBuffer(input)) {
+      return { redacted: true, type: 'buffer', length: input.length };
+    }
+
+    if (Array.isArray(input)) {
+      return input.map(item => walk(item, depth + 1));
+    }
+
+    const obj = input as Record<string, unknown>;
+    const existing = seen.get(obj);
+    if (existing) return existing;
+
+    const out: Record<string, unknown> = {};
+    seen.set(obj, out);
+
+    for (const [key, raw] of Object.entries(obj)) {
+      if (keysLower.has(key.toLowerCase())) {
+        if (typeof raw === 'string') {
+          out[key] = redactSensitiveString(raw);
+        } else if (raw === null || raw === undefined) {
+          out[key] = raw;
+        } else {
+          out[key] = '***';
+        }
+        continue;
+      }
+
+      out[key] = walk(raw, depth + 1);
+    }
+
+    return out;
+  };
+
+  try {
+    return walk(value, 0);
+  } catch {
+    return value;
+  }
 }

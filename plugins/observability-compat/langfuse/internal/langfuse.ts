@@ -312,7 +312,8 @@ export class LangfuseCompat implements IObservabilityCompat {
           ...event.metadata,
           provider: event.provider,
           model: event.model,
-          tools: event.tools
+          tools: event.tools,
+          requestPayload: event.requestPayload
         }
       }
     });
@@ -331,7 +332,8 @@ export class LangfuseCompat implements IObservabilityCompat {
         input: event.messages,
         modelParameters: event.settings,
         metadata: {
-          provider: event.provider
+          provider: event.provider,
+          requestPayload: event.requestPayload
         }
       }
     });
@@ -360,7 +362,8 @@ export class LangfuseCompat implements IObservabilityCompat {
         ...event.metadata,
         provider: event.provider,
         model: event.model,
-        toolCalls: event.toolCalls
+        toolCalls: event.toolCalls,
+        rawResponse: event.rawResponse
       }
     };
 
