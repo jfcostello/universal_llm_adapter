@@ -14,7 +14,9 @@ import {
   ICompatModule,
   EmbeddingProviderConfig,
   IEmbeddingCompat,
-  IVectorStoreCompat
+  IVectorStoreCompat,
+  ObservabilityProviderManifest,
+  IObservabilityCompat
 } from './types.js';
 import type { IRealtimeCompat } from './realtime-types.js';
 import { ManifestError } from './errors.js';
@@ -34,6 +36,8 @@ export class PluginRegistry {
   private embeddingCompats = new Map<string, () => IEmbeddingCompat>();
   private vectorStoreCompats = new Map<string, () => IVectorStoreCompat>();
   private realtimeCompats = new Map<string, () => IRealtimeCompat>();
+  private observabilityProviders = new Map<string, ObservabilityProviderManifest>();
+  private observabilityCompats = new Map<string, () => IObservabilityCompat>();
 
   // Lazy loading flags
   private providersLoaded = false;
@@ -47,6 +51,8 @@ export class PluginRegistry {
   private embeddingCompatsLoaded = false;
   private vectorStoreCompatsLoaded = false;
   private realtimeCompatsLoaded = false;
+  private observabilityProvidersLoaded = false;
+  private observabilityCompatsLoaded = false;
 
   constructor(rootPath: string) {
     this.rootPath = path.isAbsolute(rootPath)
@@ -63,7 +69,7 @@ export class PluginRegistry {
     // All loading is now lazy and on-demand
   }
 
-  private getPluginCodeCandidates(area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat'): string[] {
+  private getPluginCodeCandidates(area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat' | 'observability-compat'): string[] {
     return [
       path.resolve(distRoot, 'plugins', area),
       path.join(this.rootPath, area),
@@ -72,7 +78,7 @@ export class PluginRegistry {
   }
 
   private resolvePluginCodeEntry(
-    area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat',
+    area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat' | 'observability-compat',
     moduleName: string
   ): string | undefined {
     const candidates = this.getPluginCodeCandidates(area);
@@ -113,7 +119,7 @@ export class PluginRegistry {
   }
 
   private assertSafePluginModuleName(
-    area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat',
+    area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat' | 'observability-compat',
     moduleName: string
   ): void {
     // Module names come from manifests; harden against path traversal and invalid paths.
@@ -228,6 +234,31 @@ export class PluginRegistry {
     } catch (error: any) {
       console.warn(`Failed to load realtime compat module ${kind}: ${error.message}`);
       throw new ManifestError(`No realtime compat module found for '${kind}'`);
+    }
+  }
+
+  private async ensureObservabilityCompatLoaded(kind: string): Promise<void> {
+    if (this.observabilityCompats.has(kind)) return;
+
+    this.observabilityCompatsLoaded = true;
+
+    this.assertSafePluginModuleName('observability-compat', kind);
+
+    const modulePath = this.resolvePluginCodeEntry('observability-compat', kind);
+    if (!modulePath) {
+      throw new ManifestError(`No observability compat module found for '${kind}'`);
+    }
+
+    try {
+      const imported = await this.importPluginCodeModule(modulePath);
+      const CompatClass = this.getDefaultOrFirstExport(imported);
+      if (typeof CompatClass !== 'function') {
+        throw new Error('module did not export a constructor');
+      }
+      this.observabilityCompats.set(kind, () => new (CompatClass as any)());
+    } catch (error: any) {
+      console.warn(`Failed to load observability compat module ${kind}: ${error.message}`);
+      throw new ManifestError(`No observability compat module found for '${kind}'`);
     }
   }
 
@@ -422,6 +453,32 @@ export class PluginRegistry {
     this.embeddingProvidersLoaded = true;
   }
 
+  private async loadObservabilityProviders(): Promise<void> {
+    return this.loadObservabilityProvidersInternal();
+  }
+
+  private async loadObservabilityProvidersInternal(options: { strict?: boolean } = {}): Promise<void> {
+    if (this.observabilityProvidersLoaded) return;
+
+    const files = glob.sync('observability-providers/*.json', { cwd: this.rootPath });
+    for (const file of files) {
+      if (options.strict) {
+        const manifest = loadJsonFile(path.join(this.rootPath, file)) as ObservabilityProviderManifest;
+        this.observabilityProviders.set(manifest.id, manifest);
+        continue;
+      }
+
+      try {
+        const manifest = loadJsonFile(path.join(this.rootPath, file)) as ObservabilityProviderManifest;
+        this.observabilityProviders.set(manifest.id, manifest);
+      } catch (error: any) {
+        console.warn(`Skipping observability provider manifest ${file}: ${error.message}`);
+      }
+    }
+
+    this.observabilityProvidersLoaded = true;
+  }
+
   /**
    * Opt-in: validate and preload all manifests + referenced plugin code.
    * Useful for fail-fast startup checks in long-lived processes.
@@ -436,6 +493,7 @@ export class PluginRegistry {
     await this.loadVectorStoresInternal({ strict: true });
     await this.loadProcessRoutesInternal({ strict: true });
     await this.loadEmbeddingProvidersInternal({ strict: true });
+    await this.loadObservabilityProvidersInternal({ strict: true });
 
     // Validate that referenced plugin code modules exist and can be imported.
     for (const provider of this.providers.values()) {
@@ -452,6 +510,10 @@ export class PluginRegistry {
 
     for (const embedding of this.embeddingProviders.values()) {
       await this.ensureEmbeddingCompatLoaded(embedding.kind);
+    }
+
+    for (const observability of this.observabilityProviders.values()) {
+      await this.ensureObservabilityCompatLoaded(observability.compat);
     }
   }
 
@@ -560,5 +622,19 @@ export class PluginRegistry {
   async getRealtimeCompat(kind: string): Promise<IRealtimeCompat> {
     await this.ensureRealtimeCompatLoaded(kind);
     return this.realtimeCompats.get(kind)!();
+  }
+
+  async getObservabilityProvider(id: string): Promise<ObservabilityProviderManifest> {
+    await this.loadObservabilityProviders();
+    const manifest = this.observabilityProviders.get(id);
+    if (!manifest) {
+      throw new ManifestError(`Unknown observability provider '${id}'`);
+    }
+    return manifest;
+  }
+
+  async getObservabilityCompat(kind: string): Promise<IObservabilityCompat> {
+    await this.ensureObservabilityCompatLoaded(kind);
+    return this.observabilityCompats.get(kind)!();
   }
 }
