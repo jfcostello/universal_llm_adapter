@@ -264,6 +264,13 @@ export class ObservabilityExporter implements IObservabilityExporter {
 
           const result = await this.compat.sendBatch(payload, this.manifest, compatContextForBatch);
           if (result.success) {
+            if (process.env.LLM_LIVE === '1') {
+              this.logger.info('Observability batch export succeeded', {
+                provider: this.config.provider,
+                events: batchEvents.length,
+                envelopes: result.outcomes.length
+              });
+            }
             return [];
           }
 

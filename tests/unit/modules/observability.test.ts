@@ -229,6 +229,58 @@ describe('modules/observability', () => {
       await exporter.shutdown();
     });
 
+    test('logs export success when LLM_LIVE=1', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+      const originalLive = process.env.LLM_LIVE;
+      process.env.LLM_LIVE = '1';
+
+      try {
+        const logger = createMockLogger();
+        const mockCompat = {
+          buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+          sendBatch: jest.fn(async () => ({ success: true, outcomes: [{ envelopeId: 'x', success: true }] }))
+        };
+
+        const mockManifest = {
+          id: 'test',
+          compat: 'test',
+          endpoint: { urlTemplate: 'http://test', method: 'POST' }
+        };
+
+        const exporter = new ObservabilityExporter(
+          {
+            provider: 'test',
+            logger,
+            flushAt: 1,
+            flushIntervalMs: 60000,
+            maxQueueSize: 1000,
+            maxAttempts: 1,
+            baseDelayMs: 250,
+            maxDelayMs: 30000,
+            timeoutMs: 10000
+          },
+          mockCompat as any,
+          mockManifest as any
+        );
+
+        exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
+        await exporter.flush();
+
+        expect(logger.info).toHaveBeenCalledWith(
+          'Observability batch export succeeded',
+          expect.objectContaining({ provider: 'test', events: 1, envelopes: 1 })
+        );
+
+        await exporter.shutdown();
+      } finally {
+        if (originalLive === undefined) {
+          delete process.env.LLM_LIVE;
+        } else {
+          process.env.LLM_LIVE = originalLive;
+        }
+      }
+    });
+
     test('unrefs the periodic flush timer when supported', async () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
 

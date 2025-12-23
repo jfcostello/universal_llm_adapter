@@ -9,6 +9,18 @@ const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
 const TEST_FILE = '21-observability';
 
+function parseJsonLines(lines: string[]): any[] {
+  return (lines || [])
+    .map(line => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
 // Skip all tests if observability is not configured
 const shouldRun = runLive && observabilityTestProvider !== null;
 const skipReason = !observabilityTestProvider ? 'observabilityTestProvider not configured in config.ts' : undefined;
@@ -41,6 +53,7 @@ describe('21-observability', () => {
           enabled: true,
           provider: observabilityTestProvider.provider,
           traceId,
+          flushAt: 2
         }
       } as any);
 
@@ -60,6 +73,12 @@ describe('21-observability', () => {
       // Verify response contains expected text
       const finalText = String(done?.response?.content?.[0]?.text ?? '').toLowerCase();
       expect(finalText).toContain('observability');
+
+      const parsedLogs = parseJsonLines(result.logs);
+      const hasExportSuccess = parsedLogs.some(l => l?.message === 'Observability batch export succeeded');
+      const hasExportFailed = parsedLogs.some(l => l?.message === 'Observability export failed after max attempts');
+      expect(hasExportSuccess).toBe(true);
+      expect(hasExportFailed).toBe(false);
     },
     120000
   );
