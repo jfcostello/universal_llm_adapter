@@ -336,15 +336,113 @@ describe('modules/observability', () => {
       expect(mockCompat.buildBatch).toHaveBeenCalledWith(
         expect.any(Array),
         mockManifest,
-        { providerConfig }
+        { providerConfig, timeoutMs: 10000 }
       );
       expect(mockCompat.sendBatch).toHaveBeenCalledWith(
         {},
         mockManifest,
-        { providerConfig }
+        { providerConfig, timeoutMs: 10000 }
       );
 
       await exporter.shutdown();
+    });
+
+    test('splits batches when provider maxBatchBytes is exceeded', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      const chunkBytes = 100;
+      const oneBytes = Buffer.byteLength(JSON.stringify({ data: 'x'.repeat(chunkBytes) }), 'utf8');
+      const twoBytes = Buffer.byteLength(JSON.stringify({ data: 'x'.repeat(chunkBytes * 2) }), 'utf8');
+      const maxBatchBytes = Math.floor((oneBytes + twoBytes) / 2);
+
+      const mockCompat = {
+        buildBatch: jest.fn((events: unknown[]) => ({
+          payload: { data: 'x'.repeat((events.length || 1) * chunkBytes) },
+          eventIndexByEnvelopeId: new Map()
+        })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' },
+        limits: { maxBatchBytes }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 100,
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 1,
+          baseDelayMs: 250,
+          maxDelayMs: 30000,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
+      exporter.recordLLMResponse({ traceId: 'trace-1', timestamp: '', provider: '', model: '', content: [] });
+
+      await exporter.shutdown();
+
+      // 2 events doesn't fit, so it should be split into 2 single-event batches
+      expect(mockCompat.sendBatch).toHaveBeenCalledTimes(2);
+    });
+
+    test('drops a single event when it cannot fit provider maxBatchBytes', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({
+          payload: { data: 'x'.repeat(200) },
+          eventIndexByEnvelopeId: new Map()
+        })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' },
+        limits: { maxBatchBytes: 50 }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 100,
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 1,
+          baseDelayMs: 250,
+          maxDelayMs: 30000,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      const record = exporter.recordLLMRequest({
+        traceId: 'trace-1',
+        timestamp: '',
+        provider: '',
+        model: '',
+        messages: []
+      });
+
+      await exporter.shutdown();
+
+      expect(mockCompat.sendBatch).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(`Dropping event ${record.eventId}`));
+
+      warnSpy.mockRestore();
     });
 
     test('warns when max attempts exceeded', async () => {

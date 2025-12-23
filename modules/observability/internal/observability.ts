@@ -236,31 +236,46 @@ export class ObservabilityExporter implements IObservabilityExporter {
     const events = [...this.queue];
     this.queue = [];
 
-    const compatContext: ObservabilityCompatContext | undefined = this.config.providerConfig
-      ? { providerConfig: this.config.providerConfig }
-      : undefined;
+    const compatContext: ObservabilityCompatContext = {
+      ...(this.config.providerConfig ? { providerConfig: this.config.providerConfig } : {}),
+      timeoutMs: this.config.timeoutMs
+    };
+    const maxBatchBytes = this.manifest.limits?.maxBatchBytes;
 
     let attempt = 0;
     let eventsToRetry = events;
 
     while (eventsToRetry.length > 0 && attempt < this.config.maxAttempts) {
-      try {
-        // Build batch
-        const { payload, eventIndexByEnvelopeId } = this.compat.buildBatch(
-          eventsToRetry.map(e => e.data),
-          this.manifest,
-          compatContext
-        );
+      const sendWithSizeLimit = async (batchEvents: QueuedEvent[]): Promise<QueuedEvent[]> => {
+        try {
+          const { payload, eventIndexByEnvelopeId } = this.compat.buildBatch(
+            batchEvents.map(e => e.data),
+            this.manifest,
+            compatContext
+          );
 
-        // Send batch
-        const result = await this.compat.sendBatch(payload, this.manifest, compatContext);
+          if (typeof maxBatchBytes === 'number' && maxBatchBytes > 0) {
+            const bytes = Buffer.byteLength(JSON.stringify(payload), 'utf8');
+            if (bytes > maxBatchBytes) {
+              if (batchEvents.length <= 1) {
+                console.warn(
+                  `[observability] Dropping event ${batchEvents[0].id}: batch payload ${bytes} bytes exceeds maxBatchBytes=${maxBatchBytes}`
+                );
+                return [];
+              }
 
-        if (result.success) {
-          // All events sent successfully
-          eventsToRetry = [];
-        } else {
-          // Check per-envelope outcomes for retryable failures.
-          // Map envelope failures back to source event indices so we can retry only the correct events.
+              const mid = Math.floor(batchEvents.length / 2);
+              const leftRetry = await sendWithSizeLimit(batchEvents.slice(0, mid));
+              const rightRetry = await sendWithSizeLimit(batchEvents.slice(mid));
+              return [...leftRetry, ...rightRetry];
+            }
+          }
+
+          const result = await this.compat.sendBatch(payload, this.manifest, compatContext);
+          if (result.success) {
+            return [];
+          }
+
           const retryableEventIndices = new Set<number>();
           let hasUnmappedRetryableOutcome = false;
 
@@ -276,17 +291,22 @@ export class ObservabilityExporter implements IObservabilityExporter {
           }
 
           if (hasUnmappedRetryableOutcome) {
-            console.warn('[observability] Retryable envelope outcome could not be mapped to an event index; retrying all events');
-            // Retry all events to avoid silently dropping retryable failures.
-          } else {
-            // Keep only retryable events
-            eventsToRetry = eventsToRetry.filter((_event, index) => retryableEventIndices.has(index));
+            console.warn(
+              '[observability] Retryable envelope outcome could not be mapped to an event index; retrying all events'
+            );
+            return batchEvents;
           }
+
+          return batchEvents.filter((_event, index) => retryableEventIndices.has(index));
+        } catch (error: any) {
+          console.warn(
+            `[observability] Batch export failed (attempt ${attempt + 1}/${this.config.maxAttempts}): ${error.message}`
+          );
+          return batchEvents;
         }
-      } catch (error: any) {
-        // Network error or unexpected failure - retry all
-        console.warn(`[observability] Batch export failed (attempt ${attempt + 1}/${this.config.maxAttempts}): ${error.message}`);
-      }
+      };
+
+      eventsToRetry = await sendWithSizeLimit(eventsToRetry);
 
       if (eventsToRetry.length > 0 && attempt < this.config.maxAttempts - 1) {
         // Wait before retry

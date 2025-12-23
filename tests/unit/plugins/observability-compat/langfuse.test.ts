@@ -218,6 +218,26 @@ describe('LangfuseCompat', () => {
       expect(headers['Authorization']).toBe(`Basic ${expectedAuth}`);
     });
 
+    it('aborts fetch when context.timeoutMs elapses', async () => {
+      mockFetch.mockImplementationOnce((_url: any, init: any) => {
+        return new Promise((_resolve, reject) => {
+          const signal = init?.signal as AbortSignal | undefined;
+          if (!signal) {
+            reject(new Error('Missing signal'));
+            return;
+          }
+          signal.addEventListener('abort', () => reject(new Error('Aborted')));
+        }) as any;
+      });
+
+      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
+      const result = await langfuseCompat.sendBatch(payload, mockManifest, { timeoutMs: 10 });
+
+      expect(result.success).toBe(false);
+      expect(result.outcomes.every(o => o.retryable)).toBe(true);
+      expect(result.outcomes[0].error).toBe('Aborted');
+    });
+
     it('sends to correct URL', async () => {
       mockFetch.mockResolvedValueOnce({
         status: 200,

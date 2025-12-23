@@ -683,6 +683,12 @@ export interface ObservabilityCompatContext {
    * Provider-specific configuration overrides (opaque to core).
    */
   providerConfig?: Record<string, unknown>;
+
+  /**
+   * Timeout (ms) for provider export requests.
+   * Compat implementations should enforce this via abort/timeout handling.
+   */
+  timeoutMs?: number;
 }
 
 /**

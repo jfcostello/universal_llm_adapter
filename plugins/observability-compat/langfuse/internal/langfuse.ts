@@ -335,6 +335,7 @@ export class LangfuseCompat implements IObservabilityCompat {
   ): Promise<ObservabilityBatchResult> {
     const batchPayload = payload as LangfuseBatchPayload;
     const url = resolveIngestionUrl(manifest, context);
+    const timeoutMs = context?.timeoutMs;
 
     // Build headers
     const headers: Record<string, string> = {
@@ -358,10 +359,19 @@ export class LangfuseCompat implements IObservabilityCompat {
     }
 
     try {
+      const controller = new AbortController();
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      if (typeof timeoutMs === 'number' && timeoutMs > 0) {
+        timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      }
+
       const response = await fetch(url, {
         method: manifest.endpoint.method,
         headers,
-        body: JSON.stringify(batchPayload)
+        body: JSON.stringify(batchPayload),
+        signal: controller.signal
+      }).finally(() => {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
       });
 
       // Handle response
