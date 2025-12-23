@@ -488,7 +488,25 @@ describe('LangfuseCompat', () => {
   });
 
   describe('URL template resolution', () => {
-    it('allows per-call baseUrl override via providerConfig', async () => {
+    it('ignores per-call baseUrl override by default', async () => {
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ successes: [], errors: [] })
+      } as Response);
+
+      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
+      await langfuseCompat.sendBatch(payload, mockManifest, {
+        providerConfig: { baseUrl: 'https://override.langfuse.com' }
+      });
+
+      const fetchCall = mockFetch.mock.calls[0];
+      expect(fetchCall[0]).toBe('https://cloud.langfuse.com/api/public/ingestion');
+    });
+
+    it('allows per-call baseUrl override when explicitly enabled', async () => {
+      process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
+      process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST = 'override.langfuse.com';
+
       mockFetch.mockResolvedValueOnce({
         status: 200,
         json: async () => ({ successes: [], errors: [] })
@@ -503,7 +521,10 @@ describe('LangfuseCompat', () => {
       expect(fetchCall[0]).toBe('https://override.langfuse.com/api/public/ingestion');
     });
 
-    it('treats providerConfig.baseUrl as full ingestion URL when it includes the ingestion path', async () => {
+    it('allows per-call baseUrl override when enabled and no allowlist is set', async () => {
+      process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
+      delete process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST;
+
       mockFetch.mockResolvedValueOnce({
         status: 200,
         json: async () => ({ successes: [], errors: [] })
@@ -511,14 +532,105 @@ describe('LangfuseCompat', () => {
 
       const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
       await langfuseCompat.sendBatch(payload, mockManifest, {
-        providerConfig: { baseUrl: 'https://override.langfuse.com/api/public/ingestion' }
+        providerConfig: { baseUrl: 'https://override.langfuse.com' }
       });
 
       const fetchCall = mockFetch.mock.calls[0];
       expect(fetchCall[0]).toBe('https://override.langfuse.com/api/public/ingestion');
     });
 
-    it('handles relative URL templates when baseUrl override is provided', async () => {
+    it('treats empty allowlist as no allowlist', async () => {
+      process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
+      process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST = ' , , ';
+
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ successes: [], errors: [] })
+      } as Response);
+
+      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
+      await langfuseCompat.sendBatch(payload, mockManifest, {
+        providerConfig: { baseUrl: 'https://override.langfuse.com' }
+      });
+
+      const fetchCall = mockFetch.mock.calls[0];
+      expect(fetchCall[0]).toBe('https://override.langfuse.com/api/public/ingestion');
+    });
+
+    it('rejects per-call baseUrl override when host is not allowlisted', async () => {
+      process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
+      process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST = 'allowed.langfuse.com';
+
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ successes: [], errors: [] })
+      } as Response);
+
+      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
+      await langfuseCompat.sendBatch(payload, mockManifest, {
+        providerConfig: { baseUrl: 'https://override.langfuse.com' }
+      });
+
+      const fetchCall = mockFetch.mock.calls[0];
+      expect(fetchCall[0]).toBe('https://cloud.langfuse.com/api/public/ingestion');
+    });
+
+    it('rejects per-call baseUrl override when URL is invalid', async () => {
+      process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
+      delete process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST;
+
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ successes: [], errors: [] })
+      } as Response);
+
+      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
+      await langfuseCompat.sendBatch(payload, mockManifest, {
+        providerConfig: { baseUrl: 'not a url' }
+      });
+
+      const fetchCall = mockFetch.mock.calls[0];
+      expect(fetchCall[0]).toBe('https://cloud.langfuse.com/api/public/ingestion');
+    });
+
+    it('rejects per-call baseUrl override for unsupported schemes', async () => {
+      process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
+      delete process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST;
+
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ successes: [], errors: [] })
+      } as Response);
+
+      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
+      await langfuseCompat.sendBatch(payload, mockManifest, {
+        providerConfig: { baseUrl: 'ftp://override.langfuse.com' }
+      });
+
+      const fetchCall = mockFetch.mock.calls[0];
+      expect(fetchCall[0]).toBe('https://cloud.langfuse.com/api/public/ingestion');
+    });
+
+    it('rejects per-call baseUrl override with URL credentials', async () => {
+      process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
+      process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST = 'override.langfuse.com';
+
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ successes: [], errors: [] })
+      } as Response);
+
+      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
+      await langfuseCompat.sendBatch(payload, mockManifest, {
+        providerConfig: { baseUrl: 'https://user:pass@override.langfuse.com' }
+      });
+
+      const fetchCall = mockFetch.mock.calls[0];
+      expect(fetchCall[0]).toBe('https://cloud.langfuse.com/api/public/ingestion');
+    });
+
+    it('handles relative URL templates with baseUrl override', async () => {
+      process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
       delete process.env.MISSING_VAR;
 
       const missingManifest: ObservabilityProviderManifest = {
@@ -543,7 +655,8 @@ describe('LangfuseCompat', () => {
       expect(fetchCall[0]).toBe('https://override.langfuse.com/api/public/ingestion');
     });
 
-    it('handles relative URL templates without a leading slash when baseUrl override is provided', async () => {
+    it('handles relative URL templates without a leading slash with baseUrl override', async () => {
+      process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
       delete process.env.MISSING_VAR;
 
       const missingManifest: ObservabilityProviderManifest = {
@@ -566,6 +679,24 @@ describe('LangfuseCompat', () => {
 
       const fetchCall = mockFetch.mock.calls[0];
       expect(fetchCall[0]).toBe('https://override.langfuse.com/api/public/ingestion');
+    });
+
+    it('rejects per-call baseUrl override when it includes a non-ingestion path', async () => {
+      process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
+      delete process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST;
+
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ successes: [], errors: [] })
+      } as Response);
+
+      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
+      await langfuseCompat.sendBatch(payload, mockManifest, {
+        providerConfig: { baseUrl: 'https://override.langfuse.com/not-ingestion' }
+      });
+
+      const fetchCall = mockFetch.mock.calls[0];
+      expect(fetchCall[0]).toBe('https://cloud.langfuse.com/api/public/ingestion');
     });
 
     it('resolves custom host from env var', async () => {

@@ -48,8 +48,8 @@ const spec = {
     provider: 'langfuse',       // Provider ID
     traceId: 'custom-trace-1',  // Optional: custom trace ID
     sessionId: 'session-abc',   // Optional: group related traces
-    providerConfig: {           // Optional: provider-specific config
-      baseUrl: 'https://custom.langfuse.com'
+    providerConfig: {           // Optional: provider-specific config (provider-defined shape)
+      // ...
     },
     // Optional: override queue settings for this call
     flushAt: 5,

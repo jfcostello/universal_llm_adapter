@@ -41,9 +41,6 @@ describe('21-observability', () => {
           enabled: true,
           provider: observabilityTestProvider.provider,
           traceId,
-          providerConfig: observabilityTestProvider.baseUrl
-            ? { baseUrl: observabilityTestProvider.baseUrl }
-            : undefined
         }
       } as any);
 
@@ -86,15 +83,11 @@ describe('21-observability', () => {
         functionToolNames: [],
         settings: mergeSettings(testRun.settings, { temperature: 0, maxTokens: 100 }),
         metadata: { correlationId: traceId },
-        // Enable observability but with an invalid baseUrl
-        // This tests that LLM calls still succeed even when observability fails
         observability: {
           enabled: true,
-          provider: observabilityTestProvider.provider,
-          traceId,
-          providerConfig: {
-            baseUrl: 'http://localhost:99999/invalid-endpoint-that-does-not-exist'
-          }
+          // Intentionally invalid provider to ensure observability never blocks the LLM execution path.
+          provider: 'nonexistent-observability-provider',
+          traceId
         }
       } as any);
 

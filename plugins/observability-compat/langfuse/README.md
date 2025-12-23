@@ -31,7 +31,24 @@ https://cloud.langfuse.com/api/public/ingestion
 
 ### Custom Endpoint
 
-For self-hosted Langfuse or custom deployments, specify `baseUrl` in `providerConfig`:
+For self-hosted Langfuse or custom deployments, set `LANGFUSE_HOST`:
+
+```bash
+export LANGFUSE_HOST="https://your-langfuse-instance.com"
+```
+
+### Per-Call Endpoint Override (Unsafe)
+
+You can override the endpoint per-call via `providerConfig.baseUrl`, but it is **disabled by default** to avoid SSRF/secret-exfiltration risks in server environments.
+
+To enable it (at your own risk), set:
+
+```bash
+export LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE="1"
+export LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST="your-langfuse-instance.com"
+```
+
+Then you may specify `baseUrl` in `providerConfig`:
 
 ```typescript
 observability: {

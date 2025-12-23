@@ -100,6 +100,30 @@ function buildUrl(urlTemplate: string): string {
   return urlTemplate.replace(/\$\{[^}]+\}/g, (match) => resolveEnvVar(match));
 }
 
+const ALLOW_BASEURL_OVERRIDE_ENV = 'LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE';
+const BASEURL_OVERRIDE_ALLOWLIST_ENV = 'LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST';
+
+function isBaseUrlOverrideEnabled(): boolean {
+  return process.env[ALLOW_BASEURL_OVERRIDE_ENV] === '1';
+}
+
+function getBaseUrlOverrideAllowlist(): Set<string> | null {
+  const raw = process.env[BASEURL_OVERRIDE_ALLOWLIST_ENV];
+  if (!raw) return null;
+  const entries = raw
+    .split(',')
+    .map(entry => entry.trim().toLowerCase())
+    .filter(Boolean);
+  return entries.length > 0 ? new Set(entries) : null;
+}
+
+function isUrlHostAllowlisted(url: URL, allowlist: Set<string> | null): boolean {
+  if (!allowlist) return true;
+  const host = url.host.toLowerCase(); // includes port
+  const hostname = url.hostname.toLowerCase(); // excludes port
+  return allowlist.has(host) || allowlist.has(hostname);
+}
+
 /**
  * Resolve the final ingestion URL, with optional per-call overrides.
  * Provider-specific overrides are passed via `context.providerConfig`.
@@ -119,9 +143,30 @@ function resolveIngestionUrl(
     return resolvedFromTemplate;
   }
 
-  // Allow passing the full ingestion URL as `baseUrl` for flexibility.
-  if (baseUrl.includes('/api/public/ingestion')) {
-    return baseUrl;
+  // For security, ignore per-call baseUrl overrides unless explicitly enabled.
+  // Per-call overrides are untrusted in server environments and can lead to SSRF / secret exfiltration.
+  if (!isBaseUrlOverrideEnabled()) {
+    return resolvedFromTemplate;
+  }
+
+  let overrideUrl: URL;
+  try {
+    overrideUrl = new URL(baseUrl);
+  } catch {
+    return resolvedFromTemplate;
+  }
+
+  if (overrideUrl.username || overrideUrl.password) {
+    return resolvedFromTemplate;
+  }
+
+  if (overrideUrl.protocol !== 'http:' && overrideUrl.protocol !== 'https:') {
+    return resolvedFromTemplate;
+  }
+
+  const allowlist = getBaseUrlOverrideAllowlist();
+  if (!isUrlHostAllowlisted(overrideUrl, allowlist)) {
+    return resolvedFromTemplate;
   }
 
   let pathnameAndSearch = '';
@@ -135,7 +180,15 @@ function resolveIngestionUrl(
       : `/${resolvedFromTemplate}`;
   }
 
-  return `${baseUrl.replace(/\/$/, '')}${pathnameAndSearch}`;
+  // If a full URL was provided, only accept it if it matches the ingestion path.
+  const overridePathnameAndSearch = `${overrideUrl.pathname}${overrideUrl.search}`;
+  if (overridePathnameAndSearch !== '/' && overridePathnameAndSearch !== '') {
+    if (overridePathnameAndSearch !== pathnameAndSearch) {
+      return resolvedFromTemplate;
+    }
+  }
+
+  return `${overrideUrl.origin}${pathnameAndSearch}`;
 }
 
 /**

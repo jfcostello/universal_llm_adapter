@@ -217,16 +217,15 @@ export const maxWorkersDefault = 5;
  * and ensure the required environment variables are set:
  * - LANGFUSE_SECRET_KEY: Langfuse secret key
  * - LANGFUSE_PUBLIC_KEY: Langfuse public key
+ * - LANGFUSE_HOST: optional, for self-hosted deployments
  *
  * @example
  * export const observabilityTestProvider = {
- *   provider: 'langfuse' as const,
- *   baseUrl: 'https://cloud.langfuse.com'  // optional, defaults to cloud
+ *   provider: 'langfuse' as const
  * };
  */
 export interface ObservabilityTestConfig {
   provider: 'langfuse';
-  baseUrl?: string;
 }
 
 export const observabilityTestProvider: ObservabilityTestConfig | null = null;
