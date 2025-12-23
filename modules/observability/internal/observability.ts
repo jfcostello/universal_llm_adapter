@@ -133,7 +133,8 @@ export class ObservabilityExporter implements IObservabilityExporter {
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
       if (!this.shuttingDown && this.queue.length > 0) {
-        this.flush().catch(() => {});
+        // flush() handles errors internally in doFlush(), so it never rejects
+        void this.flush();
       }
       this.startFlushTimer();
     }, this.config.flushIntervalMs);
@@ -186,7 +187,8 @@ export class ObservabilityExporter implements IObservabilityExporter {
 
     // Trigger flush if queue reaches threshold
     if (this.queue.length >= this.config.flushAt) {
-      this.flush().catch(() => {});
+      // flush() handles errors internally in doFlush(), so it never rejects
+      void this.flush();
     }
 
     return { eventId, queued: true };
@@ -222,13 +224,9 @@ export class ObservabilityExporter implements IObservabilityExporter {
   }
 
   private async doFlush(): Promise<void> {
-    // Take all events from queue
+    // Take all events from queue (caller guarantees queue is non-empty)
     const events = [...this.queue];
     this.queue = [];
-
-    if (events.length === 0) {
-      return;
-    }
 
     let attempt = 0;
     let eventsToRetry = events;
@@ -254,8 +252,10 @@ export class ObservabilityExporter implements IObservabilityExporter {
           for (const outcome of result.outcomes) {
             if (!outcome.success && outcome.retryable) {
               // Find event IDs that map to this envelope
+              // The envelopeByEventId map is keyed by traceId from the event data
               for (const event of eventsToRetry) {
-                if (envelopeByEventId.get(event.id) === outcome.envelopeId) {
+                const traceId = (event.data as ObservabilityLLMRequestEvent).traceId;
+                if (envelopeByEventId.get(traceId) === outcome.envelopeId) {
                   retryableEventIds.add(event.id);
                 }
               }

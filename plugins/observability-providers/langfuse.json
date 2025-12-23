@@ -1,0 +1,24 @@
+{
+  "id": "langfuse",
+  "compat": "langfuse",
+  "endpoint": {
+    "urlTemplate": "${LANGFUSE_HOST:-https://cloud.langfuse.com}/api/public/ingestion",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  },
+  "auth": {
+    "type": "basic",
+    "publicKeyEnv": "LANGFUSE_PUBLIC_KEY",
+    "secretKeyEnv": "LANGFUSE_SECRET_KEY"
+  },
+  "limits": {
+    "maxBatchBytes": 3000000
+  },
+  "metadata": {
+    "name": "Langfuse",
+    "description": "Open-source LLM observability platform",
+    "docsUrl": "https://langfuse.com/docs"
+  }
+}

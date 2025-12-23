@@ -193,14 +193,6 @@ export function getNoopObservabilityDeps(): ObservabilityDeps {
 }
 
 /**
- * Get a noop exporter.
- * Convenience function for cases where only the exporter is needed.
- */
-export function getNoopExporter(): IObservabilityExporter {
-  return noopObservabilityDeps.getExporter();
-}
-
-/**
  * Resolve observability deps with optional overrides.
  * Falls back to noop for any missing overrides.
  *

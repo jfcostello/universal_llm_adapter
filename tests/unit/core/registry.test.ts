@@ -843,6 +843,10 @@ describe('core/registry', () => {
         expect(manifest.endpoint.urlTemplate).toBe('https://test.api/ingest');
         expect(manifest.auth?.type).toBe('basic');
         expect(manifest.limits?.maxBatchBytes).toBe(1000000);
+
+        // Call again to cover the early return when already loaded
+        const manifest2 = await registry.getObservabilityProvider('test-obs');
+        expect(manifest2.id).toBe('test-obs');
       });
     });
 

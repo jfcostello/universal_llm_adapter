@@ -75,7 +75,7 @@ describe('modules/observability', () => {
       expect(typeof exporter.shutdown).toBe('function');
     });
 
-    test('noop exporter returns disabled result', async () => {
+    test('noop exporter recordLLMRequest returns disabled result', async () => {
       const { getNoopObservabilityDeps } = await import('@/modules/observability/index.ts');
       const deps = getNoopObservabilityDeps();
       const exporter = deps.getExporter();
@@ -86,6 +86,23 @@ describe('modules/observability', () => {
         provider: 'test',
         model: 'test',
         messages: []
+      });
+
+      expect(result.queued).toBe(false);
+      expect(result.reason).toBe('disabled');
+    });
+
+    test('noop exporter recordLLMResponse returns disabled result', async () => {
+      const { getNoopObservabilityDeps } = await import('@/modules/observability/index.ts');
+      const deps = getNoopObservabilityDeps();
+      const exporter = deps.getExporter();
+
+      const result = exporter.recordLLMResponse({
+        traceId: 'test',
+        timestamp: new Date().toISOString(),
+        provider: 'test',
+        model: 'test',
+        content: 'test response'
       });
 
       expect(result.queued).toBe(false);
@@ -331,6 +348,67 @@ describe('modules/observability', () => {
       await exporter.shutdown();
     });
 
+    test('does not restart timer when shutdown is called during flush', async () => {
+      jest.useFakeTimers();
+
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      let exporterRef: any;
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, envelopeByEventId: new Map() })),
+        sendBatch: jest.fn(async () => {
+          // Call shutdown from within sendBatch to simulate shutdown during flush
+          // This sets shuttingDown = true before startFlushTimer is called
+          exporterRef.shutdown();
+          return { success: true, outcomes: [] };
+        })
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 100,
+          flushIntervalMs: 1000,
+          maxQueueSize: 1000,
+          maxAttempts: 3,
+          baseDelayMs: 250,
+          maxDelayMs: 30000,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+      exporterRef = exporter;
+
+      // Add event
+      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
+
+      // Advance timer to trigger flush - this will call sendBatch which calls shutdown
+      jest.advanceTimersByTime(1000);
+
+      // Wait for async operations
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // sendBatch should have been called
+      expect(mockCompat.sendBatch).toHaveBeenCalled();
+
+      // Advance timer again - should not trigger another flush since shutdown was called
+      jest.advanceTimersByTime(1000);
+      await Promise.resolve();
+
+      // sendBatch should still only have been called once
+      expect(mockCompat.sendBatch).toHaveBeenCalledTimes(1);
+
+      jest.useRealTimers();
+    });
+
     test('queues events and returns event ID', async () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
 
@@ -569,6 +647,70 @@ describe('modules/observability', () => {
       expect(result.reason).toBe('shutdown');
     });
 
+    test('handles partial success with retryable outcomes', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      // Track the current envelope ID for this event
+      let currentEnvelopeId = 'envelope-0';
+
+      const mockCompat = {
+        buildBatch: jest.fn((events: { traceId: string }[]) => {
+          // Map each event's traceId to the current envelope ID
+          const envelopeByEventId = new Map<string, string>();
+          events.forEach((e) => {
+            envelopeByEventId.set(e.traceId, currentEnvelopeId);
+          });
+          return { payload: {}, envelopeByEventId };
+        }),
+        sendBatch: jest.fn()
+          .mockResolvedValueOnce({
+            success: false,
+            outcomes: [
+              { envelopeId: 'envelope-0', success: false, retryable: true } // Retryable
+            ]
+          })
+          .mockResolvedValueOnce({
+            success: true,
+            outcomes: [
+              { envelopeId: 'envelope-0', success: true }
+            ]
+          })
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 100,
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 3,
+          baseDelayMs: 10,
+          maxDelayMs: 50,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
+
+      await exporter.flush();
+
+      // Should have retried the retryable event
+      expect(mockCompat.sendBatch).toHaveBeenCalledTimes(2);
+
+      warnSpy.mockRestore();
+      await exporter.shutdown();
+    });
+
     test('handles partial success with non-retryable outcomes', async () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
 
@@ -686,28 +828,80 @@ describe('modules/observability', () => {
       expect(mockRegistry.getObservabilityProvider).not.toHaveBeenCalled();
     });
 
-    test('returns noop deps when no provider specified in spec or defaults', async () => {
+    test('returns noop deps when spec is undefined and defaults have observability disabled', async () => {
       const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
 
+      // Mock registry that should not be called
+      const mockRegistry = {
+        getObservabilityProvider: jest.fn(),
+        getObservabilityCompat: jest.fn()
+      };
+
+      // Call without spec - uses defaults which have observability disabled by default
+      const deps = await createObservabilityDeps(mockRegistry as any);
+
+      expect(deps.isEnabled()).toBe(false);
+      expect(mockRegistry.getObservabilityProvider).not.toHaveBeenCalled();
+    });
+
+    test('returns noop deps when no provider specified in spec or defaults', async () => {
+      // This test needs to mock getDefaults to return no provider
+      jest.resetModules();
+
+      // Mock the kernel module to return defaults with no provider
+      jest.unstable_mockModule('@/modules/kernel/index.ts', () => ({
+        getNoopObservabilityDeps: () => ({
+          isEnabled: () => false,
+          getExporter: () => ({
+            recordLLMRequest: () => ({ eventId: '', queued: false, reason: 'disabled' }),
+            recordLLMResponse: () => ({ eventId: '', queued: false, reason: 'disabled' }),
+            flush: async () => {},
+            shutdown: async () => {}
+          }),
+          shutdown: async () => {}
+        }),
+        resolveObservabilityDeps: (overrides: any = {}) => ({
+          isEnabled: overrides.isEnabled ?? (() => false),
+          getExporter: overrides.getExporter ?? (() => ({})),
+          shutdown: overrides.shutdown ?? (async () => {})
+        }),
+        getDefaults: () => ({
+          observability: {
+            enabled: true,
+            provider: undefined, // No provider in defaults
+            flushAt: 10,
+            flushIntervalMs: 5000,
+            maxQueueSize: 1000,
+            maxAttempts: 3,
+            baseDelayMs: 250,
+            maxDelayMs: 30000,
+            timeoutMs: 10000
+          }
+        })
+      }));
+
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
 
       const mockRegistry = {
         getObservabilityProvider: jest.fn(),
         getObservabilityCompat: jest.fn()
       };
 
-      // Enable observability but don't specify a provider (defaults have a provider but we override with undefined)
-      // This test verifies that if somehow no provider is resolved, we fall back to noop
+      // Enable observability but don't specify a provider in spec
+      // Defaults also have no provider, so resolveConfig should return null
       const deps = await createObservabilityDeps(mockRegistry as any, {
-        enabled: true,
-        provider: undefined // Explicitly no provider in spec
+        enabled: true
+        // No provider in spec
       });
 
-      // Should use default provider from defaults.json, so this will try to load it
-      // Since the mock registry doesn't have it, it will fail and return noop
-      expect(mockRegistry.getObservabilityProvider).toHaveBeenCalled();
+      // Should have warned about no provider
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('No provider specified'));
+      expect(deps.isEnabled()).toBe(false);
 
       warnSpy.mockRestore();
+      jest.resetModules();
     });
 
     test('returns noop deps when provider fails to load', async () => {
