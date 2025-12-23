@@ -12,6 +12,7 @@ Provider-agnostic LLM adapter with a unified interface across multiple providers
 - **Vector Stores**: Integration with vector databases for RAG applications
 - **Streaming**: Real-time streaming responses with tool support
 - **Realtime Sessions**: Bidirectional sessions (audio/text in, audio/transcripts/tools out) via `llm-adapter/realtime`
+- **Observability**: Optional LLM call telemetry export to platforms like Langfuse
 - **100% Test Coverage**: Comprehensive test suite with full coverage
 
 ## Quick Start
@@ -53,6 +54,7 @@ universal_llm_adapter/
 │   ├── usage/                    # Usage/cost metadata normalization
 │   ├── usage-cost/               # Optional usage cost calculation
 │   ├── lifecycle/                # Coordinator lifecycle wrappers
+│   ├── observability/            # LLM call telemetry export
 │   └── string/                   # String utilities
 ├── plugins/                      # Provider-specific implementations
 │   ├── providers/                # LLM provider configs (.json)
@@ -63,6 +65,8 @@ universal_llm_adapter/
 │   ├── realtime-compat/          # Realtime provider compat implementations
 │   ├── embedding-compat/         # Embedding provider compat implementations
 │   ├── vector-compat/            # Vector store compat implementations
+│   ├── observability-providers/  # Observability provider configs (.json)
+│   ├── observability-compat/     # Observability compat implementations
 │   ├── tools/                    # Tool definitions (.json)
 │   ├── processes/                # Process routing configs (.json)
 │   ├── mcp/                      # MCP server configs (.json)
@@ -237,6 +241,40 @@ MCP server configurations live in `plugins/mcp/*.json`:
 }
 ```
 
+### Observability (Optional)
+
+Observability enables export of LLM call telemetry to platforms like Langfuse. It is disabled by default.
+
+**Global Configuration** (`plugins/configs/defaults.json`):
+
+```json
+{
+  "observability": {
+    "enabled": true,
+    "provider": "langfuse"
+  }
+}
+```
+
+**Per-Call Override** (`spec.observability`):
+
+```typescript
+{
+  observability: {
+    enabled: true,
+    provider: 'langfuse',
+    traceId: 'custom-trace-id',    // Optional
+    sessionId: 'session-abc'        // Optional
+  }
+}
+```
+
+**Required Environment Variables** (for Langfuse):
+- `LANGFUSE_SECRET_KEY` - Langfuse secret key
+- `LANGFUSE_PUBLIC_KEY` - Langfuse public key
+
+Observability is non-blocking: if export fails, LLM calls still succeed. See `modules/observability/README.md` for full documentation.
+
 ## Core Types
 
 ### LLMCallSpec
@@ -262,6 +300,9 @@ interface LLMCallSpec {
 
   // Retry
   rateLimitRetryDelays?: number[];
+
+  // Observability
+  observability?: ObservabilitySpec;
 
   // Metadata
   metadata?: JsonObject;

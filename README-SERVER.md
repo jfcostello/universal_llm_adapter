@@ -1009,6 +1009,25 @@ for line in response.iter_lines():
 | `LLM_API_KEY` | LLM provider API key |
 | `EMBEDDINGS_API_KEY` | Embedding provider API key |
 | `VECTOR_STORE_API_KEY` | Vector store API key |
+| `LANGFUSE_SECRET_KEY` | Langfuse secret key (for observability) |
+| `LANGFUSE_PUBLIC_KEY` | Langfuse public key (for observability) |
+
+### Observability (Optional)
+
+Enable LLM call telemetry export in your request body:
+
+```json
+{
+  "observability": {
+    "enabled": true,
+    "provider": "langfuse"
+  },
+  "messages": [...],
+  "llmPriority": [...]
+}
+```
+
+Or globally via `plugins/configs/defaults.json`. Same spec field for CLI and server.
 
 ---
 

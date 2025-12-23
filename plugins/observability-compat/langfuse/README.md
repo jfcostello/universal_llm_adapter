@@ -1,84 +1,82 @@
 # Langfuse Observability Compat
 
-This compat module translates provider-agnostic LLM observability events into Langfuse's ingestion format.
+This compat module provides integration with [Langfuse](https://langfuse.com/) for LLM observability and tracing.
 
-## Overview
+## Implementation
 
-The Langfuse compat implements the `IObservabilityCompat` interface, providing:
+This module implements the **legacy ingestion API** (`POST /api/public/ingestion`):
+- Batch ingestion of multiple events per request
+- Support for request/response event pairs
+- Trace and session grouping via envelope structure
 
-- **`buildBatch()`**: Transforms internal `ObservabilityLLMRequestEvent` and `ObservabilityLLMResponseEvent` objects into Langfuse's batch ingestion format
-- **`sendBatch()`**: Sends the batch payload to Langfuse's API with proper authentication
+## Authentication
 
-## Event Mapping
+Langfuse requires two environment variables:
 
-### LLM Request Events
+| Variable | Description |
+|----------|-------------|
+| `LANGFUSE_SECRET_KEY` | Langfuse secret key (starts with `sk-lf-`) |
+| `LANGFUSE_PUBLIC_KEY` | Langfuse public key (starts with `pk-lf-`) |
 
-Each request event is transformed into:
-1. A `trace-create` event with the trace ID, session ID, and input messages
-2. A `generation-create` event with model, parameters, and input
-
-### LLM Response Events
-
-Each response event is transformed into:
-1. A `generation-update` event with output, usage statistics, and any errors
+Both keys are combined for HTTP Basic authentication.
 
 ## Configuration
 
-The compat uses the provider manifest for configuration:
+### Default Endpoint
 
-- **Endpoint**: Configurable via `LANGFUSE_HOST` environment variable (defaults to `https://cloud.langfuse.com`)
-- **Authentication**: Basic auth using `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` environment variables
+By default, events are sent to Langfuse Cloud:
+```
+https://cloud.langfuse.com/api/public/ingestion
+```
 
-## Environment Variables
+### Custom Endpoint
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `LANGFUSE_PUBLIC_KEY` | Yes | Langfuse project public key |
-| `LANGFUSE_SECRET_KEY` | Yes | Langfuse project secret key |
-| `LANGFUSE_HOST` | No | Custom Langfuse host (default: `https://cloud.langfuse.com`) |
+For self-hosted Langfuse or custom deployments, specify `baseUrl` in `providerConfig`:
 
-## Langfuse API Format
-
-The compat sends events to `/api/public/ingestion` with the following structure:
-
-```json
-{
-  "batch": [
-    {
-      "id": "envelope-uuid",
-      "type": "trace-create|generation-create|generation-update",
-      "timestamp": "2024-01-01T00:00:00.000Z",
-      "body": { ... }
-    }
-  ],
-  "metadata": {
-    "sdk_name": "universal-llm-adapter",
-    "sdk_version": "1.0.0"
+```typescript
+observability: {
+  enabled: true,
+  provider: 'langfuse',
+  providerConfig: {
+    baseUrl: 'https://your-langfuse-instance.com'
   }
 }
 ```
 
-## Response Handling
+## Known Limits
 
-- **200**: All events ingested successfully
-- **207**: Partial success - per-event outcomes are parsed
-- **429/5xx**: Retryable errors - events will be retried with exponential backoff
-- **4xx**: Non-retryable errors - events are dropped
+### Batch Size
+- **Max payload:** 3.5 MB per batch
+- **Recommendation:** Keep individual events reasonably sized
 
-## Usage
+### Rate Limits
+- Langfuse Cloud has rate limits that vary by plan
+- Failed requests are retried with exponential backoff
 
-This compat is automatically loaded when the `langfuse` observability provider is configured:
+## Event Mapping
 
-```typescript
-import { run } from 'universal-llm-adapter';
+LLM events are mapped to Langfuse's ingestion format:
 
-const response = await run({
-  provider: 'openai',
-  model: 'gpt-4',
-  messages: [{ role: 'user', content: 'Hello' }],
-  observability: {
-    enabled: true,
-    provider: 'langfuse'
-  }
-});
+| Adapter Event | Langfuse Type | Details |
+|---------------|---------------|---------|
+| LLM Request | `generation-create` | Includes prompt, model, settings |
+| LLM Response | `generation-update` | Includes output, usage, duration |
+
+Events with matching `traceId` are grouped into a single trace in Langfuse.
+
+## OpenTelemetry Alternative
+
+Langfuse recommends OpenTelemetry (OTel) for production observability:
+- [Langfuse OTel Documentation](https://langfuse.com/docs/integrations/opentelemetry)
+
+OTel support is tracked separately and not yet implemented in this adapter.
+
+## Module Structure
+
+```
+plugins/observability-compat/langfuse/
+├── index.ts              # Public exports
+├── README.md             # This file
+└── internal/
+    └── langfuse.ts       # Compat implementation
 ```
