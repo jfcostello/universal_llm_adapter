@@ -1,4 +1,4 @@
-import { normalizeFlag, createDeferred, type Deferred } from '@/modules/shared/index.ts';
+import { normalizeFlag, createDeferred, calculateBackoffDelay, sleep, type Deferred } from '@/modules/shared/index.ts';
 
 describe('modules/shared', () => {
   describe('normalizeFlag', () => {
@@ -152,6 +152,44 @@ describe('modules/shared', () => {
       expect(deferred.promise instanceof Promise).toBe(true);
       expect(typeof deferred.resolve).toBe('function');
       expect(typeof deferred.reject).toBe('function');
+    });
+  });
+
+  describe('calculateBackoffDelay', () => {
+    test('returns base delay for first attempt', () => {
+      // With jitter, result should be between baseDelay * 0.75 and baseDelay * 1.25
+      const delay = calculateBackoffDelay(0, 250, 30000);
+      expect(delay).toBeGreaterThanOrEqual(187); // 250 * 0.75 (floored)
+      expect(delay).toBeLessThanOrEqual(312); // 250 * 1.25 (floored, jitter < 1.25)
+    });
+
+    test('increases exponentially with attempts', () => {
+      // Attempt 1: base * 2 = 500ms (with jitter: 375-625)
+      const delay1 = calculateBackoffDelay(1, 250, 30000);
+      expect(delay1).toBeGreaterThanOrEqual(375);
+      expect(delay1).toBeLessThanOrEqual(625);
+
+      // Attempt 2: base * 4 = 1000ms (with jitter: 750-1250)
+      const delay2 = calculateBackoffDelay(2, 250, 30000);
+      expect(delay2).toBeGreaterThanOrEqual(750);
+      expect(delay2).toBeLessThanOrEqual(1250);
+    });
+
+    test('caps at max delay', () => {
+      // Very high attempt should be capped at maxDelay (with jitter: maxDelay * 0.75 to maxDelay * 1.25)
+      const delay = calculateBackoffDelay(20, 250, 1000);
+      expect(delay).toBeGreaterThanOrEqual(750); // 1000 * 0.75
+      expect(delay).toBeLessThanOrEqual(1250); // 1000 * 1.25
+    });
+  });
+
+  describe('sleep', () => {
+    test('waits for specified duration', async () => {
+      const start = Date.now();
+      await sleep(50);
+      const elapsed = Date.now() - start;
+
+      expect(elapsed).toBeGreaterThanOrEqual(45); // Allow some tolerance
     });
   });
 });

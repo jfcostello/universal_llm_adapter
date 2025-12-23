@@ -64,3 +64,36 @@ export function createDeferred<T = void>(): Deferred<T> {
   });
   return { promise, resolve, reject };
 }
+
+/**
+ * Sleep for a specified duration.
+ *
+ * @param ms - Milliseconds to sleep
+ */
+export function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Calculate delay with exponential backoff and jitter.
+ *
+ * @param attempt - Current attempt number (0-indexed)
+ * @param baseDelayMs - Base delay in milliseconds
+ * @param maxDelayMs - Maximum delay cap in milliseconds
+ * @returns Delay in milliseconds with jitter
+ */
+export function calculateBackoffDelay(
+  attempt: number,
+  baseDelayMs: number,
+  maxDelayMs: number
+): number {
+  // Exponential backoff: base * 2^attempt
+  const exponentialDelay = baseDelayMs * Math.pow(2, attempt);
+
+  // Cap at maxDelayMs
+  const cappedDelay = Math.min(exponentialDelay, maxDelayMs);
+
+  // Add jitter: +/- 25% randomness
+  const jitter = 0.75 + Math.random() * 0.5; // 0.75 to 1.25
+  return Math.floor(cappedDelay * jitter);
+}
