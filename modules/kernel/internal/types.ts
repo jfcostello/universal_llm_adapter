@@ -614,7 +614,7 @@ export interface ObservabilityProviderLimits {
  * Configures how to send events to an observability platform.
  */
 export interface ObservabilityProviderManifest {
-  /** Unique provider ID (e.g., 'langfuse') */
+  /** Unique provider ID */
   id: string;
 
   /** Compat module name to use for building/sending payloads */
@@ -670,7 +670,7 @@ export interface ObservabilityBatchResult {
   /** Overall success (all envelopes accepted) */
   success: boolean;
 
-  /** Per-envelope outcomes (for partial success handling like Langfuse 207) */
+  /** Per-envelope outcomes (for partial success responses like 207 Multi-Status) */
   outcomes: ObservabilityEnvelopeOutcome[];
 }
 
@@ -1184,7 +1184,7 @@ export interface ObservabilityDefaults {
   enabled: boolean;
 
   /**
-   * Default observability provider ID (e.g., 'langfuse').
+   * Default observability provider ID.
    * Must match an ID from plugins/observability-providers/*.json.
    */
   provider?: string;

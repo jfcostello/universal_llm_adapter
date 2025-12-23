@@ -16,7 +16,7 @@
  *   // ... other fields
  *   observability: {
  *     enabled: true,
- *     provider: 'langfuse',
+ *     provider: 'example-observability-provider',
  *     traceId: 'custom-trace-123'
  *   }
  * };
@@ -94,7 +94,7 @@ export interface ObservabilitySpec {
   enabled?: boolean;
 
   /**
-   * Observability provider ID (e.g., 'langfuse').
+   * Observability provider ID.
    * Must match an ID from plugins/observability-providers/*.json.
    * Overrides global default when specified.
    */
