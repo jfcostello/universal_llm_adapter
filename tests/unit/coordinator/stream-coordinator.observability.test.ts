@@ -1,0 +1,316 @@
+import { jest } from '@jest/globals';
+import { Role, ToolCallEventType } from '@/modules/kernel/index.ts';
+
+const unstableMockModule = (jest as unknown as { unstable_mockModule?: typeof jest.unstable_mockModule }).unstable_mockModule;
+if (!unstableMockModule) {
+  throw new Error('jest.unstable_mockModule is required for this test suite');
+}
+
+describe('StreamCoordinator observability', () => {
+  afterEach(() => {
+    jest.resetModules();
+    jest.restoreAllMocks();
+  });
+
+  async function createCoordinator(options: {
+    streamChunks: any[];
+    parseStreamChunk: (chunk: any) => any;
+    runToolLoopReturn?: any;
+  }) {
+    const runToolLoopMock = jest.fn(() => (async function* () {
+      return options.runToolLoopReturn;
+    })());
+
+    unstableMockModule('../../../modules/tools/index.js', () => ({
+      runToolLoop: runToolLoopMock
+    }));
+
+    const { StreamCoordinator } = await import('@/modules/llm/index.ts');
+
+    const registry = {
+      getProvider: jest.fn(() => ({ id: 'stub-provider', compat: 'stub-compat' })),
+      getCompatModule: jest.fn(() => ({
+        parseStreamChunk: options.parseStreamChunk
+      }))
+    } as any;
+
+    const llmManager = {
+      streamProvider: jest.fn(async function* () {
+        for (const chunk of options.streamChunks) {
+          yield chunk;
+        }
+      })
+    } as any;
+
+    const toolCoordinator = {
+      routeAndInvoke: jest.fn().mockResolvedValue({ result: { ok: true } })
+    } as any;
+
+    return {
+      coordinator: new StreamCoordinator(registry, llmManager, toolCoordinator),
+      runToolLoopMock
+    };
+  }
+
+  function createObservabilityContext() {
+    return {
+      exporter: {
+        recordLLMRequest: jest.fn(),
+        recordLLMResponse: jest.fn(),
+        flush: jest.fn().mockResolvedValue(undefined)
+      },
+      traceId: 'trace-123',
+      sessionId: 'session-456',
+      metadata: { correlationId: 'corr-789' }
+    };
+  }
+
+  test('records LLM request + response events for a basic streaming call', async () => {
+    const parseStreamChunk = (chunk: any) => ({
+      text: chunk.text
+    });
+
+    const { coordinator } = await createCoordinator({
+      streamChunks: [{ text: 'hello' }],
+      parseStreamChunk
+    });
+
+    const observability = createObservabilityContext();
+
+    const spec: any = {
+      llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
+      settings: {},
+      metadata: { correlationId: 'corr-789' }
+    };
+
+    const messages: any[] = [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }];
+    const tools: any[] = [{ name: 'demo-tool', description: 'demo' }];
+
+    const context: any = {
+      provider: 'stub-provider',
+      model: 'stub-model',
+      tools,
+      mcpServers: [],
+      toolNameMap: new Map(),
+      logger: { info: jest.fn(), warning: jest.fn() },
+      metadata: spec.metadata,
+      observability
+    };
+
+    const events: any[] = [];
+    for await (const event of coordinator.coordinateStream(spec, messages, tools, context)) {
+      events.push(event);
+    }
+
+    expect(events.some(e => e.type === 'done')).toBe(true);
+
+    expect(observability.exporter.recordLLMRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceId: 'trace-123',
+        provider: 'stub-provider',
+        model: 'stub-model',
+        sessionId: 'session-456'
+      })
+    );
+
+    expect(observability.exporter.recordLLMResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceId: 'trace-123',
+        provider: 'stub-provider',
+        model: 'stub-model',
+        durationMs: expect.any(Number)
+      })
+    );
+  });
+
+  test('records usage + totalTokens when promptTokens is present', async () => {
+    const parseStreamChunk = (chunk: any) => ({
+      text: chunk.text,
+      usage: { promptTokens: 10 }
+    });
+
+    const { coordinator } = await createCoordinator({
+      streamChunks: [{ text: 'hello' }],
+      parseStreamChunk
+    });
+
+    const observability = createObservabilityContext();
+
+    const spec: any = {
+      llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
+      settings: {},
+      metadata: { correlationId: 'corr-789' }
+    };
+
+    const messages: any[] = [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }];
+    const tools: any[] = [];
+
+    const context: any = {
+      provider: 'stub-provider',
+      model: 'stub-model',
+      tools,
+      mcpServers: [],
+      toolNameMap: new Map(),
+      logger: { info: jest.fn(), warning: jest.fn() },
+      metadata: spec.metadata,
+      observability
+    };
+
+    for await (const _event of coordinator.coordinateStream(spec, messages, tools, context)) {
+      // consume
+    }
+
+    const callArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+    expect(callArg.usage).toEqual({
+      promptTokens: 10,
+      completionTokens: undefined,
+      totalTokens: 10
+    });
+  });
+
+  test('records usage + totalTokens when only completionTokens is present', async () => {
+    const parseStreamChunk = (chunk: any) => ({
+      text: chunk.text,
+      usage: { completionTokens: 5 }
+    });
+
+    const { coordinator } = await createCoordinator({
+      streamChunks: [{ text: 'hello' }],
+      parseStreamChunk
+    });
+
+    const observability = createObservabilityContext();
+
+    const spec: any = {
+      llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
+      settings: {},
+      metadata: { correlationId: 'corr-789' }
+    };
+
+    const messages: any[] = [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }];
+    const tools: any[] = [];
+
+    const context: any = {
+      provider: 'stub-provider',
+      model: 'stub-model',
+      tools,
+      mcpServers: [],
+      toolNameMap: new Map(),
+      logger: { info: jest.fn(), warning: jest.fn() },
+      metadata: spec.metadata,
+      observability
+    };
+
+    for await (const _event of coordinator.coordinateStream(spec, messages, tools, context)) {
+      // consume
+    }
+
+    const callArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+    expect(callArg.usage).toEqual({
+      promptTokens: undefined,
+      completionTokens: 5,
+      totalTokens: 5
+    });
+  });
+
+  test('swallows observability recording errors and logs warnings', async () => {
+    const parseStreamChunk = (chunk: any) => ({
+      text: chunk.text
+    });
+
+    const { coordinator } = await createCoordinator({
+      streamChunks: [{ text: 'hello' }],
+      parseStreamChunk
+    });
+
+    const observability = createObservabilityContext();
+    (observability.exporter.recordLLMRequest as any).mockImplementation(() => {
+      throw new Error('request failed');
+    });
+    (observability.exporter.recordLLMResponse as any).mockImplementation(() => {
+      throw new Error('response failed');
+    });
+
+    const warning = jest.fn();
+
+    const spec: any = {
+      llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
+      settings: {},
+      metadata: { correlationId: 'corr-789' }
+    };
+
+    const messages: any[] = [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }];
+    const tools: any[] = [];
+
+    const context: any = {
+      provider: 'stub-provider',
+      model: 'stub-model',
+      tools,
+      mcpServers: [],
+      toolNameMap: new Map(),
+      logger: { info: jest.fn(), warning },
+      metadata: spec.metadata,
+      observability
+    };
+
+    for await (const _event of coordinator.coordinateStream(spec, messages, tools, context)) {
+      // consume
+    }
+
+    expect(warning).toHaveBeenCalledWith(
+      'Failed to record observability request event',
+      expect.objectContaining({ error: 'request failed' })
+    );
+    expect(warning).toHaveBeenCalledWith(
+      'Failed to record observability response event',
+      expect.objectContaining({ error: 'response failed' })
+    );
+  });
+
+  test('passes runContext.observability into streaming tool loop follow-ups', async () => {
+    const parseStreamChunk = () => ({
+      toolEvents: [
+        { type: ToolCallEventType.TOOL_CALL_START, callId: 'tool-1', name: 'echo.text' },
+        { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: 'tool-1', argumentsDelta: '{"a":1}' },
+        { type: ToolCallEventType.TOOL_CALL_END, callId: 'tool-1', name: 'echo.text', arguments: '{"a":1}' }
+      ],
+      finishedWithToolCalls: true
+    });
+
+    const { coordinator, runToolLoopMock } = await createCoordinator({
+      streamChunks: [{}],
+      parseStreamChunk,
+      runToolLoopReturn: { content: 'follow-up' }
+    });
+
+    const observability = createObservabilityContext();
+
+    const spec: any = {
+      llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
+      settings: {},
+      metadata: { correlationId: 'corr-789' }
+    };
+
+    const messages: any[] = [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }];
+    const tools: any[] = [{ name: 'echo.text', description: 'echo' }];
+
+    const context: any = {
+      provider: 'stub-provider',
+      model: 'stub-model',
+      tools,
+      mcpServers: [],
+      toolNameMap: new Map(),
+      logger: { info: jest.fn(), warning: jest.fn() },
+      metadata: spec.metadata,
+      observability
+    };
+
+    for await (const _event of coordinator.coordinateStream(spec, messages, tools, context, { requireFinishToExecute: true })) {
+      // consume
+    }
+
+    expect(runToolLoopMock).toHaveBeenCalled();
+    const args = runToolLoopMock.mock.calls[0][0];
+    expect(args.runContext?.observability).toBe(observability);
+  });
+});

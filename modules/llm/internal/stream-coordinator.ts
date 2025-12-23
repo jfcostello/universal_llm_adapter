@@ -38,6 +38,7 @@ export class StreamCoordinator {
     context: StreamingContext,
     options?: { requireFinishToExecute?: boolean }
   ): AsyncGenerator<LLMStreamEvent> {
+    const startTime = Date.now();
     const { runtime, provider: providerSettings, providerExtras } = partitionSettings(spec.settings);
     const executionSpec: LLMCallSpec = {
       ...spec,
@@ -49,6 +50,27 @@ export class StreamCoordinator {
 
     // Get compat module for parsing stream chunks
     const compat = await this.registry.getCompatModule(providerManifest.compat);
+
+    // Record LLM request event if observability is enabled (never throws)
+    if (context.observability) {
+      try {
+        context.observability.exporter.recordLLMRequest({
+          traceId: context.observability.traceId,
+          timestamp: new Date().toISOString(),
+          provider: providerManifest.id,
+          model,
+          messages,
+          sessionId: context.observability.sessionId,
+          metadata: context.observability.metadata,
+          tools: tools.map((t: any) => ({ name: t.name, description: t.description })),
+          settings: executionSpec.settings as any
+        });
+      } catch (e) {
+        context.logger?.warning?.('Failed to record observability request event', {
+          error: (e as Error).message
+        });
+      }
+    }
 
     // Track accumulated content and tool calls for final response
     let accumulatedContent = '';
@@ -244,7 +266,7 @@ export class StreamCoordinator {
           providerExtras,
           logger: context.logger,
           toolNameMap,
-          runContext: { metadata: executionSpec.metadata },
+          runContext: { metadata: executionSpec.metadata, observability: context.observability },
           metadata: executionSpec.metadata,
           initialToolCalls: preparedToolCalls,
           initialReasoning: reasoningAggregate,
@@ -294,6 +316,39 @@ export class StreamCoordinator {
       if (usageCostEnabled) {
         const { attachUsageCostIfMissing } = await import('../../usage-cost/index.js');
         attachUsageCostIfMissing({ usage: latestUsage, provider, model });
+      }
+    }
+
+    // Record final response event if observability is enabled (never throws)
+    if (context.observability) {
+      try {
+        const durationMs = Date.now() - startTime;
+        const promptTokens = latestUsage?.promptTokens ?? undefined;
+        const completionTokens = latestUsage?.completionTokens ?? undefined;
+        const totalTokens =
+          typeof promptTokens === 'number' || typeof completionTokens === 'number'
+            ? (promptTokens || 0) + (completionTokens || 0)
+            : undefined;
+
+        context.observability.exporter.recordLLMResponse({
+          traceId: context.observability.traceId,
+          timestamp: new Date().toISOString(),
+          provider: providerManifest.id,
+          model,
+          content: [{ type: 'text', text: accumulatedContent }],
+          toolCalls: allToolCalls.map(tc => ({
+            id: tc.id,
+            name: tc.name,
+            arguments: tc.arguments
+          })),
+          usage: latestUsage ? { promptTokens, completionTokens, totalTokens } : undefined,
+          durationMs,
+          metadata: context.observability.metadata
+        });
+      } catch (e) {
+        context.logger?.warning?.('Failed to record observability response event', {
+          error: (e as Error).message
+        });
       }
     }
 
