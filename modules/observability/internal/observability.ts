@@ -7,6 +7,7 @@ import type {
   PluginRegistry,
   ObservabilitySpec,
   ObservabilityDeps,
+  AdapterLogger,
   IObservabilityExporter,
   ObservabilityLLMRequestEvent,
   ObservabilityLLMResponseEvent,
@@ -19,7 +20,8 @@ import type {
 import {
   getNoopObservabilityDeps,
   resolveObservabilityDeps,
-  getDefaults
+  getDefaults,
+  getNoopLogger
 } from '../../kernel/index.js';
 import { randomUUID } from 'crypto';
 import { calculateBackoffDelay, sleep } from '../../shared/index.js';
@@ -56,6 +58,9 @@ export interface ObservabilityExporterConfig {
   /** Observability provider ID */
   provider: string;
 
+  /** Structured logger (no-op when omitted) */
+  logger?: AdapterLogger;
+
   /** Provider-specific configuration overrides (opaque to core) */
   providerConfig?: Record<string, unknown>;
 
@@ -91,12 +96,14 @@ export class ObservabilityExporter implements IObservabilityExporter {
   private flushing = false;
   private shuttingDown = false;
   private flushPromise: Promise<void> | null = null;
+  private logger: AdapterLogger;
 
   constructor(
     private config: ObservabilityExporterConfig,
     private compat: IObservabilityCompat,
     private manifest: ObservabilityProviderManifest
   ) {
+    this.logger = config.logger ?? getNoopLogger();
     this.startFlushTimer();
   }
 
@@ -151,7 +158,11 @@ export class ObservabilityExporter implements IObservabilityExporter {
       // Drop oldest events to make room
       const dropped = this.queue.shift();
       if (dropped) {
-        console.warn(`[observability] Queue full, dropped event ${dropped.id}`);
+        this.logger.warning('Observability queue full; dropped oldest event', {
+          provider: this.config.provider,
+          droppedEventId: dropped.id,
+          maxQueueSize: this.config.maxQueueSize
+        });
       }
     }
 
@@ -230,9 +241,12 @@ export class ObservabilityExporter implements IObservabilityExporter {
             const bytes = Buffer.byteLength(JSON.stringify(payload), 'utf8');
             if (bytes > maxBatchBytes) {
               if (batchEvents.length <= 1) {
-                console.warn(
-                  `[observability] Dropping event ${batchEvents[0].id}: batch payload ${bytes} bytes exceeds maxBatchBytes=${maxBatchBytes}`
-                );
+                this.logger.warning('Observability event exceeds maxBatchBytes; dropping event', {
+                  provider: this.config.provider,
+                  eventId: batchEvents[0].id,
+                  bytes,
+                  maxBatchBytes
+                });
                 return [];
               }
 
@@ -263,17 +277,20 @@ export class ObservabilityExporter implements IObservabilityExporter {
           }
 
           if (hasUnmappedRetryableOutcome) {
-            console.warn(
-              '[observability] Retryable envelope outcome could not be mapped to an event index; retrying all events'
-            );
+            this.logger.warning('Observability retryable outcomes unmapped; retrying all events', {
+              provider: this.config.provider
+            });
             return batchEvents;
           }
 
           return batchEvents.filter((_event, index) => retryableEventIndices.has(index));
         } catch (error: any) {
-          console.warn(
-            `[observability] Batch export failed (attempt ${attempt + 1}/${this.config.maxAttempts}): ${error.message}`
-          );
+          this.logger.warning('Observability batch export failed', {
+            provider: this.config.provider,
+            attempt: attempt + 1,
+            maxAttempts: this.config.maxAttempts,
+            error: (error as Error)?.message ?? String(error)
+          });
           return batchEvents;
         }
       };
@@ -290,7 +307,11 @@ export class ObservabilityExporter implements IObservabilityExporter {
     }
 
     if (eventsToRetry.length > 0) {
-      console.warn(`[observability] Failed to export ${eventsToRetry.length} events after ${this.config.maxAttempts} attempts`);
+      this.logger.warning('Observability export failed after max attempts', {
+        provider: this.config.provider,
+        failedEvents: eventsToRetry.length,
+        maxAttempts: this.config.maxAttempts
+      });
     }
   }
 
@@ -314,7 +335,8 @@ export class ObservabilityExporter implements IObservabilityExporter {
  */
 function resolveConfig(
   spec: ObservabilitySpec | undefined,
-  defaults: DefaultSettings['observability']
+  defaults: DefaultSettings['observability'],
+  logger: AdapterLogger
 ): ObservabilityExporterConfig | null {
   const enabled = spec?.enabled ?? defaults.enabled;
 
@@ -325,12 +347,13 @@ function resolveConfig(
   const provider = spec?.provider ?? defaults.provider;
 
   if (!provider) {
-    console.warn('[observability] No provider specified, disabling');
+    logger.warning('Observability disabled: no provider configured', { provider: null });
     return null;
   }
 
   return {
     provider,
+    logger,
     providerConfig: spec?.providerConfig,
     flushAt: spec?.flushAt ?? defaults.flushAt,
     flushIntervalMs: spec?.flushIntervalMs ?? defaults.flushIntervalMs,
@@ -351,10 +374,11 @@ function resolveConfig(
  */
 export async function createObservabilityDeps(
   registry: PluginRegistry,
-  spec?: ObservabilitySpec
+  spec?: ObservabilitySpec,
+  logger: AdapterLogger = getNoopLogger()
 ): Promise<ObservabilityDeps> {
   const defaults = getDefaults().observability;
-  const config = resolveConfig(spec, defaults);
+  const config = resolveConfig(spec, defaults, logger);
 
   if (!config) {
     return getNoopObservabilityDeps();
@@ -376,7 +400,10 @@ export async function createObservabilityDeps(
       }
     };
   } catch (error: any) {
-    console.warn(`[observability] Failed to initialize: ${error.message}`);
+    logger.warning('Observability failed to initialize', {
+      provider: config.provider,
+      error: (error as Error)?.message ?? String(error)
+    });
     return getNoopObservabilityDeps();
   }
 }

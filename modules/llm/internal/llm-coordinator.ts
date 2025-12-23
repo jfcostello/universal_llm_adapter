@@ -157,9 +157,11 @@ export class LLMCoordinator {
       return undefined;
     }
 
+    const obsLogger = this.logger.withCorrelation(spec.metadata?.correlationId as string);
+
     // Lazy-load observability module
     const { createObservabilityDeps } = await import('../../observability/index.js');
-    const obsDeps = await createObservabilityDeps(this.registry, obsSpec);
+    const obsDeps = await createObservabilityDeps(this.registry, obsSpec, obsLogger);
 
     // If observability couldn't be initialized, return undefined
     if (!obsDeps.isEnabled()) {
@@ -543,7 +545,7 @@ export class LLMCoordinator {
     this.observabilityShutdownHooks = [];
     for (const shutdown of shutdownHooks) {
       void shutdown().catch(error => {
-        console.warn('[observability] Shutdown failed', {
+        this.logger.warning('Observability shutdown failed', {
           error: (error as Error)?.message ?? String(error)
         });
       });

@@ -67,19 +67,30 @@ describe('LLMCoordinator observability lifecycle', () => {
   });
 
   test('close swallows observability shutdown failures', async () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const logger: any = {
+      withCorrelation: () => logger,
+      debug: jest.fn(),
+      info: jest.fn(),
+      warning: jest.fn(),
+      error: jest.fn(),
+      logLLMRequest: jest.fn(),
+      logLLMResponse: jest.fn(),
+      close: jest.fn(async () => {})
+    };
 
-    const coordinator = new LLMCoordinator({} as any);
+    const coordinator = new LLMCoordinator({} as any, {
+      logging: {
+        getLogger: () => logger
+      }
+    });
     (coordinator as any).observabilityShutdownHooks = [() => Promise.reject(undefined)];
 
     await coordinator.close();
     await new Promise(resolve => setImmediate(resolve));
 
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[observability] Shutdown failed',
+    expect(logger.warning).toHaveBeenCalledWith(
+      'Observability shutdown failed',
       expect.objectContaining({ error: 'undefined' })
     );
-
-    warnSpy.mockRestore();
   });
 });

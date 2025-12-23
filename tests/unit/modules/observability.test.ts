@@ -1,5 +1,19 @@
 import { jest } from '@jest/globals';
 
+function createMockLogger() {
+  const logger: any = {
+    withCorrelation: () => logger,
+    debug: jest.fn(),
+    info: jest.fn(),
+    warning: jest.fn(),
+    error: jest.fn(),
+    logLLMRequest: jest.fn(),
+    logLLMResponse: jest.fn(),
+    close: jest.fn(async () => {})
+  };
+  return logger;
+}
+
 describe('modules/observability', () => {
   beforeEach(() => {
     jest.resetModules();
@@ -396,8 +410,7 @@ describe('modules/observability', () => {
 
     test('drops a single event when it cannot fit provider maxBatchBytes', async () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
-
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const mockLogger = createMockLogger();
 
       const mockCompat = {
         buildBatch: jest.fn(() => ({
@@ -417,6 +430,7 @@ describe('modules/observability', () => {
       const exporter = new ObservabilityExporter(
         {
           provider: 'test',
+          logger: mockLogger,
           flushAt: 100,
           flushIntervalMs: 60000,
           maxQueueSize: 1000,
@@ -440,15 +454,19 @@ describe('modules/observability', () => {
       await exporter.shutdown();
 
       expect(mockCompat.sendBatch).not.toHaveBeenCalled();
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(`Dropping event ${record.eventId}`));
-
-      warnSpy.mockRestore();
+      expect(mockLogger.warning).toHaveBeenCalledWith(
+        'Observability event exceeds maxBatchBytes; dropping event',
+        expect.objectContaining({
+          provider: 'test',
+          eventId: record.eventId,
+          maxBatchBytes: 50
+        })
+      );
     });
 
     test('warns when max attempts exceeded', async () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
-
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const mockLogger = createMockLogger();
 
       const mockCompat = {
         buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
@@ -466,6 +484,7 @@ describe('modules/observability', () => {
       const exporter = new ObservabilityExporter(
         {
           provider: 'test',
+          logger: mockLogger,
           flushAt: 100,
           flushIntervalMs: 60000,
           maxQueueSize: 1000,
@@ -483,10 +502,70 @@ describe('modules/observability', () => {
       await exporter.flush();
 
       // Should warn about failed exports
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to export'));
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('after 2 attempts'));
+      expect(mockLogger.warning).toHaveBeenCalledWith(
+        'Observability batch export failed',
+        expect.objectContaining({
+          provider: 'test',
+          attempt: 1,
+          maxAttempts: 2,
+          error: 'Network error'
+        })
+      );
+      expect(mockLogger.warning).toHaveBeenCalledWith(
+        'Observability export failed after max attempts',
+        expect.objectContaining({
+          provider: 'test',
+          failedEvents: 1,
+          maxAttempts: 2
+        })
+      );
+      await exporter.shutdown();
+    });
 
-      warnSpy.mockRestore();
+    test('logs non-Error thrown values on batch export failure', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+      const mockLogger = createMockLogger();
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => {
+          throw undefined;
+        })
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          logger: mockLogger,
+          flushAt: 100,
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 1,
+          baseDelayMs: 10,
+          maxDelayMs: 20,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
+      await exporter.flush();
+
+      expect(mockLogger.warning).toHaveBeenCalledWith(
+        'Observability batch export failed',
+        expect.objectContaining({
+          provider: 'test',
+          error: 'undefined'
+        })
+      );
+
       await exporter.shutdown();
     });
 
@@ -704,8 +783,7 @@ describe('modules/observability', () => {
 
     test('drops oldest events when queue is full', async () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
-
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const mockLogger = createMockLogger();
 
       const mockCompat = {
         buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
@@ -721,6 +799,7 @@ describe('modules/observability', () => {
       const exporter = new ObservabilityExporter(
         {
           provider: 'test',
+          logger: mockLogger,
           flushAt: 100, // High threshold to prevent auto-flush
           flushIntervalMs: 60000,
           maxQueueSize: 2, // Very small queue
@@ -734,15 +813,20 @@ describe('modules/observability', () => {
       );
 
       // Fill the queue
-      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
+      const oldest = exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
       exporter.recordLLMRequest({ traceId: 'trace-2', timestamp: '', provider: '', model: '', messages: [] });
 
       // This should drop the oldest
       exporter.recordLLMRequest({ traceId: 'trace-3', timestamp: '', provider: '', model: '', messages: [] });
 
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Queue full'));
-
-      warnSpy.mockRestore();
+      expect(mockLogger.warning).toHaveBeenCalledWith(
+        'Observability queue full; dropped oldest event',
+        expect.objectContaining({
+          provider: 'test',
+          droppedEventId: oldest.eventId,
+          maxQueueSize: 2
+        })
+      );
       await exporter.shutdown();
     });
 
@@ -767,11 +851,12 @@ describe('modules/observability', () => {
         endpoint: { urlTemplate: 'http://test', method: 'POST' }
       };
 
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const mockLogger = createMockLogger();
 
       const exporter = new ObservabilityExporter(
         {
           provider: 'test',
+          logger: mockLogger,
           flushAt: 100,
           flushIntervalMs: 60000,
           maxQueueSize: 1000,
@@ -789,9 +874,15 @@ describe('modules/observability', () => {
       await exporter.flush();
 
       expect(mockCompat.sendBatch).toHaveBeenCalledTimes(3);
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Batch export failed'));
-
-      warnSpy.mockRestore();
+      expect(mockLogger.warning).toHaveBeenCalledWith(
+        'Observability batch export failed',
+        expect.objectContaining({
+          provider: 'test',
+          attempt: 1,
+          maxAttempts: 5,
+          error: 'Network error'
+        })
+      );
       await exporter.shutdown();
     });
 
@@ -870,11 +961,12 @@ describe('modules/observability', () => {
         endpoint: { urlTemplate: 'http://test', method: 'POST' }
       };
 
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const mockLogger = createMockLogger();
 
       const exporter = new ObservabilityExporter(
         {
           provider: 'test',
+          logger: mockLogger,
           flushAt: 100,
           flushIntervalMs: 60000,
           maxQueueSize: 1000,
@@ -894,14 +986,12 @@ describe('modules/observability', () => {
       // Should have retried the retryable event
       expect(mockCompat.sendBatch).toHaveBeenCalledTimes(2);
 
-      warnSpy.mockRestore();
       await exporter.shutdown();
     });
 
     test('retries all events when a retryable outcome cannot be mapped to an event index', async () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
-
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const mockLogger = createMockLogger();
 
       const mockCompat = {
         buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })), // Intentionally empty map
@@ -925,6 +1015,7 @@ describe('modules/observability', () => {
       const exporter = new ObservabilityExporter(
         {
           provider: 'test',
+          logger: mockLogger,
           flushAt: 100,
           flushIntervalMs: 60000,
           maxQueueSize: 1000,
@@ -943,11 +1034,12 @@ describe('modules/observability', () => {
       await exporter.flush();
 
       expect(mockCompat.sendBatch).toHaveBeenCalledTimes(2);
-      expect(warnSpy).toHaveBeenCalledWith(
-        '[observability] Retryable envelope outcome could not be mapped to an event index; retrying all events'
+      expect(mockLogger.warning).toHaveBeenCalledWith(
+        'Observability retryable outcomes unmapped; retrying all events',
+        expect.objectContaining({
+          provider: 'test'
+        })
       );
-
-      warnSpy.mockRestore();
       await exporter.shutdown();
     });
 
@@ -1117,10 +1209,11 @@ describe('modules/observability', () => {
             maxDelayMs: 30000,
             timeoutMs: 10000
           }
-        })
+        }),
+        getNoopLogger: () => createMockLogger()
       }));
 
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const mockLogger = createMockLogger();
 
       const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
 
@@ -1134,20 +1227,21 @@ describe('modules/observability', () => {
       const deps = await createObservabilityDeps(mockRegistry as any, {
         enabled: true
         // No provider in spec
-      });
+      }, mockLogger as any);
 
       // Should have warned about no provider
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('No provider specified'));
+      expect(mockLogger.warning).toHaveBeenCalledWith(
+        'Observability disabled: no provider configured',
+        expect.any(Object)
+      );
       expect(deps.isEnabled()).toBe(false);
 
-      warnSpy.mockRestore();
       jest.resetModules();
     });
 
     test('returns noop deps when provider fails to load', async () => {
       const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
-
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const mockLogger = createMockLogger();
 
       const mockRegistry = {
         getObservabilityProvider: jest.fn(async () => {
@@ -1159,12 +1253,42 @@ describe('modules/observability', () => {
       const deps = await createObservabilityDeps(mockRegistry as any, {
         enabled: true,
         provider: 'nonexistent'
-      });
+      }, mockLogger as any);
 
       expect(deps.isEnabled()).toBe(false);
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to initialize'));
+      expect(mockLogger.warning).toHaveBeenCalledWith(
+        'Observability failed to initialize',
+        expect.objectContaining({
+          provider: 'nonexistent',
+          error: 'Provider not found'
+        })
+      );
+    });
 
-      warnSpy.mockRestore();
+    test('logs non-Error thrown values when provider fails to load', async () => {
+      const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
+      const mockLogger = createMockLogger();
+
+      const mockRegistry = {
+        getObservabilityProvider: jest.fn(async () => {
+          throw undefined;
+        }),
+        getObservabilityCompat: jest.fn()
+      };
+
+      const deps = await createObservabilityDeps(mockRegistry as any, {
+        enabled: true,
+        provider: 'nonexistent'
+      }, mockLogger as any);
+
+      expect(deps.isEnabled()).toBe(false);
+      expect(mockLogger.warning).toHaveBeenCalledWith(
+        'Observability failed to initialize',
+        expect.objectContaining({
+          provider: 'nonexistent',
+          error: 'undefined'
+        })
+      );
     });
 
     test('creates working deps when provider loads successfully', async () => {
