@@ -12,6 +12,7 @@ import type {
   ObservabilityLLMRequestEvent,
   ObservabilityLLMResponseEvent
 } from '../../../../modules/kernel/index.js';
+import { substituteEnv } from '../../../../modules/kernel/index.js';
 import { createHash, randomUUID } from 'crypto';
 
 // ============================================================
@@ -79,29 +80,22 @@ function buildBasicAuth(publicKey: string, secretKey: string): string {
   return `Basic ${credentials}`;
 }
 
-/**
- * Resolve environment variable value, with optional default.
- * Supports ${VAR} and ${VAR:-default} syntax.
- */
-function resolveEnvVar(template: string): string {
-  // Handle ${VAR:-default} or ${VAR} syntax
-  const match = template.match(/^\$\{([^:}]+)(?::-([^}]*))?\}$/);
-  if (match) {
-    const [, varName, defaultValue] = match;
-    return process.env[varName] || defaultValue || '';
-  }
-  return template;
-}
+const ALLOW_BASEURL_OVERRIDE_ENV = 'LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE';
+const BASEURL_OVERRIDE_ALLOWLIST_ENV = 'LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST';
 
 /**
  * Build URL from template with environment variable resolution.
+ *
+ * NOTE: Kernel plugin loading already substitutes env vars via `loadJsonFile()`.
+ * This function exists to support ad-hoc manifests in tests and direct compat usage.
+ *
+ * We intentionally treat `${VAR}` as optional (equivalent to `${VAR?}`) for URL templates
+ * so missing vars degrade to relative paths instead of throwing.
  */
 function buildUrl(urlTemplate: string): string {
-  return urlTemplate.replace(/\$\{[^}]+\}/g, (match) => resolveEnvVar(match));
+  const normalized = urlTemplate.replace(/\$\{([A-Z0-9_]+)\}/g, '${$1?}');
+  return substituteEnv(normalized) as string;
 }
-
-const ALLOW_BASEURL_OVERRIDE_ENV = 'LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE';
-const BASEURL_OVERRIDE_ALLOWLIST_ENV = 'LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST';
 
 function isBaseUrlOverrideEnabled(): boolean {
   // Live tests run in a controlled environment and frequently need to route

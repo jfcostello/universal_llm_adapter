@@ -15,10 +15,5 @@
   },
   "limits": {
     "maxBatchBytes": 3670016
-  },
-  "metadata": {
-    "name": "Langfuse",
-    "description": "Open-source LLM observability platform",
-    "docsUrl": "https://langfuse.com/docs"
   }
 }
