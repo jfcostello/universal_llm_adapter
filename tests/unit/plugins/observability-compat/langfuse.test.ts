@@ -560,10 +560,13 @@ describe('LangfuseCompat', () => {
   });
 
   describe('default export', () => {
-    it('exports a pre-instantiated compat', () => {
+    it('exports a compat constructor for registry loading', () => {
       expect(defaultCompat).toBeDefined();
-      expect(typeof defaultCompat.buildBatch).toBe('function');
-      expect(typeof defaultCompat.sendBatch).toBe('function');
+      expect(typeof defaultCompat).toBe('function');
+
+      const instance = new (defaultCompat as any)();
+      expect(typeof instance.buildBatch).toBe('function');
+      expect(typeof instance.sendBatch).toBe('function');
     });
   });
 });

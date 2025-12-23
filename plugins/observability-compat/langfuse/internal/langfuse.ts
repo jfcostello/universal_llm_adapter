@@ -392,5 +392,5 @@ export class LangfuseCompat implements IObservabilityCompat {
   }
 }
 
-// Default export for compat loading
-export default new LangfuseCompat();
+// Default export for compat loading (PluginRegistry expects a constructor export)
+export default LangfuseCompat;
