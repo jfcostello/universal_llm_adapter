@@ -171,6 +171,19 @@ describe('LangfuseCompat', () => {
       });
     });
 
+    it('generates stable envelope IDs when context.eventIds is provided', () => {
+      const ctx = { eventIds: ['event-req', 'event-resp'] } as any;
+
+      const result1 = langfuseCompat.buildBatch([mockRequestEvent, mockResponseEvent], mockManifest, ctx);
+      const result2 = langfuseCompat.buildBatch([mockRequestEvent, mockResponseEvent], mockManifest, ctx);
+
+      const ids1 = result1.payload.batch.map((e: any) => e.id);
+      const ids2 = result2.payload.batch.map((e: any) => e.id);
+
+      expect(ids1).toEqual(ids2);
+      expect(ids1.every((id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))).toBe(true);
+    });
+
     it('handles request event without optional fields', () => {
       const minimalRequest: ObservabilityLLMRequestEvent = {
         traceId: 'trace-min',

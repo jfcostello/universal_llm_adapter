@@ -231,10 +231,15 @@ export class ObservabilityExporter implements IObservabilityExporter {
     while (eventsToRetry.length > 0 && attempt < this.config.maxAttempts) {
       const sendWithSizeLimit = async (batchEvents: QueuedEvent[]): Promise<QueuedEvent[]> => {
         try {
+          const compatContextForBatch: ObservabilityCompatContext = {
+            ...compatContext,
+            eventIds: batchEvents.map(e => e.id)
+          };
+
           const { payload, eventIndexByEnvelopeId } = this.compat.buildBatch(
             batchEvents.map(e => e.data),
             this.manifest,
-            compatContext
+            compatContextForBatch
           );
 
           if (typeof maxBatchBytes === 'number' && maxBatchBytes > 0) {
@@ -257,7 +262,7 @@ export class ObservabilityExporter implements IObservabilityExporter {
             }
           }
 
-          const result = await this.compat.sendBatch(payload, this.manifest, compatContext);
+          const result = await this.compat.sendBatch(payload, this.manifest, compatContextForBatch);
           if (result.success) {
             return [];
           }

@@ -685,6 +685,12 @@ export interface ObservabilityCompatContext {
   providerConfig?: Record<string, unknown>;
 
   /**
+   * Stable event IDs aligned with the `events[]` passed to `IObservabilityCompat.buildBatch()`.
+   * Compat implementations can use these to generate deterministic envelope IDs for safe retries/deduping.
+   */
+  eventIds?: string[];
+
+  /**
    * Timeout (ms) for provider export requests.
    * Compat implementations should enforce this via abort/timeout handling.
    */

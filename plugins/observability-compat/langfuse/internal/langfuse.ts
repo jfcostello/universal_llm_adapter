@@ -12,7 +12,7 @@ import type {
   ObservabilityLLMRequestEvent,
   ObservabilityLLMResponseEvent
 } from '../../../../modules/kernel/index.js';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 
 // ============================================================
 // LANGFUSE INGESTION TYPES
@@ -199,6 +199,24 @@ function isRetryableStatus(status: number): boolean {
   return status === 429 || (status >= 500 && status < 600);
 }
 
+function stableUuidV4(seed: string): string {
+  const hash = createHash('sha256').update(seed).digest();
+  const bytes = Buffer.from(hash.subarray(0, 16));
+
+  // Force UUIDv4 bits for maximum compatibility with systems that validate UUID versions.
+  // - version (byte 6 high nibble) = 4
+  // - variant (byte 8 high bits) = 10xx
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+function stableEnvelopeId(eventId: string, kind: string): string {
+  return stableUuidV4(`${eventId}:${kind}`);
+}
+
 // ============================================================
 // LANGFUSE COMPAT CLASS
 // ============================================================
@@ -217,24 +235,28 @@ export class LangfuseCompat implements IObservabilityCompat {
   buildBatch(
     events: unknown[],
     manifest: ObservabilityProviderManifest,
-    _context?: ObservabilityCompatContext
+    context?: ObservabilityCompatContext
   ): {
     payload: LangfuseBatchPayload;
     eventIndexByEnvelopeId: Map<string, number>;
   } {
     const batch: LangfuseIngestionEvent[] = [];
     const eventIndexByEnvelopeId = new Map<string, number>();
+    const eventIds = context?.eventIds ?? [];
 
     for (let eventIndex = 0; eventIndex < events.length; eventIndex++) {
       const event = events[eventIndex];
       const typedEvent = event as ObservabilityLLMRequestEvent | ObservabilityLLMResponseEvent;
+      const eventId = typeof eventIds[eventIndex] === 'string' && eventIds[eventIndex].trim() !== ''
+        ? eventIds[eventIndex].trim()
+        : undefined;
 
       // Determine if this is a request or response
       const isRequest = 'messages' in typedEvent;
 
       if (isRequest) {
         const requestEvent = typedEvent as ObservabilityLLMRequestEvent;
-        const ingestionEvents = this.buildRequestEvents(requestEvent);
+        const ingestionEvents = this.buildRequestEvents(requestEvent, eventId);
 
         for (const ingestionEvent of ingestionEvents) {
           batch.push(ingestionEvent);
@@ -243,7 +265,7 @@ export class LangfuseCompat implements IObservabilityCompat {
         }
       } else {
         const responseEvent = typedEvent as ObservabilityLLMResponseEvent;
-        const ingestionEvents = this.buildResponseEvents(responseEvent);
+        const ingestionEvents = this.buildResponseEvents(responseEvent, eventId);
 
         for (const ingestionEvent of ingestionEvents) {
           batch.push(ingestionEvent);
@@ -266,10 +288,13 @@ export class LangfuseCompat implements IObservabilityCompat {
   /**
    * Build Langfuse events for an LLM request.
    */
-  private buildRequestEvents(event: ObservabilityLLMRequestEvent): LangfuseIngestionEvent[] {
+  private buildRequestEvents(
+    event: ObservabilityLLMRequestEvent,
+    eventId?: string
+  ): LangfuseIngestionEvent[] {
     const events: LangfuseIngestionEvent[] = [];
-    const traceEnvelopeId = randomUUID();
-    const generationEnvelopeId = randomUUID();
+    const traceEnvelopeId = eventId ? stableEnvelopeId(eventId, 'trace-create') : randomUUID();
+    const generationEnvelopeId = eventId ? stableEnvelopeId(eventId, 'generation-create') : randomUUID();
     const generationId = event.generationId ?? `${event.traceId}-gen`;
 
     // Create trace event
@@ -317,9 +342,12 @@ export class LangfuseCompat implements IObservabilityCompat {
   /**
    * Build Langfuse events for an LLM response.
    */
-  private buildResponseEvents(event: ObservabilityLLMResponseEvent): LangfuseIngestionEvent[] {
+  private buildResponseEvents(
+    event: ObservabilityLLMResponseEvent,
+    eventId?: string
+  ): LangfuseIngestionEvent[] {
     const events: LangfuseIngestionEvent[] = [];
-    const envelopeId = randomUUID();
+    const envelopeId = eventId ? stableEnvelopeId(eventId, 'generation-update') : randomUUID();
     const generationId = event.generationId ?? `${event.traceId}-gen`;
 
     // Create generation-update event

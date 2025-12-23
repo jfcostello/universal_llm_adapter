@@ -350,12 +350,12 @@ describe('modules/observability', () => {
       expect(mockCompat.buildBatch).toHaveBeenCalledWith(
         expect.any(Array),
         mockManifest,
-        { providerConfig, timeoutMs: 10000 }
+        expect.objectContaining({ providerConfig, timeoutMs: 10000, eventIds: expect.any(Array) })
       );
       expect(mockCompat.sendBatch).toHaveBeenCalledWith(
         {},
         mockManifest,
-        { providerConfig, timeoutMs: 10000 }
+        expect.objectContaining({ providerConfig, timeoutMs: 10000, eventIds: expect.any(Array) })
       );
 
       await exporter.shutdown();
