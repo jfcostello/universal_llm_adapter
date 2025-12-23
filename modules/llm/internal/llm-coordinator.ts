@@ -14,6 +14,7 @@ import type {
   LoggingDeps,
   RunContext,
   ObservabilityContext,
+  ObservabilityDeps,
   ObservabilitySpec
 } from '../../kernel/index.js';
 import {
@@ -47,6 +48,7 @@ export class LLMCoordinator {
   private logger: AdapterLogger;
   private toolCoordinatorInitialized = false;
   private activeToolSpec?: LLMCallSpec;
+  private observabilityShutdownHooks: Array<() => Promise<void>> = [];
   private pendingVectorContext?: {
     config: VectorContextConfig | undefined;
     aliasMap?: Record<string, string>;
@@ -163,6 +165,9 @@ export class LLMCoordinator {
     if (!obsDeps.isEnabled()) {
       return undefined;
     }
+
+    // Ensure we flush/stop background timers on coordinator close.
+    this.observabilityShutdownHooks.push((obsDeps as ObservabilityDeps).shutdown);
 
     const exporter = obsDeps.getExporter();
 
@@ -534,6 +539,16 @@ export class LLMCoordinator {
   }
 
   async close(): Promise<void> {
+    const shutdownHooks = this.observabilityShutdownHooks;
+    this.observabilityShutdownHooks = [];
+    for (const shutdown of shutdownHooks) {
+      void shutdown().catch(error => {
+        console.warn('[observability] Shutdown failed', {
+          error: (error as Error)?.message ?? String(error)
+        });
+      });
+    }
+
     await Promise.all([
       this.toolCoordinator.close(),
       this.mcpManager?.close()

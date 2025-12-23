@@ -134,7 +134,7 @@ export class ObservabilityExporter implements IObservabilityExporter {
   private startFlushTimer(): void {
     if (this.flushTimer || this.shuttingDown) return;
 
-    this.flushTimer = setTimeout(() => {
+    const timer = setTimeout(() => {
       this.flushTimer = null;
       if (!this.shuttingDown && this.queue.length > 0) {
         // flush() handles errors internally in doFlush(), so it never rejects
@@ -142,6 +142,10 @@ export class ObservabilityExporter implements IObservabilityExporter {
       }
       this.startFlushTimer();
     }, this.config.flushIntervalMs);
+    // Do not keep the process alive just for the periodic flush timer.
+    // When there are pending exports, in-flight async work should keep the event loop alive.
+    (timer as any)?.unref?.();
+    this.flushTimer = timer;
   }
 
   /**

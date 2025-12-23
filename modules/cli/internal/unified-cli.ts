@@ -75,7 +75,11 @@ export const defaultDependencies: UnifiedCliDependencies = {
   },
   log: (message: string) => console.log(message),
   error: (message: string) => console.error(message),
-  exit: (code: number) => process.exit(code)
+  // Avoid hard process exits so short-lived commands can finish best-effort
+  // background work (e.g., observability shutdown flush) without hanging.
+  exit: (code: number) => {
+    process.exitCode = code;
+  }
 };
 
 /**

@@ -215,6 +215,47 @@ describe('modules/observability', () => {
       await exporter.shutdown();
     });
 
+    test('unrefs the periodic flush timer when supported', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const unref = jest.fn();
+      const setTimeoutSpy = jest.spyOn(global, 'setTimeout').mockImplementation((() => ({ unref })) as any);
+      const clearTimeoutSpy = jest.spyOn(global, 'clearTimeout').mockImplementation((() => {}) as any);
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 100,
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 3,
+          baseDelayMs: 250,
+          maxDelayMs: 30000,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      expect(unref).toHaveBeenCalledTimes(1);
+
+      await exporter.shutdown();
+
+      setTimeoutSpy.mockRestore();
+      clearTimeoutSpy.mockRestore();
+    });
+
     test('flush on empty queue is a no-op', async () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
 
