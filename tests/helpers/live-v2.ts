@@ -47,6 +47,20 @@ export function mergeSettings(
     // If config doesn't have temperature, don't add it from test overrides
     delete result.temperature;
   }
+
+  const configProvider = configSettings.provider;
+  const overrideProvider = testOverrides.provider;
+  if (
+    configProvider &&
+    typeof configProvider === 'object' &&
+    !Array.isArray(configProvider) &&
+    overrideProvider &&
+    typeof overrideProvider === 'object' &&
+    !Array.isArray(overrideProvider)
+  ) {
+    result.provider = { ...configProvider, ...overrideProvider };
+  }
+
   return result;
 }
 

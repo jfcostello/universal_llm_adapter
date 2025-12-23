@@ -2,14 +2,17 @@
 export interface TestRun {
   name: string;
   llmPriority: Array<{ provider: string; model: string }>;
-  settings: {
-    temperature: number;
-    maxTokens: number;
-    reasoning?: {
-      enabled: boolean;
-      budget?: number;
-    };
+  settings: TestRunSettings;
+}
+
+export interface TestRunSettings {
+  temperature: number;
+  maxTokens: number;
+  reasoning?: {
+    enabled: boolean;
+    budget?: number;
   };
+  [key: string]: any;
 }
 
 export interface RealtimeTestRun {
@@ -54,12 +57,17 @@ export const testRuns: TestRun[] = [
     llmPriority: [
       {
         provider: 'openrouter',
-        model: 'x-ai/grok-4.1-fast'
+        model: 'openai/gpt-oss-120b'
       }
     ],
     settings: {
-      temperature: 0.3,
-      maxTokens: 60000
+      temperature: 1,
+      maxTokens: 60000,
+      provider: {
+        order: ['google-vertex', 'groq', 'together', 'fireworks'],
+        only: ['google-vertex', 'groq', 'together', 'fireworks'],
+        allow_fallbacks: false
+      }
     }
   },
   {
@@ -71,7 +79,7 @@ export const testRuns: TestRun[] = [
       }
     ],
     settings: {
-      temperature: 0,
+      temperature: 1,
       maxTokens: 60000
     }
   }

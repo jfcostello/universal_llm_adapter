@@ -3,7 +3,8 @@ import {
   Role,
   StreamEventType,
   ToolCallEventType,
-  getDefaults
+  getDefaults,
+  safeJsonParse
 } from '../../kernel/index.js';
 import type {
   LLMResponse,
@@ -397,6 +398,7 @@ interface StreamLoopResult {
   content?: string;
   usage?: UsageStats;
   reasoning?: ReasoningData;
+  toolCalls?: ToolCall[];
 }
 
 async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerator<LLMStreamEvent, StreamLoopResult | undefined> {
@@ -430,223 +432,341 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
     ? Math.floor(runtime.toolResultMaxChars)
     : null;
 
-  const assistantToolCalls = initialToolCalls.map(call => {
-    const mapped: any = {
-      id: call.id,
-      name: sanitizeToolName(call.name ?? `tool_${call.id}`),
-      arguments: call.arguments
-    };
-    // Preserve provider-specific metadata (e.g., signed/opaque fields required on follow-ups)
-    if (call.metadata) {
-      mapped.metadata = call.metadata;
-    }
-    return mapped;
-  });
-
-  appendAssistantToolCalls(messages, assistantToolCalls, {
-    sanitizeName: name => name,
-    reasoning: initialReasoning
-  });
-
-  for (const toolCall of initialToolCalls) {
-    const sanitizedName = sanitizeToolName(toolCall.name ?? `tool_${toolCall.id}`);
-    const directMatch = toolCall.name ? toolNameMap[toolCall.name] : undefined;
-    const sanitizedMatch = toolNameMap[sanitizedName];
-    const targetToolName = directMatch
-      ?? sanitizedMatch
-      ?? toolCall.name
-      ?? 'unknown_tool';
-
-    if (budget.exhausted) {
-      const exhaustedPayload = {
-        error: 'tool_call_budget_exhausted',
-        message: 'No remaining tool calls are available for this run.',
-        tool: targetToolName
-      };
-
-      appendToolResult(
-        messages,
-        {
-          toolName: targetToolName,
-          callId: toolCall.id,
-          result: exhaustedPayload,
-          resultText: JSON.stringify(exhaustedPayload)
-        },
-        {
-          countdownText: resolveCountdownText(toolCountdownEnabled, budget),
-          maxLength: maxResultLength
-        }
-      );
-      continue;
-    }
-
-    const consumed = budget.consume();
-    if (!consumed) {
-      logger.info('Tool budget consumption blocked invocation', {
-        toolName: targetToolName,
-        callId: toolCall.id
-      });
-      break;
-    }
-
-    let progressFields: Record<string, any> | undefined;
-    if (toolCountdownEnabled && budget.maxCalls !== null) {
-      const callNumber = budget.usedCalls;
-      const totalCalls = budget.maxCalls;
-      const remaining = budget.remaining;
-
-      let progressLabel = `Tool call ${callNumber} of ${totalCalls}`;
-      if (remaining !== null) {
-        progressLabel += remaining === 0 ? ' - No tool calls remaining' : ` - ${remaining} remaining`;
-      }
-
-      progressFields = {
-        toolCallProgress: progressLabel,
-        toolCallNumber: callNumber,
-        toolCallTotal: totalCalls,
-        toolCallsRemaining: remaining,
-        finalToolCall: remaining === 0
-      };
-    }
-
-    logger.info('Invoking tool', {
-      toolName: targetToolName,
-      callId: toolCall.id,
-      ...(progressFields ?? {})
-    });
-
-    let normalizedPayload: any;
-    try {
-      const invocationResult = await invokeTool(
-        targetToolName,
-        toolCall,
-        {
-          provider: providerManifest.id,
-          model,
-          metadata,
-          logger,
-          callProgress: progressFields
-        }
-      );
-      logger.info('Tool completed', {
-        toolName: targetToolName,
-        callId: toolCall.id,
-        ...(progressFields ?? {})
-      });
-      normalizedPayload = invocationResult?.result !== undefined
-        ? invocationResult.result
-        : invocationResult;
-    } catch (error: any) {
-      let errorMessage: string;
-      if (error && error.message) {
-        errorMessage = error.message;
-      } else {
-        errorMessage = String(error);
-      }
-      const errorResult = {
-        error: 'tool_execution_failed',
-        message: errorMessage
-      };
-      normalizedPayload = errorResult;
-    }
-
-    const resultText = typeof normalizedPayload === 'string'
-      ? normalizedPayload
-      : JSON.stringify(normalizedPayload);
-
-    const truncatedText = maxResultLength && resultText.length > maxResultLength
-      ? `${resultText.slice(0, maxResultLength)}…`
-      : resultText;
-
-    appendToolResult(
-      messages,
-      {
-        toolName: targetToolName,
-        callId: toolCall.id,
-        result: normalizedPayload,
-        resultText: truncatedText
-      },
-      {
-        countdownText: resolveCountdownText(toolCountdownEnabled, budget),
-        maxLength: maxResultLength
-      }
-    );
-
-    yield {
-      type: StreamEventType.TOOL,
-      toolEvent: {
-        type: ToolCallEventType.TOOL_RESULT,
-        callId: toolCall.id,
-        name: targetToolName,
-        arguments: JSON.stringify(normalizedPayload)
-      }
-    };
-  }
-
-  pruneToolResults(messages, preserveToolResults);
-  pruneReasoning(messages, preserveReasoning);
-
-  const stream = llmManager.streamProvider(
-    providerManifest,
-    model,
-    providerSettings,
-    messages,
-    budget.exhausted ? [] : tools,
-    budget.exhausted ? 'none' : toolChoice,
-    providerExtras,
-    logger,
-    runContext
-  );
+  const emittedToolCalls: ToolCall[] = [];
 
   let followUpContent = '';
   let latestUsage: UsageStats | undefined;
   let reasoningAggregate: ReasoningData | undefined;
 
-  for await (const chunk of stream) {
-    const parsed = compat.parseStreamChunk(chunk);
+  let toolCallsToExecute: ToolCall[] = initialToolCalls;
+  let toolCallReasoning: ReasoningData | undefined = initialReasoning;
 
-    if (parsed.text) {
-      followUpContent += parsed.text;
-      yield {
-        type: StreamEventType.DELTA,
-        content: parsed.text
+  const appendAssistantCalls = (calls: ToolCall[], reasoning?: ReasoningData) => {
+    const assistantToolCalls = calls.map(call => {
+      const mapped: any = {
+        id: call.id,
+        name: sanitizeToolName(call.name ?? `tool_${call.id}`),
+        arguments: call.arguments
       };
-    }
+      // Preserve provider-specific metadata (e.g., signed/opaque fields required on follow-ups)
+      if (call.metadata) {
+        mapped.metadata = call.metadata;
+      }
+      return mapped;
+    });
 
-    if (parsed.usage) {
-      latestUsage = parsed.usage;
-      yield {
-        type: StreamEventType.TOKEN,
-        metadata: { usage: usageStatsToJson(parsed.usage) }
-      };
-    }
+    appendAssistantToolCalls(messages, assistantToolCalls, {
+      sanitizeName: name => name,
+      reasoning
+    });
+  };
 
-    if (parsed.reasoning?.text) {
-      if (!reasoningAggregate) {
-        reasoningAggregate = {
-          text: parsed.reasoning.text,
-          metadata: parsed.reasoning.metadata
+  while (true) {
+    if (toolCallsToExecute.length > 0) {
+      appendAssistantCalls(toolCallsToExecute, toolCallReasoning);
+
+      for (const toolCall of toolCallsToExecute) {
+        const sanitizedName = sanitizeToolName(toolCall.name ?? `tool_${toolCall.id}`);
+        const directMatch = toolCall.name ? toolNameMap[toolCall.name] : undefined;
+        const sanitizedMatch = toolNameMap[sanitizedName];
+        const targetToolName = directMatch
+          ?? sanitizedMatch
+          ?? toolCall.name
+          ?? 'unknown_tool';
+
+        if (budget.exhausted) {
+          const exhaustedPayload = {
+            error: 'tool_call_budget_exhausted',
+            message: 'No remaining tool calls are available for this run.',
+            tool: targetToolName
+          };
+
+          appendToolResult(
+            messages,
+            {
+              toolName: targetToolName,
+              callId: toolCall.id,
+              result: exhaustedPayload,
+              resultText: JSON.stringify(exhaustedPayload)
+            },
+            {
+              countdownText: resolveCountdownText(toolCountdownEnabled, budget),
+              maxLength: maxResultLength
+            }
+          );
+          continue;
+        }
+
+        const consumed = budget.consume();
+        if (!consumed) {
+          logger.info('Tool budget consumption blocked invocation', {
+            toolName: targetToolName,
+            callId: toolCall.id
+          });
+          break;
+        }
+
+        let progressFields: Record<string, any> | undefined;
+        if (toolCountdownEnabled && budget.maxCalls !== null) {
+          progressFields = createProgressFields(budget);
+        }
+
+        logger.info('Invoking tool', {
+          toolName: targetToolName,
+          callId: toolCall.id,
+          ...(progressFields ?? {})
+        });
+
+        let normalizedPayload: any;
+        try {
+          const invocationResult = await invokeTool(
+            targetToolName,
+            toolCall,
+            {
+              provider: providerManifest.id,
+              model,
+              metadata,
+              logger,
+              callProgress: progressFields
+            }
+          );
+          logger.info('Tool completed', {
+            toolName: targetToolName,
+            callId: toolCall.id,
+            ...(progressFields ?? {})
+          });
+          normalizedPayload = invocationResult?.result !== undefined
+            ? invocationResult.result
+            : invocationResult;
+        } catch (error: any) {
+          const errorResult = {
+            error: 'tool_execution_failed',
+            message: error?.message ?? String(error)
+          };
+          normalizedPayload = errorResult;
+        }
+
+        const resultText = typeof normalizedPayload === 'string'
+          ? normalizedPayload
+          : JSON.stringify(normalizedPayload);
+
+        const truncatedText = maxResultLength && resultText.length > maxResultLength
+          ? `${resultText.slice(0, maxResultLength)}…`
+          : resultText;
+
+        appendToolResult(
+          messages,
+          {
+            toolName: targetToolName,
+            callId: toolCall.id,
+            result: normalizedPayload,
+            resultText: truncatedText
+          },
+          {
+            countdownText: resolveCountdownText(toolCountdownEnabled, budget),
+            maxLength: maxResultLength
+          }
+        );
+
+        yield {
+          type: StreamEventType.TOOL,
+          toolEvent: {
+            type: ToolCallEventType.TOOL_RESULT,
+            callId: toolCall.id,
+            name: targetToolName,
+            arguments: JSON.stringify(normalizedPayload)
+          }
         };
-      } else {
-        reasoningAggregate.text += parsed.reasoning.text;
-        if (parsed.reasoning.metadata) {
-          reasoningAggregate.metadata = {
-            ...(reasoningAggregate.metadata ?? {}),
-            ...parsed.reasoning.metadata
+      }
+
+      pruneToolResults(messages, preserveToolResults);
+      pruneReasoning(messages, preserveReasoning);
+    }
+
+    const stream = llmManager.streamProvider(
+      providerManifest,
+      model,
+      providerSettings,
+      messages,
+      budget.exhausted ? [] : tools,
+      budget.exhausted ? 'none' : toolChoice,
+      providerExtras,
+      logger,
+      runContext
+    );
+
+    const pendingToolCalls = new Map<string, {
+      name?: string;
+      arguments: string;
+      metadata?: Record<string, any>;
+    }>();
+    const detectedCallsById = new Map<string, any>();
+    let finishedWithToolCalls = false;
+    let segmentReasoning: ReasoningData | undefined;
+
+    for await (const chunk of stream) {
+      const parsed = compat.parseStreamChunk(chunk);
+
+      if (parsed.text) {
+        followUpContent += parsed.text;
+        yield {
+          type: StreamEventType.DELTA,
+          content: parsed.text
+        };
+      }
+
+      if (parsed.toolEvents) {
+        for (const event of parsed.toolEvents) {
+          if (event.type === ToolCallEventType.TOOL_CALL_START) {
+            pendingToolCalls.set(event.callId, {
+              name: event.name,
+              arguments: '',
+              metadata: event.metadata
+            });
+          } else if (event.type === ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA) {
+            const state = pendingToolCalls.get(event.callId);
+            if (state) {
+              state.arguments += event.argumentsDelta || '';
+            }
+          } else if (event.type === ToolCallEventType.TOOL_CALL_END) {
+            const state = pendingToolCalls.get(event.callId);
+            const toolCall: any = {
+              id: event.callId,
+              name: state?.name ?? event.name,
+              arguments: state?.arguments || event.arguments || ''
+            };
+
+            const metadata = state?.metadata ?? event.metadata;
+            if (metadata) {
+              toolCall.metadata = metadata;
+            }
+
+            detectedCallsById.set(event.callId, toolCall);
+            pendingToolCalls.delete(event.callId);
+          }
+
+          yield {
+            type: StreamEventType.TOOL,
+            toolEvent: event
           };
         }
       }
+
+      if (parsed.finishedWithToolCalls) {
+        finishedWithToolCalls = true;
+      }
+
+      if (parsed.usage) {
+        latestUsage = parsed.usage;
+        yield {
+          type: StreamEventType.TOKEN,
+          metadata: { usage: usageStatsToJson(parsed.usage) }
+        };
+      }
+
+      if (parsed.reasoning?.text) {
+        if (!segmentReasoning) {
+          segmentReasoning = {
+            text: parsed.reasoning.text,
+            metadata: parsed.reasoning.metadata
+          };
+        } else {
+          segmentReasoning.text += parsed.reasoning.text;
+          if (parsed.reasoning.metadata) {
+            segmentReasoning.metadata = {
+              ...(segmentReasoning.metadata ?? {}),
+              ...parsed.reasoning.metadata
+            };
+          }
+        }
+
+        if (!reasoningAggregate) {
+          reasoningAggregate = {
+            text: parsed.reasoning.text,
+            metadata: parsed.reasoning.metadata
+          };
+        } else {
+          reasoningAggregate.text += parsed.reasoning.text;
+          if (parsed.reasoning.metadata) {
+            reasoningAggregate.metadata = {
+              ...(reasoningAggregate.metadata ?? {}),
+              ...parsed.reasoning.metadata
+            };
+          }
+        }
+      }
     }
+
+    const hasDetectedCalls = finishedWithToolCalls || detectedCallsById.size > 0 || pendingToolCalls.size > 0;
+    if (!hasDetectedCalls || budget.exhausted) {
+      break;
+    }
+
+    // If we didn't receive TOOL_CALL_END events, finalize using pending state
+    if (pendingToolCalls.size > 0) {
+      for (const [callId, state] of pendingToolCalls.entries()) {
+        if (detectedCallsById.has(callId)) continue;
+        const pendingCall: any = {
+          id: callId,
+          name: state.name,
+          arguments: state.arguments
+        };
+        if (state.metadata) {
+          pendingCall.metadata = state.metadata;
+        }
+        detectedCallsById.set(callId, pendingCall);
+      }
+      pendingToolCalls.clear();
+    }
+
+    const detectedCalls = Array.from(detectedCallsById.values());
+    if (detectedCalls.length === 0) {
+      break;
+    }
+
+    const preparedToolCalls: ToolCall[] = [];
+    for (const call of detectedCalls) {
+      const parsedArgs = safeJsonParse<Record<string, any>>(call.arguments, {}) as Record<string, any>;
+      const originalName = toolNameMap[call.name || ''] || call.name || 'unknown';
+      const finalToolCall: ToolCall = {
+        id: call.id,
+        name: originalName,
+        arguments: parsedArgs,
+        args: parsedArgs
+      };
+      if (call.metadata) {
+        finalToolCall.metadata = call.metadata;
+      }
+      emittedToolCalls.push(finalToolCall);
+      yield {
+        type: 'tool_call' as any,
+        toolCall: finalToolCall
+      };
+
+      const prepared: any = {
+        id: call.id,
+        name: call.name,
+        arguments: parsedArgs
+      };
+      if (call.metadata) {
+        prepared.metadata = call.metadata;
+      }
+      preparedToolCalls.push(prepared);
+    }
+
+    toolCallsToExecute = preparedToolCalls;
+    toolCallReasoning = segmentReasoning;
   }
 
-  if (!followUpContent && !latestUsage && !reasoningAggregate) {
+  if (!followUpContent && !latestUsage && !reasoningAggregate && emittedToolCalls.length === 0) {
     return undefined;
   }
 
   return {
     content: followUpContent || undefined,
     usage: latestUsage,
-    reasoning: reasoningAggregate
+    reasoning: reasoningAggregate,
+    toolCalls: emittedToolCalls.length > 0 ? emittedToolCalls : undefined
   };
 }
 

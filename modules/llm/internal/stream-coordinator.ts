@@ -292,6 +292,9 @@ export class StreamCoordinator {
         if (followUpResult?.usage) {
           latestUsage = followUpResult.usage;
         }
+        if (followUpResult?.toolCalls && followUpResult.toolCalls.length > 0) {
+          allToolCalls.push(...followUpResult.toolCalls);
+        }
         if (followUpResult?.reasoning) {
           if (!reasoningAggregate) {
             reasoningAggregate = { ...followUpResult.reasoning };
