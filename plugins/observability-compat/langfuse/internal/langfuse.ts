@@ -90,7 +90,6 @@ function resolveEnvVar(template: string): string {
     const [, varName, defaultValue] = match;
     return process.env[varName] || defaultValue || '';
   }
-  // istanbul ignore next - defensive fallback, unreachable with current buildUrl regex
   return template;
 }
 

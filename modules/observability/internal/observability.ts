@@ -62,7 +62,7 @@ export function calculateBackoffDelay(
   const cappedDelay = Math.min(exponentialDelay, maxDelayMs);
 
   // Add jitter: +/- 25% randomness
-  const jitter = 0.5 + Math.random(); // 0.5 to 1.5
+  const jitter = 0.75 + Math.random() * 0.5; // 0.75 to 1.25
   return Math.floor(cappedDelay * jitter);
 }
 

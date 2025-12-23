@@ -27,9 +27,9 @@ Enable observability globally by adding to your `defaults.json`:
     "flushIntervalMs": 5000,
     "maxQueueSize": 1000,
     "maxAttempts": 3,
-    "baseDelayMs": 100,
-    "maxDelayMs": 10000,
-    "timeoutMs": 30000
+    "baseDelayMs": 250,
+    "maxDelayMs": 30000,
+    "timeoutMs": 10000
   }
 }
 ```
@@ -85,11 +85,11 @@ Events are flushed (exported) when:
 
 Failed exports are retried with exponential backoff and jitter:
 - **Max attempts:** `maxAttempts` (default: 3)
-- **Base delay:** `baseDelayMs` (default: 100ms)
-- **Max delay:** `maxDelayMs` (default: 10000ms)
+- **Base delay:** `baseDelayMs` (default: 250ms)
+- **Max delay:** `maxDelayMs` (default: 30000ms)
 - **Jitter:** +/- 25% randomness to prevent thundering herd
 
-Formula: `delay = min(baseDelayMs * 2^attempt, maxDelayMs) * (0.5 + random())`
+Formula: `delay = min(baseDelayMs * 2^attempt, maxDelayMs) * (0.75 + random() * 0.5)`
 
 ### Shutdown Behavior
 
@@ -104,7 +104,7 @@ When `shutdown()` is called:
 ### Langfuse Batch Limits
 
 Langfuse has ingestion limits:
-- **Max batch size:** 3.5 MB
+- **Max batch size:** 3,000,000 bytes (from provider manifest)
 - **Max events per batch:** 1000 (configurable server-side)
 
 The Langfuse compat module handles batching within these limits:
@@ -128,9 +128,9 @@ For optimal performance, keep individual events reasonably sized:
 | `flushIntervalMs` | number | `5000` | Flush interval in milliseconds |
 | `maxQueueSize` | number | `1000` | Max events in queue (oldest dropped if exceeded) |
 | `maxAttempts` | number | `3` | Max retry attempts per batch |
-| `baseDelayMs` | number | `100` | Base delay for exponential backoff |
-| `maxDelayMs` | number | `10000` | Maximum delay cap for backoff |
-| `timeoutMs` | number | `30000` | HTTP timeout for export requests |
+| `baseDelayMs` | number | `250` | Base delay for exponential backoff |
+| `maxDelayMs` | number | `30000` | Maximum delay cap for backoff |
+| `timeoutMs` | number | `10000` | HTTP timeout for export requests |
 
 ## Architecture
 

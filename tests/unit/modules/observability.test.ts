@@ -14,33 +14,33 @@ describe('modules/observability', () => {
     test('returns base delay for first attempt', async () => {
       const { calculateBackoffDelay } = await import('@/modules/observability/index.ts');
 
-      // With jitter, result should be between baseDelay * 0.5 and baseDelay * 1.5
+      // With jitter, result should be between baseDelay * 0.75 and baseDelay * 1.25
       const delay = calculateBackoffDelay(0, 250, 30000);
-      expect(delay).toBeGreaterThanOrEqual(125); // 250 * 0.5
-      expect(delay).toBeLessThanOrEqual(375); // 250 * 1.5
+      expect(delay).toBeGreaterThanOrEqual(187); // 250 * 0.75 (floored)
+      expect(delay).toBeLessThanOrEqual(312); // 250 * 1.25 (floored, jitter < 1.25)
     });
 
     test('increases exponentially with attempts', async () => {
       const { calculateBackoffDelay } = await import('@/modules/observability/index.ts');
 
-      // Attempt 1: base * 2 = 500ms (with jitter: 250-750)
+      // Attempt 1: base * 2 = 500ms (with jitter: 375-625)
       const delay1 = calculateBackoffDelay(1, 250, 30000);
-      expect(delay1).toBeGreaterThanOrEqual(250);
-      expect(delay1).toBeLessThanOrEqual(750);
+      expect(delay1).toBeGreaterThanOrEqual(375);
+      expect(delay1).toBeLessThanOrEqual(625);
 
-      // Attempt 2: base * 4 = 1000ms (with jitter: 500-1500)
+      // Attempt 2: base * 4 = 1000ms (with jitter: 750-1250)
       const delay2 = calculateBackoffDelay(2, 250, 30000);
-      expect(delay2).toBeGreaterThanOrEqual(500);
-      expect(delay2).toBeLessThanOrEqual(1500);
+      expect(delay2).toBeGreaterThanOrEqual(750);
+      expect(delay2).toBeLessThanOrEqual(1250);
     });
 
     test('caps at max delay', async () => {
       const { calculateBackoffDelay } = await import('@/modules/observability/index.ts');
 
-      // Very high attempt should be capped at maxDelay (with jitter: maxDelay * 0.5 to maxDelay * 1.5)
+      // Very high attempt should be capped at maxDelay (with jitter: maxDelay * 0.75 to maxDelay * 1.25)
       const delay = calculateBackoffDelay(20, 250, 1000);
-      expect(delay).toBeGreaterThanOrEqual(500); // 1000 * 0.5
-      expect(delay).toBeLessThanOrEqual(1500); // 1000 * 1.5
+      expect(delay).toBeGreaterThanOrEqual(750); // 1000 * 0.75
+      expect(delay).toBeLessThanOrEqual(1250); // 1000 * 1.25
     });
   });
 

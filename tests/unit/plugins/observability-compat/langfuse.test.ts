@@ -614,6 +614,29 @@ describe('LangfuseCompat', () => {
       expect(fetchCall[0]).toBe('https://default.langfuse.com/api/public/ingestion');
     });
 
+    it('falls back when env var template syntax is unsupported', async () => {
+      delete process.env.BAD_VAR;
+
+      const weirdManifest: ObservabilityProviderManifest = {
+        ...mockManifest,
+        endpoint: {
+          ...mockManifest.endpoint,
+          urlTemplate: 'https://cloud.langfuse.com/${BAD_VAR:default}/api/public/ingestion'
+        }
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ successes: [], errors: [] })
+      } as Response);
+
+      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], weirdManifest);
+      await langfuseCompat.sendBatch(payload, weirdManifest);
+
+      const fetchCall = mockFetch.mock.calls[0];
+      expect(fetchCall[0]).toBe('https://cloud.langfuse.com/${BAD_VAR:default}/api/public/ingestion');
+    });
+
     it('handles URL with no environment variables', async () => {
       const staticManifest: ObservabilityProviderManifest = {
         ...mockManifest,
