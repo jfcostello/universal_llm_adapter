@@ -63,5 +63,27 @@ describe('live/required-env', () => {
     });
     expect(missing).toEqual(['OPENROUTER_API_KEY', 'QDRANT_CLOUD_URL', 'QDRANT_API_KEY']);
   });
+
+  test('getMissingRequiredEnv does not require Langfuse keys when observabilityTestProvider is null', () => {
+    // With observabilityTestProvider = null (default), no Langfuse keys should be required
+    const missing = getMissingRequiredEnv({
+      selectedProviders: [],
+      testPathPatterns: ['21-observability'],
+      env: {}
+    });
+    // Should not include LANGFUSE_SECRET_KEY or LANGFUSE_PUBLIC_KEY
+    expect(missing).not.toContain('LANGFUSE_SECRET_KEY');
+    expect(missing).not.toContain('LANGFUSE_PUBLIC_KEY');
+  });
+
+  test('getMissingRequiredEnv does not require Langfuse keys for non-observability patterns', () => {
+    const missing = getMissingRequiredEnv({
+      selectedProviders: [],
+      testPathPatterns: ['05-streaming-core'],
+      env: {}
+    });
+    expect(missing).not.toContain('LANGFUSE_SECRET_KEY');
+    expect(missing).not.toContain('LANGFUSE_PUBLIC_KEY');
+  });
 });
 

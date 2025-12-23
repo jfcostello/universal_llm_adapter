@@ -1,3 +1,5 @@
+import { observabilityTestProvider } from './config.ts';
+
 export function getTestPathPatternsFromJestArgs(jestArgs: string[]): string[] {
   const patterns: string[] = [];
 
@@ -53,6 +55,15 @@ export function getMissingRequiredEnv(options: {
   if (wantsAllLive || wantsVector) {
     required.add('QDRANT_CLOUD_URL');
     required.add('QDRANT_API_KEY');
+  }
+
+  // Observability tests require Langfuse keys only when:
+  // 1) observabilityTestProvider is configured in config.ts, AND
+  // 2) the test pattern explicitly includes observability tests
+  const wantsObservability = /\bobservability\b|21-observability/i.test(patterns);
+  if (wantsObservability && observabilityTestProvider !== null) {
+    required.add('LANGFUSE_SECRET_KEY');
+    required.add('LANGFUSE_PUBLIC_KEY');
   }
 
   return [...required].filter(key => !options.env?.[key] || String(options.env[key]).trim() === '');
