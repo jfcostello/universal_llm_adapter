@@ -125,6 +125,20 @@ describe('realtime-compat/openai — event mapper', () => {
     )[0];
     expect(unmappedStart).toEqual({ type: 'tool_call.start', toolCallId: 'c2', name: 'unmapped_tool' });
 
+    const fallbackStart = mapOpenAIRealtimeServerEvent(
+      { type: 'response.output_item.added', item: { type: 'function_call', call_id: 'c3', name: 'test' } },
+      state
+    )[0];
+    expect(fallbackStart).toEqual({ type: 'tool_call.start', toolCallId: 'c3', name: 'test.echo' });
+
+    const ambiguousState = makeState();
+    ambiguousState.toolNameByProviderName.set('test_random', 'test.random');
+    const ambiguousStart = mapOpenAIRealtimeServerEvent(
+      { type: 'response.output_item.added', item: { type: 'function_call', call_id: 'c4', name: 'test' } },
+      ambiguousState
+    )[0];
+    expect(ambiguousStart).toEqual({ type: 'tool_call.start', toolCallId: 'c4', name: 'test' });
+
     expect(mapOpenAIRealtimeServerEvent({ type: 'response.function_call_arguments.delta', call_id: '', delta: '{}' }, state)).toEqual([]);
     expect(mapOpenAIRealtimeServerEvent({ type: 'response.function_call_arguments.delta', call_id: 'c1', delta: '' }, state)).toEqual([]);
     expect(mapOpenAIRealtimeServerEvent({ type: 'response.function_call_arguments.delta' }, state)).toEqual([]);
@@ -156,6 +170,12 @@ describe('realtime-compat/openai — event mapper', () => {
       state
     )[0] as any;
     expect(unknownNameEnd.name).toBe('unknown');
+
+    const fallbackEnd = mapOpenAIRealtimeServerEvent(
+      { type: 'response.function_call_arguments.done', call_id: 'c3', arguments: '{"message":"hi"}' },
+      state
+    )[0] as any;
+    expect(fallbackEnd.name).toBe('test.echo');
   });
 
   test('tool args must be a JSON object', () => {

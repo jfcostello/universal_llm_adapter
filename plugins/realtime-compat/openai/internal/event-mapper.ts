@@ -6,6 +6,25 @@ export interface OpenAIRealtimeMapperState {
   toolNameByProviderName: Map<string, string>;
 }
 
+function resolveToolNameFromProviderName(providerName: string, state: OpenAIRealtimeMapperState): string {
+  const direct = state.toolNameByProviderName.get(providerName);
+  if (direct) return direct;
+
+  if (!providerName) return providerName;
+
+  let match: string | undefined;
+  for (const candidate of state.toolNameByProviderName.keys()) {
+    if (candidate.startsWith(`${providerName}_`) || candidate.startsWith(`${providerName}-`)) {
+      if (match) return providerName;
+      match = candidate;
+    }
+  }
+
+  if (match) return state.toolNameByProviderName.get(match)!;
+
+  return providerName;
+}
+
 function parseJsonObject(text: string): JsonObject {
   const parsed = JSON.parse(text);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -82,7 +101,7 @@ export function mapOpenAIRealtimeServerEvent(
       if (item?.type !== 'function_call') return [];
       const callId = String(item?.call_id ?? item?.id ?? '');
       const providerName = String(item?.name ?? '');
-      const name = state.toolNameByProviderName.get(providerName) ?? providerName;
+      const name = resolveToolNameFromProviderName(providerName, state);
       if (!callId || !name) return [];
       state.functionNameByCallId.set(callId, name);
       return [{ type: 'tool_call.start', toolCallId: callId, name }];
