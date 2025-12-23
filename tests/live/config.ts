@@ -61,7 +61,7 @@ export const testRuns: TestRun[] = [
       }
     ],
     settings: {
-      temperature: 1,
+      temperature: 0,
       maxTokens: 60000,
       provider: {
         order: ['google-vertex', 'groq', 'together', 'fireworks'],
