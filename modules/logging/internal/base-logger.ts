@@ -151,7 +151,6 @@ export class BaseAdapterLogger {
   protected correlationId?: string | string[];
   protected level: LogLevel;
 
-  /* istanbul ignore next */
   constructor(level: LogLevel = LogLevel.INFO, correlationId?: string | string[]) {
     this.level = level;
     this.correlationId = correlationId;
@@ -176,7 +175,6 @@ export class BaseAdapterLogger {
       transports.push(createAdapterFileTransport({ batchId, format: fileFormat }));
     }
 
-    /* istanbul ignore else */
     if (!disableConsoleLogs) {
       const consoleTransport = new FlushingConsoleTransport({
         level: level,

@@ -39,7 +39,11 @@ export async function decodeWsMessageAsync(data: unknown): Promise<string> {
     return data.text();
   }
   // Fallback: attempt to stringify unknown types
-  return String(data);
+  try {
+    return String(data);
+  } catch {
+    return '[unstringifiable]';
+  }
 }
 
 /**
@@ -55,7 +59,11 @@ export function decodeWsMessage(data: unknown): string {
     return Buffer.concat(data).toString('utf8');
   }
   // Fallback: attempt to stringify unknown types (includes Blob which would need async)
-  return String(data);
+  try {
+    return String(data);
+  } catch {
+    return '[unstringifiable]';
+  }
 }
 
 export function createWsTransport(options: { url: string; headers?: Record<string, string> }): RealtimeTransport {
@@ -83,13 +91,8 @@ export function createWsTransport(options: { url: string; headers?: Record<strin
   });
 
   ws.on('message', (data: unknown) => {
-    try {
-      const text = decodeWsMessage(data);
-      queue.push({ type: 'message', data: text });
-    } catch (err: any) {
-      /* istanbul ignore next -- defensive error handling for malformed ws messages */
-      queue.push({ type: 'error', error: err, code: 'ws_message_decode_error' });
-    }
+    const text = decodeWsMessage(data);
+    queue.push({ type: 'message', data: text });
   });
 
   ws.on('error', (err: any) => {

@@ -84,11 +84,11 @@ describe('modules/realtime/internal/transport/ws', () => {
       expect(decodeWsMessage(false)).toBe('false');
     });
 
-    test('throws when toString() fails on unknown type', () => {
+    test('returns fallback when toString() fails on unknown type', () => {
       const throwOnString = {
         toString() { throw new Error('cannot stringify'); }
       };
-      expect(() => decodeWsMessage(throwOnString)).toThrow('cannot stringify');
+      expect(decodeWsMessage(throwOnString)).toBe('[unstringifiable]');
     });
 
     test('falls back to String() for mixed arrays (not all Buffers)', () => {
@@ -136,6 +136,13 @@ describe('modules/realtime/internal/transport/ws', () => {
     test('falls back to String() for unknown types', async () => {
       expect(await decodeWsMessageAsync(42)).toBe('42');
       expect(await decodeWsMessageAsync(null)).toBe('null');
+    });
+
+    test('returns fallback when toString() fails on unknown type', async () => {
+      const throwOnString = {
+        toString() { throw new Error('cannot stringify'); }
+      };
+      expect(await decodeWsMessageAsync(throwOnString)).toBe('[unstringifiable]');
     });
   });
 
