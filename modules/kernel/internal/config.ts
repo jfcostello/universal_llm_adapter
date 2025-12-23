@@ -6,6 +6,11 @@ import { config as dotenvConfig } from 'dotenv';
 let envLoaded = false;
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
+type EnvSubstitutionSpec =
+  | { type: 'required'; envVar: string }
+  | { type: 'optional'; envVar: string }
+  | { type: 'default'; envVar: string; defaultValue: string };
+
 function loadRootDotenv(): void {
   if (envLoaded) return;
   
@@ -22,24 +27,54 @@ function loadRootDotenv(): void {
   envLoaded = true;
 }
 
+function parseEnvSubstitutionToken(token: string): EnvSubstitutionSpec | null {
+  const optionalMatch = token.match(/^([A-Z0-9_]+)\?$/);
+  if (optionalMatch) {
+    return { type: 'optional', envVar: optionalMatch[1] };
+  }
+
+  const defaultMatch = token.match(/^([A-Z0-9_]+):-([\s\S]*)$/);
+  if (defaultMatch) {
+    return { type: 'default', envVar: defaultMatch[1], defaultValue: defaultMatch[2] };
+  }
+
+  const requiredMatch = token.match(/^([A-Z0-9_]+)$/);
+  if (requiredMatch) {
+    return { type: 'required', envVar: requiredMatch[1] };
+  }
+
+  return null;
+}
+
 export function substituteEnv(value: any): any {
   loadRootDotenv();
   
   if (typeof value === 'string') {
-    const envPattern = /\$\{([A-Z0-9_?]+)\}/g;
+    const envPattern = /\$\{([^}]+)\}/g;
     return value.replace(envPattern, (match, token) => {
-      const optional = token.endsWith('?');
-      const envVar = optional ? token.slice(0, -1) : token;
-      
-      if (envVar in process.env) {
-        return process.env[envVar] || '';
+      const spec = parseEnvSubstitutionToken(token);
+      if (!spec) {
+        return match;
       }
-      
-      if (optional) {
-        return '';
+
+      const envValue = process.env[spec.envVar];
+
+      if (spec.type === 'default') {
+        if (typeof envValue !== 'string' || envValue === '') {
+          return spec.defaultValue;
+        }
+        return envValue;
       }
-      
-      throw new Error(`Environment variable '${envVar}' required but not set`);
+
+      if (spec.type === 'optional') {
+        return typeof envValue === 'string' ? envValue : '';
+      }
+
+      if (typeof envValue === 'string') {
+        return envValue;
+      }
+
+      throw new Error(`Environment variable '${spec.envVar}' required but not set`);
     });
   }
   

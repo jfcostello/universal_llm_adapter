@@ -40,6 +40,24 @@ describe('core/config', () => {
     );
   });
 
+  test('supports default values (${VAR:-default})', () => {
+    delete process.env.DEFAULTABLE_VALUE;
+    expect(substituteEnv('${DEFAULTABLE_VALUE:-fallback}')).toBe('fallback');
+
+    process.env.DEFAULTABLE_VALUE = 'real';
+    expect(substituteEnv('${DEFAULTABLE_VALUE:-fallback}')).toBe('real');
+
+    process.env.DEFAULTABLE_VALUE = '';
+    expect(substituteEnv('${DEFAULTABLE_VALUE:-fallback}')).toBe('fallback');
+  });
+
+  test('leaves unsupported substitution syntax unchanged', () => {
+    delete process.env.BAD_VAR;
+    expect(substituteEnv('https://example.com/${BAD_VAR:default}/x')).toBe(
+      'https://example.com/${BAD_VAR:default}/x'
+    );
+  });
+
   test('loadJsonFile applies substitution recursively', async () => {
     await withTempCwd('config-json', async (dir) => {
       const filePath = path.join(dir, 'config.json');
