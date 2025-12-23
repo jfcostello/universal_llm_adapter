@@ -1,0 +1,457 @@
+import { describe, expect, test, jest } from '@jest/globals';
+import { LLMManager } from '@/modules/llm/index.ts';
+import { ProviderExecutionError, Role } from '@/modules/kernel/index.ts';
+import type { RunContext, Message } from '@/modules/kernel/index.ts';
+
+describe('LLMManager observability', () => {
+  const mockMessages: Message[] = [
+    { role: Role.USER, content: [{ type: 'text', text: 'test' }] }
+  ];
+
+  const mockProvider = {
+    id: 'test-sdk-provider',
+    compat: 'test-compat',
+    endpoint: { url: 'http://test.com' }
+  } as any;
+
+  function createMockObservabilityContext() {
+    return {
+      exporter: {
+        recordLLMRequest: jest.fn().mockReturnValue({ eventId: 'req-1', queued: true }),
+        recordLLMResponse: jest.fn().mockReturnValue({ eventId: 'resp-1', queued: true }),
+        flush: jest.fn().mockResolvedValue(undefined)
+      },
+      traceId: 'trace-123',
+      sessionId: 'session-456',
+      metadata: { correlationId: 'corr-789' }
+    };
+  }
+
+  test('callProvider records LLM request when observability is enabled', async () => {
+    const mockSDKResponse = {
+      content: [{ type: 'text', text: 'SDK response' }],
+      role: Role.ASSISTANT,
+      toolCalls: []
+    };
+
+    const mockCompat = {
+      callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = createMockObservabilityContext();
+    const context: RunContext = { observability };
+
+    const manager = new LLMManager(registry);
+    await manager.callProvider(
+      mockProvider,
+      'test-model',
+      { temperature: 0.7 },
+      mockMessages,
+      [],
+      undefined,
+      {},
+      undefined,
+      context
+    );
+
+    expect(observability.exporter.recordLLMRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceId: 'trace-123',
+        provider: 'test-sdk-provider',
+        model: 'test-model',
+        sessionId: 'session-456',
+        metadata: { correlationId: 'corr-789' }
+      })
+    );
+  });
+
+  test('callProvider records LLM response on success', async () => {
+    const mockSDKResponse = {
+      content: [{ type: 'text', text: 'SDK response' }],
+      role: Role.ASSISTANT,
+      toolCalls: [{ id: 'tc-1', name: 'test_tool', arguments: { arg1: 'value1' } }],
+      usage: { promptTokens: 10, completionTokens: 20 }
+    };
+
+    const mockCompat = {
+      callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = createMockObservabilityContext();
+    const context: RunContext = { observability };
+
+    const manager = new LLMManager(registry);
+    await manager.callProvider(
+      mockProvider,
+      'test-model',
+      { temperature: 0.7 },
+      mockMessages,
+      [],
+      undefined,
+      {},
+      undefined,
+      context
+    );
+
+    expect(observability.exporter.recordLLMResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceId: 'trace-123',
+        provider: 'test-sdk-provider',
+        model: 'test-model',
+        content: [{ type: 'text', text: 'SDK response' }],
+        usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+        toolCalls: [{ id: 'tc-1', name: 'test_tool', arguments: { arg1: 'value1' } }],
+        durationMs: expect.any(Number),
+        metadata: { correlationId: 'corr-789' }
+      })
+    );
+  });
+
+  test('callProvider records error response on SDK failure', async () => {
+    const mockCompat = {
+      callSDK: jest.fn().mockRejectedValue(new Error('SDK failed'))
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = createMockObservabilityContext();
+    const context: RunContext = { observability };
+
+    const manager = new LLMManager(registry);
+
+    await expect(
+      manager.callProvider(
+        mockProvider,
+        'test-model',
+        { temperature: 0.7 },
+        mockMessages,
+        [],
+        undefined,
+        {},
+        undefined,
+        context
+      )
+    ).rejects.toThrow(ProviderExecutionError);
+
+    expect(observability.exporter.recordLLMResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceId: 'trace-123',
+        provider: 'test-sdk-provider',
+        model: 'test-model',
+        error: { message: 'SDK failed', retryable: false },
+        durationMs: expect.any(Number)
+      })
+    );
+  });
+
+  test('callProvider records rate limit error with retryable flag', async () => {
+    const rateLimitError = new ProviderExecutionError('test-sdk-provider', 'Rate limited', 429, true);
+    const mockCompat = {
+      callSDK: jest.fn().mockRejectedValue(rateLimitError)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = createMockObservabilityContext();
+    const context: RunContext = { observability };
+
+    const manager = new LLMManager(registry);
+
+    await expect(
+      manager.callProvider(
+        mockProvider,
+        'test-model',
+        { temperature: 0.7 },
+        mockMessages,
+        [],
+        undefined,
+        {},
+        undefined,
+        context
+      )
+    ).rejects.toThrow(ProviderExecutionError);
+
+    expect(observability.exporter.recordLLMResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.objectContaining({ retryable: true })
+      })
+    );
+  });
+
+  test('callProvider does not record observability when context has no observability', async () => {
+    const mockSDKResponse = {
+      content: [{ type: 'text', text: 'SDK response' }],
+      role: Role.ASSISTANT,
+      toolCalls: []
+    };
+
+    const mockCompat = {
+      callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const context: RunContext = {};
+
+    const manager = new LLMManager(registry);
+    await manager.callProvider(
+      mockProvider,
+      'test-model',
+      { temperature: 0.7 },
+      mockMessages,
+      [],
+      undefined,
+      {},
+      undefined,
+      context
+    );
+
+    // Should complete without error, no observability calls made
+    expect(mockCompat.callSDK).toHaveBeenCalled();
+  });
+
+  test('callProvider handles observability request recording error gracefully', async () => {
+    const mockSDKResponse = {
+      content: [{ type: 'text', text: 'SDK response' }],
+      role: Role.ASSISTANT,
+      toolCalls: []
+    };
+
+    const mockCompat = {
+      callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = {
+      exporter: {
+        recordLLMRequest: jest.fn().mockImplementation(() => {
+          throw new Error('Observability failed');
+        }),
+        recordLLMResponse: jest.fn().mockReturnValue({ eventId: 'resp-1', queued: true }),
+        flush: jest.fn().mockResolvedValue(undefined)
+      },
+      traceId: 'trace-123'
+    };
+
+    const mockLogger = {
+      warning: jest.fn(),
+      info: jest.fn(),
+      logLLMRequest: jest.fn(),
+      logLLMResponse: jest.fn()
+    } as any;
+
+    const context: RunContext = { observability };
+
+    const manager = new LLMManager(registry);
+    const result = await manager.callProvider(
+      mockProvider,
+      'test-model',
+      { temperature: 0.7 },
+      mockMessages,
+      [],
+      undefined,
+      {},
+      mockLogger,
+      context
+    );
+
+    // Should complete successfully despite observability error
+    expect(result.content).toEqual([{ type: 'text', text: 'SDK response' }]);
+    expect(mockLogger.warning).toHaveBeenCalledWith(
+      'Failed to record observability request event',
+      expect.objectContaining({ error: 'Observability failed' })
+    );
+  });
+
+  test('callProvider handles observability response recording error gracefully', async () => {
+    const mockSDKResponse = {
+      content: [{ type: 'text', text: 'SDK response' }],
+      role: Role.ASSISTANT,
+      toolCalls: []
+    };
+
+    const mockCompat = {
+      callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = {
+      exporter: {
+        recordLLMRequest: jest.fn().mockReturnValue({ eventId: 'req-1', queued: true }),
+        recordLLMResponse: jest.fn().mockImplementation(() => {
+          throw new Error('Response recording failed');
+        }),
+        flush: jest.fn().mockResolvedValue(undefined)
+      },
+      traceId: 'trace-123'
+    };
+
+    const mockLogger = {
+      warning: jest.fn(),
+      info: jest.fn(),
+      logLLMRequest: jest.fn(),
+      logLLMResponse: jest.fn()
+    } as any;
+
+    const context: RunContext = { observability };
+
+    const manager = new LLMManager(registry);
+    const result = await manager.callProvider(
+      mockProvider,
+      'test-model',
+      { temperature: 0.7 },
+      mockMessages,
+      [],
+      undefined,
+      {},
+      mockLogger,
+      context
+    );
+
+    // Should complete successfully despite observability error
+    expect(result.content).toEqual([{ type: 'text', text: 'SDK response' }]);
+    expect(mockLogger.warning).toHaveBeenCalledWith(
+      'Failed to record observability response event',
+      expect.objectContaining({ error: 'Response recording failed' })
+    );
+  });
+
+  test('callProvider records response with null usage tokens as undefined', async () => {
+    const mockSDKResponse = {
+      content: [{ type: 'text', text: 'SDK response' }],
+      role: Role.ASSISTANT,
+      toolCalls: [],
+      usage: { promptTokens: null, completionTokens: null }
+    };
+
+    const mockCompat = {
+      callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = createMockObservabilityContext();
+    const context: RunContext = { observability };
+
+    const manager = new LLMManager(registry);
+    await manager.callProvider(
+      mockProvider,
+      'test-model',
+      { temperature: 0.7 },
+      mockMessages,
+      [],
+      undefined,
+      {},
+      undefined,
+      context
+    );
+
+    expect(observability.exporter.recordLLMResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        usage: { promptTokens: undefined, completionTokens: undefined, totalTokens: 0 }
+      })
+    );
+  });
+
+  test('callProvider records response without usage when not provided', async () => {
+    const mockSDKResponse = {
+      content: [{ type: 'text', text: 'SDK response' }],
+      role: Role.ASSISTANT,
+      toolCalls: []
+    };
+
+    const mockCompat = {
+      callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = createMockObservabilityContext();
+    const context: RunContext = { observability };
+
+    const manager = new LLMManager(registry);
+    await manager.callProvider(
+      mockProvider,
+      'test-model',
+      { temperature: 0.7 },
+      mockMessages,
+      [],
+      undefined,
+      {},
+      undefined,
+      context
+    );
+
+    const call = (observability.exporter.recordLLMResponse as jest.Mock).mock.calls[0][0];
+    expect(call.usage).toBeUndefined();
+  });
+
+  test('callProvider records tools in request event', async () => {
+    const mockSDKResponse = {
+      content: [{ type: 'text', text: 'SDK response' }],
+      role: Role.ASSISTANT,
+      toolCalls: []
+    };
+
+    const mockCompat = {
+      callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = createMockObservabilityContext();
+    const context: RunContext = { observability };
+    const tools = [
+      { name: 'test_tool', description: 'A test tool', parameters: {} },
+      { name: 'another_tool', description: 'Another tool', parameters: {} }
+    ] as any[];
+
+    const manager = new LLMManager(registry);
+    await manager.callProvider(
+      mockProvider,
+      'test-model',
+      { temperature: 0.7 },
+      mockMessages,
+      tools,
+      undefined,
+      {},
+      undefined,
+      context
+    );
+
+    expect(observability.exporter.recordLLMRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: [
+          { name: 'test_tool', description: 'A test tool' },
+          { name: 'another_tool', description: 'Another tool' }
+        ]
+      })
+    );
+  });
+});

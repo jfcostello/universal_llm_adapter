@@ -6,7 +6,8 @@ import type {
   UnifiedTool,
   ToolChoice,
   LLMResponse,
-  AdapterLogger
+  AdapterLogger,
+  RunContext
 } from '../../kernel/index.js';
 import { ProviderExecutionError, getDefaults } from '../../kernel/index.js';
 import { aggregateSystemMessages } from '../../messages/index.js';
@@ -23,6 +24,49 @@ export class LLMManager {
     });
   }
 
+  /**
+   * Record an LLM response event to observability.
+   * Never throws - errors are logged and swallowed.
+   */
+  private recordObservabilityResponse(
+    context: RunContext,
+    provider: string,
+    model: string,
+    startTime: number,
+    response?: LLMResponse,
+    error?: { message: string; code?: string; retryable?: boolean },
+    logger?: AdapterLogger
+  ): void {
+    if (!context.observability) return;
+
+    try {
+      const durationMs = Date.now() - startTime;
+      context.observability.exporter.recordLLMResponse({
+        traceId: context.observability.traceId,
+        timestamp: new Date().toISOString(),
+        provider,
+        model,
+        content: response?.content || [],
+        metadata: context.observability.metadata,
+        usage: response?.usage ? {
+          promptTokens: response.usage.promptTokens ?? undefined,
+          completionTokens: response.usage.completionTokens ?? undefined,
+          totalTokens: (response.usage.promptTokens || 0) + (response.usage.completionTokens || 0)
+        } : undefined,
+        toolCalls: response?.toolCalls?.map(tc => ({
+          id: tc.id,
+          name: tc.name,
+          arguments: tc.arguments
+        })),
+        durationMs,
+        error
+      });
+    } catch (e) {
+      // Observability must never throw - log and continue
+      logger?.warning('Failed to record observability response event', { error: (e as Error).message });
+    }
+  }
+
   async callProvider(
     provider: ProviderManifest,
     model: string,
@@ -32,11 +76,32 @@ export class LLMManager {
     toolChoice?: ToolChoice,
     providerExtras: Record<string, any> = {},
     logger?: AdapterLogger,
-    context: any = {}
+    context: RunContext = {}
   ): Promise<LLMResponse> {
+    const startTime = Date.now();
     const normalizedMessages = aggregateSystemMessages(messages);
     const compat = await this.registry.getCompatModule(provider.compat);
     const providerRequestsHttp = this.isHttpUrlTemplate(provider.endpoint?.urlTemplate);
+
+    // Record LLM request event if observability is enabled
+    if (context.observability) {
+      try {
+        context.observability.exporter.recordLLMRequest({
+          traceId: context.observability.traceId,
+          timestamp: new Date().toISOString(),
+          provider: provider.id,
+          model,
+          messages: normalizedMessages,
+          sessionId: context.observability.sessionId,
+          metadata: context.observability.metadata,
+          tools: tools.map(t => ({ name: t.name, description: t.description })),
+          settings
+        });
+      } catch (e) {
+        // Observability must never throw - log and continue
+        logger?.warning('Failed to record observability request event', { error: (e as Error).message });
+      }
+    }
 
     // SDK-based providers: if compat has callSDK method, use it instead of HTTP
     if (!providerRequestsHttp && typeof compat.callSDK === 'function') {
@@ -117,8 +182,22 @@ export class LLMManager {
           }
         }
 
+        // Record successful response to observability
+        this.recordObservabilityResponse(context, provider.id, model, startTime, response, undefined, logger);
+
         return response;
       } catch (error: any) {
+        // Record error response to observability
+        this.recordObservabilityResponse(
+          context,
+          provider.id,
+          model,
+          startTime,
+          undefined,
+          { message: error.message, retryable: error instanceof ProviderExecutionError ? error.isRateLimit : false },
+          logger
+        );
+
         if (error instanceof ProviderExecutionError) {
           throw error;
         }
@@ -318,6 +397,17 @@ export class LLMManager {
             });
           }
 
+          // Record HTTP error response to observability
+          this.recordObservabilityResponse(
+            context,
+            provider.id,
+            model,
+            startTime,
+            undefined,
+            { message: JSON.stringify(response.data), code: String(response.status), retryable: isRateLimit },
+            logger
+          );
+
           throw new ProviderExecutionError(
             provider.id,
             JSON.stringify(response.data),
@@ -326,13 +416,30 @@ export class LLMManager {
           );
         }
       }
-      
+
       const parsed = compat.parseResponse(response.data, model);
       parsed.toolCalls = await this.normalizeToolCallsIfPresent(parsed.toolCalls);
       parsed.provider = provider.id;
+
+      // Record successful HTTP response to observability
+      this.recordObservabilityResponse(context, provider.id, model, startTime, parsed, undefined, logger);
+
       return parsed;
-      
+
     } catch (error: any) {
+      // Record error response to observability (only for errors not already recorded)
+      if (!(error instanceof ProviderExecutionError && error.statusCode !== undefined)) {
+        this.recordObservabilityResponse(
+          context,
+          provider.id,
+          model,
+          startTime,
+          undefined,
+          { message: error.message, retryable: false },
+          logger
+        );
+      }
+
       if (error instanceof ProviderExecutionError) {
         throw error;
       }

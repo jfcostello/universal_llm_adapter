@@ -11,7 +11,10 @@ import type {
   VectorContextConfig,
   PluginRegistry,
   AdapterLogger,
-  LoggingDeps
+  LoggingDeps,
+  RunContext,
+  ObservabilityContext,
+  ObservabilitySpec
 } from '../../kernel/index.js';
 import {
   Role,
@@ -20,6 +23,7 @@ import {
   getDefaults,
   resolveLoggingDeps
 } from '../../kernel/index.js';
+import { randomUUID } from 'crypto';
 import { LLMManager } from './llm-manager.js';
 import { normalizeFlag } from '../../shared/index.js';
 import { pruneToolResults, pruneReasoning } from '../../context/index.js';
@@ -134,6 +138,51 @@ export class LLMCoordinator {
     this.logger = this.logging.getLogger();
   }
 
+  /**
+   * Create observability context if observability is enabled.
+   * Lazy-loads the observability module only when needed.
+   */
+  private async createObservabilityContext(
+    spec: LLMCallSpec,
+    runtime: RuntimeSettings
+  ): Promise<ObservabilityContext | undefined> {
+    const defaults = getDefaults().observability;
+    const obsSpec = spec.observability;
+
+    // Determine if observability is enabled
+    const enabled = obsSpec?.enabled ?? defaults.enabled;
+    if (!enabled) {
+      return undefined;
+    }
+
+    // Lazy-load observability module
+    const { createObservabilityDeps } = await import('../../observability/index.js');
+    const obsDeps = await createObservabilityDeps(this.registry, obsSpec);
+
+    // If observability couldn't be initialized, return undefined
+    if (!obsDeps.isEnabled()) {
+      return undefined;
+    }
+
+    const exporter = obsDeps.getExporter();
+
+    // Determine trace ID: spec override > correlation ID > generated UUID
+    const traceId = obsSpec?.traceId ??
+      (spec.metadata?.correlationId as string | undefined) ??
+      randomUUID();
+
+    // Determine session ID: spec override > batch ID
+    const sessionId = obsSpec?.sessionId ??
+      (runtime.batchId ? String(runtime.batchId) : undefined);
+
+    return {
+      exporter,
+      traceId,
+      sessionId,
+      metadata: spec.metadata
+    };
+  }
+
   async run(spec: LLMCallSpec): Promise<LLMResponse> {
     const { runtime, provider, providerExtras } = partitionSettings(spec.settings);
     await this.applyRuntimeEnvironment(runtime);
@@ -183,11 +232,15 @@ export class LLMCoordinator {
       executionSpec.toolChoice = sanitizeToolChoice(executionSpec.toolChoice);
     }
 
-    const runContext = {
+    // Create observability context if enabled (lazy-loads observability module)
+    const observability = await this.createObservabilityContext(spec, runtime);
+
+    const runContext: RunContext = {
       tools: tools.map(t => t.name),
       mcpServers,
       toolNameMap,
-      metadata: spec.metadata
+      metadata: spec.metadata,
+      observability
     };
 
     const runLogger = this.logger.withCorrelation(spec.metadata?.correlationId as string);
@@ -357,6 +410,9 @@ export class LLMCoordinator {
       mcpServers
     });
 
+    // Create observability context if enabled (lazy-loads observability module)
+    const observability = await this.createObservabilityContext(spec, runtime);
+
     // Delegate streaming to StreamCoordinator
     const streamCoordinator = new (await import('./stream-coordinator.js')).StreamCoordinator(
       this.registry,
@@ -371,7 +427,8 @@ export class LLMCoordinator {
       mcpServers,
       toolNameMap: new Map<string, string>(Object.entries(toolNameMap)),
       logger: runLogger,
-      metadata: spec.metadata
+      metadata: spec.metadata,
+      observability
     };
 
     yield* streamCoordinator.coordinateStream(

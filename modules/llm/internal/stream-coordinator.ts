@@ -5,7 +5,8 @@ import type {
   RuntimeSettings,
   UsageStats,
   ReasoningData,
-  AdapterLogger
+  AdapterLogger,
+  ObservabilityContext
 } from '../../kernel/index.js';
 import { StreamEventType, ToolCallEventType, getDefaults, safeJsonParse } from '../../kernel/index.js';
 import { normalizeFlag } from '../../shared/index.js';
@@ -20,6 +21,7 @@ interface StreamingContext {
   toolNameMap: Map<string, string>;
   logger: AdapterLogger;
   metadata?: Record<string, any>;
+  observability?: ObservabilityContext;
 }
 
 export class StreamCoordinator {

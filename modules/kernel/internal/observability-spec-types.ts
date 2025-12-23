@@ -22,6 +22,70 @@
  * };
  * ```
  */
+/**
+ * Context for observability during LLM execution.
+ * Holds the exporter and trace information for the current call.
+ */
+export interface ObservabilityContext {
+  /**
+   * The observability exporter for recording events.
+   */
+  exporter: {
+    recordLLMRequest: (event: import('./observability.js').ObservabilityLLMRequestEvent) =>
+      import('./observability.js').ObservabilityRecordResult;
+    recordLLMResponse: (event: import('./observability.js').ObservabilityLLMResponseEvent) =>
+      import('./observability.js').ObservabilityRecordResult;
+    flush: () => Promise<void>;
+  };
+
+  /**
+   * Trace ID for the current call.
+   */
+  traceId: string;
+
+  /**
+   * Session ID for grouping related traces.
+   */
+  sessionId?: string;
+
+  /**
+   * Additional metadata to include in events.
+   */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Context passed through the LLM execution path.
+ * Contains tool info, metadata, and optionally observability.
+ */
+export interface RunContext {
+  /**
+   * Names of available tools.
+   */
+  tools?: string[];
+
+  /**
+   * MCP server names being used.
+   */
+  mcpServers?: string[];
+
+  /**
+   * Mapping from sanitized tool names to original names.
+   */
+  toolNameMap?: Record<string, string>;
+
+  /**
+   * Call metadata (correlationId, etc.).
+   */
+  metadata?: Record<string, unknown>;
+
+  /**
+   * Observability context for recording LLM events.
+   * Only present when observability is enabled.
+   */
+  observability?: ObservabilityContext;
+}
+
 export interface ObservabilitySpec {
   /**
    * Whether observability export is enabled for this call.
