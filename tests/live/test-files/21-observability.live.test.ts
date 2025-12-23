@@ -84,7 +84,7 @@ describe('21-observability', () => {
   );
 
   (shouldRun && testRun ? test : test.skip)(
-    `observability non-blocking on invalid config - ${testRun?.name ?? 'no provider'}`,
+    `observability non-blocking on export failure - ${testRun?.name ?? 'no provider'}`,
     async () => {
       if (!testRun || !observabilityTestProvider) {
         throw new Error('Test configuration missing');
@@ -104,9 +104,14 @@ describe('21-observability', () => {
         metadata: { correlationId: traceId },
         observability: {
           enabled: true,
-          // Intentionally invalid provider to ensure observability never blocks the LLM execution path.
-          provider: 'nonexistent-observability-provider',
-          traceId
+          provider: observabilityTestProvider.provider,
+          traceId,
+          // Flush deterministically and fail quickly
+          flushAt: 2,
+          maxAttempts: 1,
+          timeoutMs: 250,
+          // Route the exporter to an unreachable local endpoint; with LLM_LIVE=1, the compat permits overrides.
+          providerConfig: { baseUrl: 'http://127.0.0.1:1' }
         }
       } as any);
 
@@ -127,6 +132,10 @@ describe('21-observability', () => {
       // Verify response contains expected text
       const finalText = String(done?.response?.content?.[0]?.text ?? '').toLowerCase();
       expect(finalText).toContain('works');
+
+      const parsedLogs = parseJsonLines(result.logs);
+      const hasExportFailed = parsedLogs.some(l => l?.message === 'Observability export failed after max attempts');
+      expect(hasExportFailed).toBe(true);
     },
     120000
   );

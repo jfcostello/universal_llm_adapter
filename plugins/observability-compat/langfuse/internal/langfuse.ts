@@ -104,10 +104,15 @@ const ALLOW_BASEURL_OVERRIDE_ENV = 'LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVER
 const BASEURL_OVERRIDE_ALLOWLIST_ENV = 'LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST';
 
 function isBaseUrlOverrideEnabled(): boolean {
-  return process.env[ALLOW_BASEURL_OVERRIDE_ENV] === '1';
+  // Live tests run in a controlled environment and frequently need to route
+  // observability exports to local/invalid endpoints to assert non-blocking behavior.
+  return process.env.LLM_LIVE === '1' || process.env[ALLOW_BASEURL_OVERRIDE_ENV] === '1';
 }
 
 function getBaseUrlOverrideAllowlist(): Set<string> | null {
+  // In live-test mode, allow any override host to keep the tests self-contained.
+  if (process.env.LLM_LIVE === '1') return null;
+
   const raw = process.env[BASEURL_OVERRIDE_ALLOWLIST_ENV];
   if (!raw) return null;
   const entries = raw

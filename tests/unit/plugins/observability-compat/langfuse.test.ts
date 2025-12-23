@@ -524,6 +524,25 @@ describe('LangfuseCompat', () => {
       expect(fetchCall[0]).toBe('https://cloud.langfuse.com/api/public/ingestion');
     });
 
+    it('allows per-call baseUrl override when LLM_LIVE=1 (live tests)', async () => {
+      process.env.LLM_LIVE = '1';
+      delete process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE;
+      delete process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST;
+
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ successes: [], errors: [] })
+      } as Response);
+
+      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
+      await langfuseCompat.sendBatch(payload, mockManifest, {
+        providerConfig: { baseUrl: 'https://override.langfuse.com' }
+      });
+
+      const fetchCall = mockFetch.mock.calls[0];
+      expect(fetchCall[0]).toBe('https://override.langfuse.com/api/public/ingestion');
+    });
+
     it('allows per-call baseUrl override when explicitly enabled', async () => {
       process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
       process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST = 'override.langfuse.com';
