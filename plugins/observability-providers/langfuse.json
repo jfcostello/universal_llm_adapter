@@ -14,7 +14,7 @@
     "secretKeyEnv": "LANGFUSE_SECRET_KEY"
   },
   "limits": {
-    "maxBatchBytes": 3000000
+    "maxBatchBytes": 3670016
   },
   "metadata": {
     "name": "Langfuse",

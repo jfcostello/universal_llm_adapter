@@ -104,7 +104,7 @@ When `shutdown()` is called:
 ### Langfuse Batch Limits
 
 Langfuse has ingestion limits:
-- **Max batch size:** 3,000,000 bytes (from provider manifest)
+- **Max batch size:** 3,670,016 bytes (3.5 MiB; from provider manifest)
 - **Max events per batch:** 1000 (configurable server-side)
 
 The Langfuse compat module handles batching within these limits:
