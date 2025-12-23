@@ -468,6 +468,86 @@ describe('LangfuseCompat', () => {
   });
 
   describe('URL template resolution', () => {
+    it('allows per-call baseUrl override via providerConfig', async () => {
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ successes: [], errors: [] })
+      } as Response);
+
+      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
+      await langfuseCompat.sendBatch(payload, mockManifest, {
+        providerConfig: { baseUrl: 'https://override.langfuse.com' }
+      });
+
+      const fetchCall = mockFetch.mock.calls[0];
+      expect(fetchCall[0]).toBe('https://override.langfuse.com/api/public/ingestion');
+    });
+
+    it('treats providerConfig.baseUrl as full ingestion URL when it includes the ingestion path', async () => {
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ successes: [], errors: [] })
+      } as Response);
+
+      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
+      await langfuseCompat.sendBatch(payload, mockManifest, {
+        providerConfig: { baseUrl: 'https://override.langfuse.com/api/public/ingestion' }
+      });
+
+      const fetchCall = mockFetch.mock.calls[0];
+      expect(fetchCall[0]).toBe('https://override.langfuse.com/api/public/ingestion');
+    });
+
+    it('handles relative URL templates when baseUrl override is provided', async () => {
+      delete process.env.MISSING_VAR;
+
+      const missingManifest: ObservabilityProviderManifest = {
+        ...mockManifest,
+        endpoint: {
+          ...mockManifest.endpoint,
+          urlTemplate: '${MISSING_VAR}/api/public/ingestion'
+        }
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ successes: [], errors: [] })
+      } as Response);
+
+      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], missingManifest);
+      await langfuseCompat.sendBatch(payload, missingManifest, {
+        providerConfig: { baseUrl: 'https://override.langfuse.com' }
+      });
+
+      const fetchCall = mockFetch.mock.calls[0];
+      expect(fetchCall[0]).toBe('https://override.langfuse.com/api/public/ingestion');
+    });
+
+    it('handles relative URL templates without a leading slash when baseUrl override is provided', async () => {
+      delete process.env.MISSING_VAR;
+
+      const missingManifest: ObservabilityProviderManifest = {
+        ...mockManifest,
+        endpoint: {
+          ...mockManifest.endpoint,
+          urlTemplate: '${MISSING_VAR}api/public/ingestion'
+        }
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ successes: [], errors: [] })
+      } as Response);
+
+      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], missingManifest);
+      await langfuseCompat.sendBatch(payload, missingManifest, {
+        providerConfig: { baseUrl: 'https://override.langfuse.com' }
+      });
+
+      const fetchCall = mockFetch.mock.calls[0];
+      expect(fetchCall[0]).toBe('https://override.langfuse.com/api/public/ingestion');
+    });
+
     it('resolves custom host from env var', async () => {
       process.env.LANGFUSE_HOST = 'https://custom.langfuse.com';
 

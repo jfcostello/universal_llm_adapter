@@ -675,6 +675,17 @@ export interface ObservabilityBatchResult {
 }
 
 /**
+ * Optional context passed to observability compat modules.
+ * This enables provider-specific runtime overrides without leaking provider logic into core modules.
+ */
+export interface ObservabilityCompatContext {
+  /**
+   * Provider-specific configuration overrides (opaque to core).
+   */
+  providerConfig?: Record<string, unknown>;
+}
+
+/**
  * Interface for observability compat modules.
  * Implementations translate provider-agnostic events into provider-specific payloads.
  */
@@ -688,7 +699,8 @@ export interface IObservabilityCompat {
    */
   buildBatch(
     events: unknown[],
-    manifest: ObservabilityProviderManifest
+    manifest: ObservabilityProviderManifest,
+    context?: ObservabilityCompatContext
   ): {
     payload: unknown;
     /**
@@ -709,7 +721,8 @@ export interface IObservabilityCompat {
    */
   sendBatch(
     payload: unknown,
-    manifest: ObservabilityProviderManifest
+    manifest: ObservabilityProviderManifest,
+    context?: ObservabilityCompatContext
   ): Promise<ObservabilityBatchResult>;
 }
 

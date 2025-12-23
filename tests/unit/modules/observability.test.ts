@@ -254,6 +254,58 @@ describe('modules/observability', () => {
       await exporter.shutdown();
     });
 
+    test('passes providerConfig through to compat build/send methods', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      const providerConfig = { baseUrl: 'https://override.langfuse.com' };
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({
+          payload: {},
+          eventIndexByEnvelopeId: new Map<string, number>([['envelope-0', 0]])
+        })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          providerConfig,
+          flushAt: 100,
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 3,
+          baseDelayMs: 250,
+          maxDelayMs: 30000,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
+      await exporter.flush();
+
+      expect(mockCompat.buildBatch).toHaveBeenCalledWith(
+        expect.any(Array),
+        mockManifest,
+        { providerConfig }
+      );
+      expect(mockCompat.sendBatch).toHaveBeenCalledWith(
+        {},
+        mockManifest,
+        { providerConfig }
+      );
+
+      await exporter.shutdown();
+    });
+
     test('warns when max attempts exceeded', async () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
 

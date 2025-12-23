@@ -8,6 +8,7 @@ import type {
   ObservabilityProviderManifest,
   ObservabilityBatchResult,
   ObservabilityEnvelopeOutcome,
+  ObservabilityCompatContext,
   ObservabilityLLMRequestEvent,
   ObservabilityLLMResponseEvent
 } from '../../../../modules/kernel/index.js';
@@ -101,6 +102,44 @@ function buildUrl(urlTemplate: string): string {
 }
 
 /**
+ * Resolve the final ingestion URL, with optional per-call overrides.
+ * Provider-specific overrides are passed via `context.providerConfig`.
+ */
+function resolveIngestionUrl(
+  manifest: ObservabilityProviderManifest,
+  context?: ObservabilityCompatContext
+): string {
+  const resolvedFromTemplate = buildUrl(manifest.endpoint.urlTemplate);
+
+  const providerConfig = context?.providerConfig as Record<string, unknown> | undefined;
+  const baseUrl = typeof (providerConfig as any)?.baseUrl === 'string'
+    ? String((providerConfig as any).baseUrl).trim()
+    : '';
+
+  if (!baseUrl) {
+    return resolvedFromTemplate;
+  }
+
+  // Allow passing the full ingestion URL as `baseUrl` for flexibility.
+  if (baseUrl.includes('/api/public/ingestion')) {
+    return baseUrl;
+  }
+
+  let pathnameAndSearch = '';
+  try {
+    const parsed = new URL(resolvedFromTemplate);
+    pathnameAndSearch = `${parsed.pathname}${parsed.search}`;
+  } catch {
+    // If the template is relative (e.g. missing env var), fall back to simple concatenation.
+    pathnameAndSearch = resolvedFromTemplate.startsWith('/')
+      ? resolvedFromTemplate
+      : `/${resolvedFromTemplate}`;
+  }
+
+  return `${baseUrl.replace(/\/$/, '')}${pathnameAndSearch}`;
+}
+
+/**
  * Determine if an HTTP status code indicates a retryable error.
  */
 function isRetryableStatus(status: number): boolean {
@@ -125,7 +164,8 @@ export class LangfuseCompat implements IObservabilityCompat {
    */
   buildBatch(
     events: unknown[],
-    manifest: ObservabilityProviderManifest
+    manifest: ObservabilityProviderManifest,
+    _context?: ObservabilityCompatContext
   ): {
     payload: LangfuseBatchPayload;
     eventIndexByEnvelopeId: Map<string, number>;
@@ -290,10 +330,11 @@ export class LangfuseCompat implements IObservabilityCompat {
    */
   async sendBatch(
     payload: unknown,
-    manifest: ObservabilityProviderManifest
+    manifest: ObservabilityProviderManifest,
+    context?: ObservabilityCompatContext
   ): Promise<ObservabilityBatchResult> {
     const batchPayload = payload as LangfuseBatchPayload;
-    const url = buildUrl(manifest.endpoint.urlTemplate);
+    const url = resolveIngestionUrl(manifest, context);
 
     // Build headers
     const headers: Record<string, string> = {

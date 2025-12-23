@@ -12,6 +12,7 @@ import type {
   ObservabilityLLMResponseEvent,
   ObservabilityRecordResult,
   IObservabilityCompat,
+  ObservabilityCompatContext,
   ObservabilityProviderManifest,
   DefaultSettings
 } from '../../kernel/index.js';
@@ -82,6 +83,9 @@ export function sleep(ms: number): Promise<void> {
 export interface ObservabilityExporterConfig {
   /** Observability provider ID */
   provider: string;
+
+  /** Provider-specific configuration overrides (opaque to core) */
+  providerConfig?: Record<string, unknown>;
 
   /** Flush when queue reaches this size */
   flushAt: number;
@@ -228,6 +232,10 @@ export class ObservabilityExporter implements IObservabilityExporter {
     const events = [...this.queue];
     this.queue = [];
 
+    const compatContext: ObservabilityCompatContext | undefined = this.config.providerConfig
+      ? { providerConfig: this.config.providerConfig }
+      : undefined;
+
     let attempt = 0;
     let eventsToRetry = events;
 
@@ -236,11 +244,12 @@ export class ObservabilityExporter implements IObservabilityExporter {
         // Build batch
         const { payload, eventIndexByEnvelopeId } = this.compat.buildBatch(
           eventsToRetry.map(e => e.data),
-          this.manifest
+          this.manifest,
+          compatContext
         );
 
         // Send batch
-        const result = await this.compat.sendBatch(payload, this.manifest);
+        const result = await this.compat.sendBatch(payload, this.manifest, compatContext);
 
         if (result.success) {
           // All events sent successfully
@@ -326,6 +335,7 @@ function resolveConfig(
 
   return {
     provider,
+    providerConfig: spec?.providerConfig,
     flushAt: spec?.flushAt ?? defaults.flushAt,
     flushIntervalMs: spec?.flushIntervalMs ?? defaults.flushIntervalMs,
     maxQueueSize: spec?.maxQueueSize ?? defaults.maxQueueSize,
