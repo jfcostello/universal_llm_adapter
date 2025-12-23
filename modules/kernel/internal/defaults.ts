@@ -95,6 +95,16 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
   },
   paths: {
     plugins: './plugins'
+  },
+  observability: {
+    enabled: false,
+    flushAt: 10,
+    flushIntervalMs: 5000,
+    maxQueueSize: 1000,
+    maxAttempts: 3,
+    baseDelayMs: 250,
+    maxDelayMs: 30000,
+    timeoutMs: 10000
   }
 };
 

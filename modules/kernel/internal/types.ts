@@ -1,3 +1,5 @@
+import type { ObservabilitySpec } from './observability-spec-types.js';
+
 export type JsonValue = string | number | boolean | null | JsonObject | JsonArray;
 export interface JsonObject { [key: string]: JsonValue; }
 export interface JsonArray extends Array<JsonValue> {}
@@ -400,6 +402,8 @@ export interface LLMCallSpec {
   rateLimitRetryDelays?: number[];
   settings: LLMCallSettings;
   metadata?: JsonObject;
+  /** Optional observability configuration for this call */
+  observability?: ObservabilitySpec;
 }
 
 export interface UsageStats {
@@ -997,6 +1001,68 @@ export interface PathDefaults {
 }
 
 /**
+ * Observability default settings.
+ * Controls optional export of LLM request/response data to observability platforms.
+ */
+export interface ObservabilityDefaults {
+  /**
+   * Whether observability is enabled globally.
+   * Individual calls can override this via spec.observability.enabled.
+   * @default false
+   */
+  enabled: boolean;
+
+  /**
+   * Default observability provider ID (e.g., 'langfuse').
+   * Must match an ID from plugins/observability-providers/*.json.
+   */
+  provider?: string;
+
+  /**
+   * Number of events to accumulate before triggering a flush.
+   * @default 10
+   */
+  flushAt: number;
+
+  /**
+   * Maximum interval (ms) between flushes.
+   * @default 5000
+   */
+  flushIntervalMs: number;
+
+  /**
+   * Maximum number of events to hold in the queue.
+   * When exceeded, oldest events are dropped with a warning.
+   * @default 1000
+   */
+  maxQueueSize: number;
+
+  /**
+   * Maximum retry attempts for failed exports.
+   * @default 3
+   */
+  maxAttempts: number;
+
+  /**
+   * Base delay (ms) for exponential backoff on retries.
+   * @default 250
+   */
+  baseDelayMs: number;
+
+  /**
+   * Maximum delay (ms) cap for exponential backoff.
+   * @default 30000
+   */
+  maxDelayMs: number;
+
+  /**
+   * HTTP request timeout (ms) for export requests.
+   * @default 10000
+   */
+  timeoutMs: number;
+}
+
+/**
  * Root interface containing all default settings categories.
  * Loaded from plugins/configs/defaults.json
  */
@@ -1010,4 +1076,5 @@ export interface DefaultSettings {
   timeouts: TimeoutDefaults;
   server: ServerDefaults;
   paths: PathDefaults;
+  observability: ObservabilityDefaults;
 }

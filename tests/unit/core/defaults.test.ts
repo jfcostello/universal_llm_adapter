@@ -24,6 +24,7 @@ describe('core/defaults', () => {
       expect(defaults).toHaveProperty('timeouts');
       expect(defaults).toHaveProperty('server');
       expect(defaults).toHaveProperty('paths');
+      expect(defaults).toHaveProperty('observability');
     });
 
     test('returns correct retry defaults', async () => {
@@ -128,6 +129,21 @@ describe('core/defaults', () => {
       const { paths } = getDefaults();
 
       expect(paths.plugins).toBe('./plugins');
+    });
+
+    test('returns correct observability defaults', async () => {
+      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { observability } = getDefaults();
+
+      expect(observability.enabled).toBe(false);
+      expect(observability.provider).toBe('langfuse');
+      expect(observability.flushAt).toBe(10);
+      expect(observability.flushIntervalMs).toBe(5000);
+      expect(observability.maxQueueSize).toBe(1000);
+      expect(observability.maxAttempts).toBe(3);
+      expect(observability.baseDelayMs).toBe(250);
+      expect(observability.maxDelayMs).toBe(30000);
+      expect(observability.timeoutMs).toBe(10000);
     });
 
     test('caches defaults after first load', async () => {
@@ -245,7 +261,7 @@ describe('core/defaults', () => {
 
       // TypeScript would catch missing properties at compile time,
       // but we verify runtime structure here
-      const requiredKeys = ['retry', 'tools', 'vector', 'chunking', 'tokenEstimation', 'timeouts', 'server', 'paths'];
+      const requiredKeys = ['retry', 'tools', 'vector', 'chunking', 'tokenEstimation', 'timeouts', 'server', 'paths', 'observability'];
       for (const key of requiredKeys) {
         expect(defaults).toHaveProperty(key);
         expect(defaults[key as keyof typeof defaults]).toBeDefined();
@@ -287,6 +303,24 @@ describe('core/defaults', () => {
       expect(typeof vector.includePayload).toBe('boolean');
       expect(typeof vector.includeVector).toBe('boolean');
       expect(typeof vector.defaultCollection).toBe('string');
+    });
+
+    test('observability defaults have correct types', async () => {
+      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { observability } = getDefaults();
+
+      expect(typeof observability.enabled).toBe('boolean');
+      // provider is optional but should be a string if present
+      if (observability.provider !== undefined) {
+        expect(typeof observability.provider).toBe('string');
+      }
+      expect(typeof observability.flushAt).toBe('number');
+      expect(typeof observability.flushIntervalMs).toBe('number');
+      expect(typeof observability.maxQueueSize).toBe('number');
+      expect(typeof observability.maxAttempts).toBe('number');
+      expect(typeof observability.baseDelayMs).toBe('number');
+      expect(typeof observability.maxDelayMs).toBe('number');
+      expect(typeof observability.timeoutMs).toBe('number');
     });
   });
 });

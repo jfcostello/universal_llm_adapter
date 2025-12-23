@@ -89,5 +89,16 @@
   },
   "paths": {
     "plugins": "./plugins"
+  },
+  "observability": {
+    "enabled": false,
+    "provider": "langfuse",
+    "flushAt": 10,
+    "flushIntervalMs": 5000,
+    "maxQueueSize": 1000,
+    "maxAttempts": 3,
+    "baseDelayMs": 250,
+    "maxDelayMs": 30000,
+    "timeoutMs": 10000
   }
 }
