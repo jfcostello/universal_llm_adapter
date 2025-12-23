@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import { randomUUID } from 'crypto';
 import type {
   ProviderManifest,
   LLMCallSettings,
@@ -32,6 +33,7 @@ export class LLMManager {
     context: RunContext,
     provider: string,
     model: string,
+    generationId: string | undefined,
     startTime: number,
     response?: LLMResponse,
     error?: { message: string; code?: string; retryable?: boolean },
@@ -43,6 +45,7 @@ export class LLMManager {
       const durationMs = Date.now() - startTime;
       context.observability.exporter.recordLLMResponse({
         traceId: context.observability.traceId,
+        generationId,
         timestamp: new Date().toISOString(),
         provider,
         model,
@@ -79,6 +82,7 @@ export class LLMManager {
     context: RunContext = {}
   ): Promise<LLMResponse> {
     const startTime = Date.now();
+    const generationId = randomUUID();
     const normalizedMessages = aggregateSystemMessages(messages);
     const compat = await this.registry.getCompatModule(provider.compat);
     const providerRequestsHttp = this.isHttpUrlTemplate(provider.endpoint?.urlTemplate);
@@ -88,6 +92,7 @@ export class LLMManager {
       try {
         context.observability.exporter.recordLLMRequest({
           traceId: context.observability.traceId,
+          generationId,
           timestamp: new Date().toISOString(),
           provider: provider.id,
           model,
@@ -183,7 +188,16 @@ export class LLMManager {
         }
 
         // Record successful response to observability
-        this.recordObservabilityResponse(context, provider.id, model, startTime, response, undefined, logger);
+        this.recordObservabilityResponse(
+          context,
+          provider.id,
+          model,
+          generationId,
+          startTime,
+          response,
+          undefined,
+          logger
+        );
 
         return response;
       } catch (error: any) {
@@ -192,6 +206,7 @@ export class LLMManager {
           context,
           provider.id,
           model,
+          generationId,
           startTime,
           undefined,
           { message: error.message, retryable: error instanceof ProviderExecutionError ? error.isRateLimit : false },
@@ -402,6 +417,7 @@ export class LLMManager {
             context,
             provider.id,
             model,
+            generationId,
             startTime,
             undefined,
             { message: JSON.stringify(response.data), code: String(response.status), retryable: isRateLimit },
@@ -422,7 +438,16 @@ export class LLMManager {
       parsed.provider = provider.id;
 
       // Record successful HTTP response to observability
-      this.recordObservabilityResponse(context, provider.id, model, startTime, parsed, undefined, logger);
+      this.recordObservabilityResponse(
+        context,
+        provider.id,
+        model,
+        generationId,
+        startTime,
+        parsed,
+        undefined,
+        logger
+      );
 
       return parsed;
 
@@ -433,6 +458,7 @@ export class LLMManager {
           context,
           provider.id,
           model,
+          generationId,
           startTime,
           undefined,
           { message: error.message, retryable: false },

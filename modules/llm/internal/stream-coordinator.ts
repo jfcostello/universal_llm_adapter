@@ -12,6 +12,7 @@ import { StreamEventType, ToolCallEventType, getDefaults, safeJsonParse } from '
 import { normalizeFlag } from '../../shared/index.js';
 import { partitionSettings } from '../../settings/index.js';
 import { usageStatsToJson } from '../../usage/index.js';
+import { randomUUID } from 'crypto';
 
 interface StreamingContext {
   provider: string;
@@ -39,6 +40,7 @@ export class StreamCoordinator {
     options?: { requireFinishToExecute?: boolean }
   ): AsyncGenerator<LLMStreamEvent> {
     const startTime = Date.now();
+    const generationId = randomUUID();
     const { runtime, provider: providerSettings, providerExtras } = partitionSettings(spec.settings);
     const executionSpec: LLMCallSpec = {
       ...spec,
@@ -56,6 +58,7 @@ export class StreamCoordinator {
       try {
         context.observability.exporter.recordLLMRequest({
           traceId: context.observability.traceId,
+          generationId,
           timestamp: new Date().toISOString(),
           provider: providerManifest.id,
           model,
@@ -335,6 +338,7 @@ export class StreamCoordinator {
 
         context.observability.exporter.recordLLMResponse({
           traceId: context.observability.traceId,
+          generationId,
           timestamp: new Date().toISOString(),
           provider: providerManifest.id,
           model,

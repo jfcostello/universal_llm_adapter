@@ -121,6 +121,11 @@ describe('StreamCoordinator observability', () => {
         durationMs: expect.any(Number)
       })
     );
+
+    const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
+    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+    expect(typeof requestArg.generationId).toBe('string');
+    expect(requestArg.generationId).toBe(responseArg.generationId);
   });
 
   test('records usage + totalTokens when promptTokens is present', async () => {

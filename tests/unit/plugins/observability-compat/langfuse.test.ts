@@ -34,6 +34,7 @@ describe('LangfuseCompat', () => {
 
   const mockRequestEvent: ObservabilityLLMRequestEvent = {
     traceId: 'trace-123',
+    generationId: 'gen-abc',
     sessionId: 'session-456',
     timestamp: '2024-01-01T00:00:00.000Z',
     provider: 'openai',
@@ -48,6 +49,7 @@ describe('LangfuseCompat', () => {
 
   const mockResponseEvent: ObservabilityLLMResponseEvent = {
     traceId: 'trace-123',
+    generationId: 'gen-abc',
     timestamp: '2024-01-01T00:00:01.000Z',
     provider: 'openai',
     model: 'gpt-4',
@@ -95,6 +97,7 @@ describe('LangfuseCompat', () => {
       const genEvent = result.payload.batch.find((e: any) => e.type === 'generation-create');
       expect(genEvent).toBeDefined();
       expect(genEvent!.body.traceId).toBe('trace-123');
+      expect(genEvent!.body.id).toBe('gen-abc');
       expect(genEvent!.body.model).toBe('gpt-4');
       expect(genEvent!.body.modelParameters).toEqual({ temperature: 0.7 });
     });
@@ -109,6 +112,7 @@ describe('LangfuseCompat', () => {
       const updateEvent = result.payload.batch[0];
       expect(updateEvent.type).toBe('generation-update');
       expect(updateEvent.body.traceId).toBe('trace-123');
+      expect(updateEvent.body.id).toBe('gen-abc');
       expect(updateEvent.body.output).toEqual(mockResponseEvent.content);
       expect(updateEvent.body.usage).toEqual({
         input: 10,

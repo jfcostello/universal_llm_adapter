@@ -270,6 +270,7 @@ export class LangfuseCompat implements IObservabilityCompat {
     const events: LangfuseIngestionEvent[] = [];
     const traceEnvelopeId = randomUUID();
     const generationEnvelopeId = randomUUID();
+    const generationId = event.generationId ?? `${event.traceId}-gen`;
 
     // Create trace event
     events.push({
@@ -297,7 +298,7 @@ export class LangfuseCompat implements IObservabilityCompat {
       type: 'generation-create',
       timestamp: event.timestamp,
       body: {
-        id: `${event.traceId}-gen`,
+        id: generationId,
         traceId: event.traceId,
         name: 'llm-request',
         startTime: event.timestamp,
@@ -319,10 +320,11 @@ export class LangfuseCompat implements IObservabilityCompat {
   private buildResponseEvents(event: ObservabilityLLMResponseEvent): LangfuseIngestionEvent[] {
     const events: LangfuseIngestionEvent[] = [];
     const envelopeId = randomUUID();
+    const generationId = event.generationId ?? `${event.traceId}-gen`;
 
     // Create generation-update event
     const body: Record<string, unknown> = {
-      id: `${event.traceId}-gen`,
+      id: generationId,
       traceId: event.traceId,
       endTime: event.timestamp,
       output: event.content,

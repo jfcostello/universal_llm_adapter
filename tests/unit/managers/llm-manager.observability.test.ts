@@ -67,6 +67,9 @@ describe('LLMManager observability', () => {
         metadata: { correlationId: 'corr-789' }
       })
     );
+
+    const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
+    expect(typeof requestArg.generationId).toBe('string');
   });
 
   test('callProvider records LLM response on success', async () => {
@@ -113,6 +116,10 @@ describe('LLMManager observability', () => {
         metadata: { correlationId: 'corr-789' }
       })
     );
+
+    const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
+    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+    expect(requestArg.generationId).toBe(responseArg.generationId);
   });
 
   test('callProvider records error response on SDK failure', async () => {

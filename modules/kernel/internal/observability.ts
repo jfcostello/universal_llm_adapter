@@ -31,6 +31,12 @@ export interface ObservabilityLLMRequestEvent {
   /** Trace ID for grouping related events */
   traceId: string;
 
+  /**
+   * Generation ID for this provider attempt within the trace.
+   * When present, it should be stable across request+response events.
+   */
+  generationId?: string;
+
   /** Optional session ID */
   sessionId?: string;
 
@@ -63,6 +69,12 @@ export interface ObservabilityLLMRequestEvent {
 export interface ObservabilityLLMResponseEvent {
   /** Trace ID (must match the request) */
   traceId: string;
+
+  /**
+   * Generation ID for this provider attempt within the trace.
+   * Should match the request's generationId when present.
+   */
+  generationId?: string;
 
   /** Response timestamp (ISO 8601) */
   timestamp: string;
