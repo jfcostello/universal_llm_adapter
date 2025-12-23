@@ -691,7 +691,13 @@ export interface IObservabilityCompat {
     manifest: ObservabilityProviderManifest
   ): {
     payload: unknown;
-    envelopeByEventId: Map<string, string>;
+    /**
+     * Maps each provider envelope ID (returned in `ObservabilityBatchResult.outcomes`)
+     * to the source event index in the `events` array passed to `buildBatch()`.
+     *
+     * This allows the exporter to retry the correct subset of events on partial failures.
+     */
+    eventIndexByEnvelopeId: Map<string, number>;
   };
 
   /**

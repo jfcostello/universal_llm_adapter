@@ -174,7 +174,7 @@ describe('modules/observability', () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
 
       const mockCompat = {
-        buildBatch: jest.fn(() => ({ payload: {}, envelopeByEventId: new Map() })),
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
         sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
       };
 
@@ -219,7 +219,7 @@ describe('modules/observability', () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
 
       const mockCompat = {
-        buildBatch: jest.fn(() => ({ payload: {}, envelopeByEventId: new Map() })),
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
         sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
       };
 
@@ -260,7 +260,7 @@ describe('modules/observability', () => {
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       const mockCompat = {
-        buildBatch: jest.fn(() => ({ payload: {}, envelopeByEventId: new Map() })),
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
         sendBatch: jest.fn(async () => {
           throw new Error('Network error');
         })
@@ -305,7 +305,7 @@ describe('modules/observability', () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
 
       const mockCompat = {
-        buildBatch: jest.fn(() => ({ payload: {}, envelopeByEventId: new Map() })),
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
         sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
       };
 
@@ -355,7 +355,7 @@ describe('modules/observability', () => {
 
       let exporterRef: any;
       const mockCompat = {
-        buildBatch: jest.fn(() => ({ payload: {}, envelopeByEventId: new Map() })),
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
         sendBatch: jest.fn(async () => {
           // Call shutdown from within sendBatch to simulate shutdown during flush
           // This sets shuttingDown = true before startFlushTimer is called
@@ -413,7 +413,7 @@ describe('modules/observability', () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
 
       const mockCompat = {
-        buildBatch: jest.fn(() => ({ payload: {}, envelopeByEventId: new Map() })),
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
         sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
       };
 
@@ -457,7 +457,7 @@ describe('modules/observability', () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
 
       const mockCompat = {
-        buildBatch: jest.fn(() => ({ payload: {}, envelopeByEventId: new Map() })),
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
         sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
       };
 
@@ -517,7 +517,7 @@ describe('modules/observability', () => {
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       const mockCompat = {
-        buildBatch: jest.fn(() => ({ payload: {}, envelopeByEventId: new Map() })),
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
         sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
       };
 
@@ -560,7 +560,7 @@ describe('modules/observability', () => {
 
       let callCount = 0;
       const mockCompat = {
-        buildBatch: jest.fn(() => ({ payload: {}, envelopeByEventId: new Map() })),
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
         sendBatch: jest.fn(async () => {
           callCount++;
           if (callCount < 3) {
@@ -608,7 +608,7 @@ describe('modules/observability', () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
 
       const mockCompat = {
-        buildBatch: jest.fn(() => ({ payload: {}, envelopeByEventId: new Map() })),
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
         sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
       };
 
@@ -650,17 +650,13 @@ describe('modules/observability', () => {
     test('handles partial success with retryable outcomes', async () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
 
-      // Track the current envelope ID for this event
-      let currentEnvelopeId = 'envelope-0';
-
       const mockCompat = {
-        buildBatch: jest.fn((events: { traceId: string }[]) => {
-          // Map each event's traceId to the current envelope ID
-          const envelopeByEventId = new Map<string, string>();
-          events.forEach((e) => {
-            envelopeByEventId.set(e.traceId, currentEnvelopeId);
-          });
-          return { payload: {}, envelopeByEventId };
+        buildBatch: jest.fn((events: unknown[]) => {
+          const eventIndexByEnvelopeId = new Map<string, number>();
+          for (let index = 0; index < events.length; index++) {
+            eventIndexByEnvelopeId.set(`envelope-${index}`, index);
+          }
+          return { payload: {}, eventIndexByEnvelopeId };
         }),
         sendBatch: jest.fn()
           .mockResolvedValueOnce({
@@ -711,11 +707,64 @@ describe('modules/observability', () => {
       await exporter.shutdown();
     });
 
+    test('retries all events when a retryable outcome cannot be mapped to an event index', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })), // Intentionally empty map
+        sendBatch: jest.fn()
+          .mockResolvedValueOnce({
+            success: false,
+            outcomes: [{ envelopeId: 'unknown-envelope', success: false, retryable: true }]
+          })
+          .mockResolvedValueOnce({
+            success: true,
+            outcomes: []
+          })
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 100,
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 2,
+          baseDelayMs: 1,
+          maxDelayMs: 1,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
+      exporter.recordLLMRequest({ traceId: 'trace-2', timestamp: '', provider: '', model: '', messages: [] });
+
+      await exporter.flush();
+
+      expect(mockCompat.sendBatch).toHaveBeenCalledTimes(2);
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[observability] Retryable envelope outcome could not be mapped to an event index; retrying all events'
+      );
+
+      warnSpy.mockRestore();
+      await exporter.shutdown();
+    });
+
     test('handles partial success with non-retryable outcomes', async () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
 
       const mockCompat = {
-        buildBatch: jest.fn(() => ({ payload: {}, envelopeByEventId: new Map() })),
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
         sendBatch: jest.fn(async () => ({
           success: false,
           outcomes: [
@@ -764,7 +813,7 @@ describe('modules/observability', () => {
       const flushPromise = new Promise<void>(resolve => { resolveFlush = resolve; });
 
       const mockCompat = {
-        buildBatch: jest.fn(() => ({ payload: {}, envelopeByEventId: new Map() })),
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
         sendBatch: jest.fn(async () => {
           await flushPromise;
           return { success: true, outcomes: [] };
@@ -931,7 +980,7 @@ describe('modules/observability', () => {
       const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
 
       const mockCompat = {
-        buildBatch: jest.fn(() => ({ payload: {}, envelopeByEventId: new Map() })),
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
         sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
       };
 

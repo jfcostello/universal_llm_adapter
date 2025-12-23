@@ -128,12 +128,13 @@ export class LangfuseCompat implements IObservabilityCompat {
     manifest: ObservabilityProviderManifest
   ): {
     payload: LangfuseBatchPayload;
-    envelopeByEventId: Map<string, string>;
+    eventIndexByEnvelopeId: Map<string, number>;
   } {
     const batch: LangfuseIngestionEvent[] = [];
-    const envelopeByEventId = new Map<string, string>();
+    const eventIndexByEnvelopeId = new Map<string, number>();
 
-    for (const event of events) {
+    for (let eventIndex = 0; eventIndex < events.length; eventIndex++) {
+      const event = events[eventIndex];
       const typedEvent = event as ObservabilityLLMRequestEvent | ObservabilityLLMResponseEvent;
 
       // Determine if this is a request or response
@@ -145,8 +146,8 @@ export class LangfuseCompat implements IObservabilityCompat {
 
         for (const ingestionEvent of ingestionEvents) {
           batch.push(ingestionEvent);
-          // Map the original event's trace ID to the envelope ID for correlation
-          envelopeByEventId.set(requestEvent.traceId, ingestionEvent.id);
+          // Map each envelope ID back to the source event index for retry correlation
+          eventIndexByEnvelopeId.set(ingestionEvent.id, eventIndex);
         }
       } else {
         const responseEvent = typedEvent as ObservabilityLLMResponseEvent;
@@ -154,7 +155,7 @@ export class LangfuseCompat implements IObservabilityCompat {
 
         for (const ingestionEvent of ingestionEvents) {
           batch.push(ingestionEvent);
-          envelopeByEventId.set(responseEvent.traceId, ingestionEvent.id);
+          eventIndexByEnvelopeId.set(ingestionEvent.id, eventIndex);
         }
       }
     }
@@ -167,7 +168,7 @@ export class LangfuseCompat implements IObservabilityCompat {
       }
     };
 
-    return { payload, envelopeByEventId };
+    return { payload, eventIndexByEnvelopeId };
   }
 
   /**

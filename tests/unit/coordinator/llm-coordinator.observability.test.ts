@@ -114,7 +114,7 @@ describe('LLMCoordinator observability', () => {
         endpoint: { host: 'http://test.com' }
       });
       registry.getObservabilityCompat = jest.fn().mockResolvedValue({
-        buildBatch: jest.fn().mockReturnValue({ payload: [], envelopeByEventId: new Map() }),
+        buildBatch: jest.fn().mockReturnValue({ payload: [], eventIndexByEnvelopeId: new Map() }),
         sendBatch: jest.fn().mockResolvedValue({ success: true, outcomes: [] })
       });
 
@@ -137,7 +137,7 @@ describe('LLMCoordinator observability', () => {
         endpoint: { host: 'http://test.com' }
       });
       registry.getObservabilityCompat = jest.fn().mockResolvedValue({
-        buildBatch: jest.fn().mockReturnValue({ payload: [], envelopeByEventId: new Map() }),
+        buildBatch: jest.fn().mockReturnValue({ payload: [], eventIndexByEnvelopeId: new Map() }),
         sendBatch: jest.fn().mockResolvedValue({ success: true, outcomes: [] })
       });
 
@@ -162,7 +162,7 @@ describe('LLMCoordinator observability', () => {
         endpoint: { host: 'http://test.com' }
       });
       registry.getObservabilityCompat = jest.fn().mockResolvedValue({
-        buildBatch: jest.fn().mockReturnValue({ payload: [], envelopeByEventId: new Map() }),
+        buildBatch: jest.fn().mockReturnValue({ payload: [], eventIndexByEnvelopeId: new Map() }),
         sendBatch: jest.fn().mockResolvedValue({ success: true, outcomes: [] })
       });
 
@@ -184,7 +184,7 @@ describe('LLMCoordinator observability', () => {
         endpoint: { host: 'http://test.com' }
       });
       registry.getObservabilityCompat = jest.fn().mockResolvedValue({
-        buildBatch: jest.fn().mockReturnValue({ payload: [], envelopeByEventId: new Map() }),
+        buildBatch: jest.fn().mockReturnValue({ payload: [], eventIndexByEnvelopeId: new Map() }),
         sendBatch: jest.fn().mockResolvedValue({ success: true, outcomes: [] })
       });
 
@@ -206,7 +206,7 @@ describe('LLMCoordinator observability', () => {
         endpoint: { host: 'http://test.com' }
       });
       registry.getObservabilityCompat = jest.fn().mockResolvedValue({
-        buildBatch: jest.fn().mockReturnValue({ payload: [], envelopeByEventId: new Map() }),
+        buildBatch: jest.fn().mockReturnValue({ payload: [], eventIndexByEnvelopeId: new Map() }),
         sendBatch: jest.fn().mockResolvedValue({ success: true, outcomes: [] })
       });
 
@@ -230,7 +230,7 @@ describe('LLMCoordinator observability', () => {
         endpoint: { host: 'http://test.com' }
       });
       registry.getObservabilityCompat = jest.fn().mockResolvedValue({
-        buildBatch: jest.fn().mockReturnValue({ payload: [], envelopeByEventId: new Map() }),
+        buildBatch: jest.fn().mockReturnValue({ payload: [], eventIndexByEnvelopeId: new Map() }),
         sendBatch: jest.fn().mockResolvedValue({ success: true, outcomes: [] })
       });
 

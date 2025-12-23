@@ -81,7 +81,7 @@ describe('LangfuseCompat', () => {
 
       expect(result.payload).toBeDefined();
       expect(result.payload.batch).toHaveLength(2); // trace-create + generation-create
-      expect(result.envelopeByEventId.size).toBeGreaterThan(0);
+      expect(result.eventIndexByEnvelopeId.size).toBeGreaterThan(0);
 
       // Check trace-create event
       const traceEvent = result.payload.batch.find((e: any) => e.type === 'trace-create');
@@ -103,7 +103,7 @@ describe('LangfuseCompat', () => {
       const result = langfuseCompat.buildBatch([mockResponseEvent], mockManifest);
 
       expect(result.payload.batch).toHaveLength(1); // generation-update
-      expect(result.envelopeByEventId.size).toBeGreaterThan(0);
+      expect(result.eventIndexByEnvelopeId.size).toBeGreaterThan(0);
 
       // Check generation-update event
       const updateEvent = result.payload.batch[0];

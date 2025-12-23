@@ -234,7 +234,7 @@ export class ObservabilityExporter implements IObservabilityExporter {
     while (eventsToRetry.length > 0 && attempt < this.config.maxAttempts) {
       try {
         // Build batch
-        const { payload, envelopeByEventId } = this.compat.buildBatch(
+        const { payload, eventIndexByEnvelopeId } = this.compat.buildBatch(
           eventsToRetry.map(e => e.data),
           this.manifest
         );
@@ -246,24 +246,29 @@ export class ObservabilityExporter implements IObservabilityExporter {
           // All events sent successfully
           eventsToRetry = [];
         } else {
-          // Check per-envelope outcomes for retryable failures
-          const retryableEventIds = new Set<string>();
+          // Check per-envelope outcomes for retryable failures.
+          // Map envelope failures back to source event indices so we can retry only the correct events.
+          const retryableEventIndices = new Set<number>();
+          let hasUnmappedRetryableOutcome = false;
 
           for (const outcome of result.outcomes) {
             if (!outcome.success && outcome.retryable) {
-              // Find event IDs that map to this envelope
-              // The envelopeByEventId map is keyed by traceId from the event data
-              for (const event of eventsToRetry) {
-                const traceId = (event.data as ObservabilityLLMRequestEvent).traceId;
-                if (envelopeByEventId.get(traceId) === outcome.envelopeId) {
-                  retryableEventIds.add(event.id);
-                }
+              const eventIndex = eventIndexByEnvelopeId.get(outcome.envelopeId);
+              if (eventIndex === undefined) {
+                hasUnmappedRetryableOutcome = true;
+                continue;
               }
+              retryableEventIndices.add(eventIndex);
             }
           }
 
-          // Keep only retryable events
-          eventsToRetry = eventsToRetry.filter(e => retryableEventIds.has(e.id));
+          if (hasUnmappedRetryableOutcome) {
+            console.warn('[observability] Retryable envelope outcome could not be mapped to an event index; retrying all events');
+            // Retry all events to avoid silently dropping retryable failures.
+          } else {
+            // Keep only retryable events
+            eventsToRetry = eventsToRetry.filter((_event, index) => retryableEventIndices.has(index));
+          }
         }
       } catch (error: any) {
         // Network error or unexpected failure - retry all

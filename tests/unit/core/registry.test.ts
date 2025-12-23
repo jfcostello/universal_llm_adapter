@@ -826,14 +826,14 @@ describe('core/registry', () => {
         const obsCompatDir = path.join(pluginsDir, 'observability-compat');
         fs.mkdirSync(obsCompatDir, { recursive: true });
         fs.writeFileSync(
-          path.join(obsCompatDir, 'test-obs-compat.js'),
-          `module.exports = class TestObsCompat {
-            constructor() { this.kind = 'test-obs'; }
-            buildBatch(events, manifest) { return { payload: {}, envelopeByEventId: new Map() }; }
-            async sendBatch(payload, manifest) { return { success: true, outcomes: [] }; }
-          }`,
-          'utf-8'
-        );
+	          path.join(obsCompatDir, 'test-obs-compat.js'),
+	          `module.exports = class TestObsCompat {
+	            constructor() { this.kind = 'test-obs'; }
+	            buildBatch(events, manifest) { return { payload: {}, eventIndexByEnvelopeId: new Map() }; }
+	            async sendBatch(payload, manifest) { return { success: true, outcomes: [] }; }
+	          }`,
+	          'utf-8'
+	        );
 
         const registry = new PluginRegistry(pluginsDir);
         const manifest = await registry.getObservabilityProvider('test-obs');
@@ -869,14 +869,14 @@ describe('core/registry', () => {
         const obsCompatDir = path.join(pluginsDir, 'observability-compat');
         fs.mkdirSync(obsCompatDir, { recursive: true });
         fs.writeFileSync(
-          path.join(obsCompatDir, 'test-obs-compat.js'),
-          `module.exports = class TestObsCompat {
-            constructor() { this.kind = 'test'; }
-            buildBatch(events, manifest) { return { payload: {}, envelopeByEventId: new Map() }; }
-            async sendBatch(payload, manifest) { return { success: true, outcomes: [] }; }
-          }`,
-          'utf-8'
-        );
+	          path.join(obsCompatDir, 'test-obs-compat.js'),
+	          `module.exports = class TestObsCompat {
+	            constructor() { this.kind = 'test'; }
+	            buildBatch(events, manifest) { return { payload: {}, eventIndexByEnvelopeId: new Map() }; }
+	            async sendBatch(payload, manifest) { return { success: true, outcomes: [] }; }
+	          }`,
+	          'utf-8'
+	        );
 
         const registry = new PluginRegistry(pluginsDir);
         const compatA = await registry.getObservabilityCompat('test-obs-compat');
@@ -950,13 +950,13 @@ describe('core/registry', () => {
         const obsCompatDir = path.join(pluginsDir, 'observability-compat');
         fs.mkdirSync(obsCompatDir, { recursive: true });
         fs.writeFileSync(
-          path.join(obsCompatDir, 'test-obs-compat.js'),
-          `module.exports = class TestObsCompat {
-            buildBatch() { return { payload: {}, envelopeByEventId: new Map() }; }
-            async sendBatch() { return { success: true, outcomes: [] }; }
-          }`,
-          'utf-8'
-        );
+	          path.join(obsCompatDir, 'test-obs-compat.js'),
+	          `module.exports = class TestObsCompat {
+	            buildBatch() { return { payload: {}, eventIndexByEnvelopeId: new Map() }; }
+	            async sendBatch() { return { success: true, outcomes: [] }; }
+	          }`,
+	          'utf-8'
+	        );
 
         const registry = new PluginRegistry(pluginsDir);
         await expect(registry.validateAll()).resolves.toBeUndefined();
