@@ -92,6 +92,9 @@ describe('modules/observability OTLP helpers', () => {
     expect(span.status.code).toBe(2);
     expect(span.status.message).toBe('boom');
     expect(span.duration).toEqual([0, 200000000]);
+    expect((span.resource as any).attributes['service.name']).toBe('universal-llm-adapter');
+    expect(typeof (span.resource as any).attributes['service.version']).toBe('string');
+    expect((span.resource as any).attributes['service.version']).not.toBe('');
 
     const unset = createReadableSpanFromSpec({
       traceIdHex: '0123456789abcdef0123456789abcdef',
@@ -101,6 +104,116 @@ describe('modules/observability OTLP helpers', () => {
       endTimeIso: '1970-01-01T00:00:00.000Z'
     });
     expect(unset.status.code).toBe(0);
+  });
+
+  test('service.version falls back to package.json when env is unset/blank', async () => {
+    jest.resetModules();
+
+    const originalAdapterVersion = process.env.LLM_ADAPTER_VERSION;
+    const originalNpmVersion = process.env.npm_package_version;
+    process.env.LLM_ADAPTER_VERSION = '   ';
+    delete process.env.npm_package_version;
+
+    const { createReadableSpanFromSpec } = await import('@/modules/observability/internal/otlp/spans.ts');
+    const span = createReadableSpanFromSpec({
+      traceIdHex: '0123456789abcdef0123456789abcdef',
+      spanIdHex: '0123456789abcdef',
+      name: 'test',
+      startTimeIso: '1970-01-01T00:00:00.000Z',
+      endTimeIso: '1970-01-01T00:00:00.000Z'
+    });
+
+    const { readFileSync } = await import('fs');
+    const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+    expect((span.resource as any).attributes['service.version']).toBe(pkg.version);
+
+    if (originalAdapterVersion !== undefined) process.env.LLM_ADAPTER_VERSION = originalAdapterVersion;
+    else delete process.env.LLM_ADAPTER_VERSION;
+    if (originalNpmVersion !== undefined) process.env.npm_package_version = originalNpmVersion;
+    else delete process.env.npm_package_version;
+
+    jest.resetModules();
+  });
+
+  test('service.version returns unknown when package.json version is invalid', async () => {
+    jest.resetModules();
+
+    const originalAdapterVersion = process.env.LLM_ADAPTER_VERSION;
+    const originalNpmVersion = process.env.npm_package_version;
+    delete process.env.LLM_ADAPTER_VERSION;
+    delete process.env.npm_package_version;
+
+    const originalFs = await import('fs');
+    let callCount = 0;
+    const fsMock: any = {
+      __esModule: true,
+      ...originalFs,
+      readFileSync: () => {
+        callCount++;
+        if (callCount === 1) return JSON.stringify({ version: '   ' });
+        return JSON.stringify({ version: 123 });
+      }
+    };
+    fsMock.default = fsMock;
+
+    (jest as any).unstable_mockModule('fs', () => fsMock);
+
+    const { createReadableSpanFromSpec } = await import('@/modules/observability/internal/otlp/spans.ts');
+    const span = createReadableSpanFromSpec({
+      traceIdHex: '0123456789abcdef0123456789abcdef',
+      spanIdHex: '0123456789abcdef',
+      name: 'test',
+      startTimeIso: '1970-01-01T00:00:00.000Z',
+      endTimeIso: '1970-01-01T00:00:00.000Z'
+    });
+
+    expect((span.resource as any).attributes['service.version']).toBe('unknown');
+
+    if (originalAdapterVersion !== undefined) process.env.LLM_ADAPTER_VERSION = originalAdapterVersion;
+    else delete process.env.LLM_ADAPTER_VERSION;
+    if (originalNpmVersion !== undefined) process.env.npm_package_version = originalNpmVersion;
+    else delete process.env.npm_package_version;
+
+    jest.resetModules();
+  });
+
+  test('service.version returns unknown when package.json cannot be read', async () => {
+    jest.resetModules();
+
+    const originalAdapterVersion = process.env.LLM_ADAPTER_VERSION;
+    const originalNpmVersion = process.env.npm_package_version;
+    delete process.env.LLM_ADAPTER_VERSION;
+    delete process.env.npm_package_version;
+
+    const originalFs = await import('fs');
+    const fsMock: any = {
+      __esModule: true,
+      ...originalFs,
+      readFileSync: () => {
+        throw new Error('boom');
+      }
+    };
+    fsMock.default = fsMock;
+
+    (jest as any).unstable_mockModule('fs', () => fsMock);
+
+    const { createReadableSpanFromSpec } = await import('@/modules/observability/internal/otlp/spans.ts');
+    const span = createReadableSpanFromSpec({
+      traceIdHex: '0123456789abcdef0123456789abcdef',
+      spanIdHex: '0123456789abcdef',
+      name: 'test',
+      startTimeIso: '1970-01-01T00:00:00.000Z',
+      endTimeIso: '1970-01-01T00:00:00.000Z'
+    });
+
+    expect((span.resource as any).attributes['service.version']).toBe('unknown');
+
+    if (originalAdapterVersion !== undefined) process.env.LLM_ADAPTER_VERSION = originalAdapterVersion;
+    else delete process.env.LLM_ADAPTER_VERSION;
+    if (originalNpmVersion !== undefined) process.env.npm_package_version = originalNpmVersion;
+    else delete process.env.npm_package_version;
+
+    jest.resetModules();
   });
 
   test('createReadableSpanFromSpec clamps negative durations to zero', async () => {
