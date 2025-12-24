@@ -279,6 +279,24 @@ export class ObservabilityExporter implements IObservabilityExporter {
             return [];
           }
 
+          for (const outcome of result.outcomes) {
+            if (outcome.success) continue;
+            if (outcome.retryable === true) continue;
+
+            const eventIndex = eventIndexByEnvelopeId.get(outcome.envelopeId);
+            const event = eventIndex !== undefined ? batchEvents[eventIndex] : undefined;
+            this.logger.warning('Observability envelope export failed (non-retryable)', {
+              provider: this.config.provider,
+              envelopeId: outcome.envelopeId,
+              eventId: event?.id,
+              eventType: event?.type,
+              status: outcome.status,
+              error: typeof outcome.error === 'string' ? outcome.error.slice(0, 500) : undefined,
+              attempt: attempt + 1,
+              maxAttempts: this.config.maxAttempts
+            });
+          }
+
           const retryableEventIndices = new Set<number>();
           let hasUnmappedRetryableOutcome = false;
 

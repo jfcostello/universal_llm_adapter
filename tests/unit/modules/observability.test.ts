@@ -1211,13 +1211,22 @@ describe('modules/observability', () => {
     test('handles partial success with non-retryable outcomes', async () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
 
+      const mockLogger = createMockLogger();
+
       const mockCompat = {
-        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        buildBatch: jest.fn((events: unknown[]) => {
+          const eventIndexByEnvelopeId = new Map<string, number>();
+          for (let index = 0; index < events.length; index++) {
+            eventIndexByEnvelopeId.set(`envelope-${index}`, index);
+          }
+          return { payload: {}, eventIndexByEnvelopeId };
+        }),
         sendBatch: jest.fn(async () => ({
           success: false,
           outcomes: [
             { envelopeId: 'envelope-0', success: true },
-            { envelopeId: 'envelope-1', success: false, retryable: false } // Not retryable
+            { envelopeId: 'envelope-1', success: false, retryable: false, status: 400, error: 'bad request' }, // Not retryable (mapped)
+            { envelopeId: 'unknown-envelope', success: false, retryable: false, status: 400 } // Not retryable (unmapped)
           ]
         }))
       };
@@ -1231,6 +1240,7 @@ describe('modules/observability', () => {
       const exporter = new ObservabilityExporter(
         {
           provider: 'test',
+          logger: mockLogger,
           flushAt: 100,
           flushIntervalMs: 60000,
           maxQueueSize: 1000,
@@ -1244,12 +1254,43 @@ describe('modules/observability', () => {
       );
 
       exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
-      exporter.recordLLMRequest({ traceId: 'trace-2', timestamp: '', provider: '', model: '', messages: [] });
+      const record2 = exporter.recordLLMRequest({
+        traceId: 'trace-2',
+        timestamp: '',
+        provider: '',
+        model: '',
+        messages: []
+      });
 
       await exporter.flush();
 
       // Non-retryable failures should not be retried
       expect(mockCompat.sendBatch).toHaveBeenCalledTimes(1);
+      expect(mockLogger.warning).toHaveBeenCalledTimes(2);
+      expect(mockLogger.warning).toHaveBeenCalledWith(
+        'Observability envelope export failed (non-retryable)',
+        expect.objectContaining({
+          provider: 'test',
+          envelopeId: 'envelope-1',
+          eventId: record2.eventId,
+          eventType: 'llm_request',
+          status: 400,
+          attempt: 1,
+          maxAttempts: 3
+        })
+      );
+      expect(mockLogger.warning).toHaveBeenCalledWith(
+        'Observability envelope export failed (non-retryable)',
+        expect.objectContaining({
+          provider: 'test',
+          envelopeId: 'unknown-envelope',
+          eventId: undefined,
+          eventType: undefined,
+          status: 400,
+          attempt: 1,
+          maxAttempts: 3
+        })
+      );
 
       await exporter.shutdown();
     });
