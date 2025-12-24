@@ -35,8 +35,10 @@ for (let i = 0; i < testRuns.length; i++) {
       expect(toolCalls.length).toBeGreaterThanOrEqual(2);
       const hasMcp = toolCalls.some((c: any) => (c.name || '').startsWith('testmcp.'));
       expect(hasMcp).toBe(true);
-      const echoArgs = toolCalls.find((c: any) => (c.name || '').includes('echo'))?.arguments || {};
-      expect(JSON.stringify(echoArgs)).toMatch(/\d{10,}/);
+      const echoCalls = toolCalls.filter((c: any) => (c.name || '').includes('echo'));
+      expect(echoCalls.length).toBeGreaterThan(0);
+      const echoArgsText = echoCalls.map((c: any) => JSON.stringify(c?.arguments ?? c?.args ?? {})).join('\n');
+      expect(echoArgsText).toMatch(/\d{10,}/);
 
       const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: TEST_FILE });
       const traceText = stringifyLangfuseTrace(trace);
