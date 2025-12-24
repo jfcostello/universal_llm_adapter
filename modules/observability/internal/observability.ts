@@ -193,25 +193,27 @@ export class ObservabilityExporter implements IObservabilityExporter {
     return this.enqueue('llm_response', event);
   }
 
-  async flush(): Promise<void> {
-    // If already flushing, wait for current flush
-    if (this.flushing && this.flushPromise) {
-      return this.flushPromise;
-    }
+  flush(): Promise<void> {
+    // If already flushing, wait for the active flush loop to drain.
+    if (this.flushPromise) return this.flushPromise;
 
-    if (this.queue.length === 0) {
-      return;
-    }
+    if (this.queue.length === 0) return Promise.resolve();
 
     this.flushing = true;
-    this.flushPromise = this.doFlush();
+    const loop = (async () => {
+      // Drain the queue completely. Events may be enqueued while a flush is in-flight;
+      // keep flushing until the queue is empty.
+      while (this.queue.length > 0) {
+        await this.doFlush();
+      }
+    })();
 
-    try {
-      await this.flushPromise;
-    } finally {
+    this.flushPromise = loop.finally(() => {
       this.flushing = false;
       this.flushPromise = null;
-    }
+    });
+
+    return this.flushPromise;
   }
 
   private async doFlush(): Promise<void> {
@@ -243,7 +245,10 @@ export class ObservabilityExporter implements IObservabilityExporter {
           );
 
           if (typeof maxBatchBytes === 'number' && maxBatchBytes > 0) {
-            const bytes = Buffer.byteLength(JSON.stringify(payload), 'utf8');
+            const bytes =
+              payload instanceof Uint8Array
+                ? payload.byteLength
+                : Buffer.byteLength(JSON.stringify(payload), 'utf8');
             if (bytes > maxBatchBytes) {
               if (batchEvents.length <= 1) {
                 this.logger.warning('Observability event exceeds maxBatchBytes; dropping event', {
@@ -331,10 +336,8 @@ export class ObservabilityExporter implements IObservabilityExporter {
     this.shuttingDown = true;
     this.stopFlushTimer();
 
-    // Final flush
-    if (this.queue.length > 0) {
-      await this.flush();
-    }
+    // Final flush (also waits for any in-flight flush)
+    await this.flush();
   }
 }
 

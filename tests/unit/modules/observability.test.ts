@@ -361,6 +361,74 @@ describe('modules/observability', () => {
       await exporter.shutdown();
     });
 
+    test('drains events enqueued during an in-flight flush', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      let releaseFirstSend: (() => void) | null = null;
+      const firstSendGate = new Promise<void>(resolve => {
+        releaseFirstSend = resolve;
+      });
+
+      let signalFirstSendStarted: (() => void) | null = null;
+      const firstSendStarted = new Promise<void>(resolve => {
+        signalFirstSendStarted = resolve;
+      });
+
+      let sendCount = 0;
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => {
+          sendCount++;
+          if (sendCount === 1) {
+            signalFirstSendStarted?.();
+            await firstSendGate;
+          }
+          return { success: true, outcomes: [] };
+        })
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 100,
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 1,
+          baseDelayMs: 250,
+          maxDelayMs: 30000,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
+      const flushPromise = exporter.flush();
+
+      await firstSendStarted;
+
+      // Enqueue a second event while the first export is in-flight.
+      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
+
+      // Calling flush while already flushing should return the same promise, and the loop
+      // should drain the newly enqueued event before resolving.
+      const flushPromise2 = exporter.flush();
+      expect(flushPromise2).toBe(flushPromise);
+
+      releaseFirstSend?.();
+      await flushPromise;
+
+      expect(mockCompat.sendBatch).toHaveBeenCalledTimes(2);
+
+      await exporter.shutdown();
+    });
+
     test('passes providerConfig through to compat build/send methods', async () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
 
@@ -424,6 +492,51 @@ describe('modules/observability', () => {
       const mockCompat = {
         buildBatch: jest.fn((events: unknown[]) => ({
           payload: { data: 'x'.repeat((events.length || 1) * chunkBytes) },
+          eventIndexByEnvelopeId: new Map()
+        })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' },
+        limits: { maxBatchBytes }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 100,
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 1,
+          baseDelayMs: 250,
+          maxDelayMs: 30000,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
+      exporter.recordLLMResponse({ traceId: 'trace-1', timestamp: '', provider: '', model: '', content: [] });
+
+      await exporter.shutdown();
+
+      // 2 events doesn't fit, so it should be split into 2 single-event batches
+      expect(mockCompat.sendBatch).toHaveBeenCalledTimes(2);
+    });
+
+    test('splits batches when provider maxBatchBytes is exceeded for binary payloads', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      const chunkBytes = 120;
+      const maxBatchBytes = 200;
+
+      const mockCompat = {
+        buildBatch: jest.fn((events: unknown[]) => ({
+          payload: new Uint8Array((events.length || 1) * chunkBytes),
           eventIndexByEnvelopeId: new Map()
         })),
         sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
