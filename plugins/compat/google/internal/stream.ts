@@ -4,10 +4,12 @@ import { extractReasoning, extractUsage } from './response.js';
 
 export interface GoogleStreamState {
   seenToolCallsInStream: boolean;
+  nextCallId: number;
+  lastThoughtSignature?: string;
 }
 
 export function createGoogleStreamState(): GoogleStreamState {
-  return { seenToolCallsInStream: false };
+  return { seenToolCallsInStream: false, nextCallId: 0 };
 }
 
 export function resetGoogleStreamState(state: GoogleStreamState): void {
@@ -30,27 +32,42 @@ export function parseSDKChunk(chunk: any, state: GoogleStreamState): ParsedStrea
   const reasoning = extractReasoning(parts);
   if (reasoning) result.reasoning = reasoning;
 
-  // Extract function calls
-  const fc = parts.find(p => p.functionCall);
-  if (fc && fc.functionCall) {
-    const name = fc.functionCall.name || '';
-    const argsObj = fc.functionCall.args || {};
+  // Extract function calls (Gemini streaming can emit multiple functionCall parts)
+  const toolEvents: ToolCallEvent[] = [];
+  for (const part of parts) {
+    if (!part || !part.functionCall) continue;
+
+    const name = part.functionCall.name || '';
+    const argsObj = part.functionCall.args || {};
     const argsStr = JSON.stringify(argsObj);
 
-    // Include metadata with thoughtSignature if present
-    const startEvent: any = { type: ToolCallEventType.TOOL_CALL_START, callId: 'call-0', name };
-    if (fc.thoughtSignature) {
-      startEvent.metadata = { thoughtSignature: fc.thoughtSignature };
+    // Google thought signatures: some streams omit thoughtSignature on later tool calls.
+    // Preserve the last seen signature to satisfy follow-up tool call requirements.
+    if (typeof part.thoughtSignature === 'string' && part.thoughtSignature.trim() !== '') {
+      state.lastThoughtSignature = part.thoughtSignature;
     }
+    const thoughtSignature = state.lastThoughtSignature;
 
-    result.toolEvents = [
+    const callId = `call-${state.nextCallId++}`;
+
+    const startEvent: any = { type: ToolCallEventType.TOOL_CALL_START, callId, name };
+    const metadata = thoughtSignature ? { thoughtSignature } : undefined;
+    if (metadata) startEvent.metadata = metadata;
+
+    const endEvent: any = { type: ToolCallEventType.TOOL_CALL_END, callId, name, arguments: argsStr };
+    if (metadata) endEvent.metadata = metadata;
+
+    toolEvents.push(
       startEvent as ToolCallEvent,
-      { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: 'call-0', argumentsDelta: argsStr } as ToolCallEvent,
-      { type: ToolCallEventType.TOOL_CALL_END, callId: 'call-0', name, arguments: argsStr } as ToolCallEvent
-    ];
+      { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId, argumentsDelta: argsStr } as ToolCallEvent,
+      endEvent as ToolCallEvent
+    );
 
-    // Track that we've seen a tool call in this stream
     state.seenToolCallsInStream = true;
+  }
+
+  if (toolEvents.length > 0) {
+    result.toolEvents = toolEvents;
   }
 
   // Google finishes with STOP when tool calls are made.
@@ -67,4 +84,3 @@ export function parseSDKChunk(chunk: any, state: GoogleStreamState): ParsedStrea
 
   return result;
 }
-

@@ -41,18 +41,30 @@ export function extractToolCalls(parts?: any[]): ToolCall[] | undefined {
 
   const calls: ToolCall[] = [];
   let idx = 0;
+  let lastThoughtSignature: string | undefined;
 
   for (const p of parts) {
     if (p && p.functionCall) {
+      if (typeof p.thoughtSignature === 'string' && p.thoughtSignature.trim() !== '') {
+        lastThoughtSignature = p.thoughtSignature;
+      }
+
       const call: ToolCall = {
         id: `call_${idx++}`,
         name: p.functionCall.name || '',
         arguments: p.functionCall.args || {}
       };
-      // Capture thoughtSignature if present (required for Gemini reasoning)
-      if (p.thoughtSignature) {
-        call.metadata = { thoughtSignature: p.thoughtSignature };
+
+      // Thought signatures: some responses omit thoughtSignature on later tool calls.
+      // Preserve the last seen signature to satisfy follow-up tool call requirements.
+      const thoughtSignature = typeof p.thoughtSignature === 'string' && p.thoughtSignature.trim() !== ''
+        ? p.thoughtSignature
+        : lastThoughtSignature;
+
+      if (thoughtSignature) {
+        call.metadata = { thoughtSignature };
       }
+
       calls.push(call);
     }
   }

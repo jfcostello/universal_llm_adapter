@@ -121,7 +121,8 @@ describe('integration/providers/google-provider', () => {
         expect(params.contents[1].parts[0].functionResponse).toBeDefined();
         expect(params.contents[1].parts[0].functionResponse.name).toBe('get_weather'); // sanitized
         expect(params.contents[1].parts[0].functionResponse.response).toEqual({
-          output: 'Temperature is 72°F'
+          output: 'Temperature is 72°F',
+          result: { temp: 72 }
         });
       });
 
@@ -188,7 +189,8 @@ describe('integration/providers/google-provider', () => {
         const params: any = compat.buildSDKParams('gemini-2.5-flash', {}, messages, [], undefined);
 
         expect(params.contents[1].parts[0].functionResponse.response).toEqual({
-          output: 'Line 1\nLine 2'
+          output: 'Line 1\nLine 2',
+          result: 'data'
         });
       });
     });
