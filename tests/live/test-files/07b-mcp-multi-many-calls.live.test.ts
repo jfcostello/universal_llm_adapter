@@ -1,6 +1,6 @@
 // 07b — MCP Many Calls
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, makeSpec, buildLogPathFor, mergeSettings } from '@tests/helpers/live-v2.ts';
 import { attachLangfuseObservability, createTraceId, toolNameVariants, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 import fs from 'fs';
@@ -113,5 +113,5 @@ The tools return unpredictable values that change every time. You must prove you
     for (const name of uniqueToolNames.slice(0, 4)) {
       expect(toolNameVariants(name).some(v => traceText.includes(v))).toBe(true);
     }
-  }, 180000);
+  }, liveTestTimeout(180000));
 }

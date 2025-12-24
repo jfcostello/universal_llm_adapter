@@ -1,6 +1,6 @@
 // 03 — Budget and Final Prompt
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, makeSpec, buildLogPathFor, parseLogBodies, mergeSettings } from '@tests/helpers/live-v2.ts';
 import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
@@ -69,6 +69,6 @@ CRITICAL: The tool result messages contain important information about your prog
       const traceText = stringifyLangfuseTrace(trace);
       const hasMarker = traceText.includes('Tool calls used') || traceText.includes('All tool calls have been consumed');
       expect(hasMarker).toBe(true);
-    }, 180000);
+    }, liveTestTimeout(180000));
   });
 }

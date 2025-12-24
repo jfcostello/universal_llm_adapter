@@ -196,6 +196,39 @@ describe('LLMCoordinator observability', () => {
       }
     });
 
+    test('uses LLM_ADAPTER_BATCH_ID env var as sessionId fallback when runtime.batchId is missing', async () => {
+      const originalBatchId = process.env.LLM_ADAPTER_BATCH_ID;
+      process.env.LLM_ADAPTER_BATCH_ID = 'env-batch-456';
+
+      try {
+        const registry = createMockRegistry();
+        const coordinator = new LLMCoordinator(registry);
+
+        registry.getObservabilityProvider = jest.fn().mockResolvedValue({
+          id: 'langfuse',
+          compat: 'langfuse',
+          endpoint: { host: 'http://test.com' }
+        });
+        registry.getObservabilityCompat = jest.fn().mockResolvedValue({
+          buildBatch: jest.fn().mockReturnValue({ payload: [], eventIndexByEnvelopeId: new Map() }),
+          sendBatch: jest.fn().mockResolvedValue({ success: true, outcomes: [] })
+        });
+
+        const spec = createMockSpec({ enabled: true });
+        const result = await (coordinator as any).createObservabilityContext(spec, {});
+
+        if (result) {
+          expect(result.sessionId).toBe('env-batch-456');
+        }
+      } finally {
+        if (originalBatchId === undefined) {
+          delete process.env.LLM_ADAPTER_BATCH_ID;
+        } else {
+          process.env.LLM_ADAPTER_BATCH_ID = originalBatchId;
+        }
+      }
+    });
+
     test('generates UUID for traceId when neither traceId nor correlationId provided', async () => {
       const registry = createMockRegistry();
       const coordinator = new LLMCoordinator(registry);

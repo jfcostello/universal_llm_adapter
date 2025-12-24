@@ -9,7 +9,7 @@
 // accepted but NOT sent in the request payload. Now we verify the REQUEST, not just the RESPONSE.
 
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, makeSpec, mergeSettings, buildLogPathFor, parseLogBodies } from '@tests/helpers/live-v2.ts';
 import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 import fs from 'fs';
@@ -139,7 +139,7 @@ for (let i = 0; i < testRuns.length; i++) {
         traceText.includes('"thinking"') ||
         traceText.includes('thinkingConfig');
       expect(hasReasoningEvidence).toBe(true);
-    }, 120000);
+    }, liveTestTimeout(120000));
 
     test('Call 2 — reasoning OFF: verify no reasoning in response required', async () => {
       const spec = makeSpec({
@@ -158,6 +158,6 @@ for (let i = 0; i < testRuns.length; i++) {
       const payload = JSON.parse(result.stdout.trim());
       // When reasoning is OFF, we accept any response (provider-dependent behavior)
       expect(payload).toBeDefined();
-    }, 120000);
+    }, liveTestTimeout(120000));
   });
 }

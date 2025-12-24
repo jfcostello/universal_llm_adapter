@@ -111,6 +111,10 @@ export interface ObservabilityLLMResponseEvent {
     promptTokens?: number;
     completionTokens?: number;
     totalTokens?: number;
+    cachedTokens?: number;
+    reasoningTokens?: number;
+    audioTokens?: number;
+    cost?: number;
   };
 
   /** Duration in milliseconds */

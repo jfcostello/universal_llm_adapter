@@ -1,6 +1,6 @@
 // 02b — Preserve None
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, makeSpec, buildLogPathFor, parseLogBodies, mergeSettings } from '@tests/helpers/live-v2.ts';
 import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 import fs from 'fs';
@@ -36,7 +36,7 @@ for (let i = 0; i < testRuns.length; i++) {
       const payload = JSON.parse(result.stdout.trim());
       const toolCalls = payload.toolCalls || [];
       expect(Array.isArray(toolCalls) && toolCalls.length >= 1).toBe(true);
-    }, 120000);
+    }, liveTestTimeout(120000));
 
     test('Call 2 — next request has placeholder redaction', async () => {
       const traceId = createTraceId(`02b-preserve-none-${runCfg.name}-call-2`);
@@ -76,6 +76,6 @@ for (let i = 0; i < testRuns.length; i++) {
       expect(traceText).toContain(
         'This is a placeholder, not the original tool response; the tool output has been redacted to save context.'
       );
-    }, 120000);
+    }, liveTestTimeout(120000));
   });
 }

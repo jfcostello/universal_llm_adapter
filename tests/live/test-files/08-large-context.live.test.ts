@@ -1,6 +1,6 @@
 // 08 — Large Context
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, makeSpec, mergeSettings } from '@tests/helpers/live-v2.ts';
 import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
@@ -39,5 +39,5 @@ for (let i = 0; i < testRuns.length; i++) {
     expect(traceText).toContain('Turn1:');
     expect(traceText).toContain('Turn2:');
     expect(traceText).toContain('Turn3:');
-  }, 120000);
+  }, liveTestTimeout(120000));
 }

@@ -2,7 +2,7 @@
 import fs from 'fs';
 import path from 'path';
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, redactionFoundIn, mergeSettings } from '@tests/helpers/live-v2.ts';
 import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
@@ -36,5 +36,5 @@ for (let i = 0; i < testRuns.length; i++) {
     } else {
       expect(stringifyLangfuseTrace(trace)).toContain(`\"sessionId\":\"${batchId}\"`);
     }
-  }, 120000);
+  }, liveTestTimeout(120000));
 }

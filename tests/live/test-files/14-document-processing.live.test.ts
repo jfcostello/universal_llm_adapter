@@ -1,6 +1,6 @@
 // 14 — Document Processing: Multiple documents in single message
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, makeSpec, mergeSettings } from '@tests/helpers/live-v2.ts';
 import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 import * as path from 'path';
@@ -76,6 +76,6 @@ for (let i = 0; i < testRuns.length; i++) {
       const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: TEST_FILE });
       const traceText = stringifyLangfuseTrace(trace);
       expect(traceText).toContain('sample.pdf');
-    }, 180000);
+    }, liveTestTimeout(180000));
   });
 }

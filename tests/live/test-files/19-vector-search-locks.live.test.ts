@@ -14,6 +14,7 @@
 import { runCoordinator, runEmbeddingCoordinator, runVectorCoordinator } from '@tests/helpers/node-cli.ts';
 import { requireEnv } from '@tests/helpers/require-env.ts';
 import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
+import { liveTestTimeout } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const required = ['QDRANT_CLOUD_URL', 'QDRANT_API_KEY', 'OPENROUTER_API_KEY'];
@@ -125,7 +126,7 @@ describeLive('19-vector-search-locks (transported)', () => {
     expect(seedRes.success).toBe(true);
 
     await new Promise(resolve => setTimeout(resolve, 2000));
-  }, 180000);
+  }, liveTestTimeout(180000));
 
   afterAll(async () => {
     try {
@@ -180,7 +181,7 @@ describeLive('19-vector-search-locks (transported)', () => {
       const traceText = stringifyLangfuseTrace(trace);
       expect(traceText).toContain('vector_search');
       expect(traceText).toMatch(/"toolCalls"\s*:\s*\[\s*\{/);
-    }, 120000);
+    }, liveTestTimeout(120000));
   });
 
   describe('filter lock enforcement', () => {
@@ -242,7 +243,7 @@ describeLive('19-vector-search-locks (transported)', () => {
       const foundPhilosophyContent = filteredText.includes('42') && filteredText.includes('ultimate');
       expect(foundPhilosophyContent).toBe(false);
       expectNoVectorErrors(responseWithFilter);
-    }, 180000);
+    }, liveTestTimeout(180000));
   });
 
   describe('scoreThreshold lock enforcement', () => {
@@ -272,7 +273,7 @@ describeLive('19-vector-search-locks (transported)', () => {
       const response = await runLlm(spec);
       expect(response.content).toBeDefined();
       expectNoVectorErrors(response);
-    }, 120000);
+    }, liveTestTimeout(120000));
   });
 
   describe('store lock enforcement', () => {
@@ -306,7 +307,7 @@ describeLive('19-vector-search-locks (transported)', () => {
         .join('\n');
       expect(text.includes('42') || text.includes('life') || text.includes('answer') || text.includes('question')).toBe(true);
       expectNoVectorErrors(response);
-    }, 180000);
+    }, liveTestTimeout(180000));
   });
 
   describe('multiple locks combined', () => {
@@ -350,7 +351,7 @@ describeLive('19-vector-search-locks (transported)', () => {
           text.includes('humanity')
       ).toBe(true);
       expectNoVectorErrors(response);
-    }, 180000);
+    }, liveTestTimeout(180000));
   });
 
   describe('schema generation with locks', () => {
@@ -394,6 +395,6 @@ describeLive('19-vector-search-locks (transported)', () => {
       const traceText = stringifyLangfuseTrace(trace);
       expect(traceText).toContain('vector_search');
       expect(traceText).toMatch(/"toolCalls"\s*:\s*\[\s*\{/);
-    }, 180000);
+    }, liveTestTimeout(180000));
   });
 });

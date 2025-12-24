@@ -1,6 +1,6 @@
 // 09 — Large Tool Results and Truncation
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, makeSpec, buildLogPathFor, parseLogBodies, mergeSettings } from '@tests/helpers/live-v2.ts';
 import { attachLangfuseObservability, createTraceId, toolNameVariants, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
@@ -23,6 +23,8 @@ for (let i = 0; i < testRuns.length; i++) {
           'You are a strict tool-using assistant. When given a long payload to reflect:',
           '- Call the reflection tool with the exact payload.',
           '- Do not simulate results.',
+          '- Make exactly ONE tool call for this task.',
+          '- After you receive the tool result, do not call any more tools.',
           '',
           'Output Contract (no code fences, no extra words):',
           'Respond only with: SUMMARY_LENGTH: <number> characters',
@@ -40,6 +42,7 @@ for (let i = 0; i < testRuns.length; i++) {
       ],
       llmPriority: runCfg.llmPriority,
       functionToolNames: ['test.echo'],
+      toolChoice: { type: 'required', allowed: ['test.echo'] },
       settings: mergeSettings(runCfg.settings, { temperature: 0.2, maxTokens: 20000, toolResultMaxChars: 256, provider: { require_parameters: true } })
     }) as any, traceId);
     const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
@@ -58,5 +61,5 @@ for (let i = 0; i < testRuns.length; i++) {
     const traceText = stringifyLangfuseTrace(trace);
     expect(toolNameVariants('test.echo').some(v => traceText.includes(v))).toBe(true);
     expect(traceText).toContain('Reflect this exact payload:');
-  }, 300000);
+  }, liveTestTimeout(300000));
 }

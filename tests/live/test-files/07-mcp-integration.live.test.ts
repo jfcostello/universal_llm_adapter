@@ -1,6 +1,6 @@
 // 07 — MCP Integration
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, makeSpec, parseStream, findDone, mergeSettings } from '@tests/helpers/live-v2.ts';
 import { attachLangfuseObservability, createTraceId, toolNameVariants, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
@@ -42,7 +42,7 @@ for (let i = 0; i < testRuns.length; i++) {
       const traceText = stringifyLangfuseTrace(trace);
       expect(traceText).toContain('testmcp');
       expect(toolNameVariants('test.echo').some(v => traceText.includes(v))).toBe(true);
-    }, 180000);
+    }, liveTestTimeout(180000));
 
     test('Call 2 — calculate then reflect', async () => {
       const spec = makeSpec({
@@ -66,7 +66,7 @@ for (let i = 0; i < testRuns.length; i++) {
       expect(JSON.stringify(firstMcp?.arguments || {})).toContain('3');
       const echoed = toolCalls.find((c: any) => (c.name || '').includes('echo'));
       expect(JSON.stringify(echoed?.arguments || {})).toMatch(/16/);
-    }, 180000);
+    }, liveTestTimeout(180000));
 
     test('Call 3 (stream) — time in streaming (last four digits, grounded)', async () => {
       const spec = makeSpec({
@@ -109,6 +109,6 @@ for (let i = 0; i < testRuns.length; i++) {
       expect(ts).not.toBeNull();
       const last4 = ts!.slice(-4);
       expect(text.includes(last4)).toBe(true);
-    }, 180000);
+    }, liveTestTimeout(180000));
   });
 }

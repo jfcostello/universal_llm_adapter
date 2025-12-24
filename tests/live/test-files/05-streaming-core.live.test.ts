@@ -1,6 +1,6 @@
 // 05 — Streaming Core
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, makeSpec, parseStream, collectDeltaText, findDone, mergeSettings } from '@tests/helpers/live-v2.ts';
 import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
@@ -46,5 +46,5 @@ for (let i = 0; i < testRuns.length; i++) {
     expect(traceText).toContain('Count from 1 to 5');
     expect(traceText).toContain('1');
     expect(traceText).toContain('5');
-  }, 120000);
+  }, liveTestTimeout(120000));
 }

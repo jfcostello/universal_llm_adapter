@@ -128,6 +128,45 @@ describe('LLMManager observability', () => {
     expect(requestArg.generationId).toBe(responseArg.generationId);
   });
 
+  test('callProvider computes totalTokens when promptTokens/completionTokens are zero', async () => {
+    const mockSDKResponse = {
+      content: [{ type: 'text', text: 'SDK response' }],
+      role: Role.ASSISTANT,
+      toolCalls: [],
+      usage: { promptTokens: 0, completionTokens: 0 }
+    };
+
+    const mockCompat = {
+      callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = createMockObservabilityContext();
+    const context: RunContext = { observability };
+
+    const manager = new LLMManager(registry);
+    await manager.callProvider(
+      mockProvider,
+      'test-model',
+      { temperature: 0.7 },
+      mockMessages,
+      [],
+      undefined,
+      {},
+      undefined,
+      context
+    );
+
+    expect(observability.exporter.recordLLMResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        usage: expect.objectContaining({ promptTokens: 0, completionTokens: 0, totalTokens: 0 })
+      })
+    );
+  });
+
   test('when LLM_LIVE=1, observability events are also written to the live log', async () => {
     const prevLive = process.env.LLM_LIVE;
     process.env.LLM_LIVE = '1';
@@ -441,7 +480,66 @@ describe('LLMManager observability', () => {
 
     expect(observability.exporter.recordLLMResponse).toHaveBeenCalledWith(
       expect.objectContaining({
-        usage: { promptTokens: undefined, completionTokens: undefined, totalTokens: 0 }
+        usage: expect.objectContaining({
+          promptTokens: undefined,
+          completionTokens: undefined,
+          totalTokens: undefined
+        })
+      })
+    );
+  });
+
+  test('callProvider records response usage details when provided (totalTokens and extras)', async () => {
+    const mockSDKResponse = {
+      content: [{ type: 'text', text: 'SDK response' }],
+      role: Role.ASSISTANT,
+      toolCalls: [],
+      usage: {
+        promptTokens: 10,
+        completionTokens: 20,
+        totalTokens: 999,
+        cachedTokens: 5,
+        reasoningTokens: 2,
+        audioTokens: 0,
+        cost: 0.01
+      }
+    };
+
+    const mockCompat = {
+      callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = createMockObservabilityContext();
+    const context: RunContext = { observability };
+
+    const manager = new LLMManager(registry);
+    await manager.callProvider(
+      mockProvider,
+      'test-model',
+      { temperature: 0.7 },
+      mockMessages,
+      [],
+      undefined,
+      {},
+      undefined,
+      context
+    );
+
+    expect(observability.exporter.recordLLMResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        usage: expect.objectContaining({
+          promptTokens: 10,
+          completionTokens: 20,
+          totalTokens: 999,
+          cachedTokens: 5,
+          reasoningTokens: 2,
+          audioTokens: 0,
+          cost: 0.01
+        })
       })
     );
   });

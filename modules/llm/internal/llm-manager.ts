@@ -102,6 +102,9 @@ export class LLMManager {
 
     try {
       const durationMs = Date.now() - startTime;
+      const promptTokens = response?.usage?.promptTokens ?? undefined;
+      const completionTokens = response?.usage?.completionTokens ?? undefined;
+      const totalTokens = response?.usage?.totalTokens ?? undefined;
       const event = {
         traceId: context.observability.traceId,
         generationId,
@@ -113,9 +116,17 @@ export class LLMManager {
         rawResponse: rawResponse === undefined ? undefined : redactJsonCredentials(rawResponse),
         metadata: context.observability.metadata,
         usage: response?.usage ? {
-          promptTokens: response.usage.promptTokens ?? undefined,
-          completionTokens: response.usage.completionTokens ?? undefined,
-          totalTokens: (response.usage.promptTokens || 0) + (response.usage.completionTokens || 0)
+          promptTokens,
+          completionTokens,
+          totalTokens: totalTokens ?? (
+            typeof promptTokens === 'number' || typeof completionTokens === 'number'
+              ? (promptTokens || 0) + (completionTokens || 0)
+              : undefined
+          ),
+          cachedTokens: response.usage.cachedTokens ?? undefined,
+          reasoningTokens: response.usage.reasoningTokens ?? undefined,
+          audioTokens: response.usage.audioTokens ?? undefined,
+          cost: response.usage.cost ?? undefined
         } : undefined,
         toolCalls: response?.toolCalls?.map(tc => ({
           id: tc.id,

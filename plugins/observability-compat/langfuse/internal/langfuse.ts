@@ -32,6 +32,67 @@ function getStringMetadata(metadata: unknown, key: string): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function getStringArrayMetadata(metadata: unknown, key: string): string[] | undefined {
+  const value = (metadata as any)?.[key];
+  if (!Array.isArray(value)) return undefined;
+  const tags = value.map(v => String(v).trim()).filter(Boolean);
+  return tags.length > 0 ? tags : undefined;
+}
+
+function readUsageNumber(value: unknown): number | undefined {
+  if (typeof value !== 'number') return undefined;
+  if (!Number.isFinite(value)) return undefined;
+  return value;
+}
+
+function buildLangfuseUsageDetails(usage: unknown): Record<string, number> {
+  if (!usage || typeof usage !== 'object') return {};
+  const u = usage as any;
+
+  const input =
+    readUsageNumber(u.input) ??
+    readUsageNumber(u.input_tokens) ??
+    readUsageNumber(u.promptTokens) ??
+    readUsageNumber(u.prompt_tokens);
+  const output =
+    readUsageNumber(u.output) ??
+    readUsageNumber(u.output_tokens) ??
+    readUsageNumber(u.completionTokens) ??
+    readUsageNumber(u.completion_tokens);
+  const total =
+    readUsageNumber(u.total) ??
+    readUsageNumber(u.total_tokens) ??
+    readUsageNumber(u.totalTokens);
+
+  const cached =
+    readUsageNumber(u.cached_tokens) ??
+    readUsageNumber(u.cachedTokens);
+  const reasoning =
+    readUsageNumber(u.reasoning_tokens) ??
+    readUsageNumber(u.reasoningTokens);
+  const audio =
+    readUsageNumber(u.audio_tokens) ??
+    readUsageNumber(u.audioTokens);
+  const cost =
+    readUsageNumber(u.cost);
+
+  const details: Record<string, number> = {};
+  if (input !== undefined) details.input = input;
+  if (output !== undefined) details.output = output;
+  if (total !== undefined) {
+    details.total = total;
+  } else if (input !== undefined || output !== undefined) {
+    details.total = (input ?? 0) + (output ?? 0);
+  }
+
+  if (cached !== undefined) details.cached_tokens = cached;
+  if (reasoning !== undefined) details.reasoning_tokens = reasoning;
+  if (audio !== undefined) details.audio_tokens = audio;
+  if (cost !== undefined) details.cost = cost;
+
+  return details;
+}
+
 function buildUrl(urlTemplate: string): string {
   const normalized = String(urlTemplate).replace(/\$\{([A-Z0-9_]+)\}/g, '${$1?}');
   return String(substituteEnv(normalized));
@@ -244,6 +305,7 @@ export class LangfuseCompat implements IObservabilityCompat {
       const metadata = cached?.event?.metadata ?? event.metadata;
       const correlationId = getStringMetadata(metadata, 'correlationId');
       const batchId = getStringMetadata(metadata, 'batchId') ?? sessionId;
+      const tags = getStringArrayMetadata(metadata, 'tags');
 
       const envelopeId = getEnvelopeId(
         eventIds,
@@ -263,6 +325,8 @@ export class LangfuseCompat implements IObservabilityCompat {
         attributes: {
           'llm.adapter.trace_id': String(event.traceId || ''),
           ...(sessionId ? { 'langfuse.session.id': sessionId, 'llm.adapter.session_id': sessionId } : {}),
+          ...(correlationId ? { 'langfuse.trace.name': correlationId } : {}),
+          ...(tags ? { 'langfuse.tags': tags } : {}),
           ...(correlationId ? { 'llm.adapter.correlation_id': correlationId } : {}),
           ...(batchId ? { 'llm.adapter.batch_id': batchId } : {}),
           'llm.adapter.provider': String(event.provider || cached?.event?.provider || ''),
@@ -275,7 +339,7 @@ export class LangfuseCompat implements IObservabilityCompat {
           'langfuse.observation.output': buildOutputJson(event),
           'langfuse.observation.model.name': String(event.model || cached?.event?.model || ''),
           'langfuse.observation.model.parameters': safeJson(cached?.event?.settings ?? {}),
-          'langfuse.observation.usage_details': safeJson(event.usage ?? {})
+          'langfuse.observation.usage_details': safeJson(buildLangfuseUsageDetails(event.usage))
         },
         envelopeId
       });

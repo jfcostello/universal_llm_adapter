@@ -1,6 +1,6 @@
 // 13 — Provider Fallback
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns, invalidPriorityEntry } from '../config.ts';
+import { filteredTestRuns as testRuns, invalidPriorityEntry, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, makeSpec, mergeSettings } from '@tests/helpers/live-v2.ts';
 import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
@@ -30,5 +30,5 @@ for (let i = 0; i < testRuns.length; i++) {
     const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: TEST_FILE });
     const traceText = stringifyLangfuseTrace(trace);
     expect(traceText).toContain('fallback logic executed successfully');
-  }, 120000);
+  }, liveTestTimeout(120000));
 }

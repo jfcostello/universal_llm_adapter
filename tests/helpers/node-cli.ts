@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { DIST_DIR } from './paths.ts';
@@ -94,22 +95,99 @@ function findSpecFromArgs(options: CliRunOptions): { spec: any; args: string[] }
   throw new Error('No spec provided (expected --spec, --file, or stdin)');
 }
 
+function sanitizeId(value: string, maxLen: number = 180): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return 'unknown';
+
+  const normalized = raw
+    .normalize('NFKD')
+    .replace(/[^\w]+/g, '-') // Keep letters/numbers/_ and convert everything else to '-'
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  if (!normalized) return 'unknown';
+  if (normalized.length <= maxLen) return normalized;
+
+  const hash = createHash('sha256').update(raw).digest('hex').slice(0, 10);
+  const prefixLen = Math.max(1, maxLen - (hash.length + 1));
+  return `${normalized.slice(0, prefixLen)}-${hash}`;
+}
+
+function readProviderAndModelFromSpec(spec: any): { provider?: string; model?: string } {
+  if (!spec || typeof spec !== 'object') return {};
+
+  const llmPriority = Array.isArray(spec.llmPriority) ? spec.llmPriority : [];
+  for (const entry of llmPriority) {
+    if (!entry || typeof entry !== 'object') continue;
+    const provider = typeof (entry as any).provider === 'string' ? String((entry as any).provider) : undefined;
+    const model = typeof (entry as any).model === 'string' ? String((entry as any).model) : undefined;
+    if (!provider && !model) continue;
+    // Tests sometimes prepend an intentionally invalid entry to exercise fallback behavior.
+    if (provider === 'nonexistent-provider') continue;
+    return { provider, model };
+  }
+
+  const provider = typeof spec.provider === 'string' ? spec.provider : undefined;
+  const model = typeof spec.model === 'string' ? spec.model : undefined;
+  if (provider || model) return { provider, model };
+
+  const firstEmbedding = Array.isArray(spec.embeddingPriority) ? spec.embeddingPriority[0] : undefined;
+  if (firstEmbedding && typeof firstEmbedding === 'object') {
+    const embeddingProvider = typeof firstEmbedding.provider === 'string' ? firstEmbedding.provider : undefined;
+    const embeddingModel = typeof firstEmbedding.model === 'string' ? firstEmbedding.model : undefined;
+    if (embeddingProvider || embeddingModel) return { provider: embeddingProvider, model: embeddingModel };
+  }
+
+  const store = typeof spec.store === 'string' ? spec.store : undefined;
+  if (store) return { provider: store };
+
+  return {};
+}
+
+function buildLiveCorrelationId(spec: any, env: NodeJS.ProcessEnv): string {
+  const testFile = String(env.TEST_FILE || 'unknown-test').trim() || 'unknown-test';
+  const testName = env.LLM_TEST_NAME ? String(env.LLM_TEST_NAME).trim() : '';
+  const { provider, model } = readProviderAndModelFromSpec(spec);
+
+  const parts = [testFile, testName, provider ?? '', model ?? ''].filter(Boolean);
+  return sanitizeId(parts.join('-'));
+}
+
 function injectLiveMetadata(spec: any, env: NodeJS.ProcessEnv): { spec: any; correlationId: string } {
+  const isLive = String(env.LLM_LIVE || '').trim() === '1';
   const testFile = String(env.TEST_FILE || 'unknown-test');
   const testName = env.LLM_TEST_NAME ? String(env.LLM_TEST_NAME) : undefined;
-  const rand = Math.random().toString(16).slice(2, 10);
-  const providedCorrelationId = String(spec?.metadata?.correlationId || '').trim();
-  const correlationId = providedCorrelationId !== '' ? providedCorrelationId : `${testFile}:${Date.now()}:${rand}`;
+
+  const correlationId = isLive
+    ? buildLiveCorrelationId(spec, env)
+    : String(spec?.metadata?.correlationId || '').trim();
 
   const next = { ...(spec ?? {}) };
+  const existingTags = Array.isArray((next.metadata as any)?.tags) ? (next.metadata as any).tags : [];
+  const { provider, model } = isLive ? readProviderAndModelFromSpec(spec) : {};
+  const transport = String(env.LLM_LIVE_TRANSPORT || '').trim().toLowerCase();
+  const liveTags = isLive
+    ? [
+        testFile,
+        ...(testName ? [testName] : []),
+        ...(transport ? [`transport:${transport}`] : []),
+        ...(provider ? [`provider:${provider}`] : []),
+        ...(model ? [`model:${model}`] : [])
+      ]
+    : [];
+  const tags = [...existingTags, ...liveTags]
+    .map((tag: any) => String(tag).trim())
+    .filter(Boolean);
+  const uniqueTags = Array.from(new Set(tags));
   next.metadata = {
     ...(next.metadata ?? {}),
-    correlationId,
+    ...(correlationId ? { correlationId } : {}),
     testFile,
-    ...(testName ? { testName } : {})
+    ...(testName ? { testName } : {}),
+    ...(uniqueTags.length > 0 ? { tags: uniqueTags } : {})
   };
 
-  return { spec: next, correlationId };
+  return { spec: next, correlationId: correlationId || '' };
 }
 
 async function readLogsForCorrelationId(options: {
@@ -286,17 +364,45 @@ function runToolViaCli(target: ToolTarget, options: CliRunOptions = {}): Promise
   const script = getUnifiedCliScript();
   const targetCmd = getTargetCommand(target);
   const rawArgs = options.args ?? ['run'];
+  const env = options.env || process.env;
+  const isLive = String(env.LLM_LIVE || '').trim() === '1';
+
   // Unified CLI: llm-adapter <target> <command> [options]
   // e.g., llm-adapter llm run --spec '...'
   // e.g., llm-adapter vector embed --spec '...'
   // e.g., llm-adapter embeddings run --spec '...'
-  const args = [...targetCmd, ...rawArgs];
+  const args = (() => {
+    if (!isLive) return [...targetCmd, ...rawArgs];
+
+    const { spec: rawSpec, args: parsedArgs } = findSpecFromArgs({
+      ...options,
+      args: rawArgs
+    });
+    const { spec: injectedSpec } = injectLiveMetadata(rawSpec, env);
+
+    const argsNoSpec = [...parsedArgs];
+    for (const flag of ['--file', '--spec']) {
+      while (true) {
+        const idx = argsNoSpec.indexOf(flag);
+        if (idx === -1) break;
+        argsNoSpec.splice(idx, 2);
+      }
+      const prefix = `${flag}=`;
+      for (let i = argsNoSpec.length - 1; i >= 0; i--) {
+        if (String(argsNoSpec[i]).startsWith(prefix)) {
+          argsNoSpec.splice(i, 1);
+        }
+      }
+    }
+
+    return [...targetCmd, ...argsNoSpec, '--spec', JSON.stringify(injectedSpec)];
+  })();
 
   return new Promise((resolve) => {
     // Use process.execPath to ensure we use the same Node.js executable running the tests
     const child = spawn(process.execPath, [script, ...args], {
       cwd: options.cwd || DIST_DIR,
-      env: options.env || process.env,
+      env,
       stdio: ['pipe', 'pipe', 'pipe']
     });
 

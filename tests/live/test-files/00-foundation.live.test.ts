@@ -1,7 +1,7 @@
 // 00 — Foundation: exact phrase + fallback; deterministic math; header redaction
 import fs from 'fs';
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns, invalidPriorityEntry } from '../config.ts';
+import { filteredTestRuns as testRuns, invalidPriorityEntry, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, buildLogPathFor, redactionFoundIn, makeSpec, mergeSettings, parseLogBodies } from '@tests/helpers/live-v2.ts';
 import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
@@ -151,7 +151,7 @@ for (let i = 0; i < testRuns.length; i++) {
       } else {
         expect(traceText).toContain('INTEGRATION_TEST_OK');
       }
-    }, 120000);
+    }, liveTestTimeout(120000));
 
     test('Call 2: observability non-blocking on export failure', async () => {
       const testFileBase = '00-foundation';
@@ -200,7 +200,23 @@ for (let i = 0; i < testRuns.length; i++) {
         const serverLogPath = process.env.LLM_TEST_SERVER_PROCESS_LOG_PATH;
         if (serverLogPath) {
           const start = Date.now();
-          const correlationNeedle = `\"correlationId\":\"${traceId}\"`;
+          const parsedCorrelationId = (() => {
+            for (const line of result.logs) {
+              try {
+                const parsed = JSON.parse(line);
+                if (parsed?.correlationId) return String(parsed.correlationId);
+              } catch {
+                // ignore
+              }
+            }
+            const raw = `${testFileBase}-${runCfg.llmPriority[0].provider}-${runCfg.llmPriority[0].model}`;
+            return raw
+              .normalize('NFKD')
+              .replace(/[^\w]+/g, '-')
+              .replace(/-+/g, '-')
+              .replace(/^-+|-+$/g, '');
+          })();
+          const correlationNeedle = `\"correlationId\":\"${parsedCorrelationId}\"`;
           while (Date.now() - start < 10000) {
             if (fs.existsSync(serverLogPath)) {
               const serverText = fs.readFileSync(serverLogPath, 'utf-8');
@@ -214,6 +230,6 @@ for (let i = 0; i < testRuns.length; i++) {
         }
       }
       expect(hasExportFailed).toBe(true);
-    }, 120000);
+    }, liveTestTimeout(120000));
   });
 }

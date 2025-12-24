@@ -1,6 +1,6 @@
 // 10 — Error Recovery
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, makeSpec, mergeSettings } from '@tests/helpers/live-v2.ts';
 import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
@@ -48,5 +48,5 @@ for (let i = 0; i < testRuns.length; i++) {
     const hasErrorMarker = traceText.includes('tool_execution_failed') || traceText.includes('toolCalls');
     expect(hasErrorMarker).toBe(true);
     expect(traceText.toLowerCase()).toContain('reconstruction');
-  }, 120000);
+  }, liveTestTimeout(120000));
 }

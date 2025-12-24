@@ -29,10 +29,13 @@ describe('helpers/langfuse', () => {
     );
   });
 
-  test('attachLangfuseObservability sets metadata.correlationId and observability fields', async () => {
+  test('attachLangfuseObservability sets observability fields without overriding metadata', async () => {
     const { attachLangfuseObservability } = await import('../../helpers/langfuse.ts');
-    const spec = attachLangfuseObservability({ messages: [{ role: 'user', content: [] }] } as any, 'trace-123');
-    expect(spec.metadata?.correlationId).toBe('trace-123');
+    const spec = attachLangfuseObservability(
+      { messages: [{ role: 'user', content: [] }], metadata: { correlationId: 'corr-1' } } as any,
+      'trace-123'
+    );
+    expect(spec.metadata?.correlationId).toBe('corr-1');
     expect(spec.observability?.enabled).toBe(true);
     expect(spec.observability?.provider).toBe('langfuse');
     expect(spec.observability?.traceId).toBe('trace-123');

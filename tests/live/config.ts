@@ -79,7 +79,7 @@ export const testRuns: TestRun[] = [
       }
     ],
     settings: {
-      temperature: 1,
+      temperature: 0,
       maxTokens: 60000
     }
   }
@@ -213,6 +213,11 @@ export const invalidPriorityEntry = {
 export const baseTestTimeout = 120000; // 120 seconds per provider
 export const timeoutMultiplier = filteredTestRuns.length;
 export const totalTestTimeout = baseTestTimeout * timeoutMultiplier;
+
+export function liveTestTimeout(minMs: number): number {
+  if (!Number.isFinite(minMs) || minMs < 0) return totalTestTimeout;
+  return Math.max(minMs, totalTestTimeout);
+}
 
 // Default Jest worker count for live runs (can be overridden via env/CLI)
 export const maxWorkersDefault = 5;

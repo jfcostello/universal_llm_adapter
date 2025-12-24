@@ -213,8 +213,7 @@ export function attachLangfuseObservability<T extends Record<string, any>>(
 ): T {
   const next: any = { ...(spec ?? {}) };
   next.metadata = {
-    ...(next.metadata ?? {}),
-    correlationId: traceId
+    ...(next.metadata ?? {})
   };
   next.observability = {
     ...(next.observability ?? {}),

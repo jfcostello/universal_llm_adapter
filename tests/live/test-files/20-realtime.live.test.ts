@@ -2,7 +2,7 @@
 import path from 'path';
 import { runRealtimeScenario } from '@tests/helpers/realtime-runner.ts';
 import { withLiveEnv } from '@tests/helpers/live-v2.ts';
-import { filteredRealtimeTestRuns as testRuns } from '../config.ts';
+import { filteredRealtimeTestRuns as testRuns, liveTestTimeout } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
@@ -108,7 +108,7 @@ if (testRuns.length === 0) {
         const text = getFinalTranscript(events, 'user').toLowerCase();
         // Provider ASR can vary on proper nouns; assert the stable portion of the utterance.
         expect(text.includes('capital of france')).toBe(true);
-      }, 120000);
+      }, liveTestTimeout(120000));
 
       test('Text → assistant transcript final', async () => {
         const env = withLiveEnv({ TEST_FILE: '20-realtime-text-in' });
@@ -142,7 +142,7 @@ if (testRuns.length === 0) {
         const events = result.envelopes.filter(e => e.type === 'event').map(e => (e as any).event);
         const text = getFinalTranscript(events, 'assistant').toLowerCase();
         expect(text.includes('paris')).toBe(true);
-      }, 120000);
+      }, liveTestTimeout(120000));
 
       test('History injection (spec.history) influences first response', async () => {
         const env = withLiveEnv({ TEST_FILE: '20-realtime-history-injection' });
@@ -179,7 +179,7 @@ if (testRuns.length === 0) {
         const events = result.envelopes.filter(e => e.type === 'event').map(e => (e as any).event);
         const text = getFinalTranscript(events, 'assistant').toLowerCase();
         expect(text.includes(token.toLowerCase())).toBe(true);
-      }, 120000);
+      }, liveTestTimeout(120000));
 
       test('Tool calling via adapter tool system', async () => {
         const env = withLiveEnv({ TEST_FILE: '20-realtime-tools' });
@@ -225,7 +225,7 @@ if (testRuns.length === 0) {
         // `test.echo` returns `[R:<len>]<reversed>`. Using a palindrome token keeps the output stable to assert on via transcripts.
         const text = getFinalTranscript(events, 'assistant').toLowerCase();
         expect(text.includes('level')).toBe(true);
-      }, 120000);
+      }, liveTestTimeout(120000));
 
       test('In-session memory (audio then text)', async () => {
         const env = withLiveEnv({ TEST_FILE: '20-realtime-memory' });
@@ -286,7 +286,7 @@ if (testRuns.length === 0) {
         if (assistantDigits !== '42') {
           expect(assistantDigits).toBe(expectedDigits);
         }
-      }, 120000);
+      }, liveTestTimeout(120000));
 
       test('Interrupt primitive keeps session usable', async () => {
         const env = withLiveEnv({ TEST_FILE: '20-realtime-interrupt' });
@@ -331,7 +331,7 @@ if (testRuns.length === 0) {
         const assistantText = getFinalTranscript(events, 'assistant');
         const normalized = assistantText.toLowerCase();
         expect(/\b4\b/.test(normalized) || /\bfour\b/.test(normalized)).toBe(true);
-      }, 120000);
+      }, liveTestTimeout(120000));
 
       test('Telephony mode (g711_ulaw @ 8k)', async () => {
         const env = withLiveEnv({ TEST_FILE: '20-realtime-telephony' });
@@ -373,7 +373,7 @@ if (testRuns.length === 0) {
         const text = getFinalTranscript(events, 'user').toLowerCase();
         // Telephony codecs + provider ASR can be lossy; assert we received a coherent transcript.
         expect(text.includes('echo token')).toBe(true);
-      }, 120000);
+      }, liveTestTimeout(120000));
 
       test('Concurrent sessions (no cross-talk)', async () => {
         const baseEnv = withLiveEnv({ TEST_FILE: '20-realtime-concurrent' });
@@ -426,7 +426,7 @@ if (testRuns.length === 0) {
           runOne('mango', 'session-2'),
           runOne('papaya', 'session-3')
         ]);
-      }, 180000);
+      }, liveTestTimeout(180000));
     });
   }
 }

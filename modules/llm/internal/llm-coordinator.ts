@@ -180,7 +180,10 @@ export class LLMCoordinator {
 
     // Determine session ID: spec override > batch ID
     const sessionId = obsSpec?.sessionId ??
-      (runtime.batchId ? String(runtime.batchId) : undefined);
+      (runtime.batchId ? String(runtime.batchId) : undefined) ??
+      (typeof process.env.LLM_ADAPTER_BATCH_ID === 'string' && process.env.LLM_ADAPTER_BATCH_ID.trim()
+        ? process.env.LLM_ADAPTER_BATCH_ID.trim()
+        : undefined);
 
     return {
       exporter,

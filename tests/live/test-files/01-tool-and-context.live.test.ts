@@ -1,6 +1,6 @@
 // 01 — Tool and Context: echo tool usage and context in args
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, makeSpec, mergeSettings } from '@tests/helpers/live-v2.ts';
 import { attachLangfuseObservability, createTraceId, toolNameVariants, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
@@ -45,7 +45,7 @@ for (let i = 0; i < testRuns.length; i++) {
       const traceText = stringifyLangfuseTrace(trace);
       expect(toolNameVariants('test.echo').some(v => traceText.includes(v))).toBe(true);
       expect(traceText).toContain(message);
-    }, 120000);
+    }, liveTestTimeout(120000));
 
     test('Call 2 — use context value as parameter to function', async () => {
       const N = 42;
@@ -72,6 +72,6 @@ for (let i = 0; i < testRuns.length; i++) {
       expect(containsN).toBe(true);
       const finalText = String(payload.content?.[0]?.text ?? '');
       expect(finalText.trim().length > 0).toBe(true);
-    }, 120000);
+    }, liveTestTimeout(120000));
   });
 }

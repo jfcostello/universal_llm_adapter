@@ -1,6 +1,6 @@
 // 12 — Stream vs Run Parity
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, makeSpec, parseStream, findDone, mergeSettings } from '@tests/helpers/live-v2.ts';
 import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
@@ -62,5 +62,5 @@ for (let i = 0; i < testRuns.length; i++) {
     const traceStreamText = stringifyLangfuseTrace(traceStream);
     expect(traceStreamText).toContain('5 + 7');
     expect(traceStreamText).toContain('12');
-  }, 120000);
+  }, liveTestTimeout(120000));
 }

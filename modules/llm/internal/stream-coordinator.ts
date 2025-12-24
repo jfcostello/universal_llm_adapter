@@ -345,33 +345,42 @@ export class StreamCoordinator {
     }
 
     // Record final response event if observability is enabled (never throws)
-    if (context.observability) {
-      try {
-        const durationMs = Date.now() - startTime;
-        const promptTokens = latestUsage?.promptTokens ?? undefined;
-        const completionTokens = latestUsage?.completionTokens ?? undefined;
-        const totalTokens =
-          typeof promptTokens === 'number' || typeof completionTokens === 'number'
-            ? (promptTokens || 0) + (completionTokens || 0)
-            : undefined;
+	    if (context.observability) {
+	      try {
+	        const durationMs = Date.now() - startTime;
+	        const promptTokens = latestUsage?.promptTokens ?? undefined;
+	        const completionTokens = latestUsage?.completionTokens ?? undefined;
+	        const totalTokens = latestUsage?.totalTokens ?? (
+	          typeof promptTokens === 'number' || typeof completionTokens === 'number'
+	            ? (promptTokens || 0) + (completionTokens || 0)
+	            : undefined
+	        );
 
-        const event = {
-          traceId: context.observability.traceId,
-          generationId,
-          sessionId: context.observability.sessionId,
-          timestamp: new Date().toISOString(),
-          provider: providerManifest.id,
-          model,
-          content: [{ type: 'text', text: accumulatedContent }],
-          toolCalls: allToolCalls.map(tc => ({
-            id: tc.id,
-            name: tc.name,
-            arguments: tc.arguments
-          })),
-          usage: latestUsage ? { promptTokens, completionTokens, totalTokens } : undefined,
-          durationMs,
-          metadata: context.observability.metadata
-        };
+	        const event = {
+	          traceId: context.observability.traceId,
+	          generationId,
+	          sessionId: context.observability.sessionId,
+	          timestamp: new Date().toISOString(),
+	          provider: providerManifest.id,
+	          model,
+	          content: [{ type: 'text', text: accumulatedContent }],
+	          toolCalls: allToolCalls.map(tc => ({
+	            id: tc.id,
+	            name: tc.name,
+	            arguments: tc.arguments
+	          })),
+	          usage: latestUsage ? {
+	            promptTokens,
+	            completionTokens,
+	            totalTokens,
+	            cachedTokens: latestUsage.cachedTokens ?? undefined,
+	            reasoningTokens: latestUsage.reasoningTokens ?? undefined,
+	            audioTokens: latestUsage.audioTokens ?? undefined,
+	            cost: latestUsage.cost ?? undefined
+	          } : undefined,
+	          durationMs,
+	          metadata: context.observability.metadata
+	        };
 
         context.observability.exporter.recordLLMResponse(event as any);
 

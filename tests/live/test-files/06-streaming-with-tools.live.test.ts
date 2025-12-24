@@ -1,6 +1,6 @@
 // 06 — Streaming with Tools
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, makeSpec, parseStream, findDone, mergeSettings } from '@tests/helpers/live-v2.ts';
 import { attachLangfuseObservability, createTraceId, toolNameVariants, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
@@ -47,7 +47,7 @@ for (let i = 0; i < testRuns.length; i++) {
       const traceText = stringifyLangfuseTrace(trace);
       expect(toolNameVariants('test.echo').some(v => traceText.includes(v))).toBe(true);
       expect(traceText).toContain('toolCalls');
-    }, 180000);
+    }, liveTestTimeout(180000));
 
     test('Call 2 (stream) — multiple in streaming', async () => {
       const spec = makeSpec({
@@ -68,6 +68,6 @@ for (let i = 0; i < testRuns.length; i++) {
       const done = findDone(events);
       expect(toolCallEvents.length).toBeGreaterThanOrEqual(2);
       expect((done?.response?.toolCalls || []).length).toBeGreaterThanOrEqual(2);
-    }, 180000);
+    }, liveTestTimeout(180000));
   });
 }

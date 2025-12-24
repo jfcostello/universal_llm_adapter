@@ -115,6 +115,7 @@ describe('LangfuseCompat (OTLP)', () => {
       expect(String(attrs['langfuse.observation.input'] || '')).toContain('Hello');
       expect(String(attrs['langfuse.observation.output'] || '')).toContain('Hello there!');
       expect(String(attrs['langfuse.observation.output'] || '')).toContain('test.echo');
+      expect(attrs['langfuse.trace.name']).toBe('corr-123');
       expect(attrs['llm.adapter.trace_id']).toBe(traceId);
       expect(attrs['llm.adapter.session_id']).toBe('session-456');
       expect(attrs['llm.adapter.correlation_id']).toBe('corr-123');
@@ -125,6 +126,51 @@ describe('LangfuseCompat (OTLP)', () => {
 
       const output = JSON.parse(String(attrs['langfuse.observation.output'] || '{}'));
       expect(output.rawResponse).toEqual(responseEvent.rawResponse);
+    });
+
+    it('sets langfuse tags and maps rich usage_details (snake_case + extras)', () => {
+      const ctxReq = { eventIds: ['event-req'] } as any;
+      const ctxResp = { eventIds: ['event-resp'] } as any;
+
+      const req: ObservabilityLLMRequestEvent = {
+        ...requestEvent,
+        metadata: {
+          ...requestEvent.metadata,
+          tags: ['transport:cli', ' ', 42, 'provider:demo']
+        }
+      };
+
+      const resp: ObservabilityLLMResponseEvent = {
+        ...responseEvent,
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 20,
+          cached_tokens: 5,
+          reasoning_tokens: 2,
+          audio_tokens: 0,
+          cost: 0.123
+        } as any
+      };
+
+      compat.buildBatch([req], mockManifest, ctxReq);
+      const respBatch = compat.buildBatch([resp], mockManifest, ctxResp);
+
+      const spans = (respBatch.payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+
+      const attrs = spans[0]?.attributes ?? {};
+      expect(attrs['langfuse.tags']).toEqual(['transport:cli', '42', 'provider:demo']);
+
+      const usage = JSON.parse(String(attrs['langfuse.observation.usage_details'] || '{}'));
+      expect(usage).toEqual({
+        input: 10,
+        output: 20,
+        total: 30,
+        cached_tokens: 5,
+        reasoning_tokens: 2,
+        audio_tokens: 0,
+        cost: 0.123
+      });
     });
 
     it('keeps request context cached after building a response span (for exporter retries)', () => {
@@ -198,7 +244,57 @@ describe('LangfuseCompat (OTLP)', () => {
 
       const attrs = spans[0]?.attributes ?? {};
       expect(attrs['llm.adapter.correlation_id']).toBeUndefined();
+      expect(attrs['langfuse.trace.name']).toBeUndefined();
       expect(attrs['llm.adapter.batch_id']).toBe('session-456');
+    });
+
+    it('ignores non-finite usage values and ignores empty tags arrays', () => {
+      const ctxReq = { eventIds: ['event-req'] } as any;
+      const ctxResp = { eventIds: ['event-resp'] } as any;
+
+      const req: ObservabilityLLMRequestEvent = {
+        ...requestEvent,
+        metadata: {
+          ...requestEvent.metadata,
+          tags: ['   ', '']
+        }
+      };
+
+      const resp: ObservabilityLLMResponseEvent = {
+        ...responseEvent,
+        usage: { input: Number.POSITIVE_INFINITY, output: 2 } as any
+      };
+
+      compat.buildBatch([req], mockManifest, ctxReq);
+      const respBatch = compat.buildBatch([resp], mockManifest, ctxResp);
+      const spans = (respBatch.payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+
+      const attrs = spans[0]?.attributes ?? {};
+      expect(attrs['langfuse.tags']).toBeUndefined();
+
+      const usage = JSON.parse(String(attrs['langfuse.observation.usage_details'] || '{}'));
+      expect(usage).toEqual({ output: 2, total: 2 });
+    });
+
+    it('computes usage_details.total when output tokens are missing', () => {
+      const ctxReq = { eventIds: ['event-req'] } as any;
+      const ctxResp = { eventIds: ['event-resp'] } as any;
+
+      compat.buildBatch([requestEvent], mockManifest, ctxReq);
+
+      const resp: ObservabilityLLMResponseEvent = {
+        ...responseEvent,
+        usage: { input: 7 } as any
+      };
+
+      const respBatch = compat.buildBatch([resp], mockManifest, ctxResp);
+      const spans = (respBatch.payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+
+      const attrs = spans[0]?.attributes ?? {};
+      const usage = JSON.parse(String(attrs['langfuse.observation.usage_details'] || '{}'));
+      expect(usage).toEqual({ input: 7, total: 7 });
     });
 
     it('skips unknown event shapes', () => {
