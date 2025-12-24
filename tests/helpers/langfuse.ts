@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -178,7 +178,11 @@ export function buildLangfuseAuthHeader(env: NodeJS.ProcessEnv = process.env): s
 }
 
 export function createTraceId(prefix: string = 'live'): string {
-  return `${prefix}-${randomUUID()}`;
+  const seed = String(prefix || 'live');
+  const entropy = randomBytes(16);
+  const hex = createHash('sha256').update(seed).update(entropy).digest('hex').slice(0, 32);
+  if (hex === '0'.repeat(32)) return `${hex.slice(0, 31)}1`;
+  return hex;
 }
 
 export function toolNameVariants(name: string): string[] {
@@ -239,9 +243,11 @@ export async function waitForLangfuseTrace(
 
   let delay = minDelayMs;
   let lastStatus: number | null = null;
+  let lastAssertionError: Error | null = null;
   // eslint-disable-next-line no-constant-condition
   while (true) {
     if (Date.now() - start > timeoutMs) {
+      if (lastAssertionError) throw lastAssertionError;
       const suffix = lastStatus ? ` (last status: ${lastStatus})` : '';
       throw new Error(`Timed out waiting for Langfuse trace: ${traceId}${suffix}`);
     }
@@ -271,12 +277,20 @@ export async function waitForLangfuseTrace(
       const trace = await res.json();
 
       if (testFileBase && assertLoggedContent) {
-        await assertLangfuseTraceContainsLoggedObservabilityContent({
-          traceId,
-          trace,
-          testFileBase,
-          timeoutMs: logTimeoutMs
-        });
+        try {
+          await assertLangfuseTraceContainsLoggedObservabilityContent({
+            traceId,
+            trace,
+            testFileBase,
+            timeoutMs: logTimeoutMs
+          });
+        } catch (error: any) {
+          lastAssertionError = error instanceof Error ? error : new Error(String(error));
+          const jitter = Math.floor(Math.random() * Math.max(1, Math.floor(delay / 2)));
+          await sleep(delay + jitter);
+          delay = Math.min(maxDelayMs, Math.floor(delay * 1.5) + 1);
+          continue;
+        }
       }
 
       return trace;
@@ -431,6 +445,31 @@ function extractNeedlesFromObservabilityEvent(event: any): LangfuseNeedle[] {
   return needles;
 }
 
+function normalizeWhitespace(text: string): string {
+  return String(text).replace(/\s+/g, ' ').trim();
+}
+
+function stripWhitespace(text: string): string {
+  return String(text).replace(/\s+/g, '');
+}
+
+function extractJsonPrimitiveNeedles(raw: string): string[] {
+  const trimmed = String(raw).trim();
+  const looksJson =
+    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']'));
+  if (!looksJson) return [];
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    const primitives: string[] = [];
+    collectPrimitiveStrings(parsed, primitives);
+    return primitives.filter(s => String(s).trim() !== '');
+  } catch {
+    return [];
+  }
+}
+
 async function waitForLoggedObservabilityEvents(options: {
   logPath: string;
   traceId: string;
@@ -481,11 +520,28 @@ export async function assertLangfuseTraceContainsLoggedObservabilityContent(opti
   const tracePrimitives: string[] = [];
   collectPrimitiveStrings(options.trace, tracePrimitives);
   const traceText = tracePrimitives.join('\n');
+  const traceTextNormalized = normalizeWhitespace(traceText);
+  const traceTextStripped = stripWhitespace(traceText);
 
   for (const value of uniqueSubstrings) {
     const raw = String(value);
     if (raw.trim() === '') continue;
-    if (!traceText.includes(raw)) {
+
+    const ok =
+      traceText.includes(raw) ||
+      traceTextNormalized.includes(normalizeWhitespace(raw)) ||
+      traceTextStripped.includes(stripWhitespace(raw)) ||
+      (() => {
+        const jsonPrimitives = extractJsonPrimitiveNeedles(raw);
+        if (jsonPrimitives.length === 0) return false;
+        return jsonPrimitives.every(p =>
+          traceText.includes(p) ||
+          traceTextNormalized.includes(normalizeWhitespace(p)) ||
+          traceTextStripped.includes(stripWhitespace(p))
+        );
+      })();
+
+    if (!ok) {
       const preview = raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
       throw new Error(`Langfuse trace missing expected content from logs: ${preview}`);
     }

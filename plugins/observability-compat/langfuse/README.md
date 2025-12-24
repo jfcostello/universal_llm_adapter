@@ -4,10 +4,12 @@ This compat module provides integration with [Langfuse](https://langfuse.com/) f
 
 ## Implementation
 
-This module implements the **legacy ingestion API** (`POST /api/public/ingestion`):
-- Batch ingestion of multiple events per request
-- Support for request/response event pairs
-- Trace and session grouping via envelope structure
+This module implements Langfuse's **OpenTelemetry traces ingestion** via **OTLP HTTP/protobuf**:
+- Endpoint: `POST /api/public/otel/v1/traces`
+- Transport: `Content-Type: application/x-protobuf`
+- Data model: OTLP spans with Langfuse attribute keys (e.g. `langfuse.observation.input` / `langfuse.observation.output`)
+
+The compat caches the request event long enough to build a single span when the paired response arrives, so the exported observation includes the full request context and the final response.
 
 ## Authentication
 
@@ -63,8 +65,7 @@ observability: {
 ## Known Limits
 
 ### Batch Size
-- **Max payload:** 3.5 MB per batch
-- **Recommendation:** Keep individual events reasonably sized
+OTLP payloads are byte-sized after protobuf encoding and automatically split into multiple requests when needed.
 
 ### Rate Limits
 - Langfuse Cloud has rate limits that vary by plan
@@ -72,21 +73,17 @@ observability: {
 
 ## Event Mapping
 
-LLM events are mapped to Langfuse's ingestion format:
+LLM events are mapped onto OTLP spans that Langfuse interprets as observations:
 
 | Adapter Event | Langfuse Type | Details |
 |---------------|---------------|---------|
-| LLM Request | `generation-create` | Includes prompt, model, settings |
-| LLM Response | `generation-update` | Includes output, usage, duration |
+| LLM Request | Observation input | Includes messages, tools, settings, request payload |
+| LLM Response | Observation output | Includes content, tool calls, usage, errors |
 
 Events with matching `traceId` are grouped into a single trace in Langfuse.
 
-## OpenTelemetry Alternative
-
-Langfuse recommends OpenTelemetry (OTel) for production observability:
-- [Langfuse OTel Documentation](https://langfuse.com/docs/integrations/opentelemetry)
-
-OTel support is tracked separately and not yet implemented in this adapter.
+## Trace IDs
+Langfuse OTLP traces use **OTLP trace IDs** (32 lowercase hex chars). If you provide a non-OTLP `traceId`, the compat derives a valid OTLP trace ID from it; for deterministic trace lookups by ID, pass a 32-char lowercase hex trace ID yourself.
 
 ## Module Structure
 

@@ -13,6 +13,9 @@ function normalize(s: string): string { return s.replace(/\s+/g, ' ').trim(); }
 for (let i = 0; i < testRuns.length; i++) {
   const runCfg = testRuns[i];
   (runLive ? test : test.skip)(`12-stream-vs-run-parity — ${runCfg.name}`, async () => {
+    const testFileRun = `${TEST_FILE}-run`;
+    const testFileStream = `${TEST_FILE}-stream`;
+
     const traceIdRun = createTraceId(`12-stream-vs-run-parity-${runCfg.name}-run`);
     const traceIdStream = createTraceId(`12-stream-vs-run-parity-${runCfg.name}-stream`);
 
@@ -27,14 +30,14 @@ for (let i = 0; i < testRuns.length; i++) {
     const runRes = await runCoordinator({
       args: ['run', '--spec', JSON.stringify(attachLangfuseObservability(baseSpec as any, traceIdRun)), '--plugins', pluginsPath],
       cwd: process.cwd(),
-      env: withLiveEnv({ TEST_FILE })
+      env: withLiveEnv({ TEST_FILE: testFileRun })
     });
     expect(runRes.code).toBe(0);
     const runPayload = JSON.parse(runRes.stdout.trim());
     const streamRes = await runCoordinator({
       args: ['stream', '--spec', JSON.stringify(attachLangfuseObservability(baseSpec as any, traceIdStream)), '--plugins', pluginsPath],
       cwd: process.cwd(),
-      env: withLiveEnv({ TEST_FILE })
+      env: withLiveEnv({ TEST_FILE: testFileStream })
     });
     expect(streamRes.code).toBe(0);
     const events = parseStream(streamRes.stdout);
@@ -50,12 +53,12 @@ for (let i = 0; i < testRuns.length; i++) {
     const streamCalls = JSON.stringify(streamPayload?.toolCalls || []);
     expect(runCalls).toBe(streamCalls);
 
-    const traceRun = await waitForLangfuseTrace(traceIdRun, { timeoutMs: 60000, testFileBase: TEST_FILE });
+    const traceRun = await waitForLangfuseTrace(traceIdRun, { timeoutMs: 60000, testFileBase: testFileRun });
     const traceRunText = stringifyLangfuseTrace(traceRun);
     expect(traceRunText).toContain('5 + 7');
     expect(traceRunText).toContain('12');
 
-    const traceStream = await waitForLangfuseTrace(traceIdStream, { timeoutMs: 60000, testFileBase: TEST_FILE });
+    const traceStream = await waitForLangfuseTrace(traceIdStream, { timeoutMs: 60000, testFileBase: testFileStream });
     const traceStreamText = stringifyLangfuseTrace(traceStream);
     expect(traceStreamText).toContain('5 + 7');
     expect(traceStreamText).toContain('12');

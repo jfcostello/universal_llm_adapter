@@ -1,532 +1,309 @@
-/**
- * Langfuse observability compat implementation.
- * Transforms provider-agnostic events into Langfuse ingestion format.
- */
-
 import type {
   IObservabilityCompat,
   ObservabilityProviderManifest,
   ObservabilityBatchResult,
-  ObservabilityEnvelopeOutcome,
   ObservabilityCompatContext,
   ObservabilityLLMRequestEvent,
   ObservabilityLLMResponseEvent
 } from '../../../../modules/kernel/index.js';
 import { substituteEnv } from '../../../../modules/kernel/index.js';
-import { createHash, randomUUID } from 'crypto';
+import type { OtlpSpanSpec } from '../../../../modules/observability/index.js';
+import { deriveOtlpSpanIdHex, deriveOtlpTraceIdHex } from '../../../../modules/observability/index.js';
 
-// ============================================================
-// LANGFUSE INGESTION TYPES
-// ============================================================
-
-/**
- * Langfuse ingestion event types.
- */
-type LangfuseEventType =
-  | 'trace-create'
-  | 'generation-create'
-  | 'generation-update'
-  | 'span-create'
-  | 'span-update';
-
-/**
- * Base Langfuse ingestion event structure.
- */
-interface LangfuseIngestionEvent {
-  id: string;
-  type: LangfuseEventType;
-  timestamp: string;
-  body: Record<string, unknown>;
-}
-
-/**
- * Langfuse batch request payload.
- */
-interface LangfuseBatchPayload {
-  batch: LangfuseIngestionEvent[];
-  metadata?: {
-    sdk_name?: string;
-    sdk_version?: string;
-  };
-}
-
-/**
- * Langfuse API error response item.
- */
-interface LangfuseIngestionError {
-  id: string;
-  status: number;
-  message: string;
-  error?: string;
-}
-
-/**
- * Langfuse API response.
- */
-interface LangfuseIngestionResponse {
-  successes: Array<{ id: string; status: number }>;
-  errors: LangfuseIngestionError[];
-}
-
-// ============================================================
-// HELPER FUNCTIONS
-// ============================================================
-
-/**
- * Build Authorization header for Basic auth.
- */
-function buildBasicAuth(publicKey: string, secretKey: string): string {
-  const credentials = Buffer.from(`${publicKey}:${secretKey}`).toString('base64');
-  return `Basic ${credentials}`;
-}
+const DEFAULT_SPAN_NAME = 'llm.generation';
+const OTLP_TRACES_PATH = '/api/public/otel/v1/traces';
 
 const ALLOW_BASEURL_OVERRIDE_ENV = 'LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE';
 const BASEURL_OVERRIDE_ALLOWLIST_ENV = 'LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST';
 
-/**
- * Build URL from template with environment variable resolution.
- *
- * NOTE: Kernel plugin loading already substitutes env vars via `loadJsonFile()`.
- * This function exists to support ad-hoc manifests in tests and direct compat usage.
- *
- * We intentionally treat `${VAR}` as optional (equivalent to `${VAR?}`) for URL templates
- * so missing vars degrade to relative paths instead of throwing.
- */
+const REQUEST_CACHE_TTL_MS = 10 * 60_000;
+
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return JSON.stringify(String(value));
+  }
+}
+
 function buildUrl(urlTemplate: string): string {
-  const normalized = urlTemplate.replace(/\$\{([A-Z0-9_]+)\}/g, '${$1?}');
-  return substituteEnv(normalized) as string;
+  const normalized = String(urlTemplate).replace(/\$\{([A-Z0-9_]+)\}/g, '${$1?}');
+  return String(substituteEnv(normalized));
 }
 
-function isBaseUrlOverrideEnabled(): boolean {
-  // Live tests run in a controlled environment and frequently need to route
-  // observability exports to local/invalid endpoints to assert non-blocking behavior.
-  return process.env.LLM_LIVE === '1' || process.env[ALLOW_BASEURL_OVERRIDE_ENV] === '1';
+function isBaseUrlOverrideEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.LLM_LIVE === '1' || env[ALLOW_BASEURL_OVERRIDE_ENV] === '1';
 }
 
-function getBaseUrlOverrideAllowlist(): Set<string> | null {
-  // In live-test mode, allow any override host to keep the tests self-contained.
-  if (process.env.LLM_LIVE === '1') return null;
+function getBaseUrlOverrideAllowlist(env: NodeJS.ProcessEnv = process.env): Set<string> | null {
+  if (env.LLM_LIVE === '1') return null;
 
-  const raw = process.env[BASEURL_OVERRIDE_ALLOWLIST_ENV];
+  const raw = String(env[BASEURL_OVERRIDE_ALLOWLIST_ENV] || '').trim();
   if (!raw) return null;
+
   const entries = raw
     .split(',')
-    .map(entry => entry.trim().toLowerCase())
+    .map(s => s.trim().toLowerCase())
     .filter(Boolean);
+
   return entries.length > 0 ? new Set(entries) : null;
 }
 
 function isUrlHostAllowlisted(url: URL, allowlist: Set<string> | null): boolean {
   if (!allowlist) return true;
-  const host = url.host.toLowerCase(); // includes port
-  const hostname = url.hostname.toLowerCase(); // excludes port
-  return allowlist.has(host) || allowlist.has(hostname);
+  return allowlist.has(url.host.toLowerCase()) || allowlist.has(url.hostname.toLowerCase());
 }
 
-/**
- * Resolve the final ingestion URL, with optional per-call overrides.
- * Provider-specific overrides are passed via `context.providerConfig`.
- */
 function resolveIngestionUrl(
   manifest: ObservabilityProviderManifest,
   context?: ObservabilityCompatContext
 ): string {
-  const resolvedFromTemplate = buildUrl(manifest.endpoint.urlTemplate);
+  const resolved = buildUrl(manifest.endpoint.urlTemplate);
 
-  const providerConfig = context?.providerConfig as Record<string, unknown> | undefined;
-  const baseUrl = typeof (providerConfig as any)?.baseUrl === 'string'
-    ? String((providerConfig as any).baseUrl).trim()
-    : '';
-
-  if (!baseUrl) {
-    return resolvedFromTemplate;
-  }
-
-  // For security, ignore per-call baseUrl overrides unless explicitly enabled.
-  // Per-call overrides are untrusted in server environments and can lead to SSRF / secret exfiltration.
-  if (!isBaseUrlOverrideEnabled()) {
-    return resolvedFromTemplate;
-  }
+  const baseUrl = String((context?.providerConfig as any)?.baseUrl || '').trim();
+  if (!baseUrl) return resolved;
+  if (!isBaseUrlOverrideEnabled()) return resolved;
 
   let overrideUrl: URL;
   try {
     overrideUrl = new URL(baseUrl);
   } catch {
-    return resolvedFromTemplate;
+    return resolved;
   }
 
-  if (overrideUrl.username || overrideUrl.password) {
-    return resolvedFromTemplate;
-  }
-
-  if (overrideUrl.protocol !== 'http:' && overrideUrl.protocol !== 'https:') {
-    return resolvedFromTemplate;
-  }
+  if (overrideUrl.username || overrideUrl.password) return resolved;
+  if (overrideUrl.protocol !== 'http:' && overrideUrl.protocol !== 'https:') return resolved;
 
   const allowlist = getBaseUrlOverrideAllowlist();
-  if (!isUrlHostAllowlisted(overrideUrl, allowlist)) {
-    return resolvedFromTemplate;
-  }
+  if (!isUrlHostAllowlisted(overrideUrl, allowlist)) return resolved;
 
   let pathnameAndSearch = '';
   try {
-    const parsed = new URL(resolvedFromTemplate);
+    const parsed = new URL(resolved);
     pathnameAndSearch = `${parsed.pathname}${parsed.search}`;
   } catch {
-    // If the template is relative (e.g. missing env var), fall back to simple concatenation.
-    pathnameAndSearch = resolvedFromTemplate.startsWith('/')
-      ? resolvedFromTemplate
-      : `/${resolvedFromTemplate}`;
+    pathnameAndSearch = resolved.startsWith('/') ? resolved : `/${resolved}`;
   }
 
-  // If a full URL was provided, only accept it if it matches the ingestion path.
   const overridePathnameAndSearch = `${overrideUrl.pathname}${overrideUrl.search}`;
   if (overridePathnameAndSearch !== '/' && overridePathnameAndSearch !== '') {
-    if (overridePathnameAndSearch !== pathnameAndSearch) {
-      return resolvedFromTemplate;
-    }
+    if (overridePathnameAndSearch !== pathnameAndSearch) return resolved;
   }
 
   return `${overrideUrl.origin}${pathnameAndSearch}`;
 }
 
-/**
- * Determine if an HTTP status code indicates a retryable error.
- */
-function isRetryableStatus(status: number): boolean {
-  // 429 Too Many Requests, 5xx Server Errors
-  return status === 429 || (status >= 500 && status < 600);
+function buildBasicAuthHeader(manifest: ObservabilityProviderManifest): string {
+  const cfg = manifest.auth;
+  if (!cfg || cfg.type !== 'basic') {
+    throw new Error('Langfuse compat requires basic auth configuration');
+  }
+
+  if (!cfg.publicKeyEnv || !cfg.secretKeyEnv) {
+    throw new Error('Langfuse basic auth requires publicKeyEnv and secretKeyEnv');
+  }
+
+  const publicKey = String(process.env[cfg.publicKeyEnv] || '').trim();
+  const secretKey = String(process.env[cfg.secretKeyEnv] || '').trim();
+  if (!publicKey || !secretKey) {
+    const missing = [
+      !publicKey ? cfg.publicKeyEnv : null,
+      !secretKey ? cfg.secretKeyEnv : null
+    ].filter(Boolean);
+    throw new Error(`Missing required env var(s) for Langfuse auth: ${missing.join(', ')}`);
+  }
+
+  return `Basic ${Buffer.from(`${publicKey}:${secretKey}`).toString('base64')}`;
 }
 
-function stableUuidV4(seed: string): string {
-  const hash = createHash('sha256').update(seed).digest();
-  const bytes = Buffer.from(hash.subarray(0, 16));
-
-  // Force UUIDv4 bits for maximum compatibility with systems that validate UUID versions.
-  // - version (byte 6 high nibble) = 4
-  // - variant (byte 8 high bits) = 10xx
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-
-  const hex = bytes.toString('hex');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+function getEventIds(context?: ObservabilityCompatContext): string[] {
+  return Array.isArray(context?.eventIds) ? context!.eventIds!.map(String) : [];
 }
 
-function stableEnvelopeId(eventId: string, kind: string): string {
-  return stableUuidV4(`${eventId}:${kind}`);
+function getEnvelopeId(eventIds: string[], index: number, fallback: string): string {
+  const raw = eventIds[index];
+  if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+  return fallback;
 }
 
-// ============================================================
-// LANGFUSE COMPAT CLASS
-// ============================================================
+function isRequestEvent(event: any): event is ObservabilityLLMRequestEvent {
+  return !!event && typeof event === 'object' && Array.isArray((event as any).messages);
+}
 
-/**
- * Langfuse observability compat implementation.
- */
+function isResponseEvent(event: any): event is ObservabilityLLMResponseEvent {
+  return !!event && typeof event === 'object' && Array.isArray((event as any).content);
+}
+
+function deriveStartTimeIso(response: ObservabilityLLMResponseEvent): string {
+  const endMs = Date.parse(String(response.timestamp));
+  const durationMs = typeof response.durationMs === 'number' ? response.durationMs : NaN;
+  if (!Number.isFinite(endMs) || !Number.isFinite(durationMs) || durationMs < 0) {
+    return String(response.timestamp);
+  }
+  return new Date(endMs - durationMs).toISOString();
+}
+
+type CachedRequest = {
+  event: ObservabilityLLMRequestEvent;
+  createdAtMs: number;
+};
+
+function cacheKey(traceId: string, generationId?: string): string {
+  const trace = String(traceId || '');
+  const gen = String(generationId || '');
+  return gen ? `${trace}:${gen}` : trace;
+}
+
+function buildInputJson(request?: ObservabilityLLMRequestEvent): string {
+  if (!request) return safeJson({ messages: [] });
+  return safeJson({
+    messages: request.messages,
+    tools: request.tools ?? []
+  });
+}
+
+function buildOutputJson(response: ObservabilityLLMResponseEvent): string {
+  return safeJson({
+    content: response.content,
+    toolCalls: response.toolCalls ?? [],
+    error: response.error ?? null
+  });
+}
+
+function collectPrimitiveStrings(value: unknown, out: string[]): void {
+  if (value === null || value === undefined) return;
+  if (typeof value === 'string') {
+    out.push(value);
+    return;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    out.push(String(value));
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) collectPrimitiveStrings(entry, out);
+    return;
+  }
+  if (typeof value === 'object') {
+    for (const v of Object.values(value as Record<string, unknown>)) {
+      collectPrimitiveStrings(v, out);
+    }
+  }
+}
+
+function flattenPrimitiveStrings(value: unknown): string {
+  const out: string[] = [];
+  collectPrimitiveStrings(value, out);
+  return out.filter(s => String(s).trim() !== '').join('\n');
+}
+
 export class LangfuseCompat implements IObservabilityCompat {
-  /**
-   * Build a batch payload from events for sending to Langfuse.
-   *
-   * @param events - Provider-agnostic observability events
-   * @param manifest - The provider manifest for configuration
-   * @returns Object containing the payload and a mapping from event IDs to envelope IDs
-   */
+  private requestCache = new Map<string, CachedRequest>();
+
   buildBatch(
     events: unknown[],
-    manifest: ObservabilityProviderManifest,
+    _manifest: ObservabilityProviderManifest,
     context?: ObservabilityCompatContext
-  ): {
-    payload: LangfuseBatchPayload;
-    eventIndexByEnvelopeId: Map<string, number>;
-  } {
-    const batch: LangfuseIngestionEvent[] = [];
+  ): { payload: { spans: OtlpSpanSpec[] }; eventIndexByEnvelopeId: Map<string, number> } {
+    const now = Date.now();
+    this.pruneRequestCache(now);
+
+    const eventIds = getEventIds(context);
+    const spans: OtlpSpanSpec[] = [];
     const eventIndexByEnvelopeId = new Map<string, number>();
-    const eventIds = context?.eventIds ?? [];
 
-    for (let eventIndex = 0; eventIndex < events.length; eventIndex++) {
-      const event = events[eventIndex];
-      const typedEvent = event as ObservabilityLLMRequestEvent | ObservabilityLLMResponseEvent;
-      const eventId = typeof eventIds[eventIndex] === 'string' && eventIds[eventIndex].trim() !== ''
-        ? eventIds[eventIndex].trim()
-        : undefined;
+    for (let i = 0; i < events.length; i++) {
+      const event = events[i] as any;
 
-      // Determine if this is a request or response
-      const isRequest = 'messages' in typedEvent;
-
-      if (isRequest) {
-        const requestEvent = typedEvent as ObservabilityLLMRequestEvent;
-        const ingestionEvents = this.buildRequestEvents(requestEvent, eventId);
-
-        for (const ingestionEvent of ingestionEvents) {
-          batch.push(ingestionEvent);
-          // Map each envelope ID back to the source event index for retry correlation
-          eventIndexByEnvelopeId.set(ingestionEvent.id, eventIndex);
-        }
-      } else {
-        const responseEvent = typedEvent as ObservabilityLLMResponseEvent;
-        const ingestionEvents = this.buildResponseEvents(responseEvent, eventId);
-
-        for (const ingestionEvent of ingestionEvents) {
-          batch.push(ingestionEvent);
-          eventIndexByEnvelopeId.set(ingestionEvent.id, eventIndex);
-        }
+      if (isRequestEvent(event)) {
+        const key = cacheKey(event.traceId, event.generationId);
+        this.requestCache.set(key, { event, createdAtMs: now });
+        continue;
       }
+
+      if (!isResponseEvent(event)) {
+        continue;
+      }
+
+      const key = cacheKey(event.traceId, event.generationId);
+      const cached = this.requestCache.get(key);
+      if (cached) this.requestCache.delete(key);
+
+      const envelopeId = getEnvelopeId(
+        eventIds,
+        i,
+        event.generationId ? String(event.generationId) : `response-${i}`
+      );
+
+      spans.push({
+        traceIdHex: deriveOtlpTraceIdHex(String(event.traceId)),
+        spanIdHex: deriveOtlpSpanIdHex(String(event.generationId || envelopeId)),
+        name: DEFAULT_SPAN_NAME,
+        startTimeIso: cached?.event?.timestamp ? String(cached.event.timestamp) : deriveStartTimeIso(event),
+        endTimeIso: String(event.timestamp),
+        status: event.error
+          ? { code: 'ERROR', message: String(event.error.message || 'error') }
+          : { code: 'OK' },
+        attributes: {
+          ...(cached?.event?.sessionId ? { 'langfuse.session.id': String(cached.event.sessionId) } : {}),
+          'llm.adapter.provider': String(event.provider || cached?.event?.provider || ''),
+          'llm.adapter.input_text': cached?.event ? flattenPrimitiveStrings(cached.event.messages) : '',
+          'llm.adapter.output_text': flattenPrimitiveStrings({
+            content: event.content,
+            toolCalls: event.toolCalls ?? []
+          }),
+          'langfuse.observation.input': buildInputJson(cached?.event),
+          'langfuse.observation.output': buildOutputJson(event),
+          'langfuse.observation.model.name': String(event.model || cached?.event?.model || ''),
+          'langfuse.observation.model.parameters': safeJson(cached?.event?.settings ?? {}),
+          'langfuse.observation.usage_details': safeJson(event.usage ?? {})
+        },
+        envelopeId
+      });
+
+      eventIndexByEnvelopeId.set(envelopeId, i);
     }
 
-    const payload: LangfuseBatchPayload = {
-      batch,
-      metadata: {
-        sdk_name: 'universal-llm-adapter',
-        sdk_version: '1.0.0'
-      }
+    return {
+      payload: { spans },
+      eventIndexByEnvelopeId
     };
-
-    return { payload, eventIndexByEnvelopeId };
   }
 
-  /**
-   * Build Langfuse events for an LLM request.
-   */
-  private buildRequestEvents(
-    event: ObservabilityLLMRequestEvent,
-    eventId?: string
-  ): LangfuseIngestionEvent[] {
-    const events: LangfuseIngestionEvent[] = [];
-    const traceEnvelopeId = eventId ? stableEnvelopeId(eventId, 'trace-create') : randomUUID();
-    const generationEnvelopeId = eventId ? stableEnvelopeId(eventId, 'generation-create') : randomUUID();
-    const generationId = event.generationId ?? `${event.traceId}-gen`;
-
-    // Create trace event
-    events.push({
-      id: traceEnvelopeId,
-      type: 'trace-create',
-      timestamp: event.timestamp,
-      body: {
-        id: event.traceId,
-        timestamp: event.timestamp,
-        name: `${event.provider}/${event.model}`,
-        sessionId: event.sessionId,
-        input: event.messages,
-        metadata: {
-          ...event.metadata,
-          provider: event.provider,
-          model: event.model,
-          tools: event.tools,
-          requestPayload: event.requestPayload
-        }
+  private pruneRequestCache(nowMs: number): void {
+    for (const [key, entry] of this.requestCache.entries()) {
+      if (nowMs - entry.createdAtMs > REQUEST_CACHE_TTL_MS) {
+        this.requestCache.delete(key);
       }
-    });
-
-    // Create generation-create event
-    events.push({
-      id: generationEnvelopeId,
-      type: 'generation-create',
-      timestamp: event.timestamp,
-      body: {
-        id: generationId,
-        traceId: event.traceId,
-        name: 'llm-request',
-        startTime: event.timestamp,
-        model: event.model,
-        input: event.messages,
-        modelParameters: event.settings,
-        metadata: {
-          provider: event.provider,
-          requestPayload: event.requestPayload
-        }
-      }
-    });
-
-    return events;
+    }
   }
 
-  /**
-   * Build Langfuse events for an LLM response.
-   */
-  private buildResponseEvents(
-    event: ObservabilityLLMResponseEvent,
-    eventId?: string
-  ): LangfuseIngestionEvent[] {
-    const events: LangfuseIngestionEvent[] = [];
-    const envelopeId = eventId ? stableEnvelopeId(eventId, 'generation-update') : randomUUID();
-    const generationId = event.generationId ?? `${event.traceId}-gen`;
-
-    // Create generation-update event
-    const body: Record<string, unknown> = {
-      id: generationId,
-      traceId: event.traceId,
-      endTime: event.timestamp,
-      output: event.content,
-      metadata: {
-        ...event.metadata,
-        provider: event.provider,
-        model: event.model,
-        toolCalls: event.toolCalls,
-        rawResponse: event.rawResponse
-      }
-    };
-
-    // Add usage if present
-    if (event.usage) {
-      body.usage = {
-        input: event.usage.promptTokens,
-        output: event.usage.completionTokens,
-        total: event.usage.totalTokens,
-        unit: 'TOKENS'
-      };
-    }
-
-    // Add duration as calculated cost placeholder
-    if (event.durationMs !== undefined) {
-      body.metadata = {
-        ...(body.metadata as Record<string, unknown>),
-        durationMs: event.durationMs
-      };
-    }
-
-    // Add error level if present
-    if (event.error) {
-      body.level = 'ERROR';
-      body.statusMessage = event.error.message;
-      body.metadata = {
-        ...(body.metadata as Record<string, unknown>),
-        errorCode: event.error.code,
-        retryable: event.error.retryable
-      };
-    }
-
-    events.push({
-      id: envelopeId,
-      type: 'generation-update',
-      timestamp: event.timestamp,
-      body
-    });
-
-    return events;
-  }
-
-  /**
-   * Send a batch payload to Langfuse.
-   *
-   * @param payload - The built payload from buildBatch
-   * @param manifest - The provider manifest for configuration
-   * @returns Batch result with per-envelope outcomes
-   */
   async sendBatch(
     payload: unknown,
     manifest: ObservabilityProviderManifest,
     context?: ObservabilityCompatContext
   ): Promise<ObservabilityBatchResult> {
-    const batchPayload = payload as LangfuseBatchPayload;
-    const url = resolveIngestionUrl(manifest, context);
-    const timeoutMs = context?.timeoutMs;
+    const spans = Array.isArray((payload as any)?.spans) ? ((payload as any).spans as OtlpSpanSpec[]) : [];
+    if (spans.length === 0) {
+      return { success: true, outcomes: [] };
+    }
 
-    // Build headers
+    const url = resolveIngestionUrl(manifest, context);
     const headers: Record<string, string> = {
-      ...manifest.endpoint.headers
+      ...(manifest.endpoint.headers ?? {}),
+      Authorization: buildBasicAuthHeader(manifest),
+      'Content-Type': 'application/x-protobuf'
     };
 
-    // Add auth if configured
-    if (manifest.auth) {
-      if (manifest.auth.type === 'basic') {
-        const publicKey = manifest.auth.publicKeyEnv
-          ? process.env[manifest.auth.publicKeyEnv] || ''
-          : '';
-        const secretKey = manifest.auth.secretKeyEnv
-          ? process.env[manifest.auth.secretKeyEnv] || ''
-          : '';
-
-        if (publicKey && secretKey) {
-          headers['Authorization'] = buildBasicAuth(publicKey, secretKey);
-        }
-      }
-    }
-
-    try {
-      const controller = new AbortController();
-      let timeoutId: ReturnType<typeof setTimeout> | undefined;
-      if (typeof timeoutMs === 'number' && timeoutMs > 0) {
-        timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-      }
-
-      const response = await fetch(url, {
-        method: manifest.endpoint.method,
-        headers,
-        body: JSON.stringify(batchPayload),
-        signal: controller.signal
-      }).finally(() => {
-        if (timeoutId !== undefined) clearTimeout(timeoutId);
-      });
-
-      // Handle response
-      if (response.status === 200 || response.status === 207) {
-        // Parse response for per-event outcomes
-        const result = await response.json() as LangfuseIngestionResponse;
-        const outcomes: ObservabilityEnvelopeOutcome[] = [];
-
-        // Process successes
-        for (const success of result.successes || []) {
-          outcomes.push({
-            envelopeId: success.id,
-            success: true,
-            status: success.status
-          });
-        }
-
-        // Process errors
-        for (const error of result.errors || []) {
-          outcomes.push({
-            envelopeId: error.id,
-            success: false,
-            status: error.status,
-            error: error.message || error.error,
-            retryable: isRetryableStatus(error.status)
-          });
-        }
-
-        // If no outcomes parsed, assume all success for 200
-        if (outcomes.length === 0 && response.status === 200) {
-          for (const event of batchPayload.batch) {
-            outcomes.push({
-              envelopeId: event.id,
-              success: true,
-              status: 200
-            });
-          }
-        }
-
-        // Overall success if no errors array or empty errors array
-        const hasErrors = result.errors && result.errors.length > 0;
-        return {
-          success: !hasErrors,
-          outcomes
-        };
-      }
-
-      // Handle error responses
-      const retryable = isRetryableStatus(response.status);
-      const outcomes: ObservabilityEnvelopeOutcome[] = batchPayload.batch.map(event => ({
-        envelopeId: event.id,
-        success: false,
-        status: response.status,
-        error: `HTTP ${response.status}: ${response.statusText}`,
-        retryable
-      }));
-
-      return { success: false, outcomes };
-    } catch (error: any) {
-      // Network or other errors - mark all as retryable
-      const outcomes: ObservabilityEnvelopeOutcome[] = batchPayload.batch.map(event => ({
-        envelopeId: event.id,
-        success: false,
-        error: error.message,
-        retryable: true
-      }));
-
-      return { success: false, outcomes };
-    }
+    const { sendOtlpTraceSpans } = await import('../../../../modules/observability/index.js');
+    return await sendOtlpTraceSpans({
+      spans,
+      url,
+      headers,
+      timeoutMs: context?.timeoutMs,
+      maxBatchBytes: manifest.limits?.maxBatchBytes
+    });
   }
 }
 
-// Default export for compat loading (PluginRegistry expects a constructor export)
 export default LangfuseCompat;

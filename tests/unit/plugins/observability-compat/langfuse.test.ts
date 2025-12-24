@@ -7,61 +7,67 @@ import type {
 import { LangfuseCompat } from '@/plugins/observability-compat/langfuse/internal/langfuse.ts';
 import defaultCompat from '@/plugins/observability-compat/langfuse/index.ts';
 
-// Mock fetch
 const mockFetch = jest.fn<typeof fetch>();
-global.fetch = mockFetch;
+(globalThis as any).fetch = mockFetch;
 
-describe('LangfuseCompat', () => {
-  let langfuseCompat: LangfuseCompat;
+function makeHexTraceId(seed: string): string {
+  // Deterministic but simple for tests; must be 32 hex chars.
+  return seed.padEnd(32, '0').slice(0, 32);
+}
+
+describe('LangfuseCompat (OTLP)', () => {
+  let compat: LangfuseCompat;
   let originalEnv: NodeJS.ProcessEnv;
+
+  const traceId = makeHexTraceId('deadbeef');
+  const generationId = 'gen-abc';
 
   const mockManifest: ObservabilityProviderManifest = {
     id: 'langfuse',
     compat: 'langfuse',
     endpoint: {
-      urlTemplate: 'https://cloud.langfuse.com/api/public/ingestion',
+      urlTemplate: 'https://cloud.langfuse.com/api/public/otel/v1/traces',
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/x-protobuf'
       }
     },
     auth: {
       type: 'basic',
       publicKeyEnv: 'LANGFUSE_PUBLIC_KEY',
       secretKeyEnv: 'LANGFUSE_SECRET_KEY'
+    },
+    limits: {
+      maxBatchBytes: 1024 * 1024
     }
   };
 
-  const mockRequestEvent: ObservabilityLLMRequestEvent = {
-    traceId: 'trace-123',
-    generationId: 'gen-abc',
+  const requestEvent: ObservabilityLLMRequestEvent = {
+    traceId,
+    generationId,
     sessionId: 'session-456',
     timestamp: '2024-01-01T00:00:00.000Z',
-    provider: 'openai',
-    model: 'gpt-4',
+    provider: 'provider-a',
+    model: 'model-a',
     messages: [
+      { role: 'system', content: [{ type: 'text', text: 'sys msg' }] },
       { role: 'user', content: [{ type: 'text', text: 'Hello' }] }
     ],
-    tools: [{ name: 'calculator', description: 'Calculate' }],
+    tools: [{ name: 'test.echo', description: 'Echo a message' }],
     settings: { temperature: 0.7 },
-    requestPayload: { model: 'gpt-4', messages: [{ role: 'user', content: 'Hello' }], api_key: '***1234' },
+    requestPayload: { messages: [{ role: 'user', content: 'Hello' }] },
     metadata: { custom: 'value' }
   };
 
-  const mockResponseEvent: ObservabilityLLMResponseEvent = {
-    traceId: 'trace-123',
-    generationId: 'gen-abc',
+  const responseEvent: ObservabilityLLMResponseEvent = {
+    traceId,
+    generationId,
     timestamp: '2024-01-01T00:00:01.000Z',
-    provider: 'openai',
-    model: 'gpt-4',
+    provider: 'provider-a',
+    model: 'model-a',
     content: [{ type: 'text', text: 'Hello there!' }],
-    rawResponse: { id: 'resp-raw', ok: true },
-    toolCalls: [{ id: 'call-1', name: 'calculator', arguments: { x: 1 } }],
-    usage: {
-      promptTokens: 10,
-      completionTokens: 20,
-      totalTokens: 30
-    },
+    toolCalls: [{ id: 'call-1', name: 'test.echo', arguments: { message: 'abc' } }],
+    usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
     durationMs: 1000,
     metadata: { custom: 'response-value' }
   };
@@ -71,796 +77,557 @@ describe('LangfuseCompat', () => {
     originalEnv = { ...process.env };
     process.env.LANGFUSE_PUBLIC_KEY = 'pk-test-123';
     process.env.LANGFUSE_SECRET_KEY = 'sk-test-456';
+    delete process.env.LLM_LIVE;
+    delete process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE;
+    delete process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST;
 
-    langfuseCompat = new LangfuseCompat();
+    compat = new LangfuseCompat();
   });
 
   afterEach(() => {
     process.env = originalEnv;
   });
 
+  it('exports a constructor as default (plugin registry compat loading)', () => {
+    expect(typeof defaultCompat).toBe('function');
+  });
+
   describe('buildBatch', () => {
-    it('builds batch from request event', () => {
-      const result = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
+    it('caches request and builds an OTLP span for the paired response', () => {
+      const ctxReq = { eventIds: ['event-req'] } as any;
+      const ctxResp = { eventIds: ['event-resp'] } as any;
 
-      expect(result.payload).toBeDefined();
-      expect(result.payload.batch).toHaveLength(2); // trace-create + generation-create
-      expect(result.eventIndexByEnvelopeId.size).toBeGreaterThan(0);
+      const reqBatch = compat.buildBatch([requestEvent], mockManifest, ctxReq);
+      expect(reqBatch.payload).toBeDefined();
 
-      // Check trace-create event
-      const traceEvent = result.payload.batch.find((e: any) => e.type === 'trace-create');
-      expect(traceEvent).toBeDefined();
-      expect(traceEvent!.body.id).toBe('trace-123');
-      expect(traceEvent!.body.sessionId).toBe('session-456');
-      expect(traceEvent!.body.name).toBe('openai/gpt-4');
-      expect(traceEvent!.body.input).toEqual(mockRequestEvent.messages);
+      const respBatch = compat.buildBatch([responseEvent], mockManifest, ctxResp);
+      expect(respBatch.payload).toBeDefined();
 
-      // Check generation-create event
-      const genEvent = result.payload.batch.find((e: any) => e.type === 'generation-create');
-      expect(genEvent).toBeDefined();
-      expect(genEvent!.body.traceId).toBe('trace-123');
-      expect(genEvent!.body.id).toBe('gen-abc');
-      expect(genEvent!.body.model).toBe('gpt-4');
-      expect(genEvent!.body.modelParameters).toEqual({ temperature: 0.7 });
-      expect((genEvent as any)!.body.metadata.requestPayload).toEqual(mockRequestEvent.requestPayload);
+      const spans = (respBatch.payload as any)?.spans ?? [];
+      expect(Array.isArray(spans)).toBe(true);
+      expect(spans).toHaveLength(1);
+
+      const span = spans[0];
+      const attrs = span?.attributes ?? {};
+      expect(String(attrs['langfuse.observation.input'] || '')).toContain('sys msg');
+      expect(String(attrs['langfuse.observation.input'] || '')).toContain('Hello');
+      expect(String(attrs['langfuse.observation.output'] || '')).toContain('Hello there!');
+      expect(String(attrs['langfuse.observation.output'] || '')).toContain('test.echo');
     });
 
-    it('builds batch from response event', () => {
-      const result = langfuseCompat.buildBatch([mockResponseEvent], mockManifest);
+    it('flattens primitives into adapter text attributes', () => {
+      const ctxReq = { eventIds: ['event-req'] } as any;
+      const ctxResp = { eventIds: ['event-resp'] } as any;
 
-      expect(result.payload.batch).toHaveLength(1); // generation-update
-      expect(result.eventIndexByEnvelopeId.size).toBeGreaterThan(0);
+      compat.buildBatch([requestEvent], mockManifest, ctxReq);
 
-      // Check generation-update event
-      const updateEvent = result.payload.batch[0];
-      expect(updateEvent.type).toBe('generation-update');
-      expect(updateEvent.body.traceId).toBe('trace-123');
-      expect(updateEvent.body.id).toBe('gen-abc');
-      expect(updateEvent.body.output).toEqual(mockResponseEvent.content);
-      expect((updateEvent.body.metadata as any).rawResponse).toEqual(mockResponseEvent.rawResponse);
-      expect(updateEvent.body.usage).toEqual({
-        input: 10,
-        output: 20,
-        total: 30,
-        unit: 'TOKENS'
-      });
-    });
-
-    it('builds batch from mixed request and response events', () => {
-      const result = langfuseCompat.buildBatch([mockRequestEvent, mockResponseEvent], mockManifest);
-
-      expect(result.payload.batch).toHaveLength(3); // 2 for request + 1 for response
-    });
-
-    it('handles response event with error', () => {
-      const errorEvent: ObservabilityLLMResponseEvent = {
-        ...mockResponseEvent,
-        error: {
-          message: 'Rate limit exceeded',
-          code: 'rate_limit',
-          retryable: true
-        }
+      const respWithPrimitives: ObservabilityLLMResponseEvent = {
+        ...responseEvent,
+        toolCalls: [
+          {
+            id: 'call-1',
+            name: 'test.echo',
+            arguments: { message: 'abc', count: 2, ok: true, nil: null }
+          }
+        ]
       };
 
-      const result = langfuseCompat.buildBatch([errorEvent], mockManifest);
+      const respBatch = compat.buildBatch([respWithPrimitives], mockManifest, ctxResp);
+      const spans = (respBatch.payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
 
-      const updateEvent = result.payload.batch[0];
-      expect(updateEvent.body.level).toBe('ERROR');
-      expect(updateEvent.body.statusMessage).toBe('Rate limit exceeded');
-      expect((updateEvent.body.metadata as any).errorCode).toBe('rate_limit');
-      expect((updateEvent.body.metadata as any).retryable).toBe(true);
+      const span = spans[0];
+      expect(String(span.attributes['llm.adapter.output_text'] || '')).toContain('2');
+      expect(String(span.attributes['llm.adapter.output_text'] || '')).toContain('true');
+      expect(String(span.attributes['llm.adapter.output_text'] || '')).toContain('abc');
     });
 
-    it('handles response event without usage', () => {
-      const noUsageEvent: ObservabilityLLMResponseEvent = {
-        traceId: 'trace-789',
-        timestamp: '2024-01-01T00:00:00.000Z',
-        provider: 'openai',
-        model: 'gpt-4',
-        content: [{ type: 'text', text: 'Response' }]
+    it('builds a best-effort span even when response arrives without a cached request', () => {
+      const ctxResp = { eventIds: ['event-resp'] } as any;
+
+      const respBatch = compat.buildBatch([responseEvent], mockManifest, ctxResp);
+      const spans = (respBatch.payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+    });
+
+    it('skips unknown event shapes', () => {
+      const batch = compat.buildBatch([{ not: 'an event' } as any], mockManifest, { eventIds: ['e1'] } as any);
+      expect((batch.payload as any)?.spans ?? []).toHaveLength(0);
+      expect(batch.eventIndexByEnvelopeId.size).toBe(0);
+    });
+
+    it('uses fallback envelopeId when eventIds are missing and generationId is absent', () => {
+      const respNoGen: ObservabilityLLMResponseEvent = {
+        ...responseEvent,
+        generationId: undefined
       };
-
-      const result = langfuseCompat.buildBatch([noUsageEvent], mockManifest);
-
-      const updateEvent = result.payload.batch[0];
-      expect(updateEvent.body.usage).toBeUndefined();
+      const batch = compat.buildBatch([respNoGen as any], mockManifest, undefined);
+      const spans = (batch.payload as any)?.spans ?? [];
+      expect(spans[0]?.envelopeId).toBe('response-0');
     });
 
-    it('includes SDK metadata in payload', () => {
-      const result = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-
-      expect(result.payload.metadata).toEqual({
-        sdk_name: 'universal-llm-adapter',
-        sdk_version: '1.0.0'
-      });
-    });
-
-    it('generates stable envelope IDs when context.eventIds is provided', () => {
-      const ctx = { eventIds: ['event-req', 'event-resp'] } as any;
-
-      const result1 = langfuseCompat.buildBatch([mockRequestEvent, mockResponseEvent], mockManifest, ctx);
-      const result2 = langfuseCompat.buildBatch([mockRequestEvent, mockResponseEvent], mockManifest, ctx);
-
-      const ids1 = result1.payload.batch.map((e: any) => e.id);
-      const ids2 = result2.payload.batch.map((e: any) => e.id);
-
-      expect(ids1).toEqual(ids2);
-      expect(ids1.every((id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))).toBe(true);
-    });
-
-    it('handles request event without optional fields', () => {
-      const minimalRequest: ObservabilityLLMRequestEvent = {
-        traceId: 'trace-min',
-        timestamp: '2024-01-01T00:00:00.000Z',
-        provider: 'openai',
-        model: 'gpt-4',
-        messages: []
+    it('uses fallback envelopeId when eventId is blank/whitespace', () => {
+      const respNoGen: ObservabilityLLMResponseEvent = {
+        ...responseEvent,
+        generationId: undefined
       };
-
-      const result = langfuseCompat.buildBatch([minimalRequest], mockManifest);
-
-      expect(result.payload.batch).toHaveLength(2);
-      const traceEvent = result.payload.batch.find((e: any) => e.type === 'trace-create');
-      expect(traceEvent!.body.sessionId).toBeUndefined();
+      const batch = compat.buildBatch([respNoGen as any], mockManifest, { eventIds: ['   '] } as any);
+      const spans = (batch.payload as any)?.spans ?? [];
+      expect(spans[0]?.envelopeId).toBe('response-0');
     });
 
-    it('handles response event without durationMs', () => {
-      const noDurationEvent: ObservabilityLLMResponseEvent = {
-        traceId: 'trace-123',
-        timestamp: '2024-01-01T00:00:00.000Z',
-        provider: 'openai',
-        model: 'gpt-4',
+    it('prunes expired request cache entries', () => {
+      const nowSpy = jest.spyOn(Date, 'now');
+
+      nowSpy.mockReturnValue(0);
+      compat.buildBatch([requestEvent], mockManifest, { eventIds: ['event-req'] } as any);
+      expect((compat as any).requestCache.size).toBe(1);
+
+      nowSpy.mockReturnValue(10 * 60_000 + 1);
+      compat.buildBatch([], mockManifest, undefined);
+      expect((compat as any).requestCache.size).toBe(0);
+
+      nowSpy.mockRestore();
+    });
+
+    it('falls back to response timestamp when durationMs is missing and model can be empty', () => {
+      const resp: ObservabilityLLMResponseEvent = {
+        traceId: '' as any,
+        generationId: undefined,
+        timestamp: '2024-01-01T00:00:01.000Z',
+        provider: '' as any,
+        model: '' as any,
         content: []
       };
 
-      const result = langfuseCompat.buildBatch([noDurationEvent], mockManifest);
-      const updateEvent = result.payload.batch[0];
-      expect((updateEvent.body.metadata as any).durationMs).toBeUndefined();
+      const batch = compat.buildBatch([resp as any], mockManifest, undefined);
+      const spans = (batch.payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+      expect(spans[0].startTimeIso).toBe('2024-01-01T00:00:01.000Z');
+      expect(spans[0].attributes['langfuse.observation.model.name']).toBe('');
+      expect(spans[0].attributes['llm.adapter.provider']).toBe('');
+    });
+
+    it('builds spans with error status and falls back to request model and defaults', () => {
+      const traceId = makeHexTraceId('cafebabe');
+      const generationId = 'gen-error';
+
+      const req: ObservabilityLLMRequestEvent = {
+        traceId,
+        generationId,
+        timestamp: '2024-01-01T00:00:00.000Z',
+        provider: 'provider-a',
+        model: 'req-model',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }]
+      };
+
+      const resp: ObservabilityLLMResponseEvent = {
+        traceId,
+        generationId,
+        timestamp: '2024-01-01T00:00:01.000Z',
+        provider: '' as any,
+        model: '' as any,
+        content: [{ type: 'text', text: 'oops' }],
+        durationMs: -1,
+        error: { message: '' } as any
+      };
+
+      compat.buildBatch([req], mockManifest, { eventIds: ['req'] } as any);
+      const { payload } = compat.buildBatch([resp], mockManifest, { eventIds: ['resp'] } as any);
+      const spans = (payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+
+      const span = spans[0];
+      expect(span.status).toEqual({ code: 'ERROR', message: 'error' });
+      expect(span.attributes['langfuse.observation.model.name']).toBe('req-model');
+      expect(span.attributes['llm.adapter.provider']).toBe('provider-a');
+      expect(span.attributes['langfuse.session.id']).toBeUndefined();
+
+      const input = JSON.parse(String(span.attributes['langfuse.observation.input']));
+      expect(input.tools).toEqual([]);
+    });
+
+    it('uses safeJson fallback when serialization fails', () => {
+      const traceId = makeHexTraceId('badjson');
+      const generationId = 'gen-badjson';
+
+      const req: ObservabilityLLMRequestEvent = {
+        traceId,
+        generationId,
+        timestamp: '2024-01-01T00:00:00.000Z',
+        provider: 'provider-a',
+        model: 'm',
+        messages: [],
+        settings: BigInt(1) as any
+      };
+
+      const resp: ObservabilityLLMResponseEvent = {
+        traceId,
+        generationId,
+        timestamp: '2024-01-01T00:00:01.000Z',
+        provider: 'provider-a',
+        model: 'm',
+        content: []
+      };
+
+      compat.buildBatch([req], mockManifest, { eventIds: ['req'] } as any);
+      const { payload } = compat.buildBatch([resp], mockManifest, { eventIds: ['resp'] } as any);
+      const spans = (payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+
+      // JSON.stringify fails on BigInt, so safeJson falls back to stringifying String(value).
+      expect(spans[0].attributes['langfuse.observation.model.parameters']).toBe('\"1\"');
     });
   });
 
   describe('sendBatch', () => {
-    it('sends batch with basic auth', async () => {
+    it('sends OTLP protobuf over HTTP with Basic auth', async () => {
       mockFetch.mockResolvedValueOnce({
+        ok: true,
         status: 200,
-        json: async () => ({ successes: [{ id: 'uuid-1', status: 200 }], errors: [] })
-      } as Response);
+        statusText: 'OK',
+        headers: { get: () => null }
+      } as any);
 
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      const result = await langfuseCompat.sendBatch(payload, mockManifest);
+      const ctx = { eventIds: ['event-req', 'event-resp'] } as any;
+      compat.buildBatch([requestEvent], mockManifest, { eventIds: ['event-req'] } as any);
+      const { payload, eventIndexByEnvelopeId } = compat.buildBatch([responseEvent], mockManifest, { eventIds: ['event-resp'] } as any);
+
+      // payload should include spans; sendBatch should encode and POST them
+      const result = await compat.sendBatch(payload, mockManifest, {
+        ...ctx,
+        timeoutMs: 1000
+      });
 
       expect(result.success).toBe(true);
-      expect(result.outcomes.length).toBeGreaterThan(0);
+      expect(result.outcomes.length).toBe(eventIndexByEnvelopeId.size);
 
-      // Check auth header
       const fetchCall = mockFetch.mock.calls[0];
-      const headers = (fetchCall[1] as RequestInit).headers as Record<string, string>;
+      expect(fetchCall?.[0]).toBe('https://cloud.langfuse.com/api/public/otel/v1/traces');
+
+      const init = fetchCall?.[1] as RequestInit;
+      const headers = init.headers as Record<string, string>;
       const expectedAuth = Buffer.from('pk-test-123:sk-test-456').toString('base64');
-      expect(headers['Authorization']).toBe(`Basic ${expectedAuth}`);
+      expect(headers.Authorization).toBe(`Basic ${expectedAuth}`);
+      expect(headers['Content-Type']).toBe('application/x-protobuf');
+
+      const body: any = init.body;
+      expect(body).toBeDefined();
+      const byteLength = body instanceof Uint8Array ? body.byteLength : Buffer.isBuffer(body) ? body.byteLength : 0;
+      expect(byteLength).toBeGreaterThan(0);
     });
 
-    it('aborts fetch when context.timeoutMs elapses', async () => {
-      mockFetch.mockImplementationOnce((_url: any, init: any) => {
-        return new Promise((_resolve, reject) => {
-          const signal = init?.signal as AbortSignal | undefined;
-          if (!signal) {
-            reject(new Error('Missing signal'));
-            return;
-          }
-          signal.addEventListener('abort', () => reject(new Error('Aborted')));
-        }) as any;
-      });
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      const result = await langfuseCompat.sendBatch(payload, mockManifest, { timeoutMs: 10 });
-
-      expect(result.success).toBe(false);
-      expect(result.outcomes.every(o => o.retryable)).toBe(true);
-      expect(result.outcomes[0].error).toBe('Aborted');
-    });
-
-    it('sends to correct URL', async () => {
-      mockFetch.mockResolvedValueOnce({
-        status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      await langfuseCompat.sendBatch(payload, mockManifest);
-
-      const fetchCall = mockFetch.mock.calls[0];
-      expect(fetchCall[0]).toBe('https://cloud.langfuse.com/api/public/ingestion');
-    });
-
-    it('handles 207 partial success', async () => {
-      mockFetch.mockResolvedValueOnce({
-        status: 207,
-        json: async () => ({
-          successes: [{ id: 'uuid-1', status: 200 }],
-          errors: [{ id: 'uuid-2', status: 400, message: 'Invalid event' }]
-        })
-      } as Response);
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent, mockResponseEvent], mockManifest);
-      const result = await langfuseCompat.sendBatch(payload, mockManifest);
-
-      expect(result.success).toBe(false);
-      expect(result.outcomes).toHaveLength(2);
-
-      const successOutcome = result.outcomes.find(o => o.success);
-      expect(successOutcome).toBeDefined();
-      expect(successOutcome!.envelopeId).toBe('uuid-1');
-
-      const errorOutcome = result.outcomes.find(o => !o.success);
-      expect(errorOutcome).toBeDefined();
-      expect(errorOutcome!.error).toBe('Invalid event');
-      expect(errorOutcome!.retryable).toBe(false);
-    });
-
-    it('handles 429 rate limit as retryable', async () => {
-      mockFetch.mockResolvedValueOnce({
-        status: 429,
-        statusText: 'Too Many Requests'
-      } as Response);
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      const result = await langfuseCompat.sendBatch(payload, mockManifest);
-
-      expect(result.success).toBe(false);
-      expect(result.outcomes.every(o => o.retryable)).toBe(true);
-    });
-
-    it('handles 500 server error as retryable', async () => {
-      mockFetch.mockResolvedValueOnce({
-        status: 500,
-        statusText: 'Internal Server Error'
-      } as Response);
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      const result = await langfuseCompat.sendBatch(payload, mockManifest);
-
-      expect(result.success).toBe(false);
-      expect(result.outcomes.every(o => o.retryable)).toBe(true);
-    });
-
-    it('handles 502 bad gateway as retryable', async () => {
-      mockFetch.mockResolvedValueOnce({
-        status: 502,
-        statusText: 'Bad Gateway'
-      } as Response);
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      const result = await langfuseCompat.sendBatch(payload, mockManifest);
-
-      expect(result.success).toBe(false);
-      expect(result.outcomes.every(o => o.retryable)).toBe(true);
-    });
-
-    it('handles 503 service unavailable as retryable', async () => {
-      mockFetch.mockResolvedValueOnce({
-        status: 503,
-        statusText: 'Service Unavailable'
-      } as Response);
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      const result = await langfuseCompat.sendBatch(payload, mockManifest);
-
-      expect(result.success).toBe(false);
-      expect(result.outcomes.every(o => o.retryable)).toBe(true);
-    });
-
-    it('handles 400 client error as non-retryable', async () => {
-      mockFetch.mockResolvedValueOnce({
-        status: 400,
-        statusText: 'Bad Request'
-      } as Response);
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      const result = await langfuseCompat.sendBatch(payload, mockManifest);
-
-      expect(result.success).toBe(false);
-      expect(result.outcomes.every(o => !o.retryable)).toBe(true);
-    });
-
-    it('handles 401 unauthorized as non-retryable', async () => {
-      mockFetch.mockResolvedValueOnce({
-        status: 401,
-        statusText: 'Unauthorized'
-      } as Response);
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      const result = await langfuseCompat.sendBatch(payload, mockManifest);
-
-      expect(result.success).toBe(false);
-      expect(result.outcomes.every(o => !o.retryable)).toBe(true);
-    });
-
-    it('handles network errors as retryable', async () => {
-      mockFetch.mockRejectedValueOnce(new Error('Network error'));
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      const result = await langfuseCompat.sendBatch(payload, mockManifest);
-
-      expect(result.success).toBe(false);
-      expect(result.outcomes.every(o => o.retryable)).toBe(true);
-      expect(result.outcomes[0].error).toBe('Network error');
-    });
-
-    it('handles 200 with empty response', async () => {
-      mockFetch.mockResolvedValueOnce({
-        status: 200,
-        json: async () => ({})
-      } as Response);
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      const result = await langfuseCompat.sendBatch(payload, mockManifest);
-
-      // Should assume success for all events when no outcomes parsed
-      expect(result.success).toBe(true);
-      expect(result.outcomes.length).toBeGreaterThan(0);
-      expect(result.outcomes.every(o => o.success)).toBe(true);
-    });
-
-    it('handles manifest without auth', async () => {
-      const noAuthManifest: ObservabilityProviderManifest = {
-        ...mockManifest,
-        auth: undefined
-      };
-
-      mockFetch.mockResolvedValueOnce({
-        status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], noAuthManifest);
-      await langfuseCompat.sendBatch(payload, noAuthManifest);
-
-      const fetchCall = mockFetch.mock.calls[0];
-      const headers = (fetchCall[1] as RequestInit).headers as Record<string, string>;
-      expect(headers['Authorization']).toBeUndefined();
-    });
-
-    it('handles auth config without env var names', async () => {
-      const noEnvVarManifest: ObservabilityProviderManifest = {
-        ...mockManifest,
-        auth: {
-          type: 'basic'
-          // No publicKeyEnv or secretKeyEnv
-        }
-      };
-
-      mockFetch.mockResolvedValueOnce({
-        status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], noEnvVarManifest);
-      await langfuseCompat.sendBatch(payload, noEnvVarManifest);
-
-      const fetchCall = mockFetch.mock.calls[0];
-      const headers = (fetchCall[1] as RequestInit).headers as Record<string, string>;
-      // Should not include auth header if env var names are not specified
-      expect(headers['Authorization']).toBeUndefined();
-    });
-
-    it('handles missing env vars for auth', async () => {
-      delete process.env.LANGFUSE_PUBLIC_KEY;
-      delete process.env.LANGFUSE_SECRET_KEY;
-
-      mockFetch.mockResolvedValueOnce({
-        status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      await langfuseCompat.sendBatch(payload, mockManifest);
-
-      const fetchCall = mockFetch.mock.calls[0];
-      const headers = (fetchCall[1] as RequestInit).headers as Record<string, string>;
-      // Should not include auth header if env vars are missing
-      expect(headers['Authorization']).toBeUndefined();
-    });
-
-    it('handles error with error field instead of message', async () => {
-      mockFetch.mockResolvedValueOnce({
-        status: 207,
-        json: async () => ({
-          successes: [],
-          errors: [{ id: 'uuid-1', status: 400, error: 'Error from field' }]
-        })
-      } as Response);
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      const result = await langfuseCompat.sendBatch(payload, mockManifest);
-
-      expect(result.success).toBe(false);
-      expect(result.outcomes[0].error).toBe('Error from field');
-    });
-
-    it('handles 207 with retryable errors', async () => {
-      mockFetch.mockResolvedValueOnce({
-        status: 207,
-        json: async () => ({
-          successes: [],
-          errors: [{ id: 'uuid-1', status: 429, message: 'Rate limited' }]
-        })
-      } as Response);
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      const result = await langfuseCompat.sendBatch(payload, mockManifest);
-
-      expect(result.outcomes[0].retryable).toBe(true);
-    });
-
-    it('handles 207 with 500-level errors as retryable', async () => {
-      mockFetch.mockResolvedValueOnce({
-        status: 207,
-        json: async () => ({
-          successes: [],
-          errors: [{ id: 'uuid-1', status: 503, message: 'Server error' }]
-        })
-      } as Response);
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      const result = await langfuseCompat.sendBatch(payload, mockManifest);
-
-      expect(result.outcomes[0].retryable).toBe(true);
-    });
-  });
-
-  describe('URL template resolution', () => {
-    it('ignores per-call baseUrl override by default', async () => {
-      mockFetch.mockResolvedValueOnce({
-        status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      await langfuseCompat.sendBatch(payload, mockManifest, {
-        providerConfig: { baseUrl: 'https://override.langfuse.com' }
-      });
-
-      const fetchCall = mockFetch.mock.calls[0];
-      expect(fetchCall[0]).toBe('https://cloud.langfuse.com/api/public/ingestion');
-    });
-
-    it('allows per-call baseUrl override when LLM_LIVE=1 (live tests)', async () => {
+    it('supports baseUrl override in live-test mode (for non-blocking failure tests)', async () => {
       process.env.LLM_LIVE = '1';
-      delete process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE;
-      delete process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST;
 
       mockFetch.mockResolvedValueOnce({
-        status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable',
+        headers: { get: () => null },
+        text: async () => 'nope'
+      } as any);
 
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      await langfuseCompat.sendBatch(payload, mockManifest, {
-        providerConfig: { baseUrl: 'https://override.langfuse.com' }
+      compat.buildBatch([requestEvent], mockManifest, { eventIds: ['event-req'] } as any);
+      const { payload } = compat.buildBatch([responseEvent], mockManifest, { eventIds: ['event-resp'] } as any);
+
+      await compat.sendBatch(payload, mockManifest, {
+        providerConfig: { baseUrl: 'http://127.0.0.1:1' },
+        eventIds: ['event-resp'],
+        timeoutMs: 250
       });
 
       const fetchCall = mockFetch.mock.calls[0];
-      expect(fetchCall[0]).toBe('https://override.langfuse.com/api/public/ingestion');
+      expect(fetchCall?.[0]).toBe('http://127.0.0.1:1/api/public/otel/v1/traces');
     });
 
-    it('allows per-call baseUrl override when explicitly enabled', async () => {
-      process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
-      process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST = 'override.langfuse.com';
-
+    it('ignores baseUrl override when not explicitly allowed', async () => {
       mockFetch.mockResolvedValueOnce({
+        ok: true,
         status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
+        statusText: 'OK',
+        headers: { get: () => null }
+      } as any);
 
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      await langfuseCompat.sendBatch(payload, mockManifest, {
-        providerConfig: { baseUrl: 'https://override.langfuse.com' }
+      compat.buildBatch([requestEvent], mockManifest, { eventIds: ['event-req'] } as any);
+      const { payload } = compat.buildBatch([responseEvent], mockManifest, { eventIds: ['event-resp'] } as any);
+
+      await compat.sendBatch(payload, mockManifest, {
+        providerConfig: { baseUrl: 'http://127.0.0.1:1' },
+        eventIds: ['event-resp'],
+        timeoutMs: 250
       });
 
       const fetchCall = mockFetch.mock.calls[0];
-      expect(fetchCall[0]).toBe('https://override.langfuse.com/api/public/ingestion');
+      expect(fetchCall?.[0]).toBe('https://cloud.langfuse.com/api/public/otel/v1/traces');
     });
 
-    it('allows per-call baseUrl override when enabled and no allowlist is set', async () => {
+    it('returns success for empty spans payloads', async () => {
+      const result = await compat.sendBatch({ spans: [] } as any, mockManifest, { timeoutMs: 1 } as any);
+      expect(result).toEqual({ success: true, outcomes: [] });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('treats missing/invalid payload.spans as empty', async () => {
+      const result = await compat.sendBatch({} as any, mockManifest, { timeoutMs: 1 } as any);
+      expect(result).toEqual({ success: true, outcomes: [] });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('supports baseUrl override via allow env var and allowlist hostname match', async () => {
       process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
-      delete process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST;
+      process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST = 'localhost';
 
       mockFetch.mockResolvedValueOnce({
+        ok: true,
         status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
+        statusText: 'OK',
+        headers: { get: () => null }
+      } as any);
 
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      await langfuseCompat.sendBatch(payload, mockManifest, {
-        providerConfig: { baseUrl: 'https://override.langfuse.com' }
+      compat.buildBatch([requestEvent], mockManifest, { eventIds: ['event-req'] } as any);
+      const { payload } = compat.buildBatch([responseEvent], mockManifest, { eventIds: ['event-resp'] } as any);
+
+      await compat.sendBatch(payload, mockManifest, {
+        providerConfig: { baseUrl: 'http://localhost:1234' },
+        eventIds: ['event-resp'],
+        timeoutMs: 250
       });
 
       const fetchCall = mockFetch.mock.calls[0];
-      expect(fetchCall[0]).toBe('https://override.langfuse.com/api/public/ingestion');
+      expect(fetchCall?.[0]).toBe('http://localhost:1234/api/public/otel/v1/traces');
     });
 
-    it('treats empty allowlist as no allowlist', async () => {
+    it('treats empty allowlist entries as no allowlist (allows override)', async () => {
       process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
-      process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST = ' , , ';
+      process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST = ',,';
 
       mockFetch.mockResolvedValueOnce({
+        ok: true,
         status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
+        statusText: 'OK',
+        headers: { get: () => null }
+      } as any);
 
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      await langfuseCompat.sendBatch(payload, mockManifest, {
-        providerConfig: { baseUrl: 'https://override.langfuse.com' }
-      });
+      compat.buildBatch([requestEvent], mockManifest, { eventIds: ['event-req'] } as any);
+      const { payload } = compat.buildBatch([responseEvent], mockManifest, { eventIds: ['event-resp'] } as any);
+
+      await compat.sendBatch(payload, mockManifest, {
+        providerConfig: { baseUrl: 'http://127.0.0.1:1' }
+      } as any);
 
       const fetchCall = mockFetch.mock.calls[0];
-      expect(fetchCall[0]).toBe('https://override.langfuse.com/api/public/ingestion');
+      expect(fetchCall?.[0]).toBe('http://127.0.0.1:1/api/public/otel/v1/traces');
     });
 
-    it('rejects per-call baseUrl override when host is not allowlisted', async () => {
+    it('allows baseUrl overrides when allowlist matches host (including port)', async () => {
       process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
-      process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST = 'allowed.langfuse.com';
+      process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST = 'localhost:1234';
 
       mockFetch.mockResolvedValueOnce({
+        ok: true,
         status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
+        statusText: 'OK',
+        headers: { get: () => null }
+      } as any);
 
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      await langfuseCompat.sendBatch(payload, mockManifest, {
-        providerConfig: { baseUrl: 'https://override.langfuse.com' }
-      });
+      compat.buildBatch([requestEvent], mockManifest, { eventIds: ['event-req'] } as any);
+      const { payload } = compat.buildBatch([responseEvent], mockManifest, { eventIds: ['event-resp'] } as any);
+
+      await compat.sendBatch(payload, mockManifest, {
+        providerConfig: { baseUrl: 'http://localhost:1234' }
+      } as any);
 
       const fetchCall = mockFetch.mock.calls[0];
-      expect(fetchCall[0]).toBe('https://cloud.langfuse.com/api/public/ingestion');
+      expect(fetchCall?.[0]).toBe('http://localhost:1234/api/public/otel/v1/traces');
     });
 
-    it('rejects per-call baseUrl override when URL is invalid', async () => {
+    it('blocks baseUrl overrides when allowlist does not include the host', async () => {
       process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
-      delete process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST;
+      process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST = 'example.com';
 
       mockFetch.mockResolvedValueOnce({
+        ok: true,
         status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
+        statusText: 'OK',
+        headers: { get: () => null }
+      } as any);
 
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      await langfuseCompat.sendBatch(payload, mockManifest, {
-        providerConfig: { baseUrl: 'not a url' }
-      });
+      compat.buildBatch([requestEvent], mockManifest, { eventIds: ['event-req'] } as any);
+      const { payload } = compat.buildBatch([responseEvent], mockManifest, { eventIds: ['event-resp'] } as any);
+
+      await compat.sendBatch(payload, mockManifest, {
+        providerConfig: { baseUrl: 'http://localhost:1234' }
+      } as any);
 
       const fetchCall = mockFetch.mock.calls[0];
-      expect(fetchCall[0]).toBe('https://cloud.langfuse.com/api/public/ingestion');
+      expect(fetchCall?.[0]).toBe('https://cloud.langfuse.com/api/public/otel/v1/traces');
     });
 
-    it('rejects per-call baseUrl override for unsupported schemes', async () => {
+    it('rejects invalid, credentialed, unsupported-protocol, and path-mismatched baseUrl overrides', async () => {
       process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
-      delete process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST;
+      process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST = '127.0.0.1';
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: { get: () => null }
+      } as any);
+
+      compat.buildBatch([requestEvent], mockManifest, { eventIds: ['event-req'] } as any);
+      const { payload } = compat.buildBatch([responseEvent], mockManifest, { eventIds: ['event-resp'] } as any);
+
+      await compat.sendBatch(payload, mockManifest, { providerConfig: { baseUrl: 'not-a-url' } } as any);
+      await compat.sendBatch(payload, mockManifest, { providerConfig: { baseUrl: 'http://u:p@127.0.0.1:1' } } as any);
+      await compat.sendBatch(payload, mockManifest, { providerConfig: { baseUrl: 'file://127.0.0.1' } } as any);
+      await compat.sendBatch(payload, mockManifest, { providerConfig: { baseUrl: 'http://127.0.0.1:1/wrong' } } as any);
+
+      for (const call of mockFetch.mock.calls) {
+        expect(call?.[0]).toBe('https://cloud.langfuse.com/api/public/otel/v1/traces');
+      }
+    });
+
+    it('accepts a full baseUrl override only when it matches the ingestion path', async () => {
+      process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
+      process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST = '127.0.0.1';
 
       mockFetch.mockResolvedValueOnce({
+        ok: true,
         status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
+        statusText: 'OK',
+        headers: { get: () => null }
+      } as any);
 
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      await langfuseCompat.sendBatch(payload, mockManifest, {
-        providerConfig: { baseUrl: 'ftp://override.langfuse.com' }
-      });
+      compat.buildBatch([requestEvent], mockManifest, { eventIds: ['event-req'] } as any);
+      const { payload } = compat.buildBatch([responseEvent], mockManifest, { eventIds: ['event-resp'] } as any);
+
+      await compat.sendBatch(payload, mockManifest, {
+        providerConfig: { baseUrl: 'http://127.0.0.1:1/api/public/otel/v1/traces' }
+      } as any);
 
       const fetchCall = mockFetch.mock.calls[0];
-      expect(fetchCall[0]).toBe('https://cloud.langfuse.com/api/public/ingestion');
+      expect(fetchCall?.[0]).toBe('http://127.0.0.1:1/api/public/otel/v1/traces');
     });
 
-    it('rejects per-call baseUrl override with URL credentials', async () => {
+    it('resolves relative templates against baseUrl override and prefixes missing leading slash', async () => {
       process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
-      process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST = 'override.langfuse.com';
 
       mockFetch.mockResolvedValueOnce({
+        ok: true,
         status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
+        statusText: 'OK',
+        headers: { get: () => null }
+      } as any);
 
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      await langfuseCompat.sendBatch(payload, mockManifest, {
-        providerConfig: { baseUrl: 'https://user:pass@override.langfuse.com' }
-      });
-
-      const fetchCall = mockFetch.mock.calls[0];
-      expect(fetchCall[0]).toBe('https://cloud.langfuse.com/api/public/ingestion');
-    });
-
-    it('handles relative URL templates with baseUrl override', async () => {
-      process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
-      delete process.env.MISSING_VAR;
-
-      const missingManifest: ObservabilityProviderManifest = {
+      const relativeManifest: ObservabilityProviderManifest = {
         ...mockManifest,
         endpoint: {
           ...mockManifest.endpoint,
-          urlTemplate: '${MISSING_VAR}/api/public/ingestion'
+          urlTemplate: 'api/public/otel/v1/traces'
         }
       };
 
-      mockFetch.mockResolvedValueOnce({
-        status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
+      compat.buildBatch([requestEvent], relativeManifest, { eventIds: ['event-req'] } as any);
+      const { payload } = compat.buildBatch([responseEvent], relativeManifest, { eventIds: ['event-resp'] } as any);
 
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], missingManifest);
-      await langfuseCompat.sendBatch(payload, missingManifest, {
-        providerConfig: { baseUrl: 'https://override.langfuse.com' }
-      });
+      await compat.sendBatch(payload, relativeManifest, {
+        providerConfig: { baseUrl: 'http://127.0.0.1:1' }
+      } as any);
 
       const fetchCall = mockFetch.mock.calls[0];
-      expect(fetchCall[0]).toBe('https://override.langfuse.com/api/public/ingestion');
+      expect(fetchCall?.[0]).toBe('http://127.0.0.1:1/api/public/otel/v1/traces');
     });
 
-    it('handles relative URL templates without a leading slash with baseUrl override', async () => {
+    it('resolves leading-slash relative templates against baseUrl override', async () => {
       process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
-      delete process.env.MISSING_VAR;
 
-      const missingManifest: ObservabilityProviderManifest = {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: { get: () => null }
+      } as any);
+
+      const relativeManifest: ObservabilityProviderManifest = {
         ...mockManifest,
         endpoint: {
           ...mockManifest.endpoint,
-          urlTemplate: '${MISSING_VAR}api/public/ingestion'
+          urlTemplate: '/api/public/otel/v1/traces'
         }
       };
 
-      mockFetch.mockResolvedValueOnce({
-        status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
+      compat.buildBatch([requestEvent], relativeManifest, { eventIds: ['event-req'] } as any);
+      const { payload } = compat.buildBatch([responseEvent], relativeManifest, { eventIds: ['event-resp'] } as any);
 
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], missingManifest);
-      await langfuseCompat.sendBatch(payload, missingManifest, {
-        providerConfig: { baseUrl: 'https://override.langfuse.com' }
-      });
+      await compat.sendBatch(payload, relativeManifest, {
+        providerConfig: { baseUrl: 'http://127.0.0.1:1' }
+      } as any);
 
       const fetchCall = mockFetch.mock.calls[0];
-      expect(fetchCall[0]).toBe('https://override.langfuse.com/api/public/ingestion');
+      expect(fetchCall?.[0]).toBe('http://127.0.0.1:1/api/public/otel/v1/traces');
     });
 
-    it('rejects per-call baseUrl override when it includes a non-ingestion path', async () => {
-      process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
-      delete process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST;
-
+    it('sends with default headers when manifest.endpoint.headers is omitted', async () => {
       mockFetch.mockResolvedValueOnce({
+        ok: true,
         status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
+        statusText: 'OK',
+        headers: { get: () => null }
+      } as any);
 
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], mockManifest);
-      await langfuseCompat.sendBatch(payload, mockManifest, {
-        providerConfig: { baseUrl: 'https://override.langfuse.com/not-ingestion' }
-      });
-
-      const fetchCall = mockFetch.mock.calls[0];
-      expect(fetchCall[0]).toBe('https://cloud.langfuse.com/api/public/ingestion');
-    });
-
-    it('resolves custom host from env var', async () => {
-      process.env.LANGFUSE_HOST = 'https://custom.langfuse.com';
-
-      const customManifest: ObservabilityProviderManifest = {
+      const manifestNoHeaders: ObservabilityProviderManifest = {
         ...mockManifest,
         endpoint: {
           ...mockManifest.endpoint,
-          urlTemplate: '${LANGFUSE_HOST}/api/public/ingestion'
+          headers: undefined
         }
       };
 
-      mockFetch.mockResolvedValueOnce({
-        status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
+      compat.buildBatch([requestEvent], manifestNoHeaders, { eventIds: ['event-req'] } as any);
+      const { payload } = compat.buildBatch([responseEvent], manifestNoHeaders, { eventIds: ['event-resp'] } as any);
 
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], customManifest);
-      await langfuseCompat.sendBatch(payload, customManifest);
-
-      const fetchCall = mockFetch.mock.calls[0];
-      expect(fetchCall[0]).toBe('https://custom.langfuse.com/api/public/ingestion');
+      await compat.sendBatch(payload, manifestNoHeaders, { timeoutMs: 250 } as any);
+      const init = mockFetch.mock.calls[0]?.[1] as RequestInit;
+      const headers = init.headers as Record<string, string>;
+      expect(headers.Authorization).toMatch(/^Basic /);
+      expect(headers['Content-Type']).toBe('application/x-protobuf');
     });
 
-    it('uses default value when env var not set', async () => {
-      delete process.env.LANGFUSE_HOST;
-
-      const defaultManifest: ObservabilityProviderManifest = {
-        ...mockManifest,
-        endpoint: {
-          ...mockManifest.endpoint,
-          urlTemplate: '${LANGFUSE_HOST:-https://default.langfuse.com}/api/public/ingestion'
-        }
+    it('throws when auth config is missing, wrong type, missing env names, or missing env values', async () => {
+      const payload = {
+        spans: [
+          {
+            traceIdHex: traceId,
+            spanIdHex: '0123456789abcdef',
+            name: 't',
+            startTimeIso: '2024-01-01T00:00:00.000Z',
+            endTimeIso: '2024-01-01T00:00:00.000Z',
+            envelopeId: 'env-1'
+          }
+        ]
       };
 
-      mockFetch.mockResolvedValueOnce({
-        status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
+      await expect(compat.sendBatch(payload, { ...mockManifest, auth: undefined } as any)).rejects.toThrow(
+        /requires basic auth/i
+      );
 
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], defaultManifest);
-      await langfuseCompat.sendBatch(payload, defaultManifest);
+      await expect(
+        compat.sendBatch(payload, { ...mockManifest, auth: { type: 'bearer' } } as any)
+      ).rejects.toThrow(/requires basic auth/i);
 
-      const fetchCall = mockFetch.mock.calls[0];
-      expect(fetchCall[0]).toBe('https://default.langfuse.com/api/public/ingestion');
-    });
+      await expect(
+        compat.sendBatch(payload, { ...mockManifest, auth: { type: 'basic' } } as any)
+      ).rejects.toThrow(/publicKeyEnv and secretKeyEnv/i);
 
-    it('falls back when env var template syntax is unsupported', async () => {
-      delete process.env.BAD_VAR;
+      // Missing only one env var should be reported.
+      process.env.LANGFUSE_PUBLIC_KEY = 'pk-test-123';
+      delete process.env.LANGFUSE_SECRET_KEY;
+      await expect(compat.sendBatch(payload, mockManifest, {} as any)).rejects.toThrow(/LANGFUSE_SECRET_KEY/);
 
-      const weirdManifest: ObservabilityProviderManifest = {
-        ...mockManifest,
-        endpoint: {
-          ...mockManifest.endpoint,
-          urlTemplate: 'https://cloud.langfuse.com/${BAD_VAR:default}/api/public/ingestion'
-        }
-      };
-
-      mockFetch.mockResolvedValueOnce({
-        status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], weirdManifest);
-      await langfuseCompat.sendBatch(payload, weirdManifest);
-
-      const fetchCall = mockFetch.mock.calls[0];
-      expect(fetchCall[0]).toBe('https://cloud.langfuse.com/${BAD_VAR:default}/api/public/ingestion');
-    });
-
-    it('handles URL with no environment variables', async () => {
-      const staticManifest: ObservabilityProviderManifest = {
-        ...mockManifest,
-        endpoint: {
-          ...mockManifest.endpoint,
-          urlTemplate: 'https://static.langfuse.com/api/public/ingestion'
-        }
-      };
-
-      mockFetch.mockResolvedValueOnce({
-        status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], staticManifest);
-      await langfuseCompat.sendBatch(payload, staticManifest);
-
-      const fetchCall = mockFetch.mock.calls[0];
-      expect(fetchCall[0]).toBe('https://static.langfuse.com/api/public/ingestion');
-    });
-
-    it('returns empty string for unset env vars without default', async () => {
-      delete process.env.MISSING_VAR;
-
-      const missingManifest: ObservabilityProviderManifest = {
-        ...mockManifest,
-        endpoint: {
-          ...mockManifest.endpoint,
-          urlTemplate: '${MISSING_VAR}/api/public/ingestion'
-        }
-      };
-
-      mockFetch.mockResolvedValueOnce({
-        status: 200,
-        json: async () => ({ successes: [], errors: [] })
-      } as Response);
-
-      const { payload } = langfuseCompat.buildBatch([mockRequestEvent], missingManifest);
-      await langfuseCompat.sendBatch(payload, missingManifest);
-
-      const fetchCall = mockFetch.mock.calls[0];
-      expect(fetchCall[0]).toBe('/api/public/ingestion');
-    });
-  });
-
-  describe('default export', () => {
-    it('exports a compat constructor for registry loading', () => {
-      expect(defaultCompat).toBeDefined();
-      expect(typeof defaultCompat).toBe('function');
-
-      const instance = new (defaultCompat as any)();
-      expect(typeof instance.buildBatch).toBe('function');
-      expect(typeof instance.sendBatch).toBe('function');
+      process.env.LANGFUSE_SECRET_KEY = 'sk-test-456';
+      delete process.env.LANGFUSE_PUBLIC_KEY;
+      await expect(compat.sendBatch(payload, mockManifest, {} as any)).rejects.toThrow(/LANGFUSE_PUBLIC_KEY/);
     });
   });
 });

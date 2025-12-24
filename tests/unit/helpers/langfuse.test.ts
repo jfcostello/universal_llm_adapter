@@ -39,6 +39,13 @@ describe('helpers/langfuse', () => {
     expect(spec.observability?.flushAt).toBe(2);
   });
 
+  test('createTraceId returns an OTLP-valid trace id (32 lowercase hex chars)', async () => {
+    const { createTraceId } = await import('../../helpers/langfuse.ts');
+    const traceId = createTraceId('unit-seed');
+    expect(traceId).toMatch(/^[0-9a-f]{32}$/);
+    expect(traceId).not.toBe('0'.repeat(32));
+  });
+
   test('waitForLangfuseTrace polls 404 until ready', async () => {
     const { waitForLangfuseTrace } = await import('../../helpers/langfuse.ts');
 

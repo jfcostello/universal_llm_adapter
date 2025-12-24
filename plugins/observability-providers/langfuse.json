@@ -2,18 +2,15 @@
   "id": "langfuse",
   "compat": "langfuse",
   "endpoint": {
-    "urlTemplate": "${LANGFUSE_HOST:-https://cloud.langfuse.com}/api/public/ingestion",
+    "urlTemplate": "${LANGFUSE_HOST:-https://cloud.langfuse.com}/api/public/otel/v1/traces",
     "method": "POST",
     "headers": {
-      "Content-Type": "application/json"
+      "Content-Type": "application/x-protobuf"
     }
   },
   "auth": {
     "type": "basic",
     "publicKeyEnv": "LANGFUSE_PUBLIC_KEY",
     "secretKeyEnv": "LANGFUSE_SECRET_KEY"
-  },
-  "limits": {
-    "maxBatchBytes": 3670016
   }
 }
