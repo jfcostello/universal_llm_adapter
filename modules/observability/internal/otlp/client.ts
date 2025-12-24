@@ -1,9 +1,19 @@
 import type { ObservabilityEnvelopeOutcome } from '../../../kernel/index.js';
 import type { OtlpSpanSpec } from './types.js';
 import { encodeOtlpTraceRequest } from './encode.js';
+import { sleep } from '../../../shared/index.js';
 
 function isRetryableStatus(status: number): boolean {
   return status === 429 || (status >= 500 && status < 600);
+}
+
+function parseRetryAfterMs(headerValue: unknown): number | null {
+  if (typeof headerValue !== 'string') return null;
+  const trimmed = headerValue.trim();
+  if (!trimmed) return null;
+  const seconds = Number(trimmed);
+  if (!Number.isFinite(seconds) || seconds < 0) return null;
+  return Math.floor(seconds * 1000);
 }
 
 function chunkAndEncode(
@@ -87,6 +97,11 @@ export async function sendOtlpTraceSpans(options: {
         signal: controller.signal
       });
 
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+        timeoutId = undefined;
+      }
+
       if (res.ok) {
         for (const envelopeId of envelopeIds) {
           outcomes.push({ envelopeId, success: true, status: res.status });
@@ -107,6 +122,14 @@ export async function sendOtlpTraceSpans(options: {
           error: errorText,
           retryable
         });
+      }
+
+      if (res.status === 429) {
+        const retryAfterHeader = (res as any)?.headers?.get?.('retry-after');
+        const retryAfterMs = parseRetryAfterMs(retryAfterHeader);
+        if (retryAfterMs && retryAfterMs > 0) {
+          await sleep(retryAfterMs);
+        }
       }
     } catch (error: any) {
       overallSuccess = false;

@@ -160,6 +160,75 @@ describe('modules/observability OTLP client', () => {
     expect(result.outcomes[0]).toMatchObject({ retryable: true, status: 429 });
   });
 
+  test('sendOtlpTraceSpans respects Retry-After (seconds) on 429 responses', async () => {
+    jest.useFakeTimers();
+    const fetchMock = jest.fn(async () => {
+      return {
+        ok: false,
+        status: 429,
+        statusText: 'Too Many Requests',
+        headers: {
+          get: (key: string) => (key.toLowerCase() === 'retry-after' ? '1' : null)
+        }
+      } as any;
+    });
+    (globalThis as any).fetch = fetchMock;
+
+    const { sendOtlpTraceSpans } = await import('@/modules/observability/internal/otlp/client.ts');
+    let resolved = false;
+    const promise = sendOtlpTraceSpans({
+      spans: [makeSpan('env-1')],
+      url: 'http://example.com',
+      headers: {}
+    }).then(result => {
+      resolved = true;
+      return result;
+    });
+
+    await Promise.resolve();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(resolved).toBe(false);
+
+    jest.advanceTimersByTime(1000);
+    await expect(promise).resolves.toMatchObject({
+      success: false,
+      outcomes: [{ envelopeId: 'env-1', success: false, status: 429, retryable: true }]
+    });
+
+    jest.useRealTimers();
+  });
+
+  test('sendOtlpTraceSpans ignores invalid Retry-After values on 429 responses', async () => {
+    jest.useFakeTimers();
+    const { sendOtlpTraceSpans } = await import('@/modules/observability/internal/otlp/client.ts');
+
+    for (const headerValue of [' ', 'abc', '-1', '0']) {
+      const fetchMock = jest.fn(async () => {
+        return {
+          ok: false,
+          status: 429,
+          statusText: 'Too Many Requests',
+          headers: {
+            get: () => headerValue
+          }
+        } as any;
+      });
+      (globalThis as any).fetch = fetchMock;
+
+      const promise = sendOtlpTraceSpans({
+        spans: [makeSpan('env-1')],
+        url: 'http://example.com',
+        headers: {}
+      });
+
+      await Promise.resolve();
+      expect(jest.getTimerCount()).toBe(0);
+      await expect(promise).resolves.toMatchObject({ success: false });
+    }
+
+    jest.useRealTimers();
+  });
+
   test('sendOtlpTraceSpans treats thrown errors as retryable', async () => {
     const fetchMock = jest.fn(async () => {
       throw 'boom-string';
