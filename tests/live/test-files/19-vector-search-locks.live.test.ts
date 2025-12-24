@@ -176,7 +176,7 @@ describeLive('19-vector-search-locks (transported)', () => {
       expect(response.content).toBeDefined();
       expectNoVectorErrors(response);
 
-      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: TEST_FILE });
       const traceText = stringifyLangfuseTrace(trace);
       expect(traceText).toContain('vector_search');
       expect(traceText).toMatch(/"toolCalls"\s*:\s*\[\s*\{/);
@@ -390,7 +390,7 @@ describeLive('19-vector-search-locks (transported)', () => {
       ).toBe(true);
       expectNoVectorErrors(response);
 
-      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: TEST_FILE });
       const traceText = stringifyLangfuseTrace(trace);
       expect(traceText).toContain('vector_search');
       expect(traceText).toMatch(/"toolCalls"\s*:\s*\[\s*\{/);

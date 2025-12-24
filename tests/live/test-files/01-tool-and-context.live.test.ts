@@ -41,7 +41,7 @@ for (let i = 0; i < testRuns.length; i++) {
       const text = String(payload.content?.[0]?.text ?? '');
       expect(text.includes(secret)).toBe(true);
 
-      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: TEST_FILE });
       const traceText = stringifyLangfuseTrace(trace);
       expect(toolNameVariants('test.echo').some(v => traceText.includes(v))).toBe(true);
       expect(traceText).toContain(message);

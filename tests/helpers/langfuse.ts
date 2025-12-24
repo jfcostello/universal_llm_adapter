@@ -14,7 +14,12 @@ function stripTrailingSlashes(url: string): string {
 
 const GLOBAL_LOCK_DIR = path.join(os.tmpdir(), 'universal-llm-adapter-langfuse-read-lock');
 const GLOBAL_LOCK_TTL_MS = 5 * 60_000;
-const GLOBAL_MAX_CONCURRENT_READS = 1;
+const GLOBAL_MAX_CONCURRENT_READS = (() => {
+  const raw = process.env.LLM_LIVE_LANGFUSE_MAX_CONCURRENT_READS;
+  const parsed = raw ? Number.parseInt(String(raw), 10) : NaN;
+  if (!Number.isFinite(parsed) || parsed <= 0) return 3;
+  return parsed;
+})();
 const GLOBAL_COOLDOWN_FILE = path.join(GLOBAL_LOCK_DIR, 'cooldown.json');
 
 function readGlobalCooldownUntil(): number | null {
@@ -230,12 +235,12 @@ export async function waitForLangfuseTrace(
   const env = opts.env ?? process.env;
   const baseUrl = stripTrailingSlashes(opts.baseUrl ?? getLangfuseBaseUrl(env));
   const authorization = buildLangfuseAuthHeader(env);
-  const timeoutMs = Math.max(100, Math.floor(opts.timeoutMs ?? 30_000));
+  const timeoutMs = Math.max(100, Math.floor(opts.timeoutMs ?? 90_000));
   const minDelayMs = Math.max(1, Math.floor(opts.minDelayMs ?? 500));
   const maxDelayMs = Math.max(minDelayMs, Math.floor(opts.maxDelayMs ?? 10_000));
   const concurrency = Math.max(1, Math.floor(opts.concurrency ?? DEFAULT_CONCURRENCY));
   const testFileBase = opts.testFileBase ? String(opts.testFileBase) : '';
-  const logTimeoutMs = Math.max(250, Math.floor(opts.logTimeoutMs ?? 10_000));
+  const logTimeoutMs = Math.max(250, Math.floor(opts.logTimeoutMs ?? 30_000));
   const assertLoggedContent = opts.assertLoggedContent !== false;
 
   const url = `${baseUrl}/api/public/traces/${encodeURIComponent(String(traceId))}`;

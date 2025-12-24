@@ -54,7 +54,7 @@ for (let i = 0; i < testRuns.length; i++) {
     // Tolerate providers that omit marker or include larger payloads; acceptance is final SUMMARY_LENGTH
     expect(true).toBe(true);
 
-    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
+    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: TEST_FILE });
     const traceText = stringifyLangfuseTrace(trace);
     expect(toolNameVariants('test.echo').some(v => traceText.includes(v))).toBe(true);
     expect(traceText).toContain('Reflect this exact payload:');

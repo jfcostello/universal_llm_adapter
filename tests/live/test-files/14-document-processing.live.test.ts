@@ -73,7 +73,7 @@ for (let i = 0; i < testRuns.length; i++) {
       // Verify it used the correct provider
       expect(payload.provider).toBe(runCfg.llmPriority[0].provider);
 
-      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: TEST_FILE });
       const traceText = stringifyLangfuseTrace(trace);
       expect(traceText).toContain('sample.pdf');
     }, 180000);

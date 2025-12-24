@@ -108,7 +108,7 @@ The tools return unpredictable values that change every time. You must prove you
     const uniqueToolNames = Array.from(new Set(toolCalls.map((c: any) => String(c?.name || '').trim()))).filter(Boolean);
     expect(uniqueToolNames.length).toBeGreaterThanOrEqual(4);
 
-    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
+    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: TEST_FILE });
     const traceText = stringifyLangfuseTrace(trace);
     for (const name of uniqueToolNames.slice(0, 4)) {
       expect(toolNameVariants(name).some(v => traceText.includes(v))).toBe(true);

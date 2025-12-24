@@ -29,7 +29,7 @@ for (let i = 0; i < testRuns.length; i++) {
     const content = fs.readFileSync(batchFile, 'utf-8');
     expect(redactionFoundIn(content)).toBe(true);
 
-    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
+    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: TEST_FILE });
     const sessionId = (trace as any)?.sessionId;
     if (sessionId !== undefined && sessionId !== null && String(sessionId).trim() !== '') {
       expect(String(sessionId)).toBe(String(batchId));

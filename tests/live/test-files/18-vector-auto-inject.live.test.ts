@@ -175,7 +175,7 @@ describeLive('18-vector-auto-inject (transported)', () => {
       const joined = textParts.join('\n');
       expect(joined).toContain('paris');
 
-      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: TEST_FILE });
       const traceText = stringifyLangfuseTrace(trace);
       expect(traceText).toContain('Use the following context to answer:');
     }, 120000);

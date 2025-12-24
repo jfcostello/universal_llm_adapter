@@ -43,7 +43,7 @@ for (let i = 0; i < testRuns.length; i++) {
       normalized.includes('reconstruction');
     expect(ok).toBe(true);
 
-    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
+    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: TEST_FILE });
     const traceText = stringifyLangfuseTrace(trace);
     const hasErrorMarker = traceText.includes('tool_execution_failed') || traceText.includes('toolCalls');
     expect(hasErrorMarker).toBe(true);

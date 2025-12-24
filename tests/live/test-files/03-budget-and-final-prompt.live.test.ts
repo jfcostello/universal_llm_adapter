@@ -65,7 +65,7 @@ CRITICAL: The tool result messages contain important information about your prog
         expect(hasFinalPrompt).toBe(true);
       }
 
-      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: TEST_FILE });
       const traceText = stringifyLangfuseTrace(trace);
       const hasMarker = traceText.includes('Tool calls used') || traceText.includes('All tool calls have been consumed');
       expect(hasMarker).toBe(true);

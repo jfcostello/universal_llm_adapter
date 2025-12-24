@@ -141,7 +141,7 @@ for (let i = 0; i < testRuns.length; i++) {
       }
       assertCachedTokensExtracted(payload, logPath);
 
-      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: testFileBase });
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: testFileBase });
       const traceText = stringifyLangfuseTrace(trace);
       expect(traceText).toContain('Reply now.');
       expect(traceText).toContain(payload.provider);

@@ -61,7 +61,7 @@ for (let i = 0; i < testRuns.length; i++) {
     expect(combinedText.includes('xof')).toBe(true);
     expect(combinedText.includes('ylfrettub')).toBe(true);
 
-    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
+    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: TEST_FILE });
     const traceText = stringifyLangfuseTrace(trace);
     expect(traceText).toContain('tnahpele');
     expect(traceText).toContain('xof');
