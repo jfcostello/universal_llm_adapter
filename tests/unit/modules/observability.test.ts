@@ -1536,5 +1536,86 @@ describe('modules/observability', () => {
 
       await deps.shutdown();
     });
+
+    test('sanitizes per-call exporter tuning overrides (clamps to safe ranges)', async () => {
+      const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test-compat',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const mockRegistry = {
+        getObservabilityProvider: jest.fn(async () => mockManifest),
+        getObservabilityCompat: jest.fn(async () => mockCompat)
+      };
+
+      const deps = await createObservabilityDeps(mockRegistry as any, {
+        enabled: true,
+        provider: 'test',
+        flushAt: 0,
+        flushIntervalMs: -1,
+        maxQueueSize: 0,
+        maxAttempts: 999,
+        baseDelayMs: -5,
+        maxDelayMs: 999999999,
+        timeoutMs: 'not-a-number' as any
+      });
+
+      const exporter = deps.getExporter() as any;
+      expect(exporter.config.flushAt).toBe(1);
+      expect(exporter.config.maxQueueSize).toBe(1);
+      expect(exporter.config.flushIntervalMs).toBe(250);
+      expect(exporter.config.maxAttempts).toBe(20);
+      expect(exporter.config.baseDelayMs).toBe(0);
+      expect(exporter.config.maxDelayMs).toBe(300000);
+      // Invalid timeout override falls back to defaults from config.
+      expect(exporter.config.timeoutMs).toBe(10000);
+
+      await deps.shutdown();
+    });
+
+    test('treats non-finite numbers as invalid and accepts numeric strings', async () => {
+      const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test-compat',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const mockRegistry = {
+        getObservabilityProvider: jest.fn(async () => mockManifest),
+        getObservabilityCompat: jest.fn(async () => mockCompat)
+      };
+
+      const deps = await createObservabilityDeps(mockRegistry as any, {
+        enabled: true,
+        provider: 'test',
+        maxQueueSize: '5' as any,
+        flushAt: Number.POSITIVE_INFINITY as any,
+        baseDelayMs: Number.NaN as any
+      });
+
+      const exporter = deps.getExporter() as any;
+      expect(exporter.config.maxQueueSize).toBe(5);
+      // Invalid flushAt falls back to defaults then clamps to maxQueueSize.
+      expect(exporter.config.flushAt).toBe(5);
+      // Invalid baseDelay falls back to defaults.
+      expect(exporter.config.baseDelayMs).toBe(250);
+
+      await deps.shutdown();
+    });
   });
 });

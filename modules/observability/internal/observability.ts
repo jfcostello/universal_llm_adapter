@@ -363,6 +363,23 @@ export class ObservabilityExporter implements IObservabilityExporter {
 // FACTORY FUNCTIONS
 // ============================================================
 
+function normalizeNumber(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function clampInt(value: unknown, fallback: number, min: number, max: number): number {
+  const normalized = normalizeNumber(value);
+  const asInt = Number.isFinite(normalized as any) ? Math.floor(normalized as number) : Math.floor(fallback);
+  return Math.min(max, Math.max(min, asInt));
+}
+
 /**
  * Resolve observability configuration from spec and defaults.
  */
@@ -384,17 +401,25 @@ function resolveConfig(
     return null;
   }
 
+  const maxQueueSize = clampInt(spec?.maxQueueSize, defaults.maxQueueSize, 1, 100_000);
+  const flushAt = clampInt(spec?.flushAt, defaults.flushAt, 1, maxQueueSize);
+  const flushIntervalMs = clampInt(spec?.flushIntervalMs, defaults.flushIntervalMs, 250, 3_600_000);
+  const maxAttempts = clampInt(spec?.maxAttempts, defaults.maxAttempts, 1, 20);
+  const baseDelayMs = clampInt(spec?.baseDelayMs, defaults.baseDelayMs, 0, 300_000);
+  const maxDelayMs = clampInt(spec?.maxDelayMs, defaults.maxDelayMs, 0, 300_000);
+  const timeoutMs = clampInt(spec?.timeoutMs, defaults.timeoutMs, 250, 300_000);
+
   return {
     provider,
     logger,
     providerConfig: spec?.providerConfig,
-    flushAt: spec?.flushAt ?? defaults.flushAt,
-    flushIntervalMs: spec?.flushIntervalMs ?? defaults.flushIntervalMs,
-    maxQueueSize: spec?.maxQueueSize ?? defaults.maxQueueSize,
-    maxAttempts: spec?.maxAttempts ?? defaults.maxAttempts,
-    baseDelayMs: spec?.baseDelayMs ?? defaults.baseDelayMs,
-    maxDelayMs: spec?.maxDelayMs ?? defaults.maxDelayMs,
-    timeoutMs: spec?.timeoutMs ?? defaults.timeoutMs
+    flushAt,
+    flushIntervalMs,
+    maxQueueSize,
+    maxAttempts,
+    baseDelayMs,
+    maxDelayMs,
+    timeoutMs
   };
 }
 
