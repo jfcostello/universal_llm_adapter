@@ -358,6 +358,7 @@ export class StreamCoordinator {
         const event = {
           traceId: context.observability.traceId,
           generationId,
+          sessionId: context.observability.sessionId,
           timestamp: new Date().toISOString(),
           provider: providerManifest.id,
           model,

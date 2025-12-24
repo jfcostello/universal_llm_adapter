@@ -82,6 +82,9 @@ export interface ObservabilityLLMResponseEvent {
    */
   generationId?: string;
 
+  /** Optional session ID */
+  sessionId?: string;
+
   /** Response timestamp (ISO 8601) */
   timestamp: string;
 

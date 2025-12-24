@@ -56,12 +56,13 @@ describe('LangfuseCompat (OTLP)', () => {
     tools: [{ name: 'test.echo', description: 'Echo a message' }],
     settings: { temperature: 0.7 },
     requestPayload: { messages: [{ role: 'user', content: 'Hello' }] },
-    metadata: { custom: 'value' }
+    metadata: { custom: 'value', correlationId: 'corr-123', batchId: 'batch-xyz' }
   };
 
   const responseEvent: ObservabilityLLMResponseEvent = {
     traceId,
     generationId,
+    sessionId: 'session-456',
     timestamp: '2024-01-01T00:00:01.000Z',
     provider: 'provider-a',
     model: 'model-a',
@@ -70,7 +71,7 @@ describe('LangfuseCompat (OTLP)', () => {
     toolCalls: [{ id: 'call-1', name: 'test.echo', arguments: { message: 'abc' } }],
     usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
     durationMs: 1000,
-    metadata: { custom: 'response-value' }
+    metadata: { custom: 'response-value', correlationId: 'corr-123', batchId: 'batch-xyz' }
   };
 
   beforeEach(() => {
@@ -114,6 +115,10 @@ describe('LangfuseCompat (OTLP)', () => {
       expect(String(attrs['langfuse.observation.input'] || '')).toContain('Hello');
       expect(String(attrs['langfuse.observation.output'] || '')).toContain('Hello there!');
       expect(String(attrs['langfuse.observation.output'] || '')).toContain('test.echo');
+      expect(attrs['llm.adapter.trace_id']).toBe(traceId);
+      expect(attrs['llm.adapter.session_id']).toBe('session-456');
+      expect(attrs['llm.adapter.correlation_id']).toBe('corr-123');
+      expect(attrs['llm.adapter.batch_id']).toBe('batch-xyz');
 
       const input = JSON.parse(String(attrs['langfuse.observation.input'] || '{}'));
       expect(input.requestPayload).toEqual(requestEvent.requestPayload);
@@ -163,6 +168,37 @@ describe('LangfuseCompat (OTLP)', () => {
       const respBatch = compat.buildBatch([responseEvent], mockManifest, ctxResp);
       const spans = (respBatch.payload as any)?.spans ?? [];
       expect(spans).toHaveLength(1);
+
+      const span = spans[0];
+      const attrs = span?.attributes ?? {};
+      expect(attrs['llm.adapter.trace_id']).toBe(traceId);
+      expect(attrs['llm.adapter.session_id']).toBe('session-456');
+      expect(attrs['llm.adapter.correlation_id']).toBe('corr-123');
+      expect(attrs['llm.adapter.batch_id']).toBe('batch-xyz');
+    });
+
+    it('omits blank correlationId and falls back batchId to sessionId', () => {
+      const ctxReq = { eventIds: ['event-req'] } as any;
+      const ctxResp = { eventIds: ['event-resp'] } as any;
+
+      const req: ObservabilityLLMRequestEvent = {
+        ...requestEvent,
+        metadata: { correlationId: '   ', batchId: 123 as any }
+      };
+
+      const resp: ObservabilityLLMResponseEvent = {
+        ...responseEvent,
+        metadata: { correlationId: '   ', batchId: 123 as any }
+      };
+
+      compat.buildBatch([req], mockManifest, ctxReq);
+      const respBatch = compat.buildBatch([resp], mockManifest, ctxResp);
+      const spans = (respBatch.payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+
+      const attrs = spans[0]?.attributes ?? {};
+      expect(attrs['llm.adapter.correlation_id']).toBeUndefined();
+      expect(attrs['llm.adapter.batch_id']).toBe('session-456');
     });
 
     it('skips unknown event shapes', () => {

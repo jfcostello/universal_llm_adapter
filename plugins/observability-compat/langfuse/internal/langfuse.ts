@@ -25,6 +25,13 @@ function safeJson(value: unknown): string {
   }
 }
 
+function getStringMetadata(metadata: unknown, key: string): string | undefined {
+  const value = (metadata as any)?.[key];
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 function buildUrl(urlTemplate: string): string {
   const normalized = String(urlTemplate).replace(/\$\{([A-Z0-9_]+)\}/g, '${$1?}');
   return String(substituteEnv(normalized));
@@ -229,6 +236,15 @@ export class LangfuseCompat implements IObservabilityCompat {
       const key = cacheKey(event.traceId, event.generationId);
       const cached = this.requestCache.get(key);
 
+      const sessionId = cached?.event?.sessionId
+        ? String(cached.event.sessionId)
+        : event.sessionId
+          ? String(event.sessionId)
+          : undefined;
+      const metadata = cached?.event?.metadata ?? event.metadata;
+      const correlationId = getStringMetadata(metadata, 'correlationId');
+      const batchId = getStringMetadata(metadata, 'batchId') ?? sessionId;
+
       const envelopeId = getEnvelopeId(
         eventIds,
         i,
@@ -245,7 +261,10 @@ export class LangfuseCompat implements IObservabilityCompat {
           ? { code: 'ERROR', message: String(event.error.message || 'error') }
           : { code: 'OK' },
         attributes: {
-          ...(cached?.event?.sessionId ? { 'langfuse.session.id': String(cached.event.sessionId) } : {}),
+          'llm.adapter.trace_id': String(event.traceId || ''),
+          ...(sessionId ? { 'langfuse.session.id': sessionId, 'llm.adapter.session_id': sessionId } : {}),
+          ...(correlationId ? { 'llm.adapter.correlation_id': correlationId } : {}),
+          ...(batchId ? { 'llm.adapter.batch_id': batchId } : {}),
           'llm.adapter.provider': String(event.provider || cached?.event?.provider || ''),
           'llm.adapter.input_text': cached?.event ? flattenPrimitiveStrings(cached.event.messages) : '',
           'llm.adapter.output_text': flattenPrimitiveStrings({
