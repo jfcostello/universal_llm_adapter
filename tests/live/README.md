@@ -14,7 +14,7 @@ At the end, a combined summary shows pass/fail counts for both suites.
 
 ## Live test parallelism
 
-- Default workers: `maxWorkersDefault` in `tests/live/config.ts` (currently 5).
+- Default workers: `maxWorkersDefault` in `tests/live/config.ts` (currently 10).
 - Override per run:
   - Env: `MAX_WORKERS=2 npm run test:live:openrouter`
   - CLI: `npm run test:live:openrouter -- --maxWorkers=2`

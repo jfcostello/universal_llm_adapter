@@ -220,4 +220,4 @@ export function liveTestTimeout(minMs: number): number {
 }
 
 // Default Jest worker count for live runs (can be overridden via env/CLI)
-export const maxWorkersDefault = 5;
+export const maxWorkersDefault = 10;
