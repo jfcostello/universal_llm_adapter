@@ -158,7 +158,8 @@ function buildInputJson(request?: ObservabilityLLMRequestEvent): string {
   if (!request) return safeJson({ messages: [] });
   return safeJson({
     messages: request.messages,
-    tools: request.tools ?? []
+    tools: request.tools ?? [],
+    ...(request.requestPayload !== undefined ? { requestPayload: request.requestPayload } : {})
   });
 }
 
@@ -166,6 +167,7 @@ function buildOutputJson(response: ObservabilityLLMResponseEvent): string {
   return safeJson({
     content: response.content,
     toolCalls: response.toolCalls ?? [],
+    ...(response.rawResponse !== undefined ? { rawResponse: response.rawResponse } : {}),
     error: response.error ?? null
   });
 }

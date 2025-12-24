@@ -66,6 +66,7 @@ describe('LangfuseCompat (OTLP)', () => {
     provider: 'provider-a',
     model: 'model-a',
     content: [{ type: 'text', text: 'Hello there!' }],
+    rawResponse: { id: 'raw-1', ok: true },
     toolCalls: [{ id: 'call-1', name: 'test.echo', arguments: { message: 'abc' } }],
     usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
     durationMs: 1000,
@@ -113,6 +114,12 @@ describe('LangfuseCompat (OTLP)', () => {
       expect(String(attrs['langfuse.observation.input'] || '')).toContain('Hello');
       expect(String(attrs['langfuse.observation.output'] || '')).toContain('Hello there!');
       expect(String(attrs['langfuse.observation.output'] || '')).toContain('test.echo');
+
+      const input = JSON.parse(String(attrs['langfuse.observation.input'] || '{}'));
+      expect(input.requestPayload).toEqual(requestEvent.requestPayload);
+
+      const output = JSON.parse(String(attrs['langfuse.observation.output'] || '{}'));
+      expect(output.rawResponse).toEqual(responseEvent.rawResponse);
     });
 
     it('flattens primitives into adapter text attributes', () => {
