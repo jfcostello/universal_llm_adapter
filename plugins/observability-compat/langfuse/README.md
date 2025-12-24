@@ -26,9 +26,9 @@ Both keys are combined for HTTP Basic authentication.
 
 ### Default Endpoint
 
-By default, events are sent to Langfuse Cloud:
+By default, events are sent to Langfuse Cloud (OTLP traces ingestion):
 ```
-https://cloud.langfuse.com/api/public/ingestion
+https://cloud.langfuse.com/api/public/otel/v1/traces
 ```
 
 ### Custom Endpoint
@@ -38,6 +38,8 @@ For self-hosted Langfuse or custom deployments, set `LANGFUSE_HOST`:
 ```bash
 export LANGFUSE_HOST="https://your-langfuse-instance.com"
 ```
+
+`LANGFUSE_HOST` should be a **base origin** (no path). The compat appends the OTLP traces path (`/api/public/otel/v1/traces`) automatically.
 
 ### Per-Call Endpoint Override (Unsafe)
 

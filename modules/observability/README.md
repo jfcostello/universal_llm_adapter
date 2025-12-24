@@ -1,12 +1,13 @@
 # Observability Module
 
-The observability module provides optional export of LLM call telemetry to external observability platforms like Langfuse. This enables tracking, debugging, and analyzing LLM usage across your application.
+The observability module provides optional export of LLM call telemetry to external observability platforms (via provider/compat plugins). This enables tracking, debugging, and analyzing LLM usage across your application.
 
 ## Features (v1 - LLM Calls Only)
 
 In version 1, observability supports:
 - Recording LLM request events (prompt, model, tools, settings)
 - Recording LLM response events (content, usage, duration, errors)
+- Recording request/response payloads when available (`requestPayload` / `rawResponse`)
 - Trace and session correlation
 - Non-blocking async export with retry
 
@@ -14,9 +15,9 @@ In version 1, observability supports:
 
 ## How to Enable
 
-### Global Configuration (defaults.json)
+### Global Configuration (`plugins/configs/defaults.json`)
 
-Enable observability globally by adding to your `defaults.json`:
+Enable observability globally by adding to your `plugins/configs/defaults.json`:
 
 ```json
 {
@@ -101,15 +102,13 @@ When `shutdown()` is called:
 
 ## Provider Limits
 
-### Langfuse Batch Limits
+### OTLP Batch Limits
 
-Langfuse has ingestion limits:
-- **Max batch size:** 3,670,016 bytes (3.5 MiB; from provider manifest)
-- **Max events per batch:** 1000 (configurable server-side)
+When using OTLP HTTP/protobuf ingestion, payloads are chunked by encoded size:
+- **Max batch size:** 3,670,016 bytes (~3.5 MiB) by default
+- Providers may override this via `plugins/observability-providers/<id>.json` (`limits.maxBatchBytes`)
 
-The Langfuse compat module handles batching within these limits:
-- Events are grouped by trace ID into "envelopes"
-- Large payloads are handled gracefully (failures are per-envelope, not per-batch)
+Compat modules are responsible for mapping queued events into provider-specific payloads/envelopes. The core exporter uses per-envelope outcomes to decide what to retry vs drop.
 
 For optimal performance, keep individual events reasonably sized:
 - Avoid extremely long prompts in a single message
@@ -136,16 +135,15 @@ For optimal performance, keep individual events reasonably sized:
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   LLM Manager   │────▶│   Observability │────▶│   Langfuse      │
-│                 │     │   Exporter      │     │   Compat        │
-│ recordLLMReq()  │     │                 │     │                 │
-│ recordLLMResp() │     │ Queue + Retry   │     │ Build + Send    │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-                                                         │
+│   LLM Manager   │────▶│   Observability │────▶│  Provider Compat │
+│                 │     │   Exporter      │     │                 │
+│ recordLLMReq()  │     │                 │     │ Build + Send    │
+│ recordLLMResp() │     │ Queue + Retry   │     └─────────────────┘
+└─────────────────┘     └─────────────────┘              │
                                                          ▼
                                                 ┌─────────────────┐
-                                                │   Langfuse API  │
-                                                │   (ingestion)   │
+                                                │ Provider Ingest │
+                                                │ (e.g., OTLP)    │
                                                 └─────────────────┘
 ```
 
