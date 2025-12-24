@@ -14,13 +14,15 @@ function fixturePath(name: string): string {
 
 function getFinalTranscript(events: any[], type: 'user' | 'assistant'): string {
   if (type === 'assistant') {
-    const textFinals = events.filter(e => e?.type === 'assistant_text.final');
-    const lastText = textFinals[textFinals.length - 1];
-    if (lastText?.text) return String(lastText.text).trim();
-
-    const transcriptFinals = events.filter(e => e?.type === 'assistant_transcript.final');
-    const lastTranscript = transcriptFinals[transcriptFinals.length - 1];
-    return String(lastTranscript?.text ?? '').trim();
+    for (let i = events.length - 1; i >= 0; i--) {
+      const event = events[i];
+      const isFinal =
+        event?.type === 'assistant_text.final' || event?.type === 'assistant_transcript.final';
+      if (!isFinal) continue;
+      const text = String(event?.text ?? '').trim();
+      if (text) return text;
+    }
+    return '';
   }
 
   const transcriptFinals = events.filter(e => e?.type === 'user_transcript.final');
