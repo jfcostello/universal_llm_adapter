@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals';
+import { withTempCwd } from '@tests/helpers/temp-files.ts';
 
 describe('helpers/langfuse', () => {
   const originalFetch = globalThis.fetch;
@@ -90,5 +91,139 @@ describe('helpers/langfuse', () => {
         maxDelayMs: 5
       })
     ).rejects.toThrow(/Timed out waiting for Langfuse trace/i);
+  });
+
+  test('waitForLangfuseTrace can assert logged observability content (messages/toolCalls)', async () => {
+    const traceId = 'trace-123';
+    const testFileBase = 'unit-observability';
+
+    await withTempCwd('langfuse-assert-logged-ok', async () => {
+      const { logObservabilityEvent } = await import('@/modules/llm/internal/live-test-logger.ts');
+
+      const ctx = { testFile: testFileBase, testName: 'unit', correlationId: traceId };
+      logObservabilityEvent(
+        {
+          eventType: 'LLM_REQUEST',
+          traceId,
+          generationId: 'gen-1',
+          event: {
+            traceId,
+            provider: 'x',
+            model: 'y',
+            timestamp: new Date().toISOString(),
+            messages: [
+              { role: 'system', content: [{ type: 'text', text: 'sys msg' }] },
+              { role: 'user', content: [{ type: 'text', text: 'user msg' }] },
+              { role: 'assistant', content: [{ type: 'text', text: 'assistant prev' }] },
+              {
+                role: 'tool',
+                content: [{ type: 'tool_result', toolName: 'test.echo', result: { value: 'tool result' } }]
+              }
+            ]
+          }
+        },
+        ctx
+      );
+
+      logObservabilityEvent(
+        {
+          eventType: 'LLM_RESPONSE',
+          traceId,
+          generationId: 'gen-1',
+          event: {
+            traceId,
+            provider: 'x',
+            model: 'y',
+            timestamp: new Date().toISOString(),
+            content: [{ type: 'text', text: 'assistant final' }],
+            toolCalls: [{ id: 'call-1', name: 'test.echo', arguments: { message: 'abc' } }]
+          }
+        },
+        ctx
+      );
+
+      const traceObject = {
+        id: traceId,
+        input: [
+          { role: 'system', content: [{ type: 'text', text: 'sys msg' }] },
+          { role: 'user', content: [{ type: 'text', text: 'user msg' }] },
+          { role: 'assistant', content: [{ type: 'text', text: 'assistant prev' }] }
+        ],
+        observations: [
+          { metadata: { toolCalls: [{ name: 'test_echo', arguments: { message: 'abc' } }], value: 'tool result' } }
+        ],
+        output: [{ type: 'text', text: 'assistant final' }]
+      };
+
+      const fetchMock = jest.fn(async () => {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => traceObject
+        } as any;
+      });
+
+      (globalThis as any).fetch = fetchMock;
+
+      const { waitForLangfuseTrace } = await import('../../helpers/langfuse.ts');
+      const trace = await waitForLangfuseTrace(traceId, {
+        env: { LANGFUSE_PUBLIC_KEY: 'pk', LANGFUSE_SECRET_KEY: 'sk' },
+        timeoutMs: 250,
+        minDelayMs: 1,
+        maxDelayMs: 5,
+        testFileBase,
+        logTimeoutMs: 1000
+      });
+
+      expect(trace).toEqual(traceObject);
+    });
+  });
+
+  test('waitForLangfuseTrace fails when logged observability content is missing from trace', async () => {
+    const traceId = 'trace-missing';
+    const testFileBase = 'unit-observability-missing';
+
+    await withTempCwd('langfuse-assert-logged-missing', async () => {
+      const { logObservabilityEvent } = await import('@/modules/llm/internal/live-test-logger.ts');
+
+      const ctx = { testFile: testFileBase, testName: 'unit', correlationId: traceId };
+      logObservabilityEvent(
+        {
+          eventType: 'LLM_RESPONSE',
+          traceId,
+          generationId: 'gen-1',
+          event: {
+            traceId,
+            provider: 'x',
+            model: 'y',
+            timestamp: new Date().toISOString(),
+            content: [{ type: 'text', text: 'expected content' }]
+          }
+        },
+        ctx
+      );
+
+      const traceObject = { id: traceId, output: [] };
+      const fetchMock = jest.fn(async () => {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => traceObject
+        } as any;
+      });
+      (globalThis as any).fetch = fetchMock;
+
+      const { waitForLangfuseTrace } = await import('../../helpers/langfuse.ts');
+      await expect(
+        waitForLangfuseTrace(traceId, {
+          env: { LANGFUSE_PUBLIC_KEY: 'pk', LANGFUSE_SECRET_KEY: 'sk' },
+          timeoutMs: 100,
+          minDelayMs: 1,
+          maxDelayMs: 5,
+          testFileBase,
+          logTimeoutMs: 500
+        })
+      ).rejects.toThrow(/Langfuse trace missing expected content/i);
+    });
   });
 });

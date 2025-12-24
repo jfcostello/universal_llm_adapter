@@ -7,6 +7,7 @@ import fs from 'fs';
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
+const TEST_FILE = '07b-mcp-multi-many-calls';
 
 for (let i = 0; i < testRuns.length; i++) {
   const runCfg = testRuns[i];
@@ -48,7 +49,7 @@ The tools return unpredictable values that change every time. You must prove you
     const result = await runCoordinator({
       args: ['run', '--spec', JSON.stringify(attachLangfuseObservability(spec as any, traceId)), '--plugins', pluginsPath],
       cwd: process.cwd(),
-      env: withLiveEnv({ TEST_FILE: '07b-mcp-multi-many-calls' })
+      env: withLiveEnv({ TEST_FILE })
     });
     if (result.code !== 0) {
       const stderr = String(result.stderr || '');
@@ -65,7 +66,7 @@ The tools return unpredictable values that change every time. You must prove you
     const text = String(payload.content?.[0]?.text ?? '');
 
     // Parse log to extract actual unpredictable values (provider-agnostic)
-    const logPath = buildLogPathFor('07b-mcp-multi-many-calls');
+    const logPath = buildLogPathFor(TEST_FILE);
     let pingTimestamps: string[] = [];
     let testTimestamps: string[] = [];
     let calcResults: string[] = [];
@@ -107,7 +108,7 @@ The tools return unpredictable values that change every time. You must prove you
     const uniqueToolNames = Array.from(new Set(toolCalls.map((c: any) => String(c?.name || '').trim()))).filter(Boolean);
     expect(uniqueToolNames.length).toBeGreaterThanOrEqual(4);
 
-    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
     const traceText = stringifyLangfuseTrace(trace);
     for (const name of uniqueToolNames.slice(0, 4)) {
       expect(toolNameVariants(name).some(v => traceText.includes(v))).toBe(true);

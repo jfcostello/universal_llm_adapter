@@ -41,7 +41,7 @@ for (let i = 0; i < testRuns.length; i++) {
       expect(true).toBe(true);
     }
 
-    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
     const traceText = stringifyLangfuseTrace(trace);
     expect(traceText).toContain('Count from 1 to 5');
     expect(traceText).toContain('1');

@@ -25,13 +25,15 @@ if (runLive) {
 const describeLive = runLive ? describe : describe.skip;
 
 const pluginsPath = './plugins';
+const TEST_FILE = '18-vector-auto-inject';
+const liveEnv = { ...process.env, TEST_FILE };
 const testCollection = `test-inject-${Date.now()}`;
 
 async function runEmbedding(spec: any): Promise<any> {
   const result = await runEmbeddingCoordinator({
     args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath],
     cwd: process.cwd(),
-    env: process.env
+    env: liveEnv
   });
   expect(result.code).toBe(0);
   return JSON.parse(result.stdout.trim());
@@ -41,7 +43,7 @@ async function runVector(spec: any): Promise<any> {
   const result = await runVectorCoordinator({
     args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath],
     cwd: process.cwd(),
-    env: process.env
+    env: liveEnv
   });
   expect(result.code).toBe(0);
   return JSON.parse(result.stdout.trim());
@@ -51,7 +53,7 @@ async function runLlm(spec: any): Promise<any> {
   const result = await runCoordinator({
     args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath],
     cwd: process.cwd(),
-    env: process.env
+    env: liveEnv
   });
   expect(result.code).toBe(0);
   return JSON.parse(result.stdout.trim());
@@ -173,7 +175,7 @@ describeLive('18-vector-auto-inject (transported)', () => {
       const joined = textParts.join('\n');
       expect(joined).toContain('paris');
 
-      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
       const traceText = stringifyLangfuseTrace(trace);
       expect(traceText).toContain('Use the following context to answer:');
     }, 120000);

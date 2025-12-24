@@ -1,7 +1,10 @@
+import fs from 'fs';
+import path from 'path';
 import { describe, expect, test, jest } from '@jest/globals';
 import { LLMManager } from '@/modules/llm/index.ts';
 import { ProviderExecutionError, Role } from '@/modules/kernel/index.ts';
 import type { RunContext, Message } from '@/modules/kernel/index.ts';
+import { withTempCwd } from '@tests/helpers/temp-files.ts';
 
 describe('LLMManager observability', () => {
   const mockMessages: Message[] = [
@@ -123,6 +126,64 @@ describe('LLMManager observability', () => {
     const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
     const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
     expect(requestArg.generationId).toBe(responseArg.generationId);
+  });
+
+  test('when LLM_LIVE=1, observability events are also written to the live log', async () => {
+    const prevLive = process.env.LLM_LIVE;
+    process.env.LLM_LIVE = '1';
+    try {
+      await withTempCwd('llm-manager-observability-live-log', async () => {
+        const mockSDKResponse = {
+          content: [{ type: 'text', text: 'SDK response' }],
+          role: Role.ASSISTANT,
+          toolCalls: []
+        };
+
+        const mockCompat = {
+          callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+        };
+
+        const registry = {
+          getCompatModule: jest.fn().mockReturnValue(mockCompat)
+        } as any;
+
+        const observability = createMockObservabilityContext();
+        const context: RunContext = {
+          observability,
+          metadata: { testFile: 'llm-manager-observability-live-log', testName: 'unit', correlationId: 'corr-789' }
+        } as any;
+
+        const manager = new LLMManager(registry);
+        await manager.callProvider(
+          mockProvider,
+          'test-model',
+          { temperature: 0.7 },
+          mockMessages,
+          [],
+          undefined,
+          {},
+          undefined,
+          context
+        );
+
+        await new Promise(res => setTimeout(res, 25));
+
+        const dateOnly = new Date().toISOString().split('T')[0];
+        const logFile = path.join(
+          process.cwd(),
+          'tests',
+          'live',
+          'logs',
+          `${dateOnly}-llm-manager-observability-live-log.log`
+        );
+        const content = fs.readFileSync(logFile, 'utf-8');
+        expect(content).toContain('>>> OBSERVABILITY EVENT >>>');
+        expect(content).toContain('Event Type: LLM_REQUEST');
+        expect(content).toContain('Event Type: LLM_RESPONSE');
+      });
+    } finally {
+      process.env.LLM_LIVE = prevLive;
+    }
   });
 
   test('callProvider records error response on SDK failure', async () => {

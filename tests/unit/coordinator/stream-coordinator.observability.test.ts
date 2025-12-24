@@ -1,5 +1,8 @@
 import { jest } from '@jest/globals';
 import { Role, ToolCallEventType } from '@/modules/kernel/index.ts';
+import fs from 'fs';
+import path from 'path';
+import { withTempCwd } from '@tests/helpers/temp-files.ts';
 
 const unstableMockModule = (jest as unknown as { unstable_mockModule?: typeof jest.unstable_mockModule }).unstable_mockModule;
 if (!unstableMockModule) {
@@ -126,6 +129,60 @@ describe('StreamCoordinator observability', () => {
     const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
     expect(typeof requestArg.generationId).toBe('string');
     expect(requestArg.generationId).toBe(responseArg.generationId);
+  });
+
+  test('when LLM_LIVE=1, stream coordinator logs observability events to the live log', async () => {
+    const prevLive = process.env.LLM_LIVE;
+    process.env.LLM_LIVE = '1';
+    try {
+      await withTempCwd('stream-coordinator-observability-live-log', async () => {
+        const parseStreamChunk = (chunk: any) => ({ text: chunk.text });
+        const { coordinator } = await createCoordinator({
+          streamChunks: [{ text: 'hello' }],
+          parseStreamChunk
+        });
+
+        const observability = createObservabilityContext();
+        const spec: any = {
+          llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
+          settings: {},
+          metadata: { correlationId: 'corr-789', testFile: 'stream-coordinator-observability-live-log', testName: 'unit' }
+        };
+
+        const messages: any[] = [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }];
+        const tools: any[] = [{ name: 'demo-tool', description: 'demo' }];
+
+        const context: any = {
+          provider: 'stub-provider',
+          model: 'stub-model',
+          tools,
+          mcpServers: [],
+          toolNameMap: new Map(),
+          logger: { info: jest.fn(), warning: jest.fn() },
+          metadata: spec.metadata,
+          observability
+        };
+
+        for await (const _event of coordinator.coordinateStream(spec, messages, tools, context)) {
+          // consume
+        }
+
+        const dateOnly = new Date().toISOString().split('T')[0];
+        const logFile = path.join(
+          process.cwd(),
+          'tests',
+          'live',
+          'logs',
+          `${dateOnly}-stream-coordinator-observability-live-log.log`
+        );
+        const content = fs.readFileSync(logFile, 'utf-8');
+        expect(content).toContain('>>> OBSERVABILITY EVENT >>>');
+        expect(content).toContain('Event Type: LLM_REQUEST');
+        expect(content).toContain('Event Type: LLM_RESPONSE');
+      });
+    } finally {
+      process.env.LLM_LIVE = prevLive;
+    }
   });
 
   test('records usage + totalTokens when promptTokens is present', async () => {

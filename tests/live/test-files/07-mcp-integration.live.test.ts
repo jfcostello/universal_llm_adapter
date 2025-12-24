@@ -6,6 +6,7 @@ import { attachLangfuseObservability, createTraceId, toolNameVariants, waitForLa
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
+const TEST_FILE = '07-mcp-integration';
 
 for (let i = 0; i < testRuns.length; i++) {
   const runCfg = testRuns[i];
@@ -25,7 +26,7 @@ for (let i = 0; i < testRuns.length; i++) {
       const result = await runCoordinator({
         args: ['run', '--spec', JSON.stringify(attachLangfuseObservability(spec as any, traceId)), '--plugins', pluginsPath],
         cwd: process.cwd(),
-        env: withLiveEnv({ TEST_FILE: '07-mcp-integration' })
+        env: withLiveEnv({ TEST_FILE })
       });
       if (result.code !== 0) { expect(true).toBe(true); return; }
       expect(result.code).toBe(0);
@@ -37,7 +38,7 @@ for (let i = 0; i < testRuns.length; i++) {
       const echoArgs = toolCalls.find((c: any) => (c.name || '').includes('echo'))?.arguments || {};
       expect(JSON.stringify(echoArgs)).toMatch(/\d{10,}/);
 
-      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
       const traceText = stringifyLangfuseTrace(trace);
       expect(traceText).toContain('testmcp');
       expect(toolNameVariants('test.echo').some(v => traceText.includes(v))).toBe(true);

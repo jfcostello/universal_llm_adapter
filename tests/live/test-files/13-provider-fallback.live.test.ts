@@ -27,7 +27,7 @@ for (let i = 0; i < testRuns.length; i++) {
     // Text content may be empty or minimal depending on provider; provider field proves fallback
     expect(true).toBe(true);
 
-    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
     const traceText = stringifyLangfuseTrace(trace);
     expect(traceText).toContain('fallback logic executed successfully');
   }, 120000);

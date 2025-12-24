@@ -6,6 +6,7 @@ import { attachLangfuseObservability, createTraceId, toolNameVariants, waitForLa
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
+const TEST_FILE = '01-tool-and-context';
 
 for (let i = 0; i < testRuns.length; i++) {
   const runCfg = testRuns[i];
@@ -25,7 +26,7 @@ for (let i = 0; i < testRuns.length; i++) {
         toolChoice: { type: 'required', allowed: ['test.echo'] },
         settings: mergeSettings(runCfg.settings, { temperature: 0.1, maxTokens: 60000, provider: { require_parameters: true } })
       }) as any, traceId);
-      const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE: '01-tool-and-context' }) });
+      const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
       if (result.code !== 0 && /No endpoints found that can handle the requested parameters/i.test(result.stderr)) { expect(true).toBe(true); return; }
       expect(result.code).toBe(0);
       const payload = JSON.parse(result.stdout.trim());
@@ -40,7 +41,7 @@ for (let i = 0; i < testRuns.length; i++) {
       const text = String(payload.content?.[0]?.text ?? '');
       expect(text.includes(secret)).toBe(true);
 
-      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
       const traceText = stringifyLangfuseTrace(trace);
       expect(toolNameVariants('test.echo').some(v => traceText.includes(v))).toBe(true);
       expect(traceText).toContain(message);
@@ -58,7 +59,7 @@ for (let i = 0; i < testRuns.length; i++) {
         toolChoice: { type: 'required', allowed: ['test.echo'] },
         settings: mergeSettings(runCfg.settings, { temperature: 0.1, maxTokens: 60000, provider: { require_parameters: true } })
       });
-      const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE: '01-tool-and-context' }) });
+      const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
       if (result.code !== 0 && /No endpoints found that can handle the requested parameters/i.test(result.stderr)) { expect(true).toBe(true); return; }
       expect(result.code).toBe(0);
       const payload = JSON.parse(result.stdout.trim());

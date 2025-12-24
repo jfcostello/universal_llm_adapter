@@ -185,3 +185,46 @@ export function logResponse(
 
   fs.appendFileSync(target.logFile, log);
 }
+
+export function logObservabilityEvent(
+  data: {
+    eventType: string;
+    traceId?: string;
+    generationId?: string;
+    event: any;
+  },
+  context?: LiveTestLogContext
+): void {
+  const target = resolveLogTarget(context);
+  initLogFileOnce(target);
+
+  const timestamp = new Date().toLocaleString(undefined, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short'
+  });
+
+  const separator = '\n' + '='.repeat(80) + '\n';
+  const correlationId = context?.correlationId ? String(context.correlationId) : '';
+  const log = [
+    separator,
+    '>>> OBSERVABILITY EVENT >>>',
+    separator,
+    `Timestamp: ${timestamp}`,
+    correlationId ? `CorrelationId: ${correlationId}` : null,
+    data.traceId ? `TraceId: ${data.traceId}` : null,
+    data.generationId ? `GenerationId: ${data.generationId}` : null,
+    `Event Type: ${data.eventType}`,
+    '',
+    '--- BODY ---',
+    stringifyBody(data.event),
+    separator,
+    ''
+  ].filter(Boolean).join('\n');
+
+  fs.appendFileSync(target.logFile, log);
+}

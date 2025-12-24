@@ -50,12 +50,12 @@ for (let i = 0; i < testRuns.length; i++) {
     const streamCalls = JSON.stringify(streamPayload?.toolCalls || []);
     expect(runCalls).toBe(streamCalls);
 
-    const traceRun = await waitForLangfuseTrace(traceIdRun, { timeoutMs: 60000 });
+    const traceRun = await waitForLangfuseTrace(traceIdRun, { timeoutMs: 60000, testFileBase: TEST_FILE });
     const traceRunText = stringifyLangfuseTrace(traceRun);
     expect(traceRunText).toContain('5 + 7');
     expect(traceRunText).toContain('12');
 
-    const traceStream = await waitForLangfuseTrace(traceIdStream, { timeoutMs: 60000 });
+    const traceStream = await waitForLangfuseTrace(traceIdStream, { timeoutMs: 60000, testFileBase: TEST_FILE });
     const traceStreamText = stringifyLangfuseTrace(traceStream);
     expect(traceStreamText).toContain('5 + 7');
     expect(traceStreamText).toContain('12');

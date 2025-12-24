@@ -71,7 +71,7 @@ for (let i = 0; i < testRuns.length; i++) {
         }
       }
 
-      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
       const traceText = stringifyLangfuseTrace(trace);
       expect(traceText).toContain(
         'This is a placeholder, not the original tool response; the tool output has been redacted to save context.'

@@ -81,7 +81,7 @@ CRITICAL RULES:
         }
       }
 
-      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
       const traceText = stringifyLangfuseTrace(trace);
       expect(toolNameVariants('test.random').some(v => traceText.includes(v))).toBe(true);
       expect(toolNameVariants('test.echo').some(v => traceText.includes(v))).toBe(true);

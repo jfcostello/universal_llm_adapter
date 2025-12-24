@@ -130,7 +130,7 @@ for (let i = 0; i < testRuns.length; i++) {
       // Note: We don't fail if response doesn't have reasoning - some providers
       // don't return reasoning in the response even when requested
 
-      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
       const traceText = stringifyLangfuseTrace(trace);
       expect(traceText).toContain('What is 3 + 4?');
       const hasReasoningEvidence =

@@ -30,7 +30,7 @@ export class LLMManager {
    * Record an LLM request event to observability.
    * Never throws - errors are logged and swallowed.
    */
-  private recordObservabilityRequest(
+  private async recordObservabilityRequest(
     context: RunContext,
     provider: string,
     model: string,
@@ -41,11 +41,11 @@ export class LLMManager {
     settings: LLMCallSettings,
     requestPayload: unknown,
     logger?: AdapterLogger
-  ): void {
+  ): Promise<void> {
     if (!context.observability) return;
 
     try {
-      context.observability.exporter.recordLLMRequest({
+      const event = {
         traceId: context.observability.traceId,
         generationId,
         timestamp,
@@ -57,7 +57,26 @@ export class LLMManager {
         tools: tools.map(t => ({ name: t.name, description: t.description })),
         settings,
         requestPayload: redactJsonCredentials(requestPayload)
-      });
+      };
+
+      context.observability.exporter.recordLLMRequest(event as any);
+
+      if (process.env.LLM_LIVE === '1') {
+        try {
+          const { logObservabilityEvent } = await import('./live-test-logger.js');
+          logObservabilityEvent(
+            {
+              eventType: 'LLM_REQUEST',
+              traceId: event.traceId,
+              generationId: event.generationId,
+              event
+            },
+            context.metadata
+          );
+        } catch {
+          // ignore
+        }
+      }
     } catch (e) {
       // Observability must never throw - log and continue
       logger?.warning('Failed to record observability request event', { error: (e as Error).message });
@@ -68,7 +87,7 @@ export class LLMManager {
    * Record an LLM response event to observability.
    * Never throws - errors are logged and swallowed.
    */
-  private recordObservabilityResponse(
+  private async recordObservabilityResponse(
     context: RunContext,
     provider: string,
     model: string,
@@ -78,12 +97,12 @@ export class LLMManager {
     rawResponse?: unknown,
     error?: { message: string; code?: string; retryable?: boolean },
     logger?: AdapterLogger
-  ): void {
+  ): Promise<void> {
     if (!context.observability) return;
 
     try {
       const durationMs = Date.now() - startTime;
-      context.observability.exporter.recordLLMResponse({
+      const event = {
         traceId: context.observability.traceId,
         generationId,
         timestamp: new Date().toISOString(),
@@ -104,7 +123,26 @@ export class LLMManager {
         })),
         durationMs,
         error
-      });
+      };
+
+      context.observability.exporter.recordLLMResponse(event as any);
+
+      if (process.env.LLM_LIVE === '1') {
+        try {
+          const { logObservabilityEvent } = await import('./live-test-logger.js');
+          logObservabilityEvent(
+            {
+              eventType: 'LLM_RESPONSE',
+              traceId: event.traceId,
+              generationId: event.generationId,
+              event
+            },
+            context.metadata
+          );
+        } catch {
+          // ignore
+        }
+      }
     } catch (e) {
       // Observability must never throw - log and continue
       logger?.warning('Failed to record observability response event', { error: (e as Error).message });
@@ -209,7 +247,7 @@ export class LLMManager {
           }
         }
 
-        this.recordObservabilityRequest(
+        await this.recordObservabilityRequest(
           context,
           provider.id,
           model,
@@ -223,7 +261,7 @@ export class LLMManager {
         );
 
         // Record successful response to observability
-        this.recordObservabilityResponse(
+        await this.recordObservabilityResponse(
           context,
           provider.id,
           model,
@@ -238,7 +276,7 @@ export class LLMManager {
         return response;
       } catch (error: any) {
         const sdkRequestPayload = { model, messages: normalizedMessages, tools, toolChoice, settings, providerExtras };
-        this.recordObservabilityRequest(
+        await this.recordObservabilityRequest(
           context,
           provider.id,
           model,
@@ -252,7 +290,7 @@ export class LLMManager {
         );
 
         // Record error response to observability
-        this.recordObservabilityResponse(
+        await this.recordObservabilityResponse(
           context,
           provider.id,
           model,
@@ -473,7 +511,7 @@ export class LLMManager {
           }
 
           // Record HTTP error response to observability
-          this.recordObservabilityRequest(
+          await this.recordObservabilityRequest(
             context,
             provider.id,
             model,
@@ -485,7 +523,7 @@ export class LLMManager {
             lastRequestPayload,
             logger
           );
-          this.recordObservabilityResponse(
+          await this.recordObservabilityResponse(
             context,
             provider.id,
             model,
@@ -510,7 +548,7 @@ export class LLMManager {
       parsed.toolCalls = await this.normalizeToolCallsIfPresent(parsed.toolCalls);
       parsed.provider = provider.id;
 
-      this.recordObservabilityRequest(
+      await this.recordObservabilityRequest(
         context,
         provider.id,
         model,
@@ -524,7 +562,7 @@ export class LLMManager {
       );
 
       // Record successful HTTP response to observability
-      this.recordObservabilityResponse(
+      await this.recordObservabilityResponse(
         context,
         provider.id,
         model,
@@ -541,7 +579,7 @@ export class LLMManager {
     } catch (error: any) {
       // Record error response to observability (only for errors not already recorded)
       if (!(error instanceof ProviderExecutionError && error.statusCode !== undefined)) {
-        this.recordObservabilityRequest(
+        await this.recordObservabilityRequest(
           context,
           provider.id,
           model,
@@ -554,7 +592,7 @@ export class LLMManager {
           logger
         );
 
-        this.recordObservabilityResponse(
+        await this.recordObservabilityResponse(
           context,
           provider.id,
           model,

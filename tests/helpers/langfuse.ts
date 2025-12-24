@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { buildLogPathFor, parseLogBodies } from './live-v2.ts';
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -217,6 +218,9 @@ export async function waitForLangfuseTrace(
     minDelayMs?: number;
     maxDelayMs?: number;
     concurrency?: number;
+    testFileBase?: string;
+    logTimeoutMs?: number;
+    assertLoggedContent?: boolean;
   } = {}
 ): Promise<any> {
   const env = opts.env ?? process.env;
@@ -226,6 +230,9 @@ export async function waitForLangfuseTrace(
   const minDelayMs = Math.max(1, Math.floor(opts.minDelayMs ?? 500));
   const maxDelayMs = Math.max(minDelayMs, Math.floor(opts.maxDelayMs ?? 10_000));
   const concurrency = Math.max(1, Math.floor(opts.concurrency ?? DEFAULT_CONCURRENCY));
+  const testFileBase = opts.testFileBase ? String(opts.testFileBase) : '';
+  const logTimeoutMs = Math.max(250, Math.floor(opts.logTimeoutMs ?? 10_000));
+  const assertLoggedContent = opts.assertLoggedContent !== false;
 
   const url = `${baseUrl}/api/public/traces/${encodeURIComponent(String(traceId))}`;
   const start = Date.now();
@@ -261,7 +268,18 @@ export async function waitForLangfuseTrace(
     }
 
     if (res.ok) {
-      return await res.json();
+      const trace = await res.json();
+
+      if (testFileBase && assertLoggedContent) {
+        await assertLangfuseTraceContainsLoggedObservabilityContent({
+          traceId,
+          trace,
+          testFileBase,
+          timeoutMs: logTimeoutMs
+        });
+      }
+
+      return trace;
     }
 
     lastStatus = typeof res.status === 'number' ? res.status : null;
@@ -303,5 +321,183 @@ export function stringifyLangfuseTrace(trace: unknown): string {
     return JSON.stringify(trace);
   } catch {
     return String(trace);
+  }
+}
+
+type LangfuseNeedle =
+  | { kind: 'substring'; value: string }
+  | { kind: 'toolName'; value: string };
+
+function collectPrimitiveStrings(value: unknown, out: string[]): void {
+  if (value === null || value === undefined) return;
+  if (typeof value === 'string') {
+    out.push(value);
+    return;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    out.push(String(value));
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) collectPrimitiveStrings(entry, out);
+    return;
+  }
+  if (typeof value === 'object') {
+    for (const v of Object.values(value as Record<string, unknown>)) {
+      collectPrimitiveStrings(v, out);
+    }
+  }
+}
+
+function collectTextFromContentPart(part: any): string[] {
+  if (part === null || part === undefined) return [];
+  if (typeof part === 'string') return [part];
+  if (typeof part === 'number' || typeof part === 'boolean') return [String(part)];
+  if (Array.isArray(part)) return part.flatMap(collectTextFromContentPart);
+
+  if (typeof part === 'object') {
+    const text = typeof part.text === 'string' ? part.text : '';
+    const pathValue = typeof part?.source?.path === 'string' ? part.source.path : '';
+    const result: string[] = [];
+    if (text) result.push(text);
+    if (pathValue) result.push(pathValue);
+    return result;
+  }
+
+  return [];
+}
+
+function extractNeedlesFromObservabilityEvent(event: any): LangfuseNeedle[] {
+  const needles: LangfuseNeedle[] = [];
+
+  const messages = Array.isArray(event?.messages) ? event.messages : [];
+  for (const message of messages) {
+    const content = (message as any)?.content;
+    const parts = Array.isArray(content) ? content : (content ? [content] : []);
+    for (const part of parts) {
+      // Basic text / document markers
+      for (const text of collectTextFromContentPart(part)) {
+        if (String(text).trim() !== '') {
+          needles.push({ kind: 'substring', value: String(text) });
+        }
+      }
+
+      // Tool result markers
+      const toolName = typeof (part as any)?.toolName === 'string' ? String((part as any).toolName) : '';
+      if (toolName) {
+        needles.push({ kind: 'toolName', value: toolName });
+      }
+
+      const toolResult = (part as any)?.result;
+      if (toolResult !== undefined) {
+        const primitives: string[] = [];
+        collectPrimitiveStrings(toolResult, primitives);
+        for (const prim of primitives) {
+          if (String(prim).trim() !== '') {
+            needles.push({ kind: 'substring', value: String(prim) });
+          }
+        }
+      }
+    }
+  }
+
+  const content = Array.isArray(event?.content) ? event.content : [];
+  for (const part of content) {
+    for (const text of collectTextFromContentPart(part)) {
+      if (String(text).trim() !== '') {
+        needles.push({ kind: 'substring', value: String(text) });
+      }
+    }
+  }
+
+  const toolCalls = Array.isArray(event?.toolCalls) ? event.toolCalls : [];
+  for (const call of toolCalls) {
+    const name = typeof (call as any)?.name === 'string' ? String((call as any).name) : '';
+    if (name) {
+      needles.push({ kind: 'toolName', value: name });
+    }
+    const args = (call as any)?.arguments ?? (call as any)?.args;
+    if (args !== undefined) {
+      const primitives: string[] = [];
+      collectPrimitiveStrings(args, primitives);
+      for (const prim of primitives) {
+        if (String(prim).trim() !== '') {
+          needles.push({ kind: 'substring', value: String(prim) });
+        }
+      }
+    }
+  }
+
+  return needles;
+}
+
+async function waitForLoggedObservabilityEvents(options: {
+  logPath: string;
+  traceId: string;
+  timeoutMs: number;
+}): Promise<any[]> {
+  const start = Date.now();
+
+  while (Date.now() - start < options.timeoutMs) {
+    const bodies = parseLogBodies(options.logPath);
+    const matching = bodies.filter(b => b?.traceId === options.traceId);
+    if (matching.length > 0) {
+      return matching;
+    }
+    await sleep(100);
+  }
+
+  return [];
+}
+
+export async function assertLangfuseTraceContainsLoggedObservabilityContent(options: {
+  traceId: string;
+  trace: any;
+  testFileBase: string;
+  timeoutMs?: number;
+}): Promise<void> {
+  const traceId = String(options.traceId);
+  const testFileBase = String(options.testFileBase);
+  const timeoutMs = Math.max(250, Math.floor(options.timeoutMs ?? 10_000));
+
+  const logPath = buildLogPathFor(testFileBase);
+  const events = await waitForLoggedObservabilityEvents({ logPath, traceId, timeoutMs });
+  if (events.length === 0) {
+    throw new Error(`Missing logged observability events for ${traceId} in ${logPath}`);
+  }
+
+  const needles: LangfuseNeedle[] = [];
+  for (const e of events) {
+    needles.push(...extractNeedlesFromObservabilityEvent(e));
+  }
+
+  const uniqueSubstrings = new Set<string>();
+  const uniqueToolNames = new Set<string>();
+  for (const needle of needles) {
+    if (needle.kind === 'substring') uniqueSubstrings.add(needle.value);
+    if (needle.kind === 'toolName') uniqueToolNames.add(needle.value);
+  }
+
+  const tracePrimitives: string[] = [];
+  collectPrimitiveStrings(options.trace, tracePrimitives);
+  const traceText = tracePrimitives.join('\n');
+
+  for (const value of uniqueSubstrings) {
+    const raw = String(value);
+    if (raw.trim() === '') continue;
+    if (!traceText.includes(raw)) {
+      const preview = raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
+      throw new Error(`Langfuse trace missing expected content from logs: ${preview}`);
+    }
+  }
+
+  for (const name of uniqueToolNames) {
+    const variants = toolNameVariants(name);
+    if (variants.length === 0) continue;
+    if (!variants.some(v => traceText.includes(v))) {
+      throw new Error(
+        `Langfuse trace missing expected tool name from logs: ${name} (variants: ${variants.join(', ')})`
+      );
+    }
   }
 }

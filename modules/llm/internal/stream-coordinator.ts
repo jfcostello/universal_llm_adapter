@@ -56,7 +56,7 @@ export class StreamCoordinator {
     // Record LLM request event if observability is enabled (never throws)
     if (context.observability) {
       try {
-        context.observability.exporter.recordLLMRequest({
+        const event = {
           traceId: context.observability.traceId,
           generationId,
           timestamp: new Date().toISOString(),
@@ -67,7 +67,26 @@ export class StreamCoordinator {
           metadata: context.observability.metadata,
           tools: tools.map((t: any) => ({ name: t.name, description: t.description })),
           settings: executionSpec.settings as any
-        });
+        };
+
+        context.observability.exporter.recordLLMRequest(event as any);
+
+        if (process.env.LLM_LIVE === '1') {
+          try {
+            const { logObservabilityEvent } = await import('./live-test-logger.js');
+            logObservabilityEvent(
+              {
+                eventType: 'LLM_REQUEST',
+                traceId: event.traceId,
+                generationId: event.generationId,
+                event
+              },
+              context.metadata
+            );
+          } catch {
+            // ignore
+          }
+        }
       } catch (e) {
         context.logger?.warning?.('Failed to record observability request event', {
           error: (e as Error).message
@@ -336,7 +355,7 @@ export class StreamCoordinator {
             ? (promptTokens || 0) + (completionTokens || 0)
             : undefined;
 
-        context.observability.exporter.recordLLMResponse({
+        const event = {
           traceId: context.observability.traceId,
           generationId,
           timestamp: new Date().toISOString(),
@@ -351,7 +370,26 @@ export class StreamCoordinator {
           usage: latestUsage ? { promptTokens, completionTokens, totalTokens } : undefined,
           durationMs,
           metadata: context.observability.metadata
-        });
+        };
+
+        context.observability.exporter.recordLLMResponse(event as any);
+
+        if (process.env.LLM_LIVE === '1') {
+          try {
+            const { logObservabilityEvent } = await import('./live-test-logger.js');
+            logObservabilityEvent(
+              {
+                eventType: 'LLM_RESPONSE',
+                traceId: event.traceId,
+                generationId: event.generationId,
+                event
+              },
+              context.metadata
+            );
+          } catch {
+            // ignore
+          }
+        }
       } catch (e) {
         context.logger?.warning?.('Failed to record observability response event', {
           error: (e as Error).message

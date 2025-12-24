@@ -34,7 +34,7 @@ for (let i = 0; i < testRuns.length; i++) {
     const text = String(payload.content?.[0]?.text ?? '');
     expect(text.trim().length).toBeGreaterThan(0);
 
-    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000, testFileBase: TEST_FILE });
     const traceText = stringifyLangfuseTrace(trace);
     expect(traceText).toContain('Turn1:');
     expect(traceText).toContain('Turn2:');
