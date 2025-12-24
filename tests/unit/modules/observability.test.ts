@@ -995,6 +995,49 @@ describe('modules/observability', () => {
       await exporter.shutdown();
     });
 
+    test('compacts the queue backing array after many drops', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 9999, // prevent auto-flush
+          flushIntervalMs: 60000,
+          maxQueueSize: 2,
+          maxAttempts: 1,
+          baseDelayMs: 1,
+          maxDelayMs: 1,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      // Cover empty-drop behavior
+      expect((exporter as any).dropOldestEvent()).toBeNull();
+
+      for (let i = 0; i < 60; i++) {
+        exporter.recordLLMRequest({ traceId: `trace-${i}`, timestamp: '', provider: '', model: '', messages: [] });
+      }
+
+      // If compaction runs, the backing array should not grow with every enqueue.
+      expect(((exporter as any).queue as any[]).length).toBeLessThan(20);
+      expect((exporter as any).queueHead).toBeLessThan(20);
+
+      await exporter.shutdown();
+    });
+
     test('retries on failure with backoff', async () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
 

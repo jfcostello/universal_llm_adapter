@@ -92,6 +92,7 @@ export interface ObservabilityExporterConfig {
  */
 export class ObservabilityExporter implements IObservabilityExporter {
   private queue: QueuedEvent[] = [];
+  private queueHead = 0;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private flushing = false;
   private shuttingDown = false;
@@ -115,7 +116,7 @@ export class ObservabilityExporter implements IObservabilityExporter {
 
     const timer = setTimeout(() => {
       this.flushTimer = null;
-      if (!this.shuttingDown && this.queue.length > 0) {
+      if (!this.shuttingDown && this.getQueueSize() > 0) {
         // flush() handles errors internally in doFlush(), so it never rejects
         void this.flush();
       }
@@ -144,6 +145,24 @@ export class ObservabilityExporter implements IObservabilityExporter {
     return randomUUID();
   }
 
+  private getQueueSize(): number {
+    return Math.max(0, this.queue.length - this.queueHead);
+  }
+
+  private dropOldestEvent(): QueuedEvent | null {
+    if (this.getQueueSize() <= 0) return null;
+    const dropped = this.queue[this.queueHead];
+    this.queueHead++;
+
+    // Compact periodically to avoid unbounded backing-array growth.
+    if (this.queueHead > 50 && this.queueHead * 2 > this.queue.length) {
+      this.queue = this.queue.slice(this.queueHead);
+      this.queueHead = 0;
+    }
+
+    return dropped;
+  }
+
   /**
    * Enqueue an event.
    */
@@ -154,9 +173,9 @@ export class ObservabilityExporter implements IObservabilityExporter {
       return { eventId, queued: false, reason: 'shutdown' };
     }
 
-    if (this.queue.length >= this.config.maxQueueSize) {
+    if (this.getQueueSize() >= this.config.maxQueueSize) {
       // Drop oldest events to make room
-      const dropped = this.queue.shift();
+      const dropped = this.dropOldestEvent();
       if (dropped) {
         this.logger.warning('Observability queue full; dropped oldest event', {
           provider: this.config.provider,
@@ -177,7 +196,7 @@ export class ObservabilityExporter implements IObservabilityExporter {
     this.queue.push(event);
 
     // Trigger flush if queue reaches threshold
-    if (this.queue.length >= this.config.flushAt) {
+    if (this.getQueueSize() >= this.config.flushAt) {
       // flush() handles errors internally in doFlush(), so it never rejects
       void this.flush();
     }
@@ -197,13 +216,13 @@ export class ObservabilityExporter implements IObservabilityExporter {
     // If already flushing, wait for the active flush loop to drain.
     if (this.flushPromise) return this.flushPromise;
 
-    if (this.queue.length === 0) return Promise.resolve();
+    if (this.getQueueSize() === 0) return Promise.resolve();
 
     this.flushing = true;
     const loop = (async () => {
       // Drain the queue completely. Events may be enqueued while a flush is in-flight;
       // keep flushing until the queue is empty.
-      while (this.queue.length > 0) {
+      while (this.getQueueSize() > 0) {
         await this.doFlush();
       }
     })();
@@ -218,8 +237,9 @@ export class ObservabilityExporter implements IObservabilityExporter {
 
   private async doFlush(): Promise<void> {
     // Take all events from queue (caller guarantees queue is non-empty)
-    const events = [...this.queue];
+    const events = this.queue.slice(this.queueHead);
     this.queue = [];
+    this.queueHead = 0;
 
     const compatContext: ObservabilityCompatContext = {
       ...(this.config.providerConfig ? { providerConfig: this.config.providerConfig } : {}),
