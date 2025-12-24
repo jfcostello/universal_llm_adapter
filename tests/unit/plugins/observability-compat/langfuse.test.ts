@@ -122,6 +122,14 @@ describe('LangfuseCompat (OTLP)', () => {
       expect(output.rawResponse).toEqual(responseEvent.rawResponse);
     });
 
+    it('keeps request context cached after building a response span (for exporter retries)', () => {
+      compat.buildBatch([requestEvent], mockManifest, { eventIds: ['event-req'] } as any);
+      expect((compat as any).requestCache.size).toBe(1);
+
+      compat.buildBatch([responseEvent], mockManifest, { eventIds: ['event-resp'] } as any);
+      expect((compat as any).requestCache.size).toBe(1);
+    });
+
     it('flattens primitives into adapter text attributes', () => {
       const ctxReq = { eventIds: ['event-req'] } as any;
       const ctxResp = { eventIds: ['event-resp'] } as any;

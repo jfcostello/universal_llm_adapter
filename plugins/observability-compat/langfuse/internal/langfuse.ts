@@ -229,7 +229,6 @@ export class LangfuseCompat implements IObservabilityCompat {
 
       const key = cacheKey(event.traceId, event.generationId);
       const cached = this.requestCache.get(key);
-      if (cached) this.requestCache.delete(key);
 
       const envelopeId = getEnvelopeId(
         eventIds,
