@@ -83,6 +83,16 @@ export function runToolLoop(
   return runStreamToolLoop(options);
 }
 
+function resolveFollowUpToolChoice(toolChoice?: ToolChoice): ToolChoice | undefined {
+  // "required" is intended to ensure *at least one* tool call occurs.
+  // After tools have been executed, relax to auto to avoid providers that interpret
+  // "required" as "must keep calling tools".
+  if (toolChoice && typeof toolChoice === 'object' && toolChoice.type === 'required') {
+    return 'auto';
+  }
+  return toolChoice;
+}
+
 async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<LLMResponse> {
   const {
     llmManager,
@@ -320,7 +330,7 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
       providerSettings,
       messages,
       tools,
-      toolChoice,
+      resolveFollowUpToolChoice(toolChoice),
       providerExtras,
       logger,
       runContext
@@ -589,7 +599,7 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
       providerSettings,
       messages,
       budget.exhausted ? [] : tools,
-      budget.exhausted ? 'none' : toolChoice,
+      budget.exhausted ? 'none' : resolveFollowUpToolChoice(toolChoice),
       providerExtras,
       logger,
       runContext

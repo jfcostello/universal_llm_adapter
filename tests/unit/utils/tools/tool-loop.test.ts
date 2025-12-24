@@ -86,6 +86,61 @@ describe('utils/tools/runToolLoop', () => {
     expect(result.raw?.toolResults?.[0].result).toEqual({ value: 42 });
   });
 
+  test('non-stream loop relaxes required toolChoice after tool execution', async () => {
+    const callProvider = jest.fn().mockResolvedValue({
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [{ type: 'text', text: 'final' }]
+    });
+
+    const llmManager: any = {
+      callProvider,
+      streamProvider: jest.fn()
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    const initialResponse = {
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [],
+      toolCalls: [
+        {
+          id: 'call-1',
+          name: 'example_tool',
+          arguments: {}
+        }
+      ]
+    } as any;
+
+    await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'example_tool' }],
+      toolChoice: { type: 'required', allowed: ['example_tool'] } as any,
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 2 } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: {},
+      toolNameMap: { example_tool: 'example_tool' },
+      metadata: {},
+      initialResponse,
+      invokeTool
+    });
+
+    expect(invokeTool).toHaveBeenCalled();
+    expect(callProvider).toHaveBeenCalledTimes(1);
+    // toolChoice arg in callProvider signature should be relaxed to auto for follow-up
+    expect(callProvider.mock.calls[0][5]).toBe('auto');
+  });
+
   test('stream loop emits tool result and honors countdown progress fields', async () => {
     const streamChunks = [
       { choices: [{ delta: { content: 'token-1' } }] },
