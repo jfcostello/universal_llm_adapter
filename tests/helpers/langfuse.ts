@@ -22,6 +22,14 @@ const GLOBAL_MAX_CONCURRENT_READS = (() => {
 })();
 const GLOBAL_COOLDOWN_FILE = path.join(GLOBAL_LOCK_DIR, 'cooldown.json');
 
+function readPositiveIntEnv(env: NodeJS.ProcessEnv, key: string): number | null {
+  const raw = String(env[key] ?? '').trim();
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
 function readGlobalCooldownUntil(): number | null {
   try {
     if (!fs.existsSync(GLOBAL_COOLDOWN_FILE)) return null;
@@ -235,9 +243,19 @@ export async function waitForLangfuseTrace(
   const env = opts.env ?? process.env;
   const baseUrl = stripTrailingSlashes(opts.baseUrl ?? getLangfuseBaseUrl(env));
   const authorization = buildLangfuseAuthHeader(env);
-  const timeoutMs = Math.max(100, Math.floor(opts.timeoutMs ?? 90_000));
-  const minDelayMs = Math.max(1, Math.floor(opts.minDelayMs ?? 500));
-  const maxDelayMs = Math.max(minDelayMs, Math.floor(opts.maxDelayMs ?? 10_000));
+  const defaultTimeoutMs = env.LLM_LIVE === '1' ? 180_000 : 90_000;
+  const configuredTimeoutMs = readPositiveIntEnv(env, 'LLM_LIVE_LANGFUSE_TRACE_TIMEOUT_MS') ?? defaultTimeoutMs;
+  const timeoutMs = Math.max(100, Math.floor(configuredTimeoutMs), Math.floor(opts.timeoutMs ?? 0));
+
+  const defaultMinDelayMs = env.LLM_LIVE === '1' ? 1000 : 500;
+  const configuredMinDelayMs =
+    readPositiveIntEnv(env, 'LLM_LIVE_LANGFUSE_TRACE_MIN_DELAY_MS') ?? defaultMinDelayMs;
+  const minDelayMs = Math.max(1, Math.floor(configuredMinDelayMs), Math.floor(opts.minDelayMs ?? 0));
+
+  const defaultMaxDelayMs = env.LLM_LIVE === '1' ? 30_000 : 10_000;
+  const configuredMaxDelayMs =
+    readPositiveIntEnv(env, 'LLM_LIVE_LANGFUSE_TRACE_MAX_DELAY_MS') ?? defaultMaxDelayMs;
+  const maxDelayMs = Math.max(minDelayMs, Math.floor(configuredMaxDelayMs), Math.floor(opts.maxDelayMs ?? 0));
   const concurrency = Math.max(1, Math.floor(opts.concurrency ?? DEFAULT_CONCURRENCY));
   const testFileBase = opts.testFileBase ? String(opts.testFileBase) : '';
   const logTimeoutMs = Math.max(250, Math.floor(opts.logTimeoutMs ?? 30_000));
