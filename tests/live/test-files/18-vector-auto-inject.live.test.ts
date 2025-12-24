@@ -13,6 +13,7 @@
 
 import { runCoordinator, runEmbeddingCoordinator, runVectorCoordinator } from '@tests/helpers/node-cli.ts';
 import { requireEnv } from '@tests/helpers/require-env.ts';
+import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 if (runLive) {
@@ -142,6 +143,7 @@ describeLive('18-vector-auto-inject (transported)', () => {
 
   describe('auto mode - context injection', () => {
     test('injects relevant context before LLM call', async () => {
+      const traceId = createTraceId('18-vector-auto-inject-injects');
       const spec = {
         systemPrompt: 'You are a helpful assistant. Answer questions using only the provided context.',
         messages: [
@@ -162,7 +164,7 @@ describeLive('18-vector-auto-inject (transported)', () => {
         settings: { temperature: 0, maxTokens: 200 }
       };
 
-      const response = await runLlm(spec);
+      const response = await runLlm(attachLangfuseObservability(spec as any, traceId));
 
       const textParts = (response?.content ?? [])
         .filter((c: any) => c?.type === 'text')
@@ -170,6 +172,10 @@ describeLive('18-vector-auto-inject (transported)', () => {
 
       const joined = textParts.join('\n');
       expect(joined).toContain('paris');
+
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+      const traceText = stringifyLangfuseTrace(trace);
+      expect(traceText).toContain('Use the following context to answer:');
     }, 120000);
 
     test('filters context by metadata', async () => {

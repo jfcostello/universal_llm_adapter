@@ -13,6 +13,7 @@
 
 import { runCoordinator, runEmbeddingCoordinator, runVectorCoordinator } from '@tests/helpers/node-cli.ts';
 import { requireEnv } from '@tests/helpers/require-env.ts';
+import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const required = ['QDRANT_CLOUD_URL', 'QDRANT_API_KEY', 'OPENROUTER_API_KEY'];
@@ -154,6 +155,7 @@ describeLive('19-vector-search-locks (transported)', () => {
         toolDescription: 'Search the knowledge base. Always request topK: 100 to get comprehensive results.'
       };
 
+      const traceId = createTraceId('19-vector-search-locks-topk');
       const spec = {
         systemPrompt:
           'You have a search tool. The tool may limit results. If you get limited results, note how many you received.',
@@ -168,9 +170,14 @@ describeLive('19-vector-search-locks (transported)', () => {
         settings: { temperature: 0, maxTokens: 300 }
       };
 
-      const response = await runLlm(spec);
+      const response = await runLlm(attachLangfuseObservability(spec as any, traceId));
       expect(response.content).toBeDefined();
       expectNoVectorErrors(response);
+
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+      const traceText = stringifyLangfuseTrace(trace);
+      expect(traceText).toContain('vector_search');
+      expect(traceText).toMatch(/"toolCalls"\s*:\s*\[\s*\{/);
     }, 120000);
   });
 
@@ -370,7 +377,8 @@ describeLive('19-vector-search-locks (transported)', () => {
         settings: { temperature: 0, maxTokens: 300 }
       };
 
-      const response = await runLlm(spec);
+      const traceId = createTraceId('19-vector-search-locks-schema');
+      const response = await runLlm(attachLangfuseObservability(spec as any, traceId));
       const text = (response?.content ?? [])
         .filter((c: any) => c?.type === 'text')
         .map((c: any) => String(c.text || '').toLowerCase())
@@ -379,6 +387,11 @@ describeLive('19-vector-search-locks (transported)', () => {
         text.includes('artificial') || text.includes('ai') || text.includes('intelligence') || text.includes('future')
       ).toBe(true);
       expectNoVectorErrors(response);
+
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+      const traceText = stringifyLangfuseTrace(trace);
+      expect(traceText).toContain('vector_search');
+      expect(traceText).toMatch(/"toolCalls"\s*:\s*\[\s*\{/);
     }, 180000);
   });
 });

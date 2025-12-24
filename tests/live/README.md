@@ -88,6 +88,19 @@ npm run test:live:realtime -- --transport=both
 Server transport notes:
 - Realtime WS auth (when enabled) uses `LLM_TEST_REALTIME_API_KEY` as the client token.
 
+## Langfuse trace verification
+
+The LLM live suite verifies that observability traces are actually present in Langfuse by querying the Langfuse Public API (read-back), not by parsing local logs.
+
+When `plugins/configs/defaults.json` has `observability.provider = "langfuse"` and your selected live suite includes LLM calls, the live runner requires:
+
+```bash
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+# Optional (defaults to cloud):
+LANGFUSE_HOST=https://cloud.langfuse.com
+```
+
 ## Vector Store Live Tests
 
 The vector store live tests (files 16-19) test against real Qdrant Cloud instances. These tests:

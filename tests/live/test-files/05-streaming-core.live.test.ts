@@ -2,6 +2,7 @@
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { filteredTestRuns as testRuns } from '../config.ts';
 import { withLiveEnv, makeSpec, parseStream, collectDeltaText, findDone, mergeSettings } from '@tests/helpers/live-v2.ts';
+import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
@@ -10,7 +11,8 @@ const TEST_FILE = '05-streaming-core';
 for (let i = 0; i < testRuns.length; i++) {
   const runCfg = testRuns[i];
   (runLive ? test : test.skip)(`05-streaming-core — ${runCfg.name}`, async () => {
-    const spec = makeSpec({
+    const traceId = createTraceId(`05-streaming-core-${runCfg.name}`);
+    const spec = attachLangfuseObservability(makeSpec({
       messages: [
         { role: 'system', content: [{ type: 'text', text: "Follow the user's format exactly." }]},
         { role: 'user', content: [{ type: 'text', text: 'Count from 1 to 5, each number on a new line.' }]}
@@ -18,7 +20,7 @@ for (let i = 0; i < testRuns.length; i++) {
       llmPriority: runCfg.llmPriority,
       functionToolNames: [],
       settings: mergeSettings(runCfg.settings, { temperature: 0, maxTokens: 60000 })
-    });
+    }) as any, traceId);
     const result = await runCoordinator({ args: ['stream', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
     expect(result.code).toBe(0);
     const events = parseStream(result.stdout);
@@ -38,6 +40,11 @@ for (let i = 0; i < testRuns.length; i++) {
     } else {
       expect(true).toBe(true);
     }
+
+    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+    const traceText = stringifyLangfuseTrace(trace);
+    expect(traceText).toContain('Count from 1 to 5');
+    expect(traceText).toContain('1');
+    expect(traceText).toContain('5');
   }, 120000);
 }
-

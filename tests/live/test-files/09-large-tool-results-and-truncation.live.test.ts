@@ -2,6 +2,7 @@
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { filteredTestRuns as testRuns } from '../config.ts';
 import { withLiveEnv, makeSpec, buildLogPathFor, parseLogBodies, mergeSettings } from '@tests/helpers/live-v2.ts';
+import { attachLangfuseObservability, createTraceId, toolNameVariants, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
@@ -15,7 +16,8 @@ for (let i = 0; i < testRuns.length; i++) {
   const runCfg = testRuns[i];
   (runLive ? test : test.skip)(`09-large-tool-results-and-truncation — ${runCfg.name}`, async () => {
     const long = 'X'.repeat(400);
-    const spec = makeSpec({
+    const traceId = createTraceId(`09-large-tool-results-and-truncation-${runCfg.name}`);
+    const spec = attachLangfuseObservability(makeSpec({
       messages: [
         { role: 'system', content: [{ type: 'text', text: [
           'You are a strict tool-using assistant. When given a long payload to reflect:',
@@ -39,7 +41,7 @@ for (let i = 0; i < testRuns.length; i++) {
       llmPriority: runCfg.llmPriority,
       functionToolNames: ['test.echo'],
       settings: mergeSettings(runCfg.settings, { temperature: 0.2, maxTokens: 20000, toolResultMaxChars: 256, provider: { require_parameters: true } })
-    });
+    }) as any, traceId);
     const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
     if (result.code !== 0 && providerNotSupportingTools(result.stderr)) { expect(true).toBe(true); return; }
     expect(result.code).toBe(0);
@@ -51,5 +53,10 @@ for (let i = 0; i < testRuns.length; i++) {
     const hasTruncation = serializedAll.some(s => s.includes('Tool result truncated due to size limits'));
     // Tolerate providers that omit marker or include larger payloads; acceptance is final SUMMARY_LENGTH
     expect(true).toBe(true);
+
+    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+    const traceText = stringifyLangfuseTrace(trace);
+    expect(toolNameVariants('test.echo').some(v => traceText.includes(v))).toBe(true);
+    expect(traceText).toContain('Reflect this exact payload:');
   }, 300000);
 }

@@ -1,4 +1,43 @@
-import { observabilityTestProvider } from './config.ts';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+let cachedDefaultsObservabilityProvider: string | null | undefined;
+
+function readDefaultsObservabilityProvider(): string | null {
+  if (cachedDefaultsObservabilityProvider !== undefined) {
+    return cachedDefaultsObservabilityProvider;
+  }
+
+  const defaultsPath = path.join(__dirname, '..', '..', 'plugins', 'configs', 'defaults.json');
+  try {
+    if (!fs.existsSync(defaultsPath)) {
+      cachedDefaultsObservabilityProvider = 'langfuse';
+      return cachedDefaultsObservabilityProvider;
+    }
+
+    const raw = fs.readFileSync(defaultsPath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    const provider = parsed?.observability?.provider;
+    cachedDefaultsObservabilityProvider = typeof provider === 'string' && provider.trim() !== ''
+      ? provider.trim()
+      : 'langfuse';
+    return cachedDefaultsObservabilityProvider;
+  } catch {
+    cachedDefaultsObservabilityProvider = 'langfuse';
+    return cachedDefaultsObservabilityProvider;
+  }
+}
+
+function isRealtimePattern(raw: string): boolean {
+  // Provider-specific runs exclude realtime via a negative lookahead, but the literal
+  // string "20-realtime" still appears in the pattern. Treat those as non-realtime.
+  if (/\(\?!.*20-realtime/i.test(raw)) return false;
+  return /\b20-realtime\b/i.test(raw) || /\brealtime\b/i.test(raw);
+}
 
 export function getTestPathPatternsFromJestArgs(jestArgs: string[]): string[] {
   const patterns: string[] = [];
@@ -47,6 +86,19 @@ export function getMissingRequiredEnv(options: {
   const wantsEmbeddings = /\bembeddings\b|15-embeddings/i.test(patterns);
   const wantsVector =
     /\bvector\b|16-vector-store|17-vector-cli|18-vector-auto-inject|19-vector-search-locks/i.test(patterns);
+  const wantsRealtimeOnly = options.testPathPatterns.length > 0 && options.testPathPatterns.every((p) => {
+    const raw = String(p);
+    return isRealtimePattern(raw);
+  });
+  const wantsEmbeddingsOnly = options.testPathPatterns.length > 0 && options.testPathPatterns.every((p) => {
+    const raw = String(p);
+    return /\bembeddings\b|15-embeddings/i.test(raw);
+  });
+  const wantsVectorNonLlmOnly = options.testPathPatterns.length > 0 && options.testPathPatterns.every((p) => {
+    const raw = String(p);
+    return /16-vector-store|17-vector-cli/i.test(raw);
+  });
+  const expectsLlmCalls = !wantsRealtimeOnly && !wantsEmbeddingsOnly && !wantsVectorNonLlmOnly;
 
   // Live suite includes embeddings/vector coverage; these are required for a full pass.
   if (wantsAllLive || wantsEmbeddings || wantsVector) {
@@ -57,13 +109,12 @@ export function getMissingRequiredEnv(options: {
     required.add('QDRANT_API_KEY');
   }
 
-  // Observability tests require Langfuse keys only when:
-  // 1) observabilityTestProvider is configured in config.ts, AND
-  // 2) the test pattern explicitly includes observability tests
-  const wantsObservability = /\bobservability\b|21-observability/i.test(patterns);
-  if (wantsObservability && observabilityTestProvider !== null) {
-    required.add('LANGFUSE_SECRET_KEY');
+  // Require Langfuse auth when the configured observability provider is langfuse and
+  // the selected live suite is expected to include LLM calls.
+  const observabilityProvider = readDefaultsObservabilityProvider();
+  if (expectsLlmCalls && observabilityProvider === 'langfuse') {
     required.add('LANGFUSE_PUBLIC_KEY');
+    required.add('LANGFUSE_SECRET_KEY');
   }
 
   return [...required].filter(key => !options.env?.[key] || String(options.env[key]).trim() === '');

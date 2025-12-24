@@ -2,6 +2,7 @@
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { filteredTestRuns as testRuns } from '../config.ts';
 import { withLiveEnv, makeSpec, buildLogPathFor, mergeSettings } from '@tests/helpers/live-v2.ts';
+import { attachLangfuseObservability, createTraceId, toolNameVariants, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 import fs from 'fs';
 
 const runLive = process.env.LLM_LIVE === '1';
@@ -10,6 +11,7 @@ const pluginsPath = './plugins';
 for (let i = 0; i < testRuns.length; i++) {
   const runCfg = testRuns[i];
   (runLive ? test : test.skip)(`07b-mcp-multi-many-calls — ${runCfg.name}`, async () => {
+    const traceId = createTraceId(`07b-mcp-multi-many-calls-${runCfg.name}`);
     const spec = makeSpec({
       messages: [
         { role: 'system', content: [{ type: 'text', text: `You are a tool-using assistant. You must perform exactly FOUR tool calls in order and then provide a summary.
@@ -43,7 +45,11 @@ The tools return unpredictable values that change every time. You must prove you
       mcpServers: ['testmcp'],
       settings: mergeSettings(runCfg.settings, { temperature: 0.1, maxTokens: 60000, preserveToolResults: 'all' })
     });
-    const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE: '07b-mcp-multi-many-calls' }) });
+    const result = await runCoordinator({
+      args: ['run', '--spec', JSON.stringify(attachLangfuseObservability(spec as any, traceId)), '--plugins', pluginsPath],
+      cwd: process.cwd(),
+      env: withLiveEnv({ TEST_FILE: '07b-mcp-multi-many-calls' })
+    });
     if (result.code !== 0) {
       const stderr = String(result.stderr || '');
       if (/No endpoints found that can handle the requested parameters/i.test(stderr)) {
@@ -97,5 +103,14 @@ The tools return unpredictable values that change every time. You must prove you
 
     // All 4 unpredictable values must be present
     expect(validCount).toBe(4);
+
+    const uniqueToolNames = Array.from(new Set(toolCalls.map((c: any) => String(c?.name || '').trim()))).filter(Boolean);
+    expect(uniqueToolNames.length).toBeGreaterThanOrEqual(4);
+
+    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+    const traceText = stringifyLangfuseTrace(trace);
+    for (const name of uniqueToolNames.slice(0, 4)) {
+      expect(toolNameVariants(name).some(v => traceText.includes(v))).toBe(true);
+    }
   }, 180000);
 }

@@ -2,6 +2,7 @@
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { filteredTestRuns as testRuns } from '../config.ts';
 import { withLiveEnv, makeSpec, parseStream, findDone, mergeSettings } from '@tests/helpers/live-v2.ts';
+import { attachLangfuseObservability, createTraceId, toolNameVariants, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
@@ -10,6 +11,7 @@ for (let i = 0; i < testRuns.length; i++) {
   const runCfg = testRuns[i];
   (runLive ? describe : describe.skip)(`07-mcp-integration — ${runCfg.name}`, () => {
     test('Call 1 — time then reflect', async () => {
+      const traceId = createTraceId(`07-mcp-integration-${runCfg.name}-call-1`);
       const spec = makeSpec({
         messages: [
           { role: 'system', content: [{ type: 'text', text: 'You have access to tools. Identify a function that returns the current time or timestamp. Call it and wait for the real result. Then identify a function that reflects text and call it to repeat exactly the timestamp value you obtained. Provide a brief confirmation.' }]},
@@ -20,7 +22,11 @@ for (let i = 0; i < testRuns.length; i++) {
         mcpServers: ['testmcp'],
         settings: mergeSettings(runCfg.settings, { temperature: 0, maxTokens: 60000, provider: { require_parameters: true } })
       });
-      const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv() });
+      const result = await runCoordinator({
+        args: ['run', '--spec', JSON.stringify(attachLangfuseObservability(spec as any, traceId)), '--plugins', pluginsPath],
+        cwd: process.cwd(),
+        env: withLiveEnv({ TEST_FILE: '07-mcp-integration' })
+      });
       if (result.code !== 0) { expect(true).toBe(true); return; }
       expect(result.code).toBe(0);
       const payload = JSON.parse(result.stdout.trim());
@@ -30,6 +36,11 @@ for (let i = 0; i < testRuns.length; i++) {
       expect(hasMcp).toBe(true);
       const echoArgs = toolCalls.find((c: any) => (c.name || '').includes('echo'))?.arguments || {};
       expect(JSON.stringify(echoArgs)).toMatch(/\d{10,}/);
+
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+      const traceText = stringifyLangfuseTrace(trace);
+      expect(traceText).toContain('testmcp');
+      expect(toolNameVariants('test.echo').some(v => traceText.includes(v))).toBe(true);
     }, 180000);
 
     test('Call 2 — calculate then reflect', async () => {

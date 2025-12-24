@@ -2,6 +2,7 @@
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { filteredTestRuns as testRuns } from '../config.ts';
 import { withLiveEnv, makeSpec, buildLogPathFor, parseLogBodies, mergeSettings } from '@tests/helpers/live-v2.ts';
+import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
@@ -15,7 +16,8 @@ for (let i = 0; i < testRuns.length; i++) {
   const runCfg = testRuns[i];
   (runLive ? describe : describe.skip)(`03-budget-and-final-prompt — ${runCfg.name}`, () => {
     test('Enforce budget and verify final prompt injection', async () => {
-      const spec = makeSpec({
+      const traceId = createTraceId(`03-budget-and-final-prompt-${runCfg.name}`);
+      const spec = attachLangfuseObservability(makeSpec({
         messages: [
           { role: 'system', content: [{ type: 'text', text: `You are a function-calling assistant. You must reflect phrases using the function by calling it.
 
@@ -36,7 +38,7 @@ CRITICAL: The tool result messages contain important information about your prog
         llmPriority: runCfg.llmPriority,
         functionToolNames: ['test.echo'],
         settings: mergeSettings(runCfg.settings, { temperature: 0.1, maxTokens: 60000, maxToolIterations: 2, toolCountdownEnabled: true, toolFinalPromptEnabled: true, provider: { require_parameters: true } })
-      });
+      }) as any, traceId);
       const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
       if (result.code !== 0 && providerNotSupportingTools(result.stderr)) { expect(true).toBe(true); return; }
       expect(result.code).toBe(0);
@@ -62,7 +64,11 @@ CRITICAL: The tool result messages contain important information about your prog
         const hasFinalPrompt = serialized.includes('All tool calls have been consumed') || serialized.includes('remaining');
         expect(hasFinalPrompt).toBe(true);
       }
+
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+      const traceText = stringifyLangfuseTrace(trace);
+      const hasMarker = traceText.includes('Tool calls used') || traceText.includes('All tool calls have been consumed');
+      expect(hasMarker).toBe(true);
     }, 180000);
   });
 }
-

@@ -2,6 +2,7 @@
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { filteredTestRuns as testRuns } from '../config.ts';
 import { withLiveEnv, makeSpec, buildLogPathFor, parseLogBodies, collectRandomValues, mergeSettings } from '@tests/helpers/live-v2.ts';
+import { attachLangfuseObservability, createTraceId, toolNameVariants, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 import fs from 'fs';
 
 const runLive = process.env.LLM_LIVE === '1';
@@ -16,7 +17,8 @@ for (let i = 0; i < testRuns.length; i++) {
   const runCfg = testRuns[i];
   (runLive ? describe : describe.skip)(`02-chained-tools-and-redaction — ${runCfg.name}`, () => {
     test('Call 1 — generate then repeat', async () => {
-      const spec = makeSpec({
+      const traceId = createTraceId(`02-chained-tools-and-redaction-${runCfg.name}-call-1`);
+      const spec = attachLangfuseObservability(makeSpec({
         messages: [
           { role: 'system', content: [{ type: 'text', text: `You are a sequential function-calling assistant. You must follow these steps EXACTLY. The grader will FAIL you unless you produce at least TWO function calls: first test.random, then test.echo using the returned value. Do not emit any final assistant text until both tool calls are completed.
 
@@ -51,7 +53,7 @@ CRITICAL RULES:
         functionToolNames: ['test.random', 'test.echo'],
         toolChoice: { type: 'required', allowed: ['test.random', 'test.echo'] },
         settings: mergeSettings(runCfg.settings, { maxTokens: 60000, maxToolIterations: 6, preserveToolResults: 2, preserveReasoning: 2, toolCountdownEnabled: true, provider: { require_parameters: true } })
-      });
+      }) as any, traceId);
       const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
       if (result.code !== 0) {
         // Surface provider errors to aid live-test flakiness triage
@@ -78,6 +80,12 @@ CRITICAL RULES:
           expect(names.has('test.random') && names.has('test.echo')).toBe(true);
         }
       }
+
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+      const traceText = stringifyLangfuseTrace(trace);
+      expect(toolNameVariants('test.random').some(v => traceText.includes(v))).toBe(true);
+      expect(toolNameVariants('test.echo').some(v => traceText.includes(v))).toBe(true);
+      expect(traceText).toContain('toolCalls');
     }, 180000);
 
 	    test('Call 2 — multi-item queue', async () => {

@@ -216,24 +216,3 @@ export const totalTestTimeout = baseTestTimeout * timeoutMultiplier;
 
 // Default Jest worker count for live runs (can be overridden via env/CLI)
 export const maxWorkersDefault = 5;
-
-/**
- * Observability test provider configuration.
- * When set to null, observability live tests will be skipped.
- *
- * To enable observability tests, set this to a valid provider config
- * and ensure the required environment variables are set:
- * - LANGFUSE_SECRET_KEY: Langfuse secret key
- * - LANGFUSE_PUBLIC_KEY: Langfuse public key
- * - LANGFUSE_HOST: optional, for self-hosted deployments
- *
- * @example
- * export const observabilityTestProvider = {
- *   provider: 'langfuse' as const
- * };
- */
-export interface ObservabilityTestConfig {
-  provider: 'langfuse';
-}
-
-export const observabilityTestProvider: ObservabilityTestConfig | null = null;

@@ -98,7 +98,8 @@ function injectLiveMetadata(spec: any, env: NodeJS.ProcessEnv): { spec: any; cor
   const testFile = String(env.TEST_FILE || 'unknown-test');
   const testName = env.LLM_TEST_NAME ? String(env.LLM_TEST_NAME) : undefined;
   const rand = Math.random().toString(16).slice(2, 10);
-  const correlationId = `${testFile}:${Date.now()}:${rand}`;
+  const providedCorrelationId = String(spec?.metadata?.correlationId || '').trim();
+  const correlationId = providedCorrelationId !== '' ? providedCorrelationId : `${testFile}:${Date.now()}:${rand}`;
 
   const next = { ...(spec ?? {}) };
   next.metadata = {

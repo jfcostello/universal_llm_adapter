@@ -2,6 +2,7 @@
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { filteredTestRuns as testRuns } from '../config.ts';
 import { withLiveEnv, makeSpec, mergeSettings } from '@tests/helpers/live-v2.ts';
+import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
@@ -14,7 +15,8 @@ function providerNotSupportingTools(stderr: string): boolean {
 for (let i = 0; i < testRuns.length; i++) {
   const runCfg = testRuns[i];
   (runLive ? test : test.skip)(`10-error-recovery — ${runCfg.name}`, async () => {
-    const spec = makeSpec({
+    const traceId = createTraceId(`10-error-recovery-${runCfg.name}`);
+    const spec = attachLangfuseObservability(makeSpec({
       messages: [
         { role: 'system', content: [{ type: 'text', text: 'First, intentionally call the reflection function with an empty message to trigger an error. Then recover by calling it again with the text: "reconstruction". After both attempts, confirm recovery in your final text using the ACTUAL TOOL RESULT from the successful call.' }]},
         { role: 'user', content: [{ type: 'text', text: 'Do the steps now and include the actual tool result in your confirmation.' }]}
@@ -22,7 +24,7 @@ for (let i = 0; i < testRuns.length; i++) {
       llmPriority: runCfg.llmPriority,
       functionToolNames: ['test.echo'],
       settings: mergeSettings(runCfg.settings, { temperature: 0.2, maxTokens: 60000, provider: { require_parameters: true } })
-    });
+    }) as any, traceId);
     const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
     if (result.code !== 0 && providerNotSupportingTools(result.stderr)) { expect(true).toBe(true); return; }
     expect(result.code).toBe(0);
@@ -40,5 +42,11 @@ for (let i = 0; i < testRuns.length; i++) {
       normalized.includes('recovered') ||
       normalized.includes('reconstruction');
     expect(ok).toBe(true);
+
+    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+    const traceText = stringifyLangfuseTrace(trace);
+    const hasErrorMarker = traceText.includes('tool_execution_failed') || traceText.includes('toolCalls');
+    expect(hasErrorMarker).toBe(true);
+    expect(traceText.toLowerCase()).toContain('reconstruction');
   }, 120000);
 }

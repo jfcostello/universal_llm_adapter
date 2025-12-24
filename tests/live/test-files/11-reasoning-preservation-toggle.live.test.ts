@@ -11,6 +11,7 @@
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { filteredTestRuns as testRuns } from '../config.ts';
 import { withLiveEnv, makeSpec, mergeSettings, buildLogPathFor, parseLogBodies } from '@tests/helpers/live-v2.ts';
+import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 import fs from 'fs';
 import path from 'path';
 
@@ -89,19 +90,20 @@ for (let i = 0; i < testRuns.length; i++) {
   const runCfg = testRuns[i];
   (runLive ? describe : describe.skip)(`11-reasoning-preservation-toggle — ${runCfg.name}`, () => {
     test('Call 1 — reasoning ON: verify request payload contains reasoning config', async () => {
+      const traceId = createTraceId(`11-reasoning-preservation-toggle-${runCfg.name}-call-1`);
       const logPath = buildLogPathFor(TEST_FILE);
       fs.mkdirSync(path.dirname(logPath), { recursive: true });
       const resetLog = () => fs.writeFileSync(logPath, '');
       resetLog();
 
-      const spec = makeSpec({
+      const spec = attachLangfuseObservability(makeSpec({
         messages: [
           { role: 'system', content: [{ type: 'text', text: 'Answer concisely and include internal reasoning if supported.' }]},
           { role: 'user', content: [{ type: 'text', text: 'What is 3 + 4?' }]}
         ],
         llmPriority: runCfg.llmPriority,
         settings: mergeSettings(runCfg.settings, { temperature: 0.2, maxTokens: 200, reasoning: { enabled: true, budget: 1024 } })
-      });
+      }) as any, traceId);
       const result = await runCoordinatorWithRetries({
         spec,
         env: withLiveEnv({ TEST_FILE }),
@@ -127,6 +129,16 @@ for (let i = 0; i < testRuns.length; i++) {
       }
       // Note: We don't fail if response doesn't have reasoning - some providers
       // don't return reasoning in the response even when requested
+
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 60000 });
+      const traceText = stringifyLangfuseTrace(trace);
+      expect(traceText).toContain('What is 3 + 4?');
+      const hasReasoningEvidence =
+        traceText.includes('requestPayload') ||
+        traceText.includes('"reasoning"') ||
+        traceText.includes('"thinking"') ||
+        traceText.includes('thinkingConfig');
+      expect(hasReasoningEvidence).toBe(true);
     }, 120000);
 
     test('Call 2 — reasoning OFF: verify no reasoning in response required', async () => {
