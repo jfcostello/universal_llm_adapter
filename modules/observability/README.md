@@ -59,6 +59,16 @@ const spec = {
 };
 ```
 
+## IDs and Metadata
+
+In addition to `spec.observability.*`, the adapter uses `spec.metadata` for correlation and grouping:
+
+- `spec.metadata.correlationId`: stable per-request identifier (also used as the Langfuse trace name when using the Langfuse provider).
+- `spec.observability.sessionId`: stable per-session identifier to group related traces (in live tests this is typically the run-wide `batchId`).
+- `spec.metadata.tags`: optional array of strings forwarded to observability providers that support tagging (Langfuse tags).
+
+The adapter also forwards token breakdown details (e.g., input/output/total, cached/reasoning/audio tokens) when they are provided by the underlying provider or can be derived from the response.
+
 ## Queue Semantics
 
 ### Non-Blocking Design

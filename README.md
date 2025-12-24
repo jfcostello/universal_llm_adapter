@@ -269,6 +269,10 @@ Observability enables export of LLM call telemetry to platforms like Langfuse. I
 }
 ```
 
+**Tip:** For stable naming/grouping, set:
+- `spec.metadata.correlationId` (used as the Langfuse trace name when using the Langfuse provider)
+- `spec.metadata.tags` (forwarded as Langfuse tags when present)
+
 **Required Environment Variables** (for Langfuse):
 - `LANGFUSE_SECRET_KEY` - Langfuse secret key
 - `LANGFUSE_PUBLIC_KEY` - Langfuse public key

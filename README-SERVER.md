@@ -1027,6 +1027,8 @@ Enable LLM call telemetry export in your request body:
 }
 ```
 
+Tip: set `metadata.correlationId` (trace name) and `metadata.tags` (tags) for stable naming/grouping.
+
 Or globally via `plugins/configs/defaults.json`. Same spec field for CLI and server.
 
 ---

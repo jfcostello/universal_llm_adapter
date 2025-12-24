@@ -1030,6 +1030,8 @@ Enable observability in your spec:
 }
 ```
 
+Tip: set `metadata.correlationId` (trace name) and `metadata.tags` (tags) for stable naming/grouping.
+
 Or globally via `plugins/configs/defaults.json`.
 
 ---
