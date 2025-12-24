@@ -48,30 +48,46 @@ function assertUsageCost(payload: any, usageCostEnabled: boolean): void {
 }
 
 function readCachedTokensFromBody(body: any): number | null {
-  const cachedOpenAI = body?.usage?.prompt_tokens_details?.cached_tokens ??
-    body?.usage?.input_tokens_details?.cached_tokens ??
-    body?.usage?.input_token_details?.cached_tokens;
-  if (typeof cachedOpenAI === 'number') return cachedOpenAI;
+  const candidates = [body, body?.raw, body?.rawResponse].filter(v => v && typeof v === 'object');
 
-  const cachedAnthropicRead = body?.usage?.cache_read_input_tokens;
-  const cachedAnthropicCreate = body?.usage?.cache_creation_input_tokens;
-  if (typeof cachedAnthropicRead === 'number' || typeof cachedAnthropicCreate === 'number') {
-    return (typeof cachedAnthropicRead === 'number' ? cachedAnthropicRead : 0) +
-      (typeof cachedAnthropicCreate === 'number' ? cachedAnthropicCreate : 0);
+  for (const candidate of candidates) {
+    const cachedOpenAI = (candidate as any)?.usage?.prompt_tokens_details?.cached_tokens ??
+      (candidate as any)?.usage?.input_tokens_details?.cached_tokens ??
+      (candidate as any)?.usage?.input_token_details?.cached_tokens;
+    if (typeof cachedOpenAI === 'number') return cachedOpenAI;
+
+    const cachedAnthropicRead = (candidate as any)?.usage?.cache_read_input_tokens;
+    const cachedAnthropicCreate = (candidate as any)?.usage?.cache_creation_input_tokens;
+    if (typeof cachedAnthropicRead === 'number' || typeof cachedAnthropicCreate === 'number') {
+      return (typeof cachedAnthropicRead === 'number' ? cachedAnthropicRead : 0) +
+        (typeof cachedAnthropicCreate === 'number' ? cachedAnthropicCreate : 0);
+    }
+
+    const cachedGoogle = (candidate as any)?.usageMetadata?.cachedContentTokenCount;
+    if (typeof cachedGoogle === 'number') return cachedGoogle;
   }
-
-  const cachedGoogle = body?.usageMetadata?.cachedContentTokenCount;
-  if (typeof cachedGoogle === 'number') return cachedGoogle;
 
   return null;
 }
 
 function assertCachedTokensExtracted(payload: any, logPath: string): void {
   const bodies = parseLogBodies(logPath);
+  const model = typeof payload?.model === 'string' ? payload.model : '';
   let cachedRaw: number | null = null;
 
   for (let i = bodies.length - 1; i >= 0; i--) {
-    const candidate = readCachedTokensFromBody(bodies[i]);
+    const body = bodies[i];
+    const bodyModel =
+      typeof body?.model === 'string'
+        ? body.model
+        : typeof body?.raw?.model === 'string'
+          ? body.raw.model
+          : '';
+    if (model && bodyModel && bodyModel !== model) {
+      continue;
+    }
+
+    const candidate = readCachedTokensFromBody(body);
     if (typeof candidate === 'number') {
       cachedRaw = candidate;
       break;
