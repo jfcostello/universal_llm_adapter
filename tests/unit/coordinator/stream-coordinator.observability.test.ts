@@ -135,11 +135,15 @@ describe('StreamCoordinator observability', () => {
       })
     );
 
-    const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
-    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
-    expect(typeof requestArg.generationId).toBe('string');
-    expect(requestArg.generationId).toBe(responseArg.generationId);
-  });
+	    const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
+	    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+	    expect(typeof requestArg.timestampMs).toBe('number');
+	    expect(requestArg.timestamp).toBeUndefined();
+	    expect(typeof responseArg.timestampMs).toBe('number');
+	    expect(responseArg.timestamp).toBeUndefined();
+	    expect(typeof requestArg.generationId).toBe('string');
+	    expect(requestArg.generationId).toBe(responseArg.generationId);
+	  });
 
   test('falls back to compatibility defaults when capture fields are missing on the observability context', async () => {
     const parseStreamChunk = () => ({

@@ -141,12 +141,13 @@ describe('core/defaults', () => {
 	      expect(observability.flushIntervalMs).toBe(5000);
 	      expect(observability.maxQueueSize).toBe(1000);
 	      expect(observability.maxAttempts).toBe(3);
-	      expect(observability.baseDelayMs).toBe(250);
-	      expect(observability.maxDelayMs).toBe(30000);
-	      expect(observability.timeoutMs).toBe(10000);
-	      expect(observability.maxAttributeValueBytes).toBe(16384);
-	      // Safe/light capture defaults
-	      expect((observability as any).captureMessages).toBe('none');
+		      expect(observability.baseDelayMs).toBe(250);
+		      expect(observability.maxDelayMs).toBe(30000);
+		      expect(observability.timeoutMs).toBe(10000);
+		      expect(observability.shutdownTimeoutMs).toBe(5000);
+		      expect(observability.maxAttributeValueBytes).toBe(16384);
+		      // Safe/light capture defaults
+		      expect((observability as any).captureMessages).toBe('none');
 	      expect((observability as any).captureToolArgs).toBe(false);
 	      expect((observability as any).captureRequestPayload).toBe(false);
 	      expect((observability as any).captureRawResponse).toBe(false);
@@ -328,12 +329,13 @@ describe('core/defaults', () => {
 	      expect(typeof observability.flushIntervalMs).toBe('number');
 	      expect(typeof observability.maxQueueSize).toBe('number');
 	      expect(typeof observability.maxAttempts).toBe('number');
-	      expect(typeof observability.baseDelayMs).toBe('number');
-	      expect(typeof observability.maxDelayMs).toBe('number');
-	      expect(typeof observability.timeoutMs).toBe('number');
-	      expect(typeof observability.maxAttributeValueBytes).toBe('number');
-	      expect(typeof (observability as any).captureMessages).toBe('string');
-	      expect(typeof (observability as any).captureToolArgs).toBe('boolean');
+		      expect(typeof observability.baseDelayMs).toBe('number');
+		      expect(typeof observability.maxDelayMs).toBe('number');
+		      expect(typeof observability.timeoutMs).toBe('number');
+		      expect(typeof observability.shutdownTimeoutMs).toBe('number');
+		      expect(typeof observability.maxAttributeValueBytes).toBe('number');
+		      expect(typeof (observability as any).captureMessages).toBe('string');
+		      expect(typeof (observability as any).captureToolArgs).toBe('boolean');
 	      expect(typeof (observability as any).captureRequestPayload).toBe('boolean');
 	      expect(typeof (observability as any).captureRawResponse).toBe('boolean');
 	      expect(typeof (observability as any).sampleRate).toBe('number');

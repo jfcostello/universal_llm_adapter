@@ -134,6 +134,47 @@ describe('LLMManager observability', () => {
     expect(requestArg.requestPayload.providerExtras.api_key).toBe('***1234');
   });
 
+  test('callProvider uses numeric timestampMs (and does not allocate ISO timestamps) for observability events', async () => {
+    const mockSDKResponse = {
+      content: [{ type: 'text', text: 'SDK response' }],
+      role: Role.ASSISTANT,
+      toolCalls: []
+    };
+
+    const mockCompat = {
+      callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = createMockObservabilityContext();
+    const context: RunContext = { observability };
+
+    const manager = new LLMManager(registry);
+    await manager.callProvider(
+      mockProvider,
+      'test-model',
+      { temperature: 0.7 },
+      mockMessages,
+      [],
+      undefined,
+      {},
+      undefined,
+      context
+    );
+
+    const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
+    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+
+    expect(typeof requestArg.timestampMs).toBe('number');
+    expect(requestArg.timestamp).toBeUndefined();
+
+    expect(typeof responseArg.timestampMs).toBe('number');
+    expect(responseArg.timestamp).toBeUndefined();
+  });
+
   test('callProvider records LLM response on success', async () => {
     const mockSDKResponse = {
       content: [{ type: 'text', text: 'SDK response' }],
@@ -217,6 +258,36 @@ describe('LLMManager observability', () => {
       { id: 'tc-1', name: 'tool-a', arguments: { arg1: 'value1' }, metadata: { token: '***1234' } },
       { id: 'tc-2', name: 'tool-b' }
     ]);
+  });
+
+  test('recordObservabilityResponse falls back to context.toolCallsSoFar when response has no toolCalls', async () => {
+    const registry = { getCompatModule: jest.fn() } as any;
+    const manager = new LLMManager(registry);
+
+    const observability = createMockObservabilityContext({ captureToolArgs: false });
+    const context: RunContext = {
+      observability,
+      toolCallsSoFar: [{ id: 'tc-ctx-1', name: 'tool-from-context', arguments: { secret: 'abcd1234' } }]
+    } as any;
+
+    await (manager as any).recordObservabilityResponse(
+      context,
+      'test-sdk-provider',
+      'test-model',
+      'gen-1',
+      Date.now() - 5,
+      {
+        content: [],
+        role: Role.ASSISTANT,
+        toolCalls: []
+      },
+      undefined,
+      undefined,
+      undefined
+    );
+
+    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+    expect(responseArg.toolCalls).toEqual([{ id: 'tc-ctx-1', name: 'tool-from-context' }]);
   });
 
   test('callProvider computes totalTokens when promptTokens/completionTokens are zero', async () => {

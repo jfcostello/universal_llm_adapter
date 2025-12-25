@@ -105,6 +105,16 @@ export class ObservabilityExporter implements IObservabilityExporter {
   private logger: AdapterLogger;
   private droppedSinceLastWarning = 0;
   private lastDropWarningMs: number | null = null;
+  private shutdownSummaryLogged = false;
+  private metrics = {
+    enqueuedTotal: 0,
+    droppedTotal: 0,
+    flushCount: 0,
+    flushMsTotal: 0,
+    retryCount: 0,
+    sentCount: 0,
+    failedCount: 0
+  };
 
   constructor(
     private config: ObservabilityExporterConfig,
@@ -193,8 +203,50 @@ export class ObservabilityExporter implements IObservabilityExporter {
       provider: this.config.provider,
       droppedEventId: dropped.id,
       maxQueueSize: this.config.maxQueueSize,
+      queueSize: this.getQueueSize(),
+      metrics: this.getMetricsSnapshot(),
       ...(droppedEvents > 1 ? { droppedEvents } : {})
     });
+  }
+
+  private getMetricsSnapshot(): Record<string, number> {
+    return {
+      enqueuedTotal: this.metrics.enqueuedTotal,
+      droppedTotal: this.metrics.droppedTotal,
+      flushCount: this.metrics.flushCount,
+      flushMsTotal: this.metrics.flushMsTotal,
+      retryCount: this.metrics.retryCount,
+      sentCount: this.metrics.sentCount,
+      failedCount: this.metrics.failedCount
+    };
+  }
+
+  logShutdownSummary(options: { timedOut?: boolean; shutdownTimeoutMs?: number } = {}): void {
+    if (this.shutdownSummaryLogged) return;
+    this.shutdownSummaryLogged = true;
+
+    const timedOut = options.timedOut === true;
+    const shutdownTimeoutMs =
+      typeof options.shutdownTimeoutMs === 'number' && Number.isFinite(options.shutdownTimeoutMs)
+        ? Math.floor(options.shutdownTimeoutMs)
+        : undefined;
+
+    const payload = {
+      provider: this.config.provider,
+      queueSize: this.getQueueSize(),
+      ...(shutdownTimeoutMs !== undefined ? { shutdownTimeoutMs } : {}),
+      timedOut,
+      ...this.getMetricsSnapshot(),
+      flushMsAvg:
+        this.metrics.flushCount > 0 ? Math.floor(this.metrics.flushMsTotal / this.metrics.flushCount) : 0
+    };
+
+    if (timedOut) {
+      this.logger.warning('Observability exporter shutdown timed out', payload);
+      return;
+    }
+
+    this.logger.info('Observability exporter shutdown summary', payload);
   }
 
   /**
@@ -211,6 +263,7 @@ export class ObservabilityExporter implements IObservabilityExporter {
       // Drop oldest events to make room
       const dropped = this.dropOldestEvent();
       if (dropped) {
+        this.metrics.droppedTotal += 1;
         this.warnOnQueueDrop(dropped);
       }
     }
@@ -224,6 +277,7 @@ export class ObservabilityExporter implements IObservabilityExporter {
     };
 
     this.queue.push(event);
+    this.metrics.enqueuedTotal += 1;
 
     // Trigger flush if queue reaches threshold
     if (this.getQueueSize() >= this.config.flushAt) {
@@ -266,6 +320,9 @@ export class ObservabilityExporter implements IObservabilityExporter {
   }
 
   private async doFlush(): Promise<void> {
+    const flushStartMs = Date.now();
+    this.metrics.flushCount += 1;
+
     // Take all events from queue (caller guarantees queue is non-empty)
     const events = this.queue.slice(this.queueHead);
     this.queue = [];
@@ -281,19 +338,32 @@ export class ObservabilityExporter implements IObservabilityExporter {
     let attempt = 0;
     let eventsToRetry = events;
 
-    while (eventsToRetry.length > 0 && attempt < this.config.maxAttempts) {
-      const sendWithSizeLimit = async (batchEvents: QueuedEvent[]): Promise<QueuedEvent[]> => {
-        try {
+    try {
+      while (eventsToRetry.length > 0 && attempt < this.config.maxAttempts) {
+        const sendWithSizeLimit = async (batchEvents: QueuedEvent[]): Promise<QueuedEvent[]> => {
           const compatContextForBatch: ObservabilityCompatContext = {
             ...compatContext,
             eventIds: batchEvents.map(e => e.id)
           };
 
-          const { payload, eventIndexByEnvelopeId } = this.compat.buildBatch(
-            batchEvents.map(e => e.data),
-            this.manifest,
-            compatContextForBatch
-          );
+          let payload: unknown;
+          let eventIndexByEnvelopeId: Map<string, number>;
+          try {
+            ({ payload, eventIndexByEnvelopeId } = this.compat.buildBatch(
+              batchEvents.map(e => e.data),
+              this.manifest,
+              compatContextForBatch
+            ));
+          } catch (error: any) {
+            this.logger.warning('Observability batch export failed', {
+              provider: this.config.provider,
+              attempt: attempt + 1,
+              maxAttempts: this.config.maxAttempts,
+              error: (error as Error)?.message ?? String(error),
+              metrics: this.getMetricsSnapshot()
+            });
+            return batchEvents;
+          }
 
           if (typeof maxBatchBytes === 'number' && maxBatchBytes > 0) {
             const bytes =
@@ -302,11 +372,13 @@ export class ObservabilityExporter implements IObservabilityExporter {
                 : Buffer.byteLength(JSON.stringify(payload), 'utf8');
             if (bytes > maxBatchBytes) {
               if (batchEvents.length <= 1) {
+                this.metrics.droppedTotal += 1;
                 this.logger.warning('Observability event exceeds maxBatchBytes; dropping event', {
                   provider: this.config.provider,
                   eventId: batchEvents[0].id,
                   bytes,
-                  maxBatchBytes
+                  maxBatchBytes,
+                  metrics: this.getMetricsSnapshot()
                 });
                 return [];
               }
@@ -318,17 +390,35 @@ export class ObservabilityExporter implements IObservabilityExporter {
             }
           }
 
-          const result = await this.compat.sendBatch(payload, this.manifest, compatContextForBatch);
+          this.metrics.sentCount += 1;
+          let result: Awaited<ReturnType<IObservabilityCompat['sendBatch']>>;
+          try {
+            result = await this.compat.sendBatch(payload, this.manifest, compatContextForBatch);
+          } catch (error: any) {
+            this.metrics.failedCount += 1;
+            this.logger.warning('Observability batch export failed', {
+              provider: this.config.provider,
+              attempt: attempt + 1,
+              maxAttempts: this.config.maxAttempts,
+              error: (error as Error)?.message ?? String(error),
+              metrics: this.getMetricsSnapshot()
+            });
+            return batchEvents;
+          }
+
           if (result.success) {
             if (process.env.LLM_LIVE === '1') {
               this.logger.info('Observability batch export succeeded', {
                 provider: this.config.provider,
                 events: batchEvents.length,
-                envelopes: result.outcomes.length
+                envelopes: result.outcomes.length,
+                metrics: this.getMetricsSnapshot()
               });
             }
             return [];
           }
+
+          this.metrics.failedCount += 1;
 
           for (const outcome of result.outcomes) {
             if (outcome.success) continue;
@@ -344,7 +434,8 @@ export class ObservabilityExporter implements IObservabilityExporter {
               status: outcome.status,
               error: typeof outcome.error === 'string' ? outcome.error.slice(0, 500) : undefined,
               attempt: attempt + 1,
-              maxAttempts: this.config.maxAttempts
+              maxAttempts: this.config.maxAttempts,
+              metrics: this.getMetricsSnapshot()
             });
           }
 
@@ -364,40 +455,37 @@ export class ObservabilityExporter implements IObservabilityExporter {
 
           if (hasUnmappedRetryableOutcome) {
             this.logger.warning('Observability retryable outcomes unmapped; retrying all events', {
-              provider: this.config.provider
+              provider: this.config.provider,
+              metrics: this.getMetricsSnapshot()
             });
             return batchEvents;
           }
 
           return batchEvents.filter((_event, index) => retryableEventIndices.has(index));
-        } catch (error: any) {
-          this.logger.warning('Observability batch export failed', {
-            provider: this.config.provider,
-            attempt: attempt + 1,
-            maxAttempts: this.config.maxAttempts,
-            error: (error as Error)?.message ?? String(error)
-          });
-          return batchEvents;
+        };
+
+        eventsToRetry = await sendWithSizeLimit(eventsToRetry);
+
+        if (eventsToRetry.length > 0 && attempt < this.config.maxAttempts - 1) {
+          this.metrics.retryCount += 1;
+          // Wait before retry
+          const delay = calculateBackoffDelay(attempt, this.config.baseDelayMs, this.config.maxDelayMs);
+          await sleep(delay);
         }
-      };
 
-      eventsToRetry = await sendWithSizeLimit(eventsToRetry);
-
-      if (eventsToRetry.length > 0 && attempt < this.config.maxAttempts - 1) {
-        // Wait before retry
-        const delay = calculateBackoffDelay(attempt, this.config.baseDelayMs, this.config.maxDelayMs);
-        await sleep(delay);
+        attempt++;
       }
 
-      attempt++;
-    }
-
-    if (eventsToRetry.length > 0) {
-      this.logger.warning('Observability export failed after max attempts', {
-        provider: this.config.provider,
-        failedEvents: eventsToRetry.length,
-        maxAttempts: this.config.maxAttempts
-      });
+      if (eventsToRetry.length > 0) {
+        this.logger.warning('Observability export failed after max attempts', {
+          provider: this.config.provider,
+          failedEvents: eventsToRetry.length,
+          maxAttempts: this.config.maxAttempts,
+          metrics: this.getMetricsSnapshot()
+        });
+      }
+    } finally {
+      this.metrics.flushMsTotal += Date.now() - flushStartMs;
     }
   }
 
@@ -406,7 +494,11 @@ export class ObservabilityExporter implements IObservabilityExporter {
     this.stopFlushTimer();
 
     // Final flush (also waits for any in-flight flush)
-    await this.flush();
+    try {
+      await this.flush();
+    } finally {
+      this.logShutdownSummary();
+    }
   }
 }
 
@@ -558,7 +650,14 @@ async function getOrCreateSharedExporter(
 async function shutdownAllExporters(): Promise<void> {
   if (shutdownAllPromise) return shutdownAllPromise;
 
-  shutdownAllPromise = (async () => {
+	shutdownAllPromise = (async () => {
+	  const shutdownTimeoutMs = clampInt(
+	    getDefaults().observability.shutdownTimeoutMs,
+	    5000,
+	    1,
+	    300_000
+	  );
+
     const exporters: ObservabilityExporter[] = [];
     for (const registry of runtimeRegistries) {
       const runtime = runtimeByRegistry.get(registry)!;
@@ -569,7 +668,26 @@ async function shutdownAllExporters(): Promise<void> {
       runtime.inflightByKey.clear();
     }
 
-    await Promise.all(exporters.map(exp => exp.shutdown().catch(() => {})));
+	const shutdownWithTimeout = async (exporter: ObservabilityExporter): Promise<'ok' | 'timeout'> => {
+	  const shutdownPromise = exporter.shutdown().catch(() => {});
+	  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+	  const timeoutPromise = new Promise<'timeout'>(resolve => {
+	    timeoutId = setTimeout(() => resolve('timeout'), shutdownTimeoutMs);
+	    (timeoutId as any)?.unref?.();
+	  });
+
+      try {
+        const outcome = await Promise.race([shutdownPromise.then(() => 'ok' as const), timeoutPromise]);
+        if (outcome === 'timeout') {
+          exporter.logShutdownSummary({ timedOut: true, shutdownTimeoutMs });
+        }
+        return outcome;
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+      }
+    };
+
+    await Promise.all(exporters.map(exp => shutdownWithTimeout(exp).catch(() => {})));
     runtimeRegistries.clear();
   })().finally(() => {
     shutdownAllPromise = null;

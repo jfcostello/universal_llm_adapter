@@ -31,6 +31,7 @@ Enable observability globally by adding to your `plugins/configs/defaults.json`:
     "baseDelayMs": 250,
     "maxDelayMs": 30000,
     "timeoutMs": 10000,
+    "shutdownTimeoutMs": 5000,
     "maxAttributeValueBytes": 16384,
     "captureMessages": "none",
     "captureToolArgs": false,
@@ -149,7 +150,8 @@ When observability shutdown is triggered (CLI completion / server shutdown):
 1. Timer is stopped (no new automatic flushes)
 2. All remaining events in queue are flushed
 3. Retries continue until success or max attempts reached
-4. After shutdown, new events are rejected with `reason: 'shutdown'`
+4. Shutdown waiting is bounded by `shutdownTimeoutMs` (default `5000ms`); if the timeout is hit, shutdown continues and a summary is logged
+5. After shutdown, new events are rejected with `reason: 'shutdown'`
 
 ## Provider Limits
 
@@ -190,6 +192,7 @@ Env var:
 | `baseDelayMs` | number | `250` | Base delay for exponential backoff |
 | `maxDelayMs` | number | `30000` | Maximum delay cap for backoff |
 | `timeoutMs` | number | `10000` | HTTP timeout for export requests |
+| `shutdownTimeoutMs` | number | `5000` | Max time to wait for exporter shutdown during process exit |
 | `maxAttributeValueBytes` | number | `16384` | Max UTF-8 bytes for any exported attribute string value |
 | `captureMessages` | `'none' \| 'text' \| 'full'` | `'none'` | Capture prompt/response content bodies |
 | `captureToolArgs` | boolean | `false` | Capture tool-call args/metadata |

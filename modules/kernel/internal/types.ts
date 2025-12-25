@@ -1245,6 +1245,13 @@ export interface ObservabilityDefaults {
   timeoutMs: number;
 
   /**
+   * Maximum time (ms) to wait for observability shutdown/flush before giving up.
+   * This prevents process shutdown from hanging indefinitely on retries/timeouts.
+   * @default 5000
+   */
+  shutdownTimeoutMs: number;
+
+  /**
    * Maximum UTF-8 bytes for any exported attribute string value.
    * Provider compats should truncate large fields to stay within ingestion limits.
    * @default 16384

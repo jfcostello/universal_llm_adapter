@@ -36,7 +36,7 @@ export class LLMManager {
     provider: string,
     model: string,
     generationId: string | undefined,
-    timestamp: string,
+    timestampMs: number,
     messages: Message[],
     tools: UnifiedTool[],
     settings: LLMCallSettings,
@@ -52,7 +52,7 @@ export class LLMManager {
       const event = {
         traceId: context.observability.traceId,
         generationId,
-        timestamp,
+        timestampMs,
         provider,
         model,
         messages: filterMessagesForObservability(messages, captureMessages),
@@ -109,15 +109,22 @@ export class LLMManager {
       const captureToolArgs = context.observability.captureToolArgs ?? true;
       const captureRawResponse = context.observability.captureRawResponse ?? true;
 
-      const durationMs = Date.now() - startTime;
+      const endTimeMs = Date.now();
+      const durationMs = endTimeMs - startTime;
       const promptTokens = response?.usage?.promptTokens ?? undefined;
       const completionTokens = response?.usage?.completionTokens ?? undefined;
       const totalTokens = response?.usage?.totalTokens ?? undefined;
+      const toolCallsForObservability = (() => {
+        const fromResponse = Array.isArray((response as any)?.toolCalls) ? ((response as any).toolCalls as any[]) : [];
+        if (fromResponse.length > 0) return fromResponse;
+        const fromContext = Array.isArray((context as any)?.toolCallsSoFar) ? ((context as any).toolCallsSoFar as any[]) : [];
+        return fromContext.length > 0 ? fromContext : undefined;
+      })();
       const event = {
         traceId: context.observability.traceId,
         generationId,
         sessionId: context.observability.sessionId,
-        timestamp: new Date().toISOString(),
+        timestampMs: endTimeMs,
         provider,
         model,
         content: filterContentForObservability(response?.content || [], captureMessages),
@@ -136,7 +143,7 @@ export class LLMManager {
           audioTokens: response.usage.audioTokens ?? undefined,
           cost: response.usage.cost ?? undefined
         } : undefined,
-        toolCalls: response?.toolCalls?.map(tc => {
+        toolCalls: toolCallsForObservability?.map(tc => {
           const args = (tc as any).arguments ?? (tc as any).args;
           const metadata = (tc as any).metadata;
           const base = { id: (tc as any).id, name: (tc as any).name } as any;
@@ -185,11 +192,11 @@ export class LLMManager {
     providerExtras: Record<string, any> = {},
     logger?: AdapterLogger,
     context: RunContext = {}
-  ): Promise<LLMResponse> {
-    const startTime = Date.now();
-    const generationId = context.observability ? randomUUID() : undefined;
-    const requestTimestamp = new Date().toISOString();
-    const normalizedMessages = aggregateSystemMessages(messages);
+	  ): Promise<LLMResponse> {
+	    const startTime = Date.now();
+	    const generationId = context.observability ? randomUUID() : undefined;
+	    const requestTimestampMs = startTime;
+	    const normalizedMessages = aggregateSystemMessages(messages);
     const compat = await this.registry.getCompatModule(provider.compat);
     const providerRequestsHttp = this.isHttpUrlTemplate(provider.endpoint?.urlTemplate);
 
@@ -248,15 +255,17 @@ export class LLMManager {
         response.toolCalls = await this.normalizeToolCallsIfPresent(response.toolCalls);
         response.provider = provider.id;
 
-        // Log SDK response using existing logging infrastructure
-        if (logger) {
-          logger.logLLMResponse({
-            status: 200,
-            statusText: 'SDK_SUCCESS',
-            headers: {},
-            body: response
-          });
-        }
+	        // Log SDK response using existing logging infrastructure
+	        if (logger) {
+	          const duration = Date.now() - startTime;
+	          logger.logLLMResponse({
+	            status: 200,
+	            statusText: 'SDK_SUCCESS',
+	            headers: {},
+	            body: response,
+	            duration
+	          });
+	        }
 
         // Log raw response for live tests
         if (process.env.LLM_LIVE === '1') {
@@ -273,18 +282,18 @@ export class LLMManager {
           }
         }
 
-        await this.recordObservabilityRequest(
-          context,
-          provider.id,
-          model,
-          generationId,
-          requestTimestamp,
-          normalizedMessages,
-          tools,
-          settings,
-          sdkRequestPayload,
-          logger
-        );
+	        await this.recordObservabilityRequest(
+	          context,
+	          provider.id,
+	          model,
+	          generationId,
+	          requestTimestampMs,
+	          normalizedMessages,
+	          tools,
+	          settings,
+	          sdkRequestPayload,
+	          logger
+	        );
 
         // Record successful response to observability
         await this.recordObservabilityResponse(
@@ -302,18 +311,18 @@ export class LLMManager {
         return response;
       } catch (error: any) {
         const sdkRequestPayload = { model, messages: normalizedMessages, tools, toolChoice, settings, providerExtras };
-        await this.recordObservabilityRequest(
-          context,
-          provider.id,
-          model,
-          generationId,
-          requestTimestamp,
-          normalizedMessages,
-          tools,
-          settings,
-          sdkRequestPayload,
-          logger
-        );
+	        await this.recordObservabilityRequest(
+	          context,
+	          provider.id,
+	          model,
+	          generationId,
+	          requestTimestampMs,
+	          normalizedMessages,
+	          tools,
+	          settings,
+	          sdkRequestPayload,
+	          logger
+	        );
 
         // Record error response to observability
         await this.recordObservabilityResponse(
@@ -412,15 +421,17 @@ export class LLMManager {
       let response = await sendRequest(finalPayload);
       lastRawResponse = response.data;
 
-      // Log beautiful formatted LLM response to dedicated log file
-      if (logger) {
-        logger.logLLMResponse({
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers,
-          body: response.data
-        });
-      }
+	      // Log beautiful formatted LLM response to dedicated log file
+	      if (logger) {
+	        const duration = Date.now() - startTime;
+	        logger.logLLMResponse({
+	          status: response.status,
+	          statusText: response.statusText,
+	          headers: response.headers,
+	          body: response.data,
+	          duration
+	        });
+	      }
 
       // Log raw response for live tests (always on when LLM_LIVE=1)
       if (process.env.LLM_LIVE === '1') {
@@ -452,15 +463,17 @@ export class LLMManager {
           response = await sendRequest(retryPayload);
           lastRawResponse = response.data;
 
-          // Log response for retry attempt
-          if (logger) {
-            logger.logLLMResponse({
-              status: response.status,
-              statusText: response.statusText,
-              headers: response.headers,
-              body: response.data
-            });
-          }
+	          // Log response for retry attempt
+	          if (logger) {
+	            const duration = Date.now() - startTime;
+	            logger.logLLMResponse({
+	              status: response.status,
+	              statusText: response.statusText,
+	              headers: response.headers,
+	              body: response.data,
+	              duration
+	            });
+	          }
 
           if (process.env.LLM_LIVE === '1') {
             try {
@@ -497,14 +510,16 @@ export class LLMManager {
           response = await sendRequest(retryPayload);
           lastRawResponse = response.data;
 
-          if (logger) {
-            logger.logLLMResponse({
-              status: response.status,
-              statusText: response.statusText,
-              headers: response.headers,
-              body: response.data
-            });
-          }
+	          if (logger) {
+	            const duration = Date.now() - startTime;
+	            logger.logLLMResponse({
+	              status: response.status,
+	              statusText: response.statusText,
+	              headers: response.headers,
+	              body: response.data,
+	              duration
+	            });
+	          }
 
           if (process.env.LLM_LIVE === '1') {
             try {
@@ -537,18 +552,18 @@ export class LLMManager {
           }
 
           // Record HTTP error response to observability
-          await this.recordObservabilityRequest(
-            context,
-            provider.id,
-            model,
-            generationId,
-            requestTimestamp,
-            normalizedMessages,
-            tools,
-            settings,
-            lastRequestPayload,
-            logger
-          );
+	          await this.recordObservabilityRequest(
+	            context,
+	            provider.id,
+	            model,
+	            generationId,
+	            requestTimestampMs,
+	            normalizedMessages,
+	            tools,
+	            settings,
+	            lastRequestPayload,
+	            logger
+	          );
           await this.recordObservabilityResponse(
             context,
             provider.id,
@@ -574,18 +589,18 @@ export class LLMManager {
       parsed.toolCalls = await this.normalizeToolCallsIfPresent(parsed.toolCalls);
       parsed.provider = provider.id;
 
-      await this.recordObservabilityRequest(
-        context,
-        provider.id,
-        model,
-        generationId,
-        requestTimestamp,
-        normalizedMessages,
-        tools,
-        settings,
-        lastRequestPayload,
-        logger
-      );
+	      await this.recordObservabilityRequest(
+	        context,
+	        provider.id,
+	        model,
+	        generationId,
+	        requestTimestampMs,
+	        normalizedMessages,
+	        tools,
+	        settings,
+	        lastRequestPayload,
+	        logger
+	      );
 
       // Record successful HTTP response to observability
       await this.recordObservabilityResponse(
@@ -605,18 +620,18 @@ export class LLMManager {
     } catch (error: any) {
       // Record error response to observability (only for errors not already recorded)
       if (!(error instanceof ProviderExecutionError && error.statusCode !== undefined)) {
-        await this.recordObservabilityRequest(
-          context,
-          provider.id,
-          model,
-          generationId,
-          requestTimestamp,
-          normalizedMessages,
-          tools,
-          settings,
-          lastRequestPayload,
-          logger
-        );
+	        await this.recordObservabilityRequest(
+	          context,
+	          provider.id,
+	          model,
+	          generationId,
+	          requestTimestampMs,
+	          normalizedMessages,
+	          tools,
+	          settings,
+	          lastRequestPayload,
+	          logger
+	        );
 
         await this.recordObservabilityResponse(
           context,

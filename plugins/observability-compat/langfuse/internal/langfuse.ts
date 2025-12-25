@@ -39,6 +39,27 @@ function readUsageNumber(value: unknown): number | undefined {
   return value;
 }
 
+function readTimestampMs(event: { timestampMs?: unknown; timestamp?: unknown }): number | undefined {
+  if (typeof event.timestampMs === 'number' && Number.isFinite(event.timestampMs)) {
+    return event.timestampMs;
+  }
+
+  const raw = event.timestamp;
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+
+  const parsed = Date.parse(trimmed);
+  if (!Number.isFinite(parsed)) return undefined;
+  return parsed;
+}
+
+function eventTimestampToIso(event: { timestampMs?: unknown; timestamp?: unknown }): string {
+  const ms = readTimestampMs(event);
+  if (ms === undefined) return '1970-01-01T00:00:00.000Z';
+  return new Date(ms).toISOString();
+}
+
 function buildLangfuseUsageDetails(usage: unknown): Record<string, number> {
   if (!usage || typeof usage !== 'object') return {};
   const u = usage as any;
@@ -197,10 +218,10 @@ function isResponseEvent(event: any): event is ObservabilityLLMResponseEvent {
 }
 
 function deriveStartTimeIso(response: ObservabilityLLMResponseEvent): string {
-  const endMs = Date.parse(String(response.timestamp));
+  const endMs = readTimestampMs(response);
   const durationMs = typeof response.durationMs === 'number' ? response.durationMs : NaN;
-  if (!Number.isFinite(endMs) || !Number.isFinite(durationMs) || durationMs < 0) {
-    return String(response.timestamp);
+  if (endMs === undefined || !Number.isFinite(durationMs) || durationMs < 0) {
+    return eventTimestampToIso(response);
   }
   return new Date(endMs - durationMs).toISOString();
 }
@@ -261,7 +282,7 @@ function buildCachedRequestSummary(
   const tags = getStringArrayMetadata(metadata, 'tags');
 
   return {
-    startTimeIso: String(request.timestamp),
+    startTimeIso: eventTimestampToIso(request),
     sessionId,
     provider: String(request.provider || ''),
     model: String(request.model || ''),
@@ -331,7 +352,7 @@ export class LangfuseCompat implements IObservabilityCompat {
         spanIdHex: deriveOtlpSpanIdHex(String(event.generationId || envelopeId)),
         name: DEFAULT_SPAN_NAME,
         startTimeIso: cachedSummary?.startTimeIso ? String(cachedSummary.startTimeIso) : deriveStartTimeIso(event),
-        endTimeIso: String(event.timestamp),
+        endTimeIso: eventTimestampToIso(event),
         status: event.error
           ? { code: 'ERROR', message: String(event.error.message || 'error') }
           : { code: 'OK' },
