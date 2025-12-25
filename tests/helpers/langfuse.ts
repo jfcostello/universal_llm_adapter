@@ -242,6 +242,7 @@ export async function waitForLangfuseTrace(
   const env = opts.env ?? process.env;
   const baseUrl = stripTrailingSlashes(opts.baseUrl ?? getLangfuseBaseUrl(env));
   const authorization = buildLangfuseAuthHeader(env);
+  const debugTraceWait = String(env.LLM_LIVE_LANGFUSE_TRACE_DEBUG || '').trim() === '1';
   const defaultTimeoutMs = env.LLM_LIVE === '1' ? 180_000 : 90_000;
   const configuredTimeoutMs = readPositiveIntEnv(env, 'LLM_LIVE_LANGFUSE_TRACE_TIMEOUT_MS') ?? defaultTimeoutMs;
   const timeoutMs = Math.max(100, Math.floor(configuredTimeoutMs), Math.floor(opts.timeoutMs ?? 0));
@@ -266,6 +267,9 @@ export async function waitForLangfuseTrace(
   let delay = minDelayMs;
   let lastStatus: number | null = null;
   let lastAssertionError: Error | null = null;
+  let polls = 0;
+  let fetchMs = 0;
+  let assertionMs = 0;
   // eslint-disable-next-line no-constant-condition
   while (true) {
     if (Date.now() - start > timeoutMs) {
@@ -275,6 +279,8 @@ export async function waitForLangfuseTrace(
     }
 
     let res: any;
+    const fetchStart = Date.now();
+    polls++;
     try {
       res = await withConcurrencyLimit(
         () =>
@@ -288,17 +294,20 @@ export async function waitForLangfuseTrace(
         concurrency
       );
     } catch {
+      fetchMs += Date.now() - fetchStart;
       // Treat transient fetch errors as retryable.
       const jitter = Math.floor(Math.random() * Math.max(1, Math.floor(delay / 2)));
       await sleep(delay + jitter);
       delay = Math.min(maxDelayMs, Math.floor(delay * 1.5) + 1);
       continue;
     }
+    fetchMs += Date.now() - fetchStart;
 
     if (res.ok) {
       const trace = await res.json();
 
       if (testFileBase && assertLoggedContent) {
+        const assertStart = Date.now();
         try {
           await assertLangfuseTraceContainsLoggedObservabilityContent({
             traceId,
@@ -312,7 +321,24 @@ export async function waitForLangfuseTrace(
           await sleep(delay + jitter);
           delay = Math.min(maxDelayMs, Math.floor(delay * 1.5) + 1);
           continue;
+        } finally {
+          assertionMs += Date.now() - assertStart;
         }
+      }
+
+      if (debugTraceWait) {
+        const totalMs = Date.now() - start;
+        const overheadMs = Math.max(0, totalMs - fetchMs - assertionMs);
+        console.error(JSON.stringify({
+          type: 'langfuse_trace_wait',
+          traceId: String(traceId),
+          testFileBase: testFileBase || undefined,
+          totalMs,
+          polls,
+          fetchMs,
+          assertionMs,
+          overheadMs
+        }));
       }
 
       return trace;

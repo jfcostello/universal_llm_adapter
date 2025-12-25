@@ -213,10 +213,11 @@ export const invalidPriorityEntry = {
 export const baseTestTimeout = 120000; // 120 seconds per provider
 export const timeoutMultiplier = filteredTestRuns.length;
 export const totalTestTimeout = baseTestTimeout * timeoutMultiplier;
+export const minLiveTestTimeout = 300000; // 300 seconds floor for Langfuse read-back
 
 export function liveTestTimeout(minMs: number): number {
-  if (!Number.isFinite(minMs) || minMs < 0) return totalTestTimeout;
-  return Math.max(minMs, totalTestTimeout);
+  const baseline = !Number.isFinite(minMs) || minMs < 0 ? totalTestTimeout : Math.max(minMs, totalTestTimeout);
+  return Math.max(baseline, minLiveTestTimeout);
 }
 
 // Default Jest worker count for live runs (can be overridden via env/CLI)
