@@ -329,33 +329,28 @@ describe('LLMManager observability', () => {
     );
   });
 
-  test('when LLM_LIVE=1, observability events are also written to the live log', async () => {
+  test('when LLM_LIVE=1, callProvider writes observability events to the live log across SDK + HTTP success/error paths', async () => {
     const prevLive = process.env.LLM_LIVE;
     process.env.LLM_LIVE = '1';
     try {
       await withTempCwd('llm-manager-observability-live-log', async () => {
-        const mockSDKResponse = {
-          content: [{ type: 'text', text: 'SDK response' }],
-          role: Role.ASSISTANT,
-          toolCalls: []
-        };
-
-        const mockCompat = {
-          callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
-        };
-
-        const registry = {
-          getCompatModule: jest.fn().mockReturnValue(mockCompat)
-        } as any;
-
         const observability = createMockObservabilityContext();
         const context: RunContext = {
           observability,
           metadata: { testFile: 'llm-manager-observability-live-log', testName: 'unit', correlationId: 'corr-789' }
         } as any;
 
-        const manager = new LLMManager(registry);
-        await manager.callProvider(
+        // SDK path: success to cover request/response live-log branches.
+        const sdkSuccessCompat = {
+          callSDK: jest.fn().mockResolvedValue({
+            content: [{ type: 'text', text: 'SDK response' }],
+            role: Role.ASSISTANT,
+            toolCalls: []
+          })
+        };
+        const sdkSuccessRegistry = { getCompatModule: jest.fn().mockReturnValue(sdkSuccessCompat) } as any;
+        const sdkSuccessManager = new LLMManager(sdkSuccessRegistry);
+        await sdkSuccessManager.callProvider(
           mockProvider,
           'test-model',
           { temperature: 0.7 },
@@ -367,16 +362,98 @@ describe('LLMManager observability', () => {
           context
         );
 
-        await new Promise(res => setTimeout(res, 25));
+        // SDK path: fail to cover error observability + live log.
+        const sdkCompat = { callSDK: jest.fn().mockRejectedValue(new Error('SDK failed')) };
+        const sdkRegistry = { getCompatModule: jest.fn().mockReturnValue(sdkCompat) } as any;
+        const sdkManager = new LLMManager(sdkRegistry);
+        await expect(
+          sdkManager.callProvider(
+            mockProvider,
+            'test-model',
+            { temperature: 0.7 },
+            mockMessages,
+            [],
+            undefined,
+            {},
+            undefined,
+            context
+          )
+        ).rejects.toThrow(ProviderExecutionError);
+
+        // HTTP path: success + status error + transport error to cover all live-log branches.
+        const httpProvider = {
+          id: 'test-http-provider',
+          compat: 'test-http-compat',
+          endpoint: {
+            urlTemplate: 'http://service/{model}',
+            method: 'POST',
+            headers: {}
+          },
+          retryWords: []
+        } as any;
+
+        const httpCompat = {
+          buildPayload: jest.fn(() => ({ metadata: {} })),
+          parseResponse: jest.fn(() => ({
+            role: Role.ASSISTANT,
+            content: [{ type: 'text', text: 'HTTP response' }],
+            toolCalls: []
+          }))
+        };
+        const httpRegistry = { getCompatModule: jest.fn().mockReturnValue(httpCompat) } as any;
+        const httpManager = new LLMManager(httpRegistry);
+
+        (httpManager as any).httpClient = {
+          request: jest.fn().mockResolvedValue({ status: 200, statusText: 'OK', headers: {}, data: { ok: true } })
+        };
+        await httpManager.callProvider(
+          httpProvider,
+          'test-model',
+          {},
+          mockMessages,
+          [],
+          undefined,
+          {},
+          undefined,
+          context
+        );
+
+        (httpManager as any).httpClient = {
+          request: jest.fn().mockResolvedValue({ status: 400, statusText: 'Bad', headers: {}, data: { error: 'bad' } })
+        };
+        await expect(
+          httpManager.callProvider(
+            httpProvider,
+            'test-model',
+            {},
+            mockMessages,
+            [],
+            undefined,
+            {},
+            undefined,
+            context
+          )
+        ).rejects.toThrow(ProviderExecutionError);
+
+        (httpManager as any).httpClient = {
+          request: jest.fn().mockRejectedValue(new Error('network boom'))
+        };
+        await expect(
+          httpManager.callProvider(
+            httpProvider,
+            'test-model',
+            {},
+            mockMessages,
+            [],
+            undefined,
+            {},
+            undefined,
+            context
+          )
+        ).rejects.toThrow(ProviderExecutionError);
 
         const dateOnly = new Date().toISOString().split('T')[0];
-        const logFile = path.join(
-          process.cwd(),
-          'tests',
-          'live',
-          'logs',
-          `${dateOnly}-llm-manager-observability-live-log.log`
-        );
+        const logFile = path.join(process.cwd(), 'tests', 'live', 'logs', `${dateOnly}-llm-manager-observability-live-log.log`);
         const content = fs.readFileSync(logFile, 'utf-8');
         expect(content).toContain('>>> OBSERVABILITY EVENT >>>');
         expect(content).toContain('Event Type: LLM_REQUEST');

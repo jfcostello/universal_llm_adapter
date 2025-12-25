@@ -122,7 +122,7 @@ Observability is designed to **never block or slow down** LLM operations:
 
 The event queue has a maximum size (`maxQueueSize`, default 1000):
 - When the queue is full, the **oldest events are dropped**
-- A warning is logged for each dropped event
+- Drop warnings are **throttled** to avoid log spam under sustained overload; warnings include the number of drops since the last warning
 - This prevents unbounded memory growth during high-volume bursts
 
 ### Flush Triggers
@@ -142,6 +142,13 @@ Failed exports are retried with exponential backoff and jitter:
 
 Formula: `delay = min(baseDelayMs * 2^attempt, maxDelayMs) * (0.75 + random() * 0.5)`
 
+### Metrics and Duration Semantics
+
+- `durationMs` in response events is end-to-end wall-clock time (includes retries/backoff).
+- Exporter metrics:
+  - `enqueuedTotal` / `droppedTotal` count events.
+  - `sentCount` / `failedCount` count batch send attempts/outcomes (not individual events).
+
 ### Shutdown Behavior
 
 Observability exporters are **process-level** and may be shared across many LLM calls (especially in server mode).
@@ -150,7 +157,8 @@ When observability shutdown is triggered (CLI completion / server shutdown):
 1. Timer is stopped (no new automatic flushes)
 2. All remaining events in queue are flushed
 3. Retries continue until success or max attempts reached
-4. Shutdown waiting is bounded by `shutdownTimeoutMs` (default `5000ms`); if the timeout is hit, shutdown continues and a summary is logged
+4. If `shutdownTimeoutMs > 0` (default `5000ms`), shutdown waiting is bounded; if the timeout is hit, shutdown continues and a summary is logged
+   - Set `shutdownTimeoutMs = 0` to disable the shutdown cap (wait unbounded)
 5. After shutdown, new events are rejected with `reason: 'shutdown'`
 
 ## Provider Limits
@@ -192,7 +200,7 @@ Env var:
 | `baseDelayMs` | number | `250` | Base delay for exponential backoff |
 | `maxDelayMs` | number | `30000` | Maximum delay cap for backoff |
 | `timeoutMs` | number | `10000` | HTTP timeout for export requests |
-| `shutdownTimeoutMs` | number | `5000` | Max time to wait for exporter shutdown during process exit |
+| `shutdownTimeoutMs` | number | `5000` | Max time to wait for exporter shutdown during process exit (set `0` to disable cap) |
 | `maxAttributeValueBytes` | number | `16384` | Max UTF-8 bytes for any exported attribute string value |
 | `captureMessages` | `'none' \| 'text' \| 'full'` | `'none'` | Capture prompt/response content bodies |
 | `captureToolArgs` | boolean | `false` | Capture tool-call args/metadata |

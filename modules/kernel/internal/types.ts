@@ -1247,6 +1247,7 @@ export interface ObservabilityDefaults {
   /**
    * Maximum time (ms) to wait for observability shutdown/flush before giving up.
    * This prevents process shutdown from hanging indefinitely on retries/timeouts.
+   * Set to 0 to disable the shutdown cap (wait unbounded).
    * @default 5000
    */
   shutdownTimeoutMs: number;

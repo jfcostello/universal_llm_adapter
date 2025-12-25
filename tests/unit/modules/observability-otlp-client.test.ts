@@ -285,6 +285,8 @@ describe('modules/observability OTLP client', () => {
 
     let workerConstructed = 0;
     let onlineEmitted = false;
+    let workerRefCalls = 0;
+    let workerUnrefCalls = 0;
 
     class MockWorker {
       private listeners = new Map<string, Set<(...args: any[]) => void>>();
@@ -297,7 +299,13 @@ describe('modules/observability OTLP client', () => {
         });
       }
 
-      unref() {}
+      ref() {
+        workerRefCalls += 1;
+      }
+
+      unref() {
+        workerUnrefCalls += 1;
+      }
 
       on(event: string, handler: (...args: any[]) => void) {
         const set = this.listeners.get(event) ?? new Set();
@@ -371,6 +379,139 @@ describe('modules/observability OTLP client', () => {
     expect(result2.success).toBe(true);
     expect(workerConstructed).toBe(1);
     expect(onlineEmitted).toBe(true);
+    // Worker is unref'd when idle, and temporarily ref'd while encode jobs are pending.
+    expect(workerRefCalls).toBeGreaterThanOrEqual(2);
+    expect(workerUnrefCalls).toBeGreaterThanOrEqual(workerRefCalls + 1);
+
+    if (previous === undefined) {
+      delete process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER;
+    } else {
+      process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER = previous;
+    }
+  });
+
+  test('sendOtlpTraceSpans does not unref the worker while encode jobs are still pending', async () => {
+    const previous = process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER;
+    process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER = '1';
+
+    const fetchMock = jest.fn(async () => {
+      return { ok: true, status: 200 } as any;
+    });
+    (globalThis as any).fetch = fetchMock;
+
+    let workerRefCalls = 0;
+    let workerUnrefCalls = 0;
+    let onlineEmitted = false;
+    let activeWorker: any;
+    const postedIds: number[] = [];
+
+    class ControlledWorker {
+      private listeners = new Map<string, Set<(...args: any[]) => void>>();
+
+      constructor() {
+        activeWorker = this;
+        setImmediate(() => {
+          onlineEmitted = true;
+          this.emit('online');
+        });
+      }
+
+      ref() {
+        workerRefCalls += 1;
+      }
+
+      unref() {
+        workerUnrefCalls += 1;
+      }
+
+      on(event: string, handler: (...args: any[]) => void) {
+        const set = this.listeners.get(event) ?? new Set();
+        set.add(handler);
+        this.listeners.set(event, set);
+        return this;
+      }
+
+      once(event: string, handler: (...args: any[]) => void) {
+        const wrapped = (...args: any[]) => {
+          this.off(event, wrapped);
+          handler(...args);
+        };
+        return this.on(event, wrapped);
+      }
+
+      off(event: string, handler: (...args: any[]) => void) {
+        const set = this.listeners.get(event);
+        set?.delete(handler);
+        return this;
+      }
+
+      emit(event: string, ...args: any[]) {
+        const set = this.listeners.get(event);
+        if (!set) return;
+        for (const handler of Array.from(set)) {
+          handler(...args);
+        }
+      }
+
+      terminate() {}
+
+      postMessage(message: any) {
+        postedIds.push(message.id);
+      }
+    }
+
+    unstableMockModule('node:worker_threads', () => ({ Worker: ControlledWorker }));
+
+    const { sendOtlpTraceSpans } = await import('@/modules/observability/internal/otlp/client.ts');
+
+    const p1 = sendOtlpTraceSpans({
+      spans: [makeSpan('env-1')],
+      url: 'http://example.com',
+      headers: {}
+    });
+
+    // Wait for worker to become ready and for both messages to be posted.
+    for (let i = 0; i < 10 && (!onlineEmitted || postedIds.length < 1); i++) {
+      await new Promise(res => setImmediate(res));
+    }
+    expect(onlineEmitted).toBe(true);
+    expect(postedIds.length).toBe(1);
+
+    const p2 = sendOtlpTraceSpans({
+      spans: [makeSpan('env-1')],
+      url: 'http://example.com',
+      headers: {}
+    });
+
+    for (let i = 0; i < 10 && postedIds.length < 2; i++) {
+      await new Promise(res => setImmediate(res));
+    }
+
+    expect(postedIds.length).toBe(2);
+    expect(workerRefCalls).toBeGreaterThanOrEqual(1);
+    const unrefCallsBeforeFirstComplete = workerUnrefCalls;
+
+    // Complete one job while another is still pending: unref should not happen yet.
+    activeWorker.emit('message', {
+      id: postedIds[0],
+      ok: true,
+      chunks: [{ envelopeIds: ['env-1'], body: new Uint8Array([1, 2, 3]), oversize: false }]
+    });
+    expect(workerUnrefCalls).toBe(unrefCallsBeforeFirstComplete);
+
+    // Complete the final job: now the worker can be unref'd again.
+    activeWorker.emit('message', {
+      id: postedIds[1],
+      ok: true,
+      chunks: [{ envelopeIds: ['env-1'], body: new Uint8Array([1, 2, 3]), oversize: false }]
+    });
+
+    await expect(Promise.all([p1, p2])).resolves.toEqual([
+      { success: true, outcomes: [{ envelopeId: 'env-1', success: true, status: 200 }] },
+      { success: true, outcomes: [{ envelopeId: 'env-1', success: true, status: 200 }] }
+    ]);
+    expect(workerUnrefCalls).toBeGreaterThanOrEqual(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
     if (previous === undefined) {
       delete process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER;

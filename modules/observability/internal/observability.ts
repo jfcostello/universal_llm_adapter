@@ -650,13 +650,8 @@ async function getOrCreateSharedExporter(
 async function shutdownAllExporters(): Promise<void> {
   if (shutdownAllPromise) return shutdownAllPromise;
 
-	shutdownAllPromise = (async () => {
-	  const shutdownTimeoutMs = clampInt(
-	    getDefaults().observability.shutdownTimeoutMs,
-	    5000,
-	    1,
-	    300_000
-	  );
+  shutdownAllPromise = (async () => {
+    const shutdownTimeoutMs = clampInt(getDefaults().observability.shutdownTimeoutMs, 5000, 0, 300_000);
 
     const exporters: ObservabilityExporter[] = [];
     for (const registry of runtimeRegistries) {
@@ -668,13 +663,19 @@ async function shutdownAllExporters(): Promise<void> {
       runtime.inflightByKey.clear();
     }
 
-	const shutdownWithTimeout = async (exporter: ObservabilityExporter): Promise<'ok' | 'timeout'> => {
-	  const shutdownPromise = exporter.shutdown().catch(() => {});
-	  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-	  const timeoutPromise = new Promise<'timeout'>(resolve => {
-	    timeoutId = setTimeout(() => resolve('timeout'), shutdownTimeoutMs);
-	    (timeoutId as any)?.unref?.();
-	  });
+    if (shutdownTimeoutMs <= 0) {
+      await Promise.all(exporters.map(exp => exp.shutdown().catch(() => {})));
+      runtimeRegistries.clear();
+      return;
+    }
+
+    const shutdownWithTimeout = async (exporter: ObservabilityExporter): Promise<'ok' | 'timeout'> => {
+      const shutdownPromise = exporter.shutdown().catch(() => {});
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      const timeoutPromise = new Promise<'timeout'>(resolve => {
+        timeoutId = setTimeout(() => resolve('timeout'), shutdownTimeoutMs);
+        (timeoutId as any)?.unref?.();
+      });
 
       try {
         const outcome = await Promise.race([shutdownPromise.then(() => 'ok' as const), timeoutPromise]);

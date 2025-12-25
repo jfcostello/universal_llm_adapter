@@ -65,13 +65,13 @@ describe('integration/mcp/mcp-manager', () => {
     }
   });
 
-	  test('collectAllEnabledTools skips failing servers and logs errors', async () => {
-	    const failingServer = {
-	      id: 'broken',
-	      command: 'node',
-	      args: ['-e', 'process.exit(1)'],
-	      autoStart: true
-	    } as MCPServerConfig;
+    test('collectAllEnabledTools skips failing servers and logs errors', async () => {
+      const failingServer = {
+        id: 'broken',
+        command: 'node',
+        args: ['-e', 'process.exit(1)'],
+        autoStart: true
+      } as MCPServerConfig;
 
     const manager = new MCPManager([...createServers(), failingServer]);
 

@@ -82,6 +82,15 @@ async function getEncodeWorkerState(): Promise<OtlpEncodeWorkerState> {
     pendingById: new Map()
   };
 
+  const unrefWorkerIfIdle = () => {
+    if (state.pendingById.size !== 0) return;
+    try {
+      (worker as any)?.unref?.();
+    } catch {
+      // best-effort
+    }
+  };
+
   const failAll = (error: unknown) => {
     encodeWorkerDisabled = true;
     encodeWorkerState = null;
@@ -126,6 +135,7 @@ async function getEncodeWorkerState(): Promise<OtlpEncodeWorkerState> {
     const pending = state.pendingById.get(id);
     if (!pending) return;
     state.pendingById.delete(id);
+    unrefWorkerIfIdle();
 
     const ok = (message as any)?.ok === true;
     if (!ok) {
@@ -153,11 +163,26 @@ async function chunkAndEncodeWithWorker(
   const id = state.nextId++;
 
   return await new Promise<EncodedOtlpChunk[]>((resolve, reject) => {
+    const wasIdle = state.pendingById.size === 0;
     state.pendingById.set(id, { resolve, reject });
+    if (wasIdle) {
+      try {
+        state.worker?.ref?.();
+      } catch {
+        // best-effort
+      }
+    }
     try {
       state.worker.postMessage({ id, spans, maxBatchBytes });
     } catch (error) {
       state.pendingById.delete(id);
+      if (state.pendingById.size === 0) {
+        try {
+          state.worker?.unref?.();
+        } catch {
+          // best-effort
+        }
+      }
       reject(error);
     }
   });

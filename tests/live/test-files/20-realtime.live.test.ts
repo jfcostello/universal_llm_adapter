@@ -312,7 +312,9 @@ if (testRuns.length === 0) {
           steps: [
             { type: 'send_text', text: 'Talk for a long time about the alphabet.', role: 'user' },
             { type: 'commit' },
-            { type: 'wait_for_event', eventType: 'assistant_audio.chunk', timeoutMs: 30000 },
+            // Some providers can delay the first audio chunk; transcript deltas are a more reliable
+            // signal that the assistant has started responding before we interrupt.
+            { type: 'wait_for_event', eventType: 'assistant_transcript.delta', timeoutMs: 30000 },
             { type: 'interrupt', reason: 'interrupt' },
             { type: 'wait_for_event', eventType: 'playback.clear_requested', timeoutMs: 30000 },
             // Ensure the interrupted response has fully completed so we don't accidentally
