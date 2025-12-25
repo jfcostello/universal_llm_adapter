@@ -3,9 +3,11 @@ import { LLMCoordinator } from '@/modules/llm/index.ts';
 import { Role } from '@/modules/kernel/index.ts';
 
 describe('LLMCoordinator observability lifecycle', () => {
-  test('close triggers observability shutdown to flush small queues', async () => {
+  test('close does not shutdown observability exporter (process lifecycle flushes)', async () => {
+    const { ObservabilityExporter, createObservabilityDeps } = await import('@/modules/observability/index.ts');
     const buildBatch = jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() }));
     const sendBatch = jest.fn(async () => ({ success: true, outcomes: [] }));
+    const shutdownSpy = jest.spyOn(ObservabilityExporter.prototype, 'shutdown');
 
     const registry = {
       getProvider: jest.fn(),
@@ -63,34 +65,14 @@ describe('LLMCoordinator observability lifecycle', () => {
     await coordinator.close();
     await new Promise(resolve => setImmediate(resolve));
 
+    expect(shutdownSpy).not.toHaveBeenCalled();
+    expect(sendBatch).not.toHaveBeenCalled();
+
+    // Cleanup: process-level shutdown should flush and stop background timers.
+    const deps = await createObservabilityDeps(registry as any, spec.observability);
+    await deps.shutdown();
     expect(sendBatch).toHaveBeenCalledTimes(1);
-  });
 
-  test('close swallows observability shutdown failures', async () => {
-    const logger: any = {
-      withCorrelation: () => logger,
-      debug: jest.fn(),
-      info: jest.fn(),
-      warning: jest.fn(),
-      error: jest.fn(),
-      logLLMRequest: jest.fn(),
-      logLLMResponse: jest.fn(),
-      close: jest.fn(async () => {})
-    };
-
-    const coordinator = new LLMCoordinator({} as any, {
-      logging: {
-        getLogger: () => logger
-      }
-    });
-    (coordinator as any).observabilityShutdownHooks = [() => Promise.reject(undefined)];
-
-    await coordinator.close();
-    await new Promise(resolve => setImmediate(resolve));
-
-    expect(logger.warning).toHaveBeenCalledWith(
-      'Observability shutdown failed',
-      expect.objectContaining({ error: 'undefined' })
-    );
+    shutdownSpy.mockRestore();
   });
 });

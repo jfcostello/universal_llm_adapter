@@ -144,6 +144,7 @@ describe('core/defaults', () => {
       expect(observability.baseDelayMs).toBe(250);
       expect(observability.maxDelayMs).toBe(30000);
       expect(observability.timeoutMs).toBe(10000);
+      expect(observability.maxAttributeValueBytes).toBe(16384);
     });
 
     test('caches defaults after first load', async () => {
@@ -321,6 +322,7 @@ describe('core/defaults', () => {
       expect(typeof observability.baseDelayMs).toBe('number');
       expect(typeof observability.maxDelayMs).toBe('number');
       expect(typeof observability.timeoutMs).toBe('number');
+      expect(typeof observability.maxAttributeValueBytes).toBe('number');
     });
   });
 });

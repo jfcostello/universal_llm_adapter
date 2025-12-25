@@ -130,8 +130,7 @@ export class LLMManager {
         } : undefined,
         toolCalls: response?.toolCalls?.map(tc => ({
           id: tc.id,
-          name: tc.name,
-          arguments: tc.arguments
+          name: tc.name
         })),
         durationMs,
         error

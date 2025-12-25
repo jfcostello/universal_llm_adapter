@@ -1456,7 +1456,8 @@ describe('modules/observability', () => {
             maxAttempts: 3,
             baseDelayMs: 250,
             maxDelayMs: 30000,
-            timeoutMs: 10000
+            timeoutMs: 10000,
+            maxAttributeValueBytes: 16384
           }
         }),
         getNoopLogger: () => createMockLogger()
@@ -1580,6 +1581,281 @@ describe('modules/observability', () => {
       await deps.shutdown();
     });
 
+    test('reuses a shared exporter instance for identical configs (per registry)', async () => {
+      const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test-compat',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const mockRegistry = {
+        getObservabilityProvider: jest.fn(async () => mockManifest),
+        getObservabilityCompat: jest.fn(async () => mockCompat)
+      };
+
+      const spec = {
+        enabled: true,
+        provider: 'test',
+        flushAt: 10,
+        flushIntervalMs: 5000,
+        maxQueueSize: 1000,
+        maxAttempts: 3,
+        baseDelayMs: 250,
+        maxDelayMs: 30000,
+        timeoutMs: 10000
+      } as any;
+
+      const deps1 = await createObservabilityDeps(mockRegistry as any, spec);
+      const exporter1 = deps1.getExporter();
+
+      const deps2 = await createObservabilityDeps(mockRegistry as any, spec);
+      const exporter2 = deps2.getExporter();
+
+      expect(exporter1).toBe(exporter2);
+      expect(mockRegistry.getObservabilityProvider).toHaveBeenCalledTimes(1);
+      expect(mockRegistry.getObservabilityCompat).toHaveBeenCalledTimes(1);
+
+      await deps1.shutdown();
+
+      const deps3 = await createObservabilityDeps(mockRegistry as any, spec);
+      const exporter3 = deps3.getExporter();
+      expect(exporter3).not.toBe(exporter1);
+
+      await deps3.shutdown();
+    });
+
+    test('computes a stable cache key for complex providerConfig shapes (including circular refs)', async () => {
+      const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
+
+      const sym = Symbol('sym');
+      const fn = () => {};
+      const providerConfig: any = {
+        nullValue: null,
+        undefinedValue: undefined,
+        nested: {
+          bigintValue: BigInt(1),
+          symbolValue: sym,
+          fnValue: fn,
+          arr: [true, 42, 'x', null, undefined]
+        }
+      };
+      providerConfig.self = providerConfig;
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test-compat',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const mockRegistry = {
+        getObservabilityProvider: jest.fn(async () => mockManifest),
+        getObservabilityCompat: jest.fn(async () => mockCompat)
+      };
+
+      const deps = await createObservabilityDeps(mockRegistry as any, {
+        enabled: true,
+        provider: 'test',
+        providerConfig
+      } as any);
+
+      expect(deps.isEnabled()).toBe(true);
+      await deps.shutdown();
+    });
+
+    test('handles providerConfig stringification failures when computing cache key', async () => {
+      const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
+
+      const providerConfig = new Proxy({}, {
+        ownKeys: () => {
+          throw new Error('boom');
+        }
+      });
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test-compat',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const mockRegistry = {
+        getObservabilityProvider: jest.fn(async () => mockManifest),
+        getObservabilityCompat: jest.fn(async () => mockCompat)
+      };
+
+      const deps = await createObservabilityDeps(mockRegistry as any, {
+        enabled: true,
+        provider: 'test',
+        providerConfig
+      } as any);
+
+      expect(deps.isEnabled()).toBe(true);
+      await deps.shutdown();
+    });
+
+    test('dedupes concurrent exporter initialization and shutdown', async () => {
+      const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
+
+      let resolveProvider: ((value: any) => void) | undefined;
+      const providerPromise = new Promise(resolve => {
+        resolveProvider = resolve;
+      });
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test-compat',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const mockRegistry = {
+        getObservabilityProvider: jest.fn(() => providerPromise),
+        getObservabilityCompat: jest.fn(async () => mockCompat)
+      };
+
+      const spec = { enabled: true, provider: 'test' } as any;
+
+      const p1 = createObservabilityDeps(mockRegistry as any, spec);
+      const p2 = createObservabilityDeps(mockRegistry as any, spec);
+
+      resolveProvider!(mockManifest);
+      const [deps1, deps2] = await Promise.all([p1, p2]);
+
+      expect(mockRegistry.getObservabilityProvider).toHaveBeenCalledTimes(1);
+      expect(deps1.getExporter()).toBe(deps2.getExporter());
+
+      // Cover shutdown de-dupe and exporter shutdown error handling.
+      const exporter: any = deps1.getExporter();
+      exporter.shutdown = jest.fn().mockRejectedValueOnce(new Error('shutdown failed'));
+
+      await Promise.all([deps1.shutdown(), deps2.shutdown()]);
+    });
+
+    test('evicts exporters beyond the cache bound (best-effort shutdown)', async () => {
+      const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test-compat',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const mockRegistry = {
+        getObservabilityProvider: jest.fn(async () => mockManifest),
+        getObservabilityCompat: jest.fn(async () => mockCompat)
+      };
+
+      const firstDeps = await createObservabilityDeps(mockRegistry as any, {
+        enabled: true,
+        provider: 'test',
+        timeoutMs: 1000
+      } as any);
+
+      const firstExporter: any = firstDeps.getExporter();
+      firstExporter.shutdown = jest.fn().mockRejectedValueOnce(new Error('eviction shutdown failed'));
+
+      // Create enough unique exporters to exceed the runtime cache bound (10).
+      for (let i = 0; i < 11; i++) {
+        await createObservabilityDeps(mockRegistry as any, {
+          enabled: true,
+          provider: 'test',
+          timeoutMs: 1000 + i + 1
+        } as any);
+      }
+
+      await new Promise(resolve => setImmediate(resolve));
+      expect(firstExporter.shutdown).toHaveBeenCalled();
+
+      await firstDeps.shutdown();
+    });
+
+    test('falls back to an inline maxAttributeValueBytes default when defaults omit it', async () => {
+      jest.resetModules();
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test-compat',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const mockRegistry = {
+        getObservabilityProvider: jest.fn(async () => mockManifest),
+        getObservabilityCompat: jest.fn(async () => mockCompat)
+      };
+
+      (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
+        getNoopObservabilityDeps: () => ({
+          isEnabled: () => false,
+          getExporter: () => ({
+            recordLLMRequest: () => ({ eventId: '', queued: false, reason: 'disabled' }),
+            recordLLMResponse: () => ({ eventId: '', queued: false, reason: 'disabled' }),
+            flush: async () => {},
+            shutdown: async () => {}
+          }),
+          shutdown: async () => {}
+        }),
+        resolveObservabilityDeps: (overrides: any = {}) => ({
+          isEnabled: overrides.isEnabled ?? (() => false),
+          getExporter: overrides.getExporter ?? (() => ({})),
+          shutdown: overrides.shutdown ?? (async () => {})
+        }),
+        getDefaults: () => ({
+          observability: {
+            enabled: true,
+            provider: 'test',
+            flushAt: 10,
+            flushIntervalMs: 5000,
+            maxQueueSize: 1000,
+            maxAttempts: 3,
+            baseDelayMs: 250,
+            maxDelayMs: 30000,
+            timeoutMs: 10000,
+            // Intentionally omitted for backwards compatibility coverage
+            maxAttributeValueBytes: undefined
+          }
+        }),
+        getNoopLogger: () => createMockLogger()
+      }));
+
+      const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
+      const deps = await createObservabilityDeps(mockRegistry as any, { enabled: true, provider: 'test' } as any);
+      const exporter: any = deps.getExporter();
+      expect(exporter.config.maxAttributeValueBytes).toBe(16384);
+      await deps.shutdown();
+
+      jest.resetModules();
+    });
+
     test('sanitizes per-call exporter tuning overrides (clamps to safe ranges)', async () => {
       const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
 
@@ -1608,7 +1884,8 @@ describe('modules/observability', () => {
         maxAttempts: 999,
         baseDelayMs: -5,
         maxDelayMs: 999999999,
-        timeoutMs: 'not-a-number' as any
+        timeoutMs: 'not-a-number' as any,
+        maxAttributeValueBytes: 0
       });
 
       const exporter = deps.getExporter() as any;
@@ -1620,6 +1897,7 @@ describe('modules/observability', () => {
       expect(exporter.config.maxDelayMs).toBe(300000);
       // Invalid timeout override falls back to defaults from config.
       expect(exporter.config.timeoutMs).toBe(10000);
+      expect(exporter.config.maxAttributeValueBytes).toBe(256);
 
       await deps.shutdown();
     });

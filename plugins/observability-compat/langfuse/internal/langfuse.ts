@@ -7,6 +7,7 @@ import type {
   ObservabilityLLMResponseEvent
 } from '../../../../modules/kernel/index.js';
 import { substituteEnv } from '../../../../modules/kernel/index.js';
+import { truncateUtf8Bytes } from '../../../../modules/shared/index.js';
 import type { OtlpSpanSpec } from '../../../../modules/observability/index.js';
 import { deriveOtlpSpanIdHex, deriveOtlpTraceIdHex } from '../../../../modules/observability/index.js';
 
@@ -239,6 +240,12 @@ function buildOutputJson(response: ObservabilityLLMResponseEvent): string {
   });
 }
 
+function truncateAttribute(value: string, context?: ObservabilityCompatContext): string {
+  const max = context?.maxAttributeValueBytes;
+  if (typeof max !== 'number' || !Number.isFinite(max) || max <= 0) return value;
+  return truncateUtf8Bytes(value, max);
+}
+
 function collectPrimitiveStrings(value: unknown, out: string[]): void {
   if (value === null || value === undefined) return;
   if (typeof value === 'string') {
@@ -326,20 +333,32 @@ export class LangfuseCompat implements IObservabilityCompat {
           'llm.adapter.trace_id': String(event.traceId || ''),
           ...(sessionId ? { 'langfuse.session.id': sessionId, 'llm.adapter.session_id': sessionId } : {}),
           ...(correlationId ? { 'langfuse.trace.name': correlationId } : {}),
-          ...(tags ? { 'langfuse.tags': tags } : {}),
+          ...(tags ? { 'langfuse.trace.tags': tags } : {}),
           ...(correlationId ? { 'llm.adapter.correlation_id': correlationId } : {}),
           ...(batchId ? { 'llm.adapter.batch_id': batchId } : {}),
           'llm.adapter.provider': String(event.provider || cached?.event?.provider || ''),
-          'llm.adapter.input_text': cached?.event ? flattenPrimitiveStrings(cached.event.messages) : '',
-          'llm.adapter.output_text': flattenPrimitiveStrings({
+          'llm.adapter.input_text': truncateAttribute(
+            cached?.event ? flattenPrimitiveStrings(cached.event.messages) : '',
+            context
+          ),
+          'llm.adapter.output_text': truncateAttribute(
+            flattenPrimitiveStrings({
             content: event.content,
             toolCalls: event.toolCalls ?? []
           }),
-          'langfuse.observation.input': buildInputJson(cached?.event),
-          'langfuse.observation.output': buildOutputJson(event),
+            context
+          ),
+          'langfuse.observation.input': truncateAttribute(buildInputJson(cached?.event), context),
+          'langfuse.observation.output': truncateAttribute(buildOutputJson(event), context),
           'langfuse.observation.model.name': String(event.model || cached?.event?.model || ''),
-          'langfuse.observation.model.parameters': safeJson(cached?.event?.settings ?? {}),
-          'langfuse.observation.usage_details': safeJson(buildLangfuseUsageDetails(event.usage))
+          'langfuse.observation.model.parameters': truncateAttribute(
+            safeJson(cached?.event?.settings ?? {}),
+            context
+          ),
+          'langfuse.observation.usage_details': truncateAttribute(
+            safeJson(buildLangfuseUsageDetails(event.usage)),
+            context
+          )
         },
         envelopeId
       });

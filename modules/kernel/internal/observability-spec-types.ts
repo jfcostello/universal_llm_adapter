@@ -160,4 +160,10 @@ export interface ObservabilitySpec {
    * HTTP request timeout (ms) for export requests.
    */
   timeoutMs?: number;
+
+  /**
+   * Maximum UTF-8 bytes for any exported attribute string value.
+   * Provider compats should truncate large fields to stay within ingestion limits.
+   */
+  maxAttributeValueBytes?: number;
 }

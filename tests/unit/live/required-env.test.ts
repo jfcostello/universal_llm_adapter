@@ -40,6 +40,16 @@ describe('live/required-env', () => {
     expect(missing).toEqual(['OPENAI_API_KEY']);
   });
 
+  test('getMissingRequiredEnv requires provider key for selected providers (grok)', async () => {
+    const { getMissingRequiredEnv } = await import('../../live/required-env.ts');
+    const missing = getMissingRequiredEnv({
+      selectedProviders: ['grok'],
+      testPathPatterns: ['20-realtime'],
+      env: {}
+    });
+    expect(missing).toEqual(['XAI_API_KEY']);
+  });
+
   test('getMissingRequiredEnv requires OpenRouter key for embeddings suite', async () => {
     const { getMissingRequiredEnv } = await import('../../live/required-env.ts');
     const missing = getMissingRequiredEnv({

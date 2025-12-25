@@ -6,7 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { parseLaunchConfig, buildJestArgs } from './launcher/index.js';
-import { maxWorkersDefault } from './config.ts';
+import { maxWorkersDefault, realtimeTestRuns } from './config.ts';
 import { getTestPathPatternsFromJestArgs, getMissingRequiredEnv } from './required-env.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -229,7 +229,9 @@ async function main() {
     selectedProviders.length > 0
       ? selectedProviders
       : wantsRealtime
-        ? ['openai', 'google']
+        ? Array.from(
+            new Set(realtimeTestRuns.map(r => String((r as any)?.provider || '').trim()).filter(Boolean))
+          )
         : expectsLlmSuites
           ? ['anthropic', 'openai-responses', 'openrouter', 'google']
           : [];

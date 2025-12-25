@@ -1,4 +1,4 @@
-import { normalizeFlag, createDeferred, calculateBackoffDelay, sleep, type Deferred } from '@/modules/shared/index.ts';
+import { normalizeFlag, createDeferred, calculateBackoffDelay, sleep, truncateUtf8Bytes, type Deferred } from '@/modules/shared/index.ts';
 
 describe('modules/shared', () => {
   describe('normalizeFlag', () => {
@@ -190,6 +190,49 @@ describe('modules/shared', () => {
       const elapsed = Date.now() - start;
 
       expect(elapsed).toBeGreaterThanOrEqual(45); // Allow some tolerance
+    });
+  });
+
+  describe('truncateUtf8Bytes', () => {
+    test('returns input unchanged when within limit', () => {
+      expect(truncateUtf8Bytes('hello', 5)).toBe('hello');
+      expect(truncateUtf8Bytes('hello', 100)).toBe('hello');
+    });
+
+    test('truncates and appends suffix when over limit', () => {
+      const out = truncateUtf8Bytes('hello world', 6);
+      expect(out).toBe('hel…');
+      expect(Buffer.byteLength(out, 'utf8')).toBeLessThanOrEqual(6);
+    });
+
+    test('does not split surrogate pairs (emoji)', () => {
+      const emoji = '🙂'; // 4 bytes in UTF-8
+      const input = `${emoji}${emoji}${emoji}`;
+      const out = truncateUtf8Bytes(input, 5);
+      expect(Buffer.byteLength(out, 'utf8')).toBeLessThanOrEqual(5);
+      expect(out.endsWith('…')).toBe(true);
+      // Should not contain the replacement character due to broken UTF-16/UTF-8.
+      expect(out.includes('\uFFFD')).toBe(false);
+    });
+
+    test('returns empty string for non-positive limits', () => {
+      expect(truncateUtf8Bytes('hello', 0)).toBe('');
+      expect(truncateUtf8Bytes('hello', -1)).toBe('');
+    });
+
+    test('returns suffix-only (or empty) when limit cannot fit any content', () => {
+      expect(truncateUtf8Bytes('hello', 3)).toBe('…');
+      expect(truncateUtf8Bytes('hello', 2)).toBe('');
+    });
+
+    test('coerces non-string inputs and handles nullish values', () => {
+      expect(truncateUtf8Bytes(123 as any, 10)).toBe('123');
+      expect(truncateUtf8Bytes(null as any, 10)).toBe('');
+    });
+
+    test('treats non-finite maxBytes as zero', () => {
+      expect(truncateUtf8Bytes('hello', Number.NaN as any)).toBe('');
+      expect(truncateUtf8Bytes('hello', Number.POSITIVE_INFINITY as any)).toBe('');
     });
   });
 });

@@ -97,3 +97,57 @@ export function calculateBackoffDelay(
   const jitter = 0.75 + Math.random() * 0.5; // 0.75 to 1.25
   return Math.floor(cappedDelay * jitter);
 }
+
+function isHighSurrogate(codeUnit: number): boolean {
+  return codeUnit >= 0xd800 && codeUnit <= 0xdbff;
+}
+
+function safeSliceByCodeUnits(value: string, end: number): string {
+  const safeEnd = Math.max(0, Math.min(value.length, end));
+  const prev = value.charCodeAt(safeEnd - 1);
+  // Avoid cutting between a surrogate pair.
+  if (isHighSurrogate(prev)) {
+    return value.slice(0, Math.max(0, safeEnd - 1));
+  }
+  return value.slice(0, safeEnd);
+}
+
+/**
+ * Truncate a string to a maximum UTF-8 byte length, appending an ellipsis suffix.
+ * This is safe for multi-byte characters and avoids splitting surrogate pairs.
+ *
+ * @param value - Input string
+ * @param maxBytes - Maximum UTF-8 bytes to return (including suffix)
+ * @returns Truncated string (or original if already within limit)
+ */
+export function truncateUtf8Bytes(value: string, maxBytes: number): string {
+  const input = typeof value === 'string' ? value : String(value ?? '');
+  const limit = Number.isFinite(maxBytes) ? Math.floor(maxBytes) : 0;
+  if (limit <= 0) return '';
+
+  if (Buffer.byteLength(input, 'utf8') <= limit) return input;
+
+  const suffix = '…';
+  const suffixBytes = Buffer.byteLength(suffix, 'utf8');
+  if (suffixBytes >= limit) {
+    return suffixBytes <= limit ? suffix : '';
+  }
+
+  const targetBytes = limit - suffixBytes;
+  let low = 0;
+  let high = input.length;
+
+  while (low < high) {
+    const mid = Math.floor((low + high + 1) / 2);
+    const candidate = safeSliceByCodeUnits(input, mid);
+    const bytes = Buffer.byteLength(candidate, 'utf8');
+    if (bytes <= targetBytes) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  const truncated = safeSliceByCodeUnits(input, low);
+  return truncated + suffix;
+}

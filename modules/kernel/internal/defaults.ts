@@ -104,7 +104,8 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
     maxAttempts: 3,
     baseDelayMs: 250,
     maxDelayMs: 30000,
-    timeoutMs: 10000
+    timeoutMs: 10000,
+    maxAttributeValueBytes: 16384
   }
 };
 

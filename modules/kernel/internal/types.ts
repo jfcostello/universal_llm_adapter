@@ -695,6 +695,12 @@ export interface ObservabilityCompatContext {
    * Compat implementations should enforce this via abort/timeout handling.
    */
   timeoutMs?: number;
+
+  /**
+   * Maximum UTF-8 bytes for any exported attribute string value.
+   * Compat implementations should truncate large fields to stay within ingestion limits.
+   */
+  maxAttributeValueBytes?: number;
 }
 
 /**
@@ -1237,6 +1243,13 @@ export interface ObservabilityDefaults {
    * @default 10000
    */
   timeoutMs: number;
+
+  /**
+   * Maximum UTF-8 bytes for any exported attribute string value.
+   * Provider compats should truncate large fields to stay within ingestion limits.
+   * @default 16384
+   */
+  maxAttributeValueBytes: number;
 }
 
 /**

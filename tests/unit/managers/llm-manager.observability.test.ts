@@ -117,7 +117,7 @@ describe('LLMManager observability', () => {
         content: [{ type: 'text', text: 'SDK response' }],
         rawResponse: { token: '***1234', ok: true },
         usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
-        toolCalls: [{ id: 'tc-1', name: 'test_tool', arguments: { arg1: 'value1' } }],
+        toolCalls: [{ id: 'tc-1', name: 'test_tool' }],
         durationMs: expect.any(Number),
         metadata: { correlationId: 'corr-789' }
       })

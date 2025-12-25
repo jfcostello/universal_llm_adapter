@@ -366,8 +366,7 @@ export class StreamCoordinator {
 	          content: [{ type: 'text', text: accumulatedContent }],
 	          toolCalls: allToolCalls.map(tc => ({
 	            id: tc.id,
-	            name: tc.name,
-	            arguments: tc.arguments
+	            name: tc.name
 	          })),
 	          usage: latestUsage ? {
 	            promptTokens,

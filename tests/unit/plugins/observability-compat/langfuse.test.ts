@@ -128,6 +128,37 @@ describe('LangfuseCompat (OTLP)', () => {
       expect(output.rawResponse).toEqual(responseEvent.rawResponse);
     });
 
+    it('truncates large attribute strings when maxAttributeValueBytes is provided', () => {
+      const longText = 'x'.repeat(1000);
+
+      const req: ObservabilityLLMRequestEvent = {
+        ...requestEvent,
+        messages: [{ role: 'user', content: [{ type: 'text', text: longText }] }]
+      };
+
+      const resp: ObservabilityLLMResponseEvent = {
+        ...responseEvent,
+        content: [{ type: 'text', text: longText }]
+      };
+
+      compat.buildBatch([req], mockManifest, { eventIds: ['event-req'], maxAttributeValueBytes: 120 } as any);
+      const respBatch = compat.buildBatch([resp], mockManifest, { eventIds: ['event-resp'], maxAttributeValueBytes: 120 } as any);
+
+      const spans = (respBatch.payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+
+      const attrs = spans[0]?.attributes ?? {};
+      const input = String(attrs['langfuse.observation.input'] ?? '');
+      const output = String(attrs['langfuse.observation.output'] ?? '');
+
+      expect(Buffer.byteLength(input, 'utf8')).toBeLessThanOrEqual(120);
+      expect(Buffer.byteLength(output, 'utf8')).toBeLessThanOrEqual(120);
+      expect(input.endsWith('…')).toBe(true);
+      expect(output.endsWith('…')).toBe(true);
+      expect(input.includes('\uFFFD')).toBe(false);
+      expect(output.includes('\uFFFD')).toBe(false);
+    });
+
     it('sets langfuse tags and maps rich usage_details (snake_case + extras)', () => {
       const ctxReq = { eventIds: ['event-req'] } as any;
       const ctxResp = { eventIds: ['event-resp'] } as any;
@@ -159,7 +190,7 @@ describe('LangfuseCompat (OTLP)', () => {
       expect(spans).toHaveLength(1);
 
       const attrs = spans[0]?.attributes ?? {};
-      expect(attrs['langfuse.tags']).toEqual(['transport:cli', '42', 'provider:demo']);
+      expect(attrs['langfuse.trace.tags']).toEqual(['transport:cli', '42', 'provider:demo']);
 
       const usage = JSON.parse(String(attrs['langfuse.observation.usage_details'] || '{}'));
       expect(usage).toEqual({
@@ -271,7 +302,7 @@ describe('LangfuseCompat (OTLP)', () => {
       expect(spans).toHaveLength(1);
 
       const attrs = spans[0]?.attributes ?? {};
-      expect(attrs['langfuse.tags']).toBeUndefined();
+      expect(attrs['langfuse.trace.tags']).toBeUndefined();
 
       const usage = JSON.parse(String(attrs['langfuse.observation.usage_details'] || '{}'));
       expect(usage).toEqual({ output: 2, total: 2 });

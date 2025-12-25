@@ -30,7 +30,8 @@ Enable observability globally by adding to your `plugins/configs/defaults.json`:
     "maxAttempts": 3,
     "baseDelayMs": 250,
     "maxDelayMs": 30000,
-    "timeoutMs": 10000
+    "timeoutMs": 10000,
+    "maxAttributeValueBytes": 16384
   }
 }
 ```
@@ -54,7 +55,9 @@ const spec = {
     },
     // Optional: override queue settings for this call
     flushAt: 5,
-    maxAttempts: 5
+    maxAttempts: 5,
+    // Optional: truncation budget for exported attribute strings (UTF-8 bytes)
+    maxAttributeValueBytes: 8192
   }
 };
 ```
@@ -90,7 +93,7 @@ The event queue has a maximum size (`maxQueueSize`, default 1000):
 Events are flushed (exported) when:
 1. **Queue threshold reached** - When `flushAt` events accumulate (default: 10)
 2. **Timer fires** - Every `flushIntervalMs` milliseconds (default: 5000ms)
-3. **Shutdown called** - Final flush on graceful shutdown
+3. **Process shutdown** - Final flush on CLI completion / server shutdown
 
 ### Retry and Backoff Policy
 
@@ -104,7 +107,9 @@ Formula: `delay = min(baseDelayMs * 2^attempt, maxDelayMs) * (0.75 + random() * 
 
 ### Shutdown Behavior
 
-When `shutdown()` is called:
+Observability exporters are **process-level** and may be shared across many LLM calls (especially in server mode).
+
+When observability shutdown is triggered (CLI completion / server shutdown):
 1. Timer is stopped (no new automatic flushes)
 2. All remaining events in queue are flushed
 3. Retries continue until success or max attempts reached
@@ -140,6 +145,7 @@ For optimal performance, keep individual events reasonably sized:
 | `baseDelayMs` | number | `250` | Base delay for exponential backoff |
 | `maxDelayMs` | number | `30000` | Maximum delay cap for backoff |
 | `timeoutMs` | number | `10000` | HTTP timeout for export requests |
+| `maxAttributeValueBytes` | number | `16384` | Max UTF-8 bytes for any exported attribute string value |
 
 ## Architecture
 
@@ -164,5 +170,12 @@ modules/observability/
 ├── index.ts              # Public exports
 ├── README.md             # This file
 └── internal/
-    └── observability.ts  # Core implementation
+    ├── observability.ts  # Core queue + exporter + runtime
+    └── otlp/             # OTLP HTTP/protobuf encoding + client helpers
+        ├── client.ts
+        ├── encode.ts
+        ├── ids.ts
+        ├── spans.ts
+        ├── time.ts
+        └── types.ts
 ```

@@ -61,7 +61,8 @@ describe('observability-spec-types', () => {
         maxAttempts: 5,
         baseDelayMs: 100,
         maxDelayMs: 10000,
-        timeoutMs: 5000
+        timeoutMs: 5000,
+        maxAttributeValueBytes: 16384
       };
 
       const spec: LLMCallSpec = {
@@ -78,6 +79,7 @@ describe('observability-spec-types', () => {
       expect(spec.observability?.baseDelayMs).toBe(100);
       expect(spec.observability?.maxDelayMs).toBe(10000);
       expect(spec.observability?.timeoutMs).toBe(5000);
+      expect(spec.observability?.maxAttributeValueBytes).toBe(16384);
       expect(spec.observability?.providerConfig).toEqual({ customKey: 'customValue' });
     });
   });
@@ -124,6 +126,7 @@ describe('observability-spec-types', () => {
       expect(defaults.observability.baseDelayMs).toBe(250);
       expect(defaults.observability.maxDelayMs).toBe(30000);
       expect(defaults.observability.timeoutMs).toBe(10000);
+      expect(defaults.observability.maxAttributeValueBytes).toBe(16384);
 
       jest.resetModules();
     });
