@@ -48,6 +48,10 @@ for (let i = 0; i < testRuns.length; i++) {
         settings: mergeSettings(runCfg.settings, { temperature: 0, maxTokens: 60000 }),
         functionToolNames: []
       }) as any, traceId);
+      spec.observability = {
+        ...(spec.observability ?? {}),
+        captureMessages: 'full'
+      };
 
       const result = await runCoordinator({
         args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath],

@@ -17,7 +17,7 @@ describe('LLMManager observability', () => {
     endpoint: { url: 'http://test.com' }
   } as any;
 
-  function createMockObservabilityContext() {
+  function createMockObservabilityContext(captureOverrides: Partial<Record<string, any>> = {}) {
     return {
       exporter: {
         recordLLMRequest: jest.fn().mockReturnValue({ eventId: 'req-1', queued: true }),
@@ -26,9 +26,67 @@ describe('LLMManager observability', () => {
       },
       traceId: 'trace-123',
       sessionId: 'session-456',
-      metadata: { correlationId: 'corr-789' }
+      metadata: { correlationId: 'corr-789' },
+      // Default to "full capture" for these unit tests; production defaults are covered elsewhere.
+      captureMessages: 'full',
+      captureToolArgs: true,
+      captureRequestPayload: true,
+      captureRawResponse: true,
+      sampleRate: 1,
+      maxInputTextBytes: 4096,
+      maxOutputTextBytes: 4096,
+      maxJsonBytes: 8192,
+      ...captureOverrides
     };
   }
+
+  test('callProvider omits request/response payloads and tool args when capture flags are disabled', async () => {
+    const mockSDKResponse = {
+      content: [{ type: 'text', text: 'SDK response' }],
+      role: Role.ASSISTANT,
+      toolCalls: [{ id: 'tc-1', name: 'test_tool', arguments: { secret: 'abcd1234' } }],
+      usage: { promptTokens: 10, completionTokens: 20 },
+      raw: { token: 'abcd1234', ok: true }
+    };
+
+    const mockCompat = {
+      callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = createMockObservabilityContext({
+      captureMessages: 'none',
+      captureToolArgs: false,
+      captureRequestPayload: false,
+      captureRawResponse: false
+    });
+    const context: RunContext = { observability };
+
+    const manager = new LLMManager(registry);
+    await manager.callProvider(
+      mockProvider,
+      'test-model',
+      { temperature: 0.7 },
+      mockMessages,
+      [],
+      undefined,
+      { api_key: 'sk-abcdef1234' },
+      undefined,
+      context
+    );
+
+    const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
+    expect(requestArg.messages).toEqual([]);
+    expect(requestArg.requestPayload).toBeUndefined();
+
+    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+    expect(responseArg.content).toEqual([]);
+    expect(responseArg.rawResponse).toBeUndefined();
+    expect(responseArg.toolCalls).toEqual([{ id: 'tc-1', name: 'test_tool' }]);
+  });
 
   test('callProvider records LLM request when observability is enabled', async () => {
     const mockSDKResponse = {

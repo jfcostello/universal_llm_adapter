@@ -14,6 +14,7 @@ import { ProviderExecutionError, getDefaults } from '../../kernel/index.js';
 import { aggregateSystemMessages } from '../../messages/index.js';
 import { redactJsonCredentials } from '../../security/index.js';
 import { buildFinalPayload } from './payload/payload-builder.js';
+import { filterContentForObservability, filterMessagesForObservability } from './observability-capture.js';
 
 export class LLMManager {
   private httpClient: AxiosInstance;
@@ -45,18 +46,21 @@ export class LLMManager {
     if (!context.observability) return;
 
     try {
+      const captureMessages = context.observability.captureMessages ?? 'full';
+      const captureRequestPayload = context.observability.captureRequestPayload ?? true;
+
       const event = {
         traceId: context.observability.traceId,
         generationId,
         timestamp,
         provider,
         model,
-        messages,
+        messages: filterMessagesForObservability(messages, captureMessages),
         sessionId: context.observability.sessionId,
         metadata: context.observability.metadata,
         tools: tools.map(t => ({ name: t.name, description: t.description })),
         settings,
-        requestPayload: redactJsonCredentials(requestPayload)
+        ...(captureRequestPayload ? { requestPayload: redactJsonCredentials(requestPayload) } : {})
       };
 
       context.observability.exporter.recordLLMRequest(event as any);
@@ -101,6 +105,10 @@ export class LLMManager {
     if (!context.observability) return;
 
     try {
+      const captureMessages = context.observability.captureMessages ?? 'full';
+      const captureToolArgs = context.observability.captureToolArgs ?? true;
+      const captureRawResponse = context.observability.captureRawResponse ?? true;
+
       const durationMs = Date.now() - startTime;
       const promptTokens = response?.usage?.promptTokens ?? undefined;
       const completionTokens = response?.usage?.completionTokens ?? undefined;
@@ -112,8 +120,8 @@ export class LLMManager {
         timestamp: new Date().toISOString(),
         provider,
         model,
-        content: response?.content || [],
-        rawResponse: rawResponse === undefined ? undefined : redactJsonCredentials(rawResponse),
+        content: filterContentForObservability(response?.content || [], captureMessages),
+        ...(captureRawResponse && rawResponse !== undefined ? { rawResponse: redactJsonCredentials(rawResponse) } : {}),
         metadata: context.observability.metadata,
         usage: response?.usage ? {
           promptTokens,
@@ -131,9 +139,10 @@ export class LLMManager {
         toolCalls: response?.toolCalls?.map(tc => {
           const args = (tc as any).arguments ?? (tc as any).args;
           const metadata = (tc as any).metadata;
+          const base = { id: (tc as any).id, name: (tc as any).name } as any;
+          if (!captureToolArgs) return base;
           return {
-            id: (tc as any).id,
-            name: (tc as any).name,
+            ...base,
             ...(args !== undefined ? { arguments: redactJsonCredentials(args) } : {}),
             ...(metadata !== undefined ? { metadata: redactJsonCredentials(metadata) } : {})
           };
@@ -178,7 +187,7 @@ export class LLMManager {
     context: RunContext = {}
   ): Promise<LLMResponse> {
     const startTime = Date.now();
-    const generationId = randomUUID();
+    const generationId = context.observability ? randomUUID() : undefined;
     const requestTimestamp = new Date().toISOString();
     const normalizedMessages = aggregateSystemMessages(messages);
     const compat = await this.registry.getCompatModule(provider.compat);

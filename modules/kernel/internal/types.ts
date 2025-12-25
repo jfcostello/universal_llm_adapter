@@ -1250,6 +1250,57 @@ export interface ObservabilityDefaults {
    * @default 16384
    */
   maxAttributeValueBytes: number;
+
+  /**
+   * Capture level for message/content bodies.
+   * - none: do not export prompt/response bodies
+   * - text: export only text content parts (exclude tool results/doc blobs)
+   * - full: export full structured message/content payloads
+   * @default 'none'
+   */
+  captureMessages: 'none' | 'text' | 'full';
+
+  /**
+   * Whether to export tool-call arguments/metadata.
+   * @default false
+   */
+  captureToolArgs: boolean;
+
+  /**
+   * Whether to export the final provider request payload (`requestPayload`).
+   * @default false
+   */
+  captureRequestPayload: boolean;
+
+  /**
+   * Whether to export raw provider response payloads when available (`rawResponse`).
+   * @default false
+   */
+  captureRawResponse: boolean;
+
+  /**
+   * Sampling rate (0..1). When < 1, calls may be skipped entirely.
+   * @default 1
+   */
+  sampleRate: number;
+
+  /**
+   * Maximum UTF-8 bytes for aggregated input text exported by providers/compats.
+   * @default 4096
+   */
+  maxInputTextBytes: number;
+
+  /**
+   * Maximum UTF-8 bytes for aggregated output text exported by providers/compats.
+   * @default 4096
+   */
+  maxOutputTextBytes: number;
+
+  /**
+   * Maximum UTF-8 bytes for JSON-like serialized attributes (e.g. observation input/output).
+   * @default 8192
+   */
+  maxJsonBytes: number;
 }
 
 /**

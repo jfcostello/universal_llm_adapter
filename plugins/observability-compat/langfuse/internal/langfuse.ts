@@ -7,7 +7,7 @@ import type {
   ObservabilityLLMResponseEvent
 } from '../../../../modules/kernel/index.js';
 import { LruMap, substituteEnv } from '../../../../modules/kernel/index.js';
-import { truncateUtf8Bytes } from '../../../../modules/shared/index.js';
+import { safeJsonStringify, flattenPrimitiveStrings } from '../../../../modules/shared/index.js';
 import type { OtlpSpanSpec } from '../../../../modules/observability/index.js';
 import { deriveOtlpSpanIdHex, deriveOtlpTraceIdHex } from '../../../../modules/observability/index.js';
 
@@ -18,14 +18,6 @@ const BASEURL_OVERRIDE_ALLOWLIST_ENV = 'LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWL
 
 const REQUEST_CACHE_TTL_MS = 10 * 60_000;
 const REQUEST_CACHE_MAX_ENTRIES = 1000;
-
-function safeJson(value: unknown): string {
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return JSON.stringify(String(value));
-  }
-}
 
 function getStringMetadata(metadata: unknown, key: string): string | undefined {
   const value = (metadata as any)?.[key];
@@ -237,34 +229,31 @@ function cacheKey(traceId: string, generationId?: string): string {
   return gen ? `${trace}:${gen}` : trace;
 }
 
-function buildInputJson(request?: ObservabilityLLMRequestEvent): string {
-  if (!request) return safeJson({ messages: [] });
-  return safeJson({
+function buildInputJson(request?: ObservabilityLLMRequestEvent): Record<string, unknown> {
+  if (!request) return { messages: [] };
+  return {
     messages: request.messages,
     tools: request.tools ?? [],
     ...(request.requestPayload !== undefined ? { requestPayload: request.requestPayload } : {})
-  });
+  };
 }
 
-function buildOutputJson(response: ObservabilityLLMResponseEvent): string {
-  return safeJson({
+function buildOutputJson(response: ObservabilityLLMResponseEvent): Record<string, unknown> {
+  return {
     content: response.content,
     toolCalls: response.toolCalls ?? [],
     ...(response.rawResponse !== undefined ? { rawResponse: response.rawResponse } : {}),
     error: response.error ?? null
-  });
-}
-
-function truncateAttribute(value: string, context?: ObservabilityCompatContext): string {
-  const max = context?.maxAttributeValueBytes;
-  if (typeof max !== 'number' || !Number.isFinite(max) || max <= 0) return value;
-  return truncateUtf8Bytes(value, max);
+  };
 }
 
 function buildCachedRequestSummary(
   request: ObservabilityLLMRequestEvent,
   context?: ObservabilityCompatContext
 ): CachedRequestSummary {
+  const maxBytes = typeof context?.maxAttributeValueBytes === 'number' && Number.isFinite(context.maxAttributeValueBytes) && context.maxAttributeValueBytes > 0
+    ? Math.floor(context.maxAttributeValueBytes)
+    : 16384;
   const metadata = request.metadata;
   const sessionId = request.sessionId ? String(request.sessionId) : undefined;
   const correlationId = getStringMetadata(metadata, 'correlationId');
@@ -279,37 +268,10 @@ function buildCachedRequestSummary(
     correlationId,
     batchId,
     tags,
-    inputText: truncateAttribute(flattenPrimitiveStrings(request.messages), context),
-    observationInput: truncateAttribute(buildInputJson(request), context),
-    modelParameters: truncateAttribute(safeJson(request.settings ?? {}), context)
+    inputText: flattenPrimitiveStrings(request.messages, { maxBytes }),
+    observationInput: safeJsonStringify(buildInputJson(request), { maxBytes }),
+    modelParameters: safeJsonStringify(request.settings ?? {}, { maxBytes })
   };
-}
-
-function collectPrimitiveStrings(value: unknown, out: string[]): void {
-  if (value === null || value === undefined) return;
-  if (typeof value === 'string') {
-    out.push(value);
-    return;
-  }
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    out.push(String(value));
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const entry of value) collectPrimitiveStrings(entry, out);
-    return;
-  }
-  if (typeof value === 'object') {
-    for (const v of Object.values(value as Record<string, unknown>)) {
-      collectPrimitiveStrings(v, out);
-    }
-  }
-}
-
-function flattenPrimitiveStrings(value: unknown): string {
-  const out: string[] = [];
-  collectPrimitiveStrings(value, out);
-  return out.filter(s => String(s).trim() !== '').join('\n');
 }
 
 export class LangfuseCompat implements IObservabilityCompat {
@@ -344,6 +306,10 @@ export class LangfuseCompat implements IObservabilityCompat {
       const cached = this.requestCache.get(key);
       const cachedSummary = cached?.summary;
 
+      const maxBytes = typeof context?.maxAttributeValueBytes === 'number' && Number.isFinite(context.maxAttributeValueBytes) && context.maxAttributeValueBytes > 0
+        ? Math.floor(context.maxAttributeValueBytes)
+        : 16384;
+
       const sessionId = cachedSummary?.sessionId
         ? String(cachedSummary.sessionId)
         : event.sessionId
@@ -377,31 +343,16 @@ export class LangfuseCompat implements IObservabilityCompat {
           ...(correlationId ? { 'llm.adapter.correlation_id': correlationId } : {}),
           ...(batchId ? { 'llm.adapter.batch_id': batchId } : {}),
           'llm.adapter.provider': String(event.provider || cachedSummary?.provider || ''),
-          'llm.adapter.input_text': truncateAttribute(
-            cachedSummary?.inputText ?? '',
-            context
+          'llm.adapter.input_text': cachedSummary?.inputText ?? '',
+          'llm.adapter.output_text': flattenPrimitiveStrings(
+            { content: event.content, toolCalls: event.toolCalls ?? [] },
+            { maxBytes }
           ),
-          'llm.adapter.output_text': truncateAttribute(
-            flattenPrimitiveStrings({
-            content: event.content,
-            toolCalls: event.toolCalls ?? []
-          }),
-            context
-          ),
-          'langfuse.observation.input': truncateAttribute(
-            cachedSummary?.observationInput ?? buildInputJson(undefined),
-            context
-          ),
-          'langfuse.observation.output': truncateAttribute(buildOutputJson(event), context),
+          'langfuse.observation.input': cachedSummary?.observationInput ?? safeJsonStringify(buildInputJson(undefined), { maxBytes }),
+          'langfuse.observation.output': safeJsonStringify(buildOutputJson(event), { maxBytes }),
           'langfuse.observation.model.name': String(event.model || cachedSummary?.model || ''),
-          'langfuse.observation.model.parameters': truncateAttribute(
-            cachedSummary?.modelParameters ?? safeJson({}),
-            context
-          ),
-          'langfuse.observation.usage_details': truncateAttribute(
-            safeJson(buildLangfuseUsageDetails(event.usage)),
-            context
-          )
+          'langfuse.observation.model.parameters': cachedSummary?.modelParameters ?? safeJsonStringify({}, { maxBytes }),
+          'langfuse.observation.usage_details': safeJsonStringify(buildLangfuseUsageDetails(event.usage), { maxBytes })
         },
         envelopeId
       });

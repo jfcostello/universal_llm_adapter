@@ -7,7 +7,7 @@ The observability module provides optional export of LLM call telemetry to exter
 In version 1, observability supports:
 - Recording LLM request events (prompt, model, tools, settings)
 - Recording LLM response events (content, usage, duration, errors)
-- Recording request/response payloads when available (`requestPayload` / `rawResponse`)
+- Recording request/response payloads when enabled (`requestPayload` / `rawResponse`)
 - Trace and session correlation
 - Non-blocking async export with retry
 
@@ -23,7 +23,7 @@ Enable observability globally by adding to your `plugins/configs/defaults.json`:
 {
   "observability": {
     "enabled": true,
-    "provider": "langfuse",
+    "provider": "your-observability-provider-id",
     "flushAt": 10,
     "flushIntervalMs": 5000,
     "maxQueueSize": 1000,
@@ -31,7 +31,15 @@ Enable observability globally by adding to your `plugins/configs/defaults.json`:
     "baseDelayMs": 250,
     "maxDelayMs": 30000,
     "timeoutMs": 10000,
-    "maxAttributeValueBytes": 16384
+    "maxAttributeValueBytes": 16384,
+    "captureMessages": "none",
+    "captureToolArgs": false,
+    "captureRequestPayload": false,
+    "captureRawResponse": false,
+    "sampleRate": 1,
+    "maxInputTextBytes": 4096,
+    "maxOutputTextBytes": 4096,
+    "maxJsonBytes": 8192
   }
 }
 ```
@@ -47,7 +55,7 @@ const spec = {
   settings: {...},
   observability: {
     enabled: true,              // Enable for this call
-    provider: 'langfuse',       // Provider ID
+    provider: 'your-provider',  // Provider ID
     traceId: 'custom-trace-1',  // Optional: custom trace ID
     sessionId: 'session-abc',   // Optional: group related traces
     providerConfig: {           // Optional: provider-specific config (provider-defined shape)
@@ -57,7 +65,17 @@ const spec = {
     flushAt: 5,
     maxAttempts: 5,
     // Optional: truncation budget for exported attribute strings (UTF-8 bytes)
-    maxAttributeValueBytes: 8192
+    maxAttributeValueBytes: 8192,
+    // Optional: capture controls (safety/performance)
+    captureMessages: 'text',
+    captureToolArgs: false,
+    captureRequestPayload: false,
+    captureRawResponse: false,
+    // Optional: sampling and budgets
+    sampleRate: 1,
+    maxInputTextBytes: 4096,
+    maxOutputTextBytes: 4096,
+    maxJsonBytes: 8192
   }
 };
 ```
@@ -66,11 +84,29 @@ const spec = {
 
 In addition to `spec.observability.*`, the adapter uses `spec.metadata` for correlation and grouping:
 
-- `spec.metadata.correlationId`: stable per-request identifier (also used as the Langfuse trace name when using the Langfuse provider).
+- `spec.metadata.correlationId`: stable per-request identifier (some providers use this as a trace name/display label).
 - `spec.observability.sessionId`: stable per-session identifier to group related traces (in live tests this is typically the run-wide `batchId`).
-- `spec.metadata.tags`: optional array of strings forwarded to observability providers that support tagging (Langfuse tags).
+- `spec.metadata.tags`: optional array of strings forwarded to observability providers that support tagging.
 
 The adapter also forwards token breakdown details (e.g., input/output/total, cached/reasoning/audio tokens) when they are provided by the underlying provider or can be derived from the response.
+
+## Capture Controls (Safety + Performance)
+
+Observability export is enabled explicitly, but **payload capture is disabled by default** to reduce latency, CPU, memory, and the risk of exporting sensitive content.
+
+- `captureMessages`:
+  - `none` (default): do not export prompt/response bodies
+  - `text`: export only text content parts (excludes documents, images, tool result payloads)
+  - `full`: export full structured message/content payloads
+- `captureToolArgs` (default `false`): export tool-call arguments/metadata
+- `captureRequestPayload` (default `false`): export final provider request payload
+- `captureRawResponse` (default `false`): export raw provider response payloads (when available)
+- `sampleRate` (default `1`): sampling rate (0..1). When < 1, calls may be skipped entirely.
+
+Budgets:
+- `maxInputTextBytes` / `maxOutputTextBytes`: caps for aggregated prompt/response text fields
+- `maxJsonBytes`: cap for JSON-like exported fields (e.g., structured inputs/outputs)
+- `maxAttributeValueBytes`: per-attribute cap used by compats to avoid oversized exports
 
 ## Queue Semantics
 
@@ -129,12 +165,21 @@ For optimal performance, keep individual events reasonably sized:
 - Avoid extremely long prompts in a single message
 - Consider summarizing large tool results
 
+### OTLP Worker Thread (Optional)
+
+To reduce event-loop CPU impact at high concurrency, OTLP chunking/encoding can be offloaded to a worker thread.
+
+Env var:
+- `LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER=1` force-enable worker encoding
+- `LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER=0` force-disable worker encoding
+- unset: enabled by default only for compiled JS bundles (and disabled by default in Jest)
+
 ## Configuration Reference
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `enabled` | boolean | `false` | Enable observability export |
-| `provider` | string | `undefined` | Provider ID (e.g., 'langfuse') |
+| `provider` | string | `undefined` | Provider ID |
 | `traceId` | string | auto | Trace ID (falls back to correlationId or UUID) |
 | `sessionId` | string | undefined | Session ID for grouping traces |
 | `providerConfig` | object | undefined | Provider-specific configuration |
@@ -146,6 +191,14 @@ For optimal performance, keep individual events reasonably sized:
 | `maxDelayMs` | number | `30000` | Maximum delay cap for backoff |
 | `timeoutMs` | number | `10000` | HTTP timeout for export requests |
 | `maxAttributeValueBytes` | number | `16384` | Max UTF-8 bytes for any exported attribute string value |
+| `captureMessages` | `'none' \| 'text' \| 'full'` | `'none'` | Capture prompt/response content bodies |
+| `captureToolArgs` | boolean | `false` | Capture tool-call args/metadata |
+| `captureRequestPayload` | boolean | `false` | Capture final provider request payload |
+| `captureRawResponse` | boolean | `false` | Capture raw provider response payloads |
+| `sampleRate` | number | `1` | Sampling rate (0..1). When < 1, calls may be skipped |
+| `maxInputTextBytes` | number | `4096` | Max UTF-8 bytes for aggregated input text fields |
+| `maxOutputTextBytes` | number | `4096` | Max UTF-8 bytes for aggregated output text fields |
+| `maxJsonBytes` | number | `8192` | Max UTF-8 bytes for JSON-like exported fields |
 
 ## Architecture
 

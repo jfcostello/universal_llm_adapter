@@ -55,7 +55,7 @@ describe('StreamCoordinator observability', () => {
     };
   }
 
-  function createObservabilityContext() {
+  function createObservabilityContext(captureOverrides: Partial<Record<string, any>> = {}) {
     return {
       exporter: {
         recordLLMRequest: jest.fn(),
@@ -64,7 +64,17 @@ describe('StreamCoordinator observability', () => {
       },
       traceId: 'trace-123',
       sessionId: 'session-456',
-      metadata: { correlationId: 'corr-789' }
+      metadata: { correlationId: 'corr-789' },
+      // Default to "full capture" for these unit tests; production defaults are covered elsewhere.
+      captureMessages: 'full',
+      captureToolArgs: true,
+      captureRequestPayload: true,
+      captureRawResponse: true,
+      sampleRate: 1,
+      maxInputTextBytes: 4096,
+      maxOutputTextBytes: 4096,
+      maxJsonBytes: 8192,
+      ...captureOverrides
     };
   }
 
@@ -129,6 +139,127 @@ describe('StreamCoordinator observability', () => {
     const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
     expect(typeof requestArg.generationId).toBe('string');
     expect(requestArg.generationId).toBe(responseArg.generationId);
+  });
+
+  test('falls back to compatibility defaults when capture fields are missing on the observability context', async () => {
+    const parseStreamChunk = () => ({
+      toolEvents: [
+        { type: ToolCallEventType.TOOL_CALL_START, callId: 'tool-1', name: 'echo.text' },
+        {
+          type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA,
+          callId: 'tool-1',
+          argumentsDelta: '{"a":1,"api_key":"supersecret"}'
+        },
+        { type: ToolCallEventType.TOOL_CALL_END, callId: 'tool-1', name: 'echo.text' }
+      ],
+      finishedWithToolCalls: true
+    });
+
+    const { coordinator } = await createCoordinator({
+      streamChunks: [{}],
+      parseStreamChunk,
+      runToolLoopReturn: { content: 'follow-up' }
+    });
+
+    const observability: any = {
+      exporter: {
+        recordLLMRequest: jest.fn(),
+        recordLLMResponse: jest.fn(),
+        flush: jest.fn().mockResolvedValue(undefined)
+      },
+      traceId: 'trace-123',
+      sessionId: 'session-456',
+      metadata: { correlationId: 'corr-789' }
+      // Intentionally omit captureMessages/captureToolArgs/etc.
+    };
+
+    const spec: any = {
+      llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
+      settings: {},
+      metadata: { correlationId: 'corr-789' }
+    };
+
+    const messages: any[] = [{
+      role: Role.USER,
+      content: [
+        { type: 'text', text: 'hi' },
+        { type: 'tool_result', data: { big: 'blob' } }
+      ]
+    }];
+    const tools: any[] = [{ name: 'echo.text', description: 'echo' }];
+
+    const context: any = {
+      provider: 'stub-provider',
+      model: 'stub-model',
+      tools,
+      mcpServers: [],
+      toolNameMap: new Map(),
+      logger: { info: jest.fn(), warning: jest.fn() },
+      metadata: spec.metadata,
+      observability
+    };
+
+    for await (const _event of coordinator.coordinateStream(spec, messages, tools, context, { requireFinishToExecute: true })) {
+      // consume
+    }
+
+    const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
+    expect(requestArg.messages[0].content).toHaveLength(2);
+
+    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+    expect(responseArg.toolCalls).toEqual([
+      { id: 'tool-1', name: 'echo.text', arguments: { a: 1, api_key: '***cret' } }
+    ]);
+  });
+
+  test('omits tool call arguments in observability when captureToolArgs is disabled', async () => {
+    const parseStreamChunk = () => ({
+      toolEvents: [
+        { type: ToolCallEventType.TOOL_CALL_START, callId: 'tool-1', name: 'echo.text' },
+        {
+          type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA,
+          callId: 'tool-1',
+          argumentsDelta: '{"a":1,"api_key":"supersecret"}'
+        },
+        { type: ToolCallEventType.TOOL_CALL_END, callId: 'tool-1', name: 'echo.text' }
+      ],
+      finishedWithToolCalls: true
+    });
+
+    const { coordinator } = await createCoordinator({
+      streamChunks: [{}],
+      parseStreamChunk,
+      runToolLoopReturn: { content: 'follow-up' }
+    });
+
+    const observability = createObservabilityContext({ captureToolArgs: false });
+
+    const spec: any = {
+      llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
+      settings: {},
+      metadata: { correlationId: 'corr-789' }
+    };
+
+    const messages: any[] = [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }];
+    const tools: any[] = [{ name: 'echo.text', description: 'echo' }];
+
+    const context: any = {
+      provider: 'stub-provider',
+      model: 'stub-model',
+      tools,
+      mcpServers: [],
+      toolNameMap: new Map(),
+      logger: { info: jest.fn(), warning: jest.fn() },
+      metadata: spec.metadata,
+      observability
+    };
+
+    for await (const _event of coordinator.coordinateStream(spec, messages, tools, context, { requireFinishToExecute: true })) {
+      // consume
+    }
+
+    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+    expect(responseArg.toolCalls).toEqual([{ id: 'tool-1', name: 'echo.text' }]);
   });
 
   test('records tool call arguments in the final observability response event (minimally redacted)', async () => {

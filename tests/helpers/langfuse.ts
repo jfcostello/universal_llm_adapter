@@ -220,7 +220,8 @@ export function attachLangfuseObservability<T extends Record<string, any>>(
     enabled: true,
     provider: 'langfuse',
     traceId,
-    flushAt: 2
+    flushAt: 2,
+    captureMessages: 'text'
   };
   return next as T;
 }

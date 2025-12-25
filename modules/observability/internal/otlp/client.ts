@@ -1,7 +1,7 @@
 import type { ObservabilityEnvelopeOutcome } from '../../../kernel/index.js';
 import type { OtlpSpanSpec } from './types.js';
-import { encodeOtlpTraceRequest } from './encode.js';
 import { sleep } from '../../../shared/index.js';
+import { chunkAndEncodeOtlpTraceSpans, type EncodedOtlpChunk } from './chunk-and-encode.js';
 
 function isRetryableStatus(status: number): boolean {
   return status === 429 || (status >= 500 && status < 600);
@@ -11,30 +11,174 @@ function parseRetryAfterMs(headerValue: unknown): number | null {
   if (typeof headerValue !== 'string') return null;
   const trimmed = headerValue.trim();
   if (!trimmed) return null;
+
+  // Retry-After: <seconds>
   const seconds = Number(trimmed);
-  if (!Number.isFinite(seconds) || seconds < 0) return null;
-  return Math.floor(seconds * 1000);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.floor(seconds * 1000);
+  }
+
+  // Retry-After: <http-date>
+  const dateMs = Date.parse(trimmed);
+  if (!Number.isFinite(dateMs)) return null;
+  const deltaMs = dateMs - Date.now();
+  if (!Number.isFinite(deltaMs) || deltaMs <= 0) return null;
+  return Math.floor(deltaMs);
 }
 
-function chunkAndEncode(
+function shouldUseOtlpEncodeWorker(env: NodeJS.ProcessEnv = process.env): boolean {
+  const isDist = new URL(import.meta.url).pathname.endsWith('.js');
+  const flag = String(env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER || '').trim();
+  if (flag === '1') return true;
+  if (flag === '0') return false;
+
+  // Jest can use fake timers; avoid workers by default in unit tests to prevent hangs.
+  if (typeof env.JEST_WORKER_ID === 'string' && env.JEST_WORKER_ID.trim() !== '') {
+    return false;
+  }
+
+  // Default to enabled only for compiled JS bundles (dist); TS runtimes (tsx/jest/ts-node) fall back to sync.
+  return isDist;
+}
+
+type OtlpEncodeWorkerResponse =
+  | { id: number; ok: true; chunks: EncodedOtlpChunk[] }
+  | { id: number; ok: false; error: string };
+
+type OtlpEncodeWorkerPending = {
+  resolve: (chunks: EncodedOtlpChunk[]) => void;
+  reject: (error: unknown) => void;
+};
+
+type OtlpEncodeWorkerState = {
+  worker: any;
+  ready: Promise<void>;
+  nextId: number;
+  pendingById: Map<number, OtlpEncodeWorkerPending>;
+};
+
+let encodeWorkerState: OtlpEncodeWorkerState | null = null;
+let encodeWorkerDisabled = false;
+
+async function getEncodeWorkerState(): Promise<OtlpEncodeWorkerState> {
+  if (encodeWorkerDisabled) {
+    throw new Error('OTLP encode worker disabled');
+  }
+
+  if (encodeWorkerState) {
+    await encodeWorkerState.ready;
+    return encodeWorkerState;
+  }
+
+  const { Worker } = await import('node:worker_threads');
+
+  const worker = new Worker(new URL('./encode-worker.js', import.meta.url));
+  (worker as any)?.unref?.();
+
+  const state: OtlpEncodeWorkerState = {
+    worker,
+    ready: Promise.resolve(),
+    nextId: 1,
+    pendingById: new Map()
+  };
+
+  const failAll = (error: unknown) => {
+    encodeWorkerDisabled = true;
+    encodeWorkerState = null;
+    for (const pending of state.pendingById.values()) {
+      pending.reject(error);
+    }
+    state.pendingById.clear();
+    try {
+      (worker as any)?.terminate?.();
+    } catch {
+      // ignore
+    }
+  };
+
+  state.ready = new Promise<void>((resolve, reject) => {
+    const onOnline = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (err: unknown) => {
+      cleanup();
+      reject(err);
+    };
+    const onExit = (code: number) => {
+      cleanup();
+      reject(new Error(`OTLP encode worker exited (code ${code})`));
+    };
+    const cleanup = () => {
+      (worker as any)?.off?.('online', onOnline);
+      (worker as any)?.off?.('error', onError);
+      (worker as any)?.off?.('exit', onExit);
+    };
+
+    (worker as any)?.once?.('online', onOnline);
+    (worker as any)?.once?.('error', onError);
+    (worker as any)?.once?.('exit', onExit);
+  });
+
+  (worker as any)?.on?.('message', (message: unknown) => {
+    const id = typeof (message as any)?.id === 'number' ? (message as any).id : null;
+    if (id === null) return;
+    const pending = state.pendingById.get(id);
+    if (!pending) return;
+    state.pendingById.delete(id);
+
+    const ok = (message as any)?.ok === true;
+    if (!ok) {
+      pending.reject(new Error(String((message as any)?.error || 'encode worker error')));
+      return;
+    }
+
+    const chunks = Array.isArray((message as any)?.chunks) ? ((message as any).chunks as EncodedOtlpChunk[]) : [];
+    pending.resolve(chunks);
+  });
+
+  (worker as any)?.on?.('error', (err: unknown) => failAll(err));
+  (worker as any)?.on?.('exit', (code: number) => failAll(new Error(`OTLP encode worker exited (code ${code})`)));
+
+  encodeWorkerState = state;
+  await state.ready;
+  return state;
+}
+
+async function chunkAndEncodeWithWorker(
   spans: OtlpSpanSpec[],
   maxBatchBytes: number
-): Array<{ spans: OtlpSpanSpec[]; body: Uint8Array; oversize: boolean }> {
-  const body = encodeOtlpTraceRequest(spans);
-  const fits = body.byteLength <= maxBatchBytes;
+): Promise<EncodedOtlpChunk[]> {
+  const state = await getEncodeWorkerState();
+  const id = state.nextId++;
 
-  if (fits) {
-    return [{ spans, body, oversize: false }];
+  return await new Promise<EncodedOtlpChunk[]>((resolve, reject) => {
+    state.pendingById.set(id, { resolve, reject });
+    try {
+      state.worker.postMessage({ id, spans, maxBatchBytes });
+    } catch (error) {
+      state.pendingById.delete(id);
+      reject(error);
+    }
+  });
+}
+
+async function chunkAndEncode(
+  spans: OtlpSpanSpec[],
+  maxBatchBytes: number
+): Promise<EncodedOtlpChunk[]> {
+  if (!shouldUseOtlpEncodeWorker()) {
+    return chunkAndEncodeOtlpTraceSpans(spans, maxBatchBytes);
   }
 
-  if (spans.length <= 1) {
-    return [{ spans, body, oversize: true }];
+  try {
+    return await chunkAndEncodeWithWorker(spans, maxBatchBytes);
+  } catch {
+    // Best-effort fallback to sync encoding; observability must never take down the caller.
+    encodeWorkerDisabled = true;
+    encodeWorkerState = null;
+    return chunkAndEncodeOtlpTraceSpans(spans, maxBatchBytes);
   }
-
-  const mid = Math.floor(spans.length / 2);
-  const left = spans.slice(0, mid);
-  const right = spans.slice(mid);
-  return [...chunkAndEncode(left, maxBatchBytes), ...chunkAndEncode(right, maxBatchBytes)];
 }
 
 export async function sendOtlpTraceSpans(options: {
@@ -60,15 +204,13 @@ export async function sendOtlpTraceSpans(options: {
     return { success: true, outcomes: [] };
   }
 
-  const chunks = chunkAndEncode(spans, maxBatchBytes);
+  const chunks = await chunkAndEncode(spans, maxBatchBytes);
 
   const outcomes: ObservabilityEnvelopeOutcome[] = [];
   let overallSuccess = true;
 
   for (const chunk of chunks) {
-    const envelopeIds = chunk.spans
-      .map(s => (typeof s.envelopeId === 'string' ? s.envelopeId : ''))
-      .filter(Boolean);
+    const envelopeIds = chunk.envelopeIds;
 
     if (chunk.oversize) {
       overallSuccess = false;

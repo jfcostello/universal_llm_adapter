@@ -14,6 +14,7 @@ import { partitionSettings } from '../../settings/index.js';
 import { usageStatsToJson } from '../../usage/index.js';
 import { redactJsonCredentials } from '../../security/index.js';
 import { randomUUID } from 'crypto';
+import { filterContentForObservability, filterMessagesForObservability } from './observability-capture.js';
 
 interface StreamingContext {
   provider: string;
@@ -41,7 +42,7 @@ export class StreamCoordinator {
     options?: { requireFinishToExecute?: boolean }
   ): AsyncGenerator<LLMStreamEvent> {
     const startTime = Date.now();
-    const generationId = randomUUID();
+    const generationId = context.observability ? randomUUID() : undefined;
     const { runtime, provider: providerSettings, providerExtras } = partitionSettings(spec.settings);
     const executionSpec: LLMCallSpec = {
       ...spec,
@@ -57,13 +58,14 @@ export class StreamCoordinator {
     // Record LLM request event if observability is enabled (never throws)
     if (context.observability) {
       try {
+        const captureMessages = context.observability.captureMessages ?? 'full';
         const event = {
           traceId: context.observability.traceId,
           generationId,
           timestamp: new Date().toISOString(),
           provider: providerManifest.id,
           model,
-          messages,
+          messages: filterMessagesForObservability(messages, captureMessages),
           sessionId: context.observability.sessionId,
           metadata: context.observability.metadata,
           tools: tools.map((t: any) => ({ name: t.name, description: t.description })),
@@ -348,6 +350,8 @@ export class StreamCoordinator {
     // Record final response event if observability is enabled (never throws)
 	    if (context.observability) {
 	      try {
+          const captureMessages = context.observability.captureMessages ?? 'full';
+          const captureToolArgs = context.observability.captureToolArgs ?? true;
 	        const durationMs = Date.now() - startTime;
 	        const promptTokens = latestUsage?.promptTokens ?? undefined;
 	        const completionTokens = latestUsage?.completionTokens ?? undefined;
@@ -364,13 +368,14 @@ export class StreamCoordinator {
 	          timestamp: new Date().toISOString(),
 	          provider: providerManifest.id,
 	          model,
-	          content: [{ type: 'text', text: accumulatedContent }],
+	          content: filterContentForObservability([{ type: 'text', text: accumulatedContent }] as any, captureMessages),
 	          toolCalls: allToolCalls.map(tc => {
+	            const base = { id: (tc as any).id, name: (tc as any).name } as any;
+	            if (!captureToolArgs) return base;
 	            const args = (tc as any).arguments ?? (tc as any).args;
 	            const metadata = (tc as any).metadata;
 	            return {
-	              id: (tc as any).id,
-	              name: (tc as any).name,
+	              ...base,
 	              ...(args !== undefined ? { arguments: redactJsonCredentials(args) } : {}),
 	              ...(metadata !== undefined ? { metadata: redactJsonCredentials(metadata) } : {})
 	            };

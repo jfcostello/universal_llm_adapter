@@ -47,23 +47,32 @@ describe('observability-spec-types', () => {
       expect(spec.observability).toBeUndefined();
     });
 
-    test('ObservabilitySpec accepts all optional queue knobs', () => {
+	    test('ObservabilitySpec accepts all optional queue knobs', () => {
 
-      const observability: ObservabilitySpec = {
-        enabled: true,
-        provider: 'langfuse',
-        traceId: 'custom-trace',
-        sessionId: 'custom-session',
-        providerConfig: { customKey: 'customValue' },
-        flushAt: 5,
-        flushIntervalMs: 2000,
-        maxQueueSize: 500,
-        maxAttempts: 5,
-        baseDelayMs: 100,
-        maxDelayMs: 10000,
-        timeoutMs: 5000,
-        maxAttributeValueBytes: 16384
-      };
+	      const observability: ObservabilitySpec = {
+	        enabled: true,
+	        provider: 'langfuse',
+	        traceId: 'custom-trace',
+	        sessionId: 'custom-session',
+	        providerConfig: { customKey: 'customValue' },
+	        flushAt: 5,
+	        flushIntervalMs: 2000,
+	        maxQueueSize: 500,
+	        maxAttempts: 5,
+	        baseDelayMs: 100,
+	        maxDelayMs: 10000,
+	        timeoutMs: 5000,
+	        maxAttributeValueBytes: 16384,
+	        // Capture controls + budgets
+	        captureMessages: 'none',
+	        captureToolArgs: false,
+	        captureRequestPayload: false,
+	        captureRawResponse: false,
+	        sampleRate: 1,
+	        maxInputTextBytes: 4096,
+	        maxOutputTextBytes: 4096,
+	        maxJsonBytes: 8192
+	      } as any;
 
       const spec: LLMCallSpec = {
         messages: [{ role: Role.USER, content: [{ type: 'text', text: 'test' }] }],
@@ -77,12 +86,20 @@ describe('observability-spec-types', () => {
       expect(spec.observability?.maxQueueSize).toBe(500);
       expect(spec.observability?.maxAttempts).toBe(5);
       expect(spec.observability?.baseDelayMs).toBe(100);
-      expect(spec.observability?.maxDelayMs).toBe(10000);
-      expect(spec.observability?.timeoutMs).toBe(5000);
-      expect(spec.observability?.maxAttributeValueBytes).toBe(16384);
-      expect(spec.observability?.providerConfig).toEqual({ customKey: 'customValue' });
-    });
-  });
+	      expect(spec.observability?.maxDelayMs).toBe(10000);
+	      expect(spec.observability?.timeoutMs).toBe(5000);
+	      expect(spec.observability?.maxAttributeValueBytes).toBe(16384);
+	      expect(spec.observability?.providerConfig).toEqual({ customKey: 'customValue' });
+	      expect((spec.observability as any)?.captureMessages).toBe('none');
+	      expect((spec.observability as any)?.captureToolArgs).toBe(false);
+	      expect((spec.observability as any)?.captureRequestPayload).toBe(false);
+	      expect((spec.observability as any)?.captureRawResponse).toBe(false);
+	      expect((spec.observability as any)?.sampleRate).toBe(1);
+	      expect((spec.observability as any)?.maxInputTextBytes).toBe(4096);
+	      expect((spec.observability as any)?.maxOutputTextBytes).toBe(4096);
+	      expect((spec.observability as any)?.maxJsonBytes).toBe(8192);
+	    });
+	  });
 
   describe('ObservabilityDefaults', () => {
     test('getDefaults returns observability defaults with disabled by default', async () => {
@@ -123,12 +140,20 @@ describe('observability-spec-types', () => {
       expect(defaults.observability.flushIntervalMs).toBe(5000);
       expect(defaults.observability.maxQueueSize).toBe(1000);
       expect(defaults.observability.maxAttempts).toBe(3);
-      expect(defaults.observability.baseDelayMs).toBe(250);
-      expect(defaults.observability.maxDelayMs).toBe(30000);
-      expect(defaults.observability.timeoutMs).toBe(10000);
-      expect(defaults.observability.maxAttributeValueBytes).toBe(16384);
+	      expect(defaults.observability.baseDelayMs).toBe(250);
+	      expect(defaults.observability.maxDelayMs).toBe(30000);
+	      expect(defaults.observability.timeoutMs).toBe(10000);
+	      expect(defaults.observability.maxAttributeValueBytes).toBe(16384);
+	      expect((defaults.observability as any).captureMessages).toBe('none');
+	      expect((defaults.observability as any).captureToolArgs).toBe(false);
+	      expect((defaults.observability as any).captureRequestPayload).toBe(false);
+	      expect((defaults.observability as any).captureRawResponse).toBe(false);
+	      expect((defaults.observability as any).sampleRate).toBe(1);
+	      expect((defaults.observability as any).maxInputTextBytes).toBe(4096);
+	      expect((defaults.observability as any).maxOutputTextBytes).toBe(4096);
+	      expect((defaults.observability as any).maxJsonBytes).toBe(8192);
 
-      jest.resetModules();
-    });
-  });
+	      jest.resetModules();
+	    });
+	  });
 });

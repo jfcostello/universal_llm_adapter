@@ -292,5 +292,115 @@ describe('LLMCoordinator observability', () => {
       // Should return undefined when deps fail to initialize
       expect(result).toBeUndefined();
     });
+
+    test('skips observability when sampleRate is 0 (and avoids loading providers)', async () => {
+      const registry = createMockRegistry();
+      const coordinator = new LLMCoordinator(registry);
+
+      registry.getObservabilityProvider = jest.fn();
+      registry.getObservabilityCompat = jest.fn();
+
+      const spec = createMockSpec({ enabled: true, sampleRate: 0 });
+      const result = await (coordinator as any).createObservabilityContext(spec, {});
+
+      expect(result).toBeUndefined();
+      expect(registry.getObservabilityProvider).not.toHaveBeenCalled();
+      expect(registry.getObservabilityCompat).not.toHaveBeenCalled();
+    });
+
+    test('skips observability when sampleRate < 1 and call is not sampled', async () => {
+      const registry = createMockRegistry();
+      const coordinator = new LLMCoordinator(registry);
+
+      registry.getObservabilityProvider = jest.fn();
+      registry.getObservabilityCompat = jest.fn();
+
+      const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0.9);
+      try {
+        const spec = createMockSpec({ enabled: true, sampleRate: 0.5 });
+        const result = await (coordinator as any).createObservabilityContext(spec, {});
+        expect(result).toBeUndefined();
+        expect(registry.getObservabilityProvider).not.toHaveBeenCalled();
+        expect(registry.getObservabilityCompat).not.toHaveBeenCalled();
+      } finally {
+        randomSpy.mockRestore();
+      }
+    });
+
+    test('normalizes capture + budget overrides from spec when sampled in', async () => {
+      const registry = createMockRegistry();
+      const coordinator = new LLMCoordinator(registry);
+
+      registry.getObservabilityProvider = jest.fn().mockResolvedValue({
+        id: 'langfuse',
+        compat: 'langfuse',
+        endpoint: { urlTemplate: 'http://example.com', method: 'POST', headers: {} },
+        auth: { type: 'basic', publicKeyEnv: 'X', secretKeyEnv: 'Y' }
+      });
+      registry.getObservabilityCompat = jest.fn().mockResolvedValue({
+        buildBatch: jest.fn().mockReturnValue({ payload: [], eventIndexByEnvelopeId: new Map() }),
+        sendBatch: jest.fn().mockResolvedValue({ success: true, outcomes: [] })
+      });
+
+      const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0.1);
+      try {
+        const spec = createMockSpec({
+          enabled: true,
+          captureMessages: ' FULL ',
+          captureToolArgs: true,
+          captureRequestPayload: true,
+          captureRawResponse: true,
+          sampleRate: '0.5',
+          maxInputTextBytes: '123',
+          maxOutputTextBytes: Number.POSITIVE_INFINITY,
+          maxJsonBytes: 'not-a-number'
+        });
+
+        const result = await (coordinator as any).createObservabilityContext(spec, {});
+
+        expect(result).toBeDefined();
+        expect((result as any).captureMessages).toBe('full');
+        expect((result as any).captureToolArgs).toBe(true);
+        expect((result as any).captureRequestPayload).toBe(true);
+        expect((result as any).captureRawResponse).toBe(true);
+        expect((result as any).sampleRate).toBe(0.5);
+        expect((result as any).maxInputTextBytes).toBe(123);
+        // Infinity should fall back to defaults (4096) and remain clamped.
+        expect((result as any).maxOutputTextBytes).toBe(4096);
+        // Invalid string should fall back to defaults (8192) and remain clamped.
+        expect((result as any).maxJsonBytes).toBe(8192);
+      } finally {
+        randomSpy.mockRestore();
+      }
+    });
+
+    test('applies safe/light capture defaults into the observability context', async () => {
+      const registry = createMockRegistry();
+      const coordinator = new LLMCoordinator(registry);
+
+      registry.getObservabilityProvider = jest.fn().mockResolvedValue({
+        id: 'langfuse',
+        compat: 'langfuse',
+        endpoint: { urlTemplate: 'http://example.com', method: 'POST', headers: {} },
+        auth: { type: 'basic', publicKeyEnv: 'X', secretKeyEnv: 'Y' }
+      });
+      registry.getObservabilityCompat = jest.fn().mockResolvedValue({
+        buildBatch: jest.fn().mockReturnValue({ payload: [], eventIndexByEnvelopeId: new Map() }),
+        sendBatch: jest.fn().mockResolvedValue({ success: true, outcomes: [] })
+      });
+
+      const spec = createMockSpec({ enabled: true });
+      const result = await (coordinator as any).createObservabilityContext(spec, {});
+
+      expect(result).toBeDefined();
+      expect((result as any).captureMessages).toBe('none');
+      expect((result as any).captureToolArgs).toBe(false);
+      expect((result as any).captureRequestPayload).toBe(false);
+      expect((result as any).captureRawResponse).toBe(false);
+      expect((result as any).sampleRate).toBe(1);
+      expect((result as any).maxInputTextBytes).toBe(4096);
+      expect((result as any).maxOutputTextBytes).toBe(4096);
+      expect((result as any).maxJsonBytes).toBe(8192);
+    });
   });
 });

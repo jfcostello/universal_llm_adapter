@@ -131,21 +131,30 @@ describe('core/defaults', () => {
       expect(paths.plugins).toBe('./plugins');
     });
 
-    test('returns correct observability defaults', async () => {
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
-      const { observability } = getDefaults();
+	    test('returns correct observability defaults', async () => {
+	      const { getDefaults } = await import('@/modules/kernel/index.ts');
+	      const { observability } = getDefaults();
 
-      expect(observability.enabled).toBe(false);
-      expect(observability.provider).toBe('langfuse');
-      expect(observability.flushAt).toBe(10);
-      expect(observability.flushIntervalMs).toBe(5000);
-      expect(observability.maxQueueSize).toBe(1000);
-      expect(observability.maxAttempts).toBe(3);
-      expect(observability.baseDelayMs).toBe(250);
-      expect(observability.maxDelayMs).toBe(30000);
-      expect(observability.timeoutMs).toBe(10000);
-      expect(observability.maxAttributeValueBytes).toBe(16384);
-    });
+	      expect(observability.enabled).toBe(false);
+	      expect(observability.provider).toBe('langfuse');
+	      expect(observability.flushAt).toBe(10);
+	      expect(observability.flushIntervalMs).toBe(5000);
+	      expect(observability.maxQueueSize).toBe(1000);
+	      expect(observability.maxAttempts).toBe(3);
+	      expect(observability.baseDelayMs).toBe(250);
+	      expect(observability.maxDelayMs).toBe(30000);
+	      expect(observability.timeoutMs).toBe(10000);
+	      expect(observability.maxAttributeValueBytes).toBe(16384);
+	      // Safe/light capture defaults
+	      expect((observability as any).captureMessages).toBe('none');
+	      expect((observability as any).captureToolArgs).toBe(false);
+	      expect((observability as any).captureRequestPayload).toBe(false);
+	      expect((observability as any).captureRawResponse).toBe(false);
+	      expect((observability as any).sampleRate).toBe(1);
+	      expect((observability as any).maxInputTextBytes).toBe(4096);
+	      expect((observability as any).maxOutputTextBytes).toBe(4096);
+	      expect((observability as any).maxJsonBytes).toBe(8192);
+	    });
 
     test('caches defaults after first load', async () => {
       const { getDefaults } = await import('@/modules/kernel/index.ts');
@@ -306,23 +315,31 @@ describe('core/defaults', () => {
       expect(typeof vector.defaultCollection).toBe('string');
     });
 
-    test('observability defaults have correct types', async () => {
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
-      const { observability } = getDefaults();
+	    test('observability defaults have correct types', async () => {
+	      const { getDefaults } = await import('@/modules/kernel/index.ts');
+	      const { observability } = getDefaults();
 
-      expect(typeof observability.enabled).toBe('boolean');
-      // provider is optional but should be a string if present
-      if (observability.provider !== undefined) {
-        expect(typeof observability.provider).toBe('string');
-      }
-      expect(typeof observability.flushAt).toBe('number');
-      expect(typeof observability.flushIntervalMs).toBe('number');
-      expect(typeof observability.maxQueueSize).toBe('number');
-      expect(typeof observability.maxAttempts).toBe('number');
-      expect(typeof observability.baseDelayMs).toBe('number');
-      expect(typeof observability.maxDelayMs).toBe('number');
-      expect(typeof observability.timeoutMs).toBe('number');
-      expect(typeof observability.maxAttributeValueBytes).toBe('number');
-    });
+	      expect(typeof observability.enabled).toBe('boolean');
+	      // provider is optional but should be a string if present
+	      if (observability.provider !== undefined) {
+	        expect(typeof observability.provider).toBe('string');
+	      }
+	      expect(typeof observability.flushAt).toBe('number');
+	      expect(typeof observability.flushIntervalMs).toBe('number');
+	      expect(typeof observability.maxQueueSize).toBe('number');
+	      expect(typeof observability.maxAttempts).toBe('number');
+	      expect(typeof observability.baseDelayMs).toBe('number');
+	      expect(typeof observability.maxDelayMs).toBe('number');
+	      expect(typeof observability.timeoutMs).toBe('number');
+	      expect(typeof observability.maxAttributeValueBytes).toBe('number');
+	      expect(typeof (observability as any).captureMessages).toBe('string');
+	      expect(typeof (observability as any).captureToolArgs).toBe('boolean');
+	      expect(typeof (observability as any).captureRequestPayload).toBe('boolean');
+	      expect(typeof (observability as any).captureRawResponse).toBe('boolean');
+	      expect(typeof (observability as any).sampleRate).toBe('number');
+	      expect(typeof (observability as any).maxInputTextBytes).toBe('number');
+	      expect(typeof (observability as any).maxOutputTextBytes).toBe('number');
+	      expect(typeof (observability as any).maxJsonBytes).toBe('number');
+	    });
   });
 });

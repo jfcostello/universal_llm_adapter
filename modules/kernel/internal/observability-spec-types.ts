@@ -52,6 +52,55 @@ export interface ObservabilityContext {
    * Additional metadata to include in events.
    */
   metadata?: Record<string, unknown>;
+
+  /**
+   * Capture level for message/content bodies.
+   * - none: do not export prompt/response bodies
+   * - text: export only text content parts (exclude tool results/doc blobs)
+   * - full: export full structured message/content payloads
+   */
+  captureMessages: 'none' | 'text' | 'full';
+
+  /**
+   * Whether to export tool-call arguments/metadata.
+   * Defaults to false for safety/performance.
+   */
+  captureToolArgs: boolean;
+
+  /**
+   * Whether to export the final provider request payload (`requestPayload`).
+   * Defaults to false for safety/performance.
+   */
+  captureRequestPayload: boolean;
+
+  /**
+   * Whether to export raw provider response payloads when available (`rawResponse`).
+   * Defaults to false for safety/performance.
+   */
+  captureRawResponse: boolean;
+
+  /**
+   * Sampling rate (0..1). When < 1, calls may be skipped entirely.
+   */
+  sampleRate: number;
+
+  /**
+   * Maximum UTF-8 bytes for aggregated input text exported by providers/compats.
+   * Provider compats may apply stricter truncation.
+   */
+  maxInputTextBytes: number;
+
+  /**
+   * Maximum UTF-8 bytes for aggregated output text exported by providers/compats.
+   * Provider compats may apply stricter truncation.
+   */
+  maxOutputTextBytes: number;
+
+  /**
+   * Maximum UTF-8 bytes for JSON-like serialized attributes (e.g. observation input/output).
+   * Provider compats may apply stricter truncation.
+   */
+  maxJsonBytes: number;
 }
 
 /**
@@ -166,4 +215,56 @@ export interface ObservabilitySpec {
    * Provider compats should truncate large fields to stay within ingestion limits.
    */
   maxAttributeValueBytes?: number;
+
+  // ========================================
+  // Capture controls (safety/performance)
+  // ========================================
+
+  /**
+   * Capture level for message/content bodies.
+   * Defaults to `DefaultSettings.observability.captureMessages`.
+   */
+  captureMessages?: 'none' | 'text' | 'full';
+
+  /**
+   * Whether to capture tool-call arguments/metadata.
+   * Defaults to `DefaultSettings.observability.captureToolArgs`.
+   */
+  captureToolArgs?: boolean;
+
+  /**
+   * Whether to capture the final provider request payload (`requestPayload`).
+   * Defaults to `DefaultSettings.observability.captureRequestPayload`.
+   */
+  captureRequestPayload?: boolean;
+
+  /**
+   * Whether to capture raw provider response payloads when available (`rawResponse`).
+   * Defaults to `DefaultSettings.observability.captureRawResponse`.
+   */
+  captureRawResponse?: boolean;
+
+  /**
+   * Sampling rate (0..1). When < 1, calls may be skipped entirely.
+   * Defaults to `DefaultSettings.observability.sampleRate`.
+   */
+  sampleRate?: number;
+
+  /**
+   * Maximum UTF-8 bytes for aggregated input text exported by providers/compats.
+   * Defaults to `DefaultSettings.observability.maxInputTextBytes`.
+   */
+  maxInputTextBytes?: number;
+
+  /**
+   * Maximum UTF-8 bytes for aggregated output text exported by providers/compats.
+   * Defaults to `DefaultSettings.observability.maxOutputTextBytes`.
+   */
+  maxOutputTextBytes?: number;
+
+  /**
+   * Maximum UTF-8 bytes for JSON-like serialized attributes (e.g. observation input/output).
+   * Defaults to `DefaultSettings.observability.maxJsonBytes`.
+   */
+  maxJsonBytes?: number;
 }
