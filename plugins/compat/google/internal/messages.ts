@@ -17,16 +17,23 @@ export function extractToolResponse(message: Message): [string | undefined, any]
       .map(p => (p as TextContent).text ?? '');
 
     // Google requires functionResponse.response to be a Struct (JSON object), not a string
-    // Wrap combined text in an object structure to make it a valid Struct while preserving text
+    // Wrap combined text in an object structure to make it a valid Struct while preserving text.
+    // Also include the raw tool result (exact value) to make it easier for Gemini to quote verbatim.
+    const rawResult = toolPart.result !== undefined ? toolPart.result : undefined;
+
     let response: any;
     if (textParts.length > 0) {
       // Combine all text parts (result + countdown + truncation)
       const combinedText = textParts.join('\n');
       // Wrap in object with "output" key - this makes it a valid Struct while preserving text
-      response = { output: combinedText };
+      response = {
+        output: combinedText,
+        ...(rawResult !== undefined ? { result: rawResult } : {})
+      };
+    } else if (rawResult !== undefined) {
+      response = { result: rawResult };
     } else {
-      // No text parts - use raw result object
-      response = toolPart.result !== undefined ? toolPart.result : {};
+      response = { output: '' };
     }
 
     return [name, response];

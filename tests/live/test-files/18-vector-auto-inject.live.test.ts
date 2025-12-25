@@ -13,6 +13,8 @@
 
 import { runCoordinator, runEmbeddingCoordinator, runVectorCoordinator } from '@tests/helpers/node-cli.ts';
 import { requireEnv } from '@tests/helpers/require-env.ts';
+import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
+import { liveTestTimeout } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 if (runLive) {
@@ -24,13 +26,15 @@ if (runLive) {
 const describeLive = runLive ? describe : describe.skip;
 
 const pluginsPath = './plugins';
+const TEST_FILE = '18-vector-auto-inject';
+const liveEnv = { ...process.env, TEST_FILE };
 const testCollection = `test-inject-${Date.now()}`;
 
 async function runEmbedding(spec: any): Promise<any> {
   const result = await runEmbeddingCoordinator({
     args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath],
     cwd: process.cwd(),
-    env: process.env
+    env: liveEnv
   });
   expect(result.code).toBe(0);
   return JSON.parse(result.stdout.trim());
@@ -40,7 +44,7 @@ async function runVector(spec: any): Promise<any> {
   const result = await runVectorCoordinator({
     args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath],
     cwd: process.cwd(),
-    env: process.env
+    env: liveEnv
   });
   expect(result.code).toBe(0);
   return JSON.parse(result.stdout.trim());
@@ -50,7 +54,7 @@ async function runLlm(spec: any): Promise<any> {
   const result = await runCoordinator({
     args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath],
     cwd: process.cwd(),
-    env: process.env
+    env: liveEnv
   });
   expect(result.code).toBe(0);
   return JSON.parse(result.stdout.trim());
@@ -113,7 +117,7 @@ describeLive('18-vector-auto-inject (transported)', () => {
     expect(seedRes.success).toBe(true);
 
     await new Promise(resolve => setTimeout(resolve, 2000));
-  }, 180000);
+  }, liveTestTimeout(180000));
 
   afterAll(async () => {
     try {
@@ -142,6 +146,7 @@ describeLive('18-vector-auto-inject (transported)', () => {
 
   describe('auto mode - context injection', () => {
     test('injects relevant context before LLM call', async () => {
+      const traceId = createTraceId('18-vector-auto-inject-injects');
       const spec = {
         systemPrompt: 'You are a helpful assistant. Answer questions using only the provided context.',
         messages: [
@@ -162,7 +167,7 @@ describeLive('18-vector-auto-inject (transported)', () => {
         settings: { temperature: 0, maxTokens: 200 }
       };
 
-      const response = await runLlm(spec);
+      const response = await runLlm(attachLangfuseObservability(spec as any, traceId));
 
       const textParts = (response?.content ?? [])
         .filter((c: any) => c?.type === 'text')
@@ -170,7 +175,11 @@ describeLive('18-vector-auto-inject (transported)', () => {
 
       const joined = textParts.join('\n');
       expect(joined).toContain('paris');
-    }, 120000);
+
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: TEST_FILE });
+      const traceText = stringifyLangfuseTrace(trace);
+      expect(traceText).toContain('Use the following context to answer:');
+    }, liveTestTimeout(120000));
 
     test('filters context by metadata', async () => {
       const spec = {
@@ -206,7 +215,7 @@ describeLive('18-vector-auto-inject (transported)', () => {
           joined.includes('beijing') ||
           joined.includes('capital')
       ).toBe(true);
-    }, 120000);
+    }, liveTestTimeout(120000));
 
     test('uses score threshold to filter low-relevance results', async () => {
       const spec = {
@@ -234,6 +243,6 @@ describeLive('18-vector-auto-inject (transported)', () => {
         .filter((c: any) => c?.type === 'text')
         .map((c: any) => String(c.text || '').toLowerCase());
       expect(textParts.join('\n').length).toBeGreaterThan(0);
-    }, 120000);
+    }, liveTestTimeout(120000));
   });
 });

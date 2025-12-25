@@ -1,7 +1,8 @@
 // 04 — Parallel Execution
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, makeSpec, mergeSettings } from '@tests/helpers/live-v2.ts';
+import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
@@ -14,7 +15,8 @@ function providerNotSupportingTools(stderr: string): boolean {
 for (let i = 0; i < testRuns.length; i++) {
   const runCfg = testRuns[i];
   (runLive ? test : test.skip)(`04-parallel-execution — ${runCfg.name}`, async () => {
-    const spec = makeSpec({
+    const traceId = createTraceId(`04-parallel-execution-${runCfg.name}`);
+    const spec = attachLangfuseObservability(makeSpec({
       messages: [
         { role: 'system', content: [{ type: 'text', text: [
           'You are a strict tool-using assistant. When asked to reflect items, you MUST call the reflection function for each item and must not simulate results.',
@@ -43,7 +45,7 @@ for (let i = 0; i < testRuns.length; i++) {
       llmPriority: runCfg.llmPriority,
       functionToolNames: ['test.echo'],
       settings: mergeSettings(runCfg.settings, { temperature: 0.1, maxTokens: 60000, parallelToolExecution: true, maxToolIterations: 5, provider: { require_parameters: true } })
-    });
+    }) as any, traceId);
     const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
     if (result.code !== 0 && providerNotSupportingTools(result.stderr)) { expect(true).toBe(true); return; }
     expect(result.code).toBe(0);
@@ -58,5 +60,11 @@ for (let i = 0; i < testRuns.length; i++) {
     expect(combinedText.includes('tnahpele')).toBe(true);
     expect(combinedText.includes('xof')).toBe(true);
     expect(combinedText.includes('ylfrettub')).toBe(true);
-  }, 120000);
+
+    const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: TEST_FILE });
+    const traceText = stringifyLangfuseTrace(trace);
+    expect(traceText).toContain('tnahpele');
+    expect(traceText).toContain('xof');
+    expect(traceText).toContain('ylfrettub');
+  }, liveTestTimeout(120000));
 }

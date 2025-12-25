@@ -1907,10 +1907,16 @@ describe('cli/internal/unified-cli', () => {
       consoleErrorSpy.mockRestore();
     });
 
-    test('exit calls process.exit', () => {
+    test('exit sets process.exitCode without forcing exit', () => {
+      const originalExitCode = process.exitCode;
       const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+
       defaultDependencies.exit(1);
-      expect(exitSpy).toHaveBeenCalledWith(1);
+
+      expect(process.exitCode).toBe(1);
+      expect(exitSpy).not.toHaveBeenCalled();
+
+      process.exitCode = originalExitCode;
       exitSpy.mockRestore();
     });
   });

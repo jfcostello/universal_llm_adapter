@@ -112,7 +112,6 @@ export class VectorLogger extends BaseAdapterLogger {
     if (this.vectorRetentionApplied || disableFileLogs) return;
     const { batchId, useBatchDir } = getBatchEnv();
 
-    /* istanbul ignore else */
     if (batchId && useBatchDir) {
       applyRetentionOnce(vectorLogDir, {
         includeDirs: true,
@@ -120,7 +119,6 @@ export class VectorLogger extends BaseAdapterLogger {
         maxFiles: VECTOR_MAX_FILES,
         maxAgeDays: VECTOR_MAX_AGE_DAYS,
         // Exclude current batch dir when present; safe to ignore when missing during tests
-        /* istanbul ignore next */
         exclude: this.vectorLogFile ? [path.dirname(this.vectorLogFile)] : undefined
       });
     } else {
@@ -130,7 +128,6 @@ export class VectorLogger extends BaseAdapterLogger {
         maxFiles: VECTOR_MAX_FILES,
         maxAgeDays: VECTOR_MAX_AGE_DAYS,
         // Exclude current log file if present to avoid pruning the active file
-        /* istanbul ignore next */
         exclude: this.vectorLogFile ? [this.vectorLogFile] : undefined
       });
     }

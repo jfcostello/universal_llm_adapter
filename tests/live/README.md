@@ -14,7 +14,7 @@ At the end, a combined summary shows pass/fail counts for both suites.
 
 ## Live test parallelism
 
-- Default workers: `maxWorkersDefault` in `tests/live/config.ts` (currently 5).
+- Default workers: `maxWorkersDefault` in `tests/live/config.ts` (currently 10).
 - Override per run:
   - Env: `MAX_WORKERS=2 npm run test:live:openrouter`
   - CLI: `npm run test:live:openrouter -- --maxWorkers=2`
@@ -87,6 +87,19 @@ npm run test:live:realtime -- --transport=both
 
 Server transport notes:
 - Realtime WS auth (when enabled) uses `LLM_TEST_REALTIME_API_KEY` as the client token.
+
+## Langfuse trace verification
+
+The LLM live suite verifies that observability traces are actually present in Langfuse by querying the Langfuse Public API (read-back), not by parsing local logs.
+
+When `plugins/configs/defaults.json` has `observability.provider = "langfuse"` and your selected live suite includes LLM calls, the live runner requires:
+
+```bash
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+# Optional (defaults to cloud):
+LANGFUSE_HOST=https://cloud.langfuse.com
+```
 
 ## Vector Store Live Tests
 

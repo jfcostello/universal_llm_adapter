@@ -1,7 +1,8 @@
 // 14 — Document Processing: Multiple documents in single message
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, makeSpec, mergeSettings } from '@tests/helpers/live-v2.ts';
+import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 import * as path from 'path';
 
 const runLive = process.env.LLM_LIVE === '1';
@@ -14,12 +15,13 @@ for (let i = 0; i < testRuns.length; i++) {
   (runLive ? describe : describe.skip)(`14-document-processing — ${runCfg.name}`, () => {
     test('should process multiple documents and extract specific data from each', async () => {
       const env = withLiveEnv({ TEST_FILE });
+      const traceId = createTraceId(`14-document-processing-${runCfg.name}`);
 
       // Build path to PDF fixture (only file type universally supported)
       const fixturesDir = path.join(process.cwd(), 'tests', 'fixtures', 'sample-documents');
       const pdfPath = path.join(fixturesDir, 'sample.pdf');
 
-      const spec = makeSpec({
+      const spec = attachLangfuseObservability(makeSpec({
         messages: [
           {
             role: 'system',
@@ -45,7 +47,11 @@ for (let i = 0; i < testRuns.length; i++) {
         llmPriority: runCfg.llmPriority,
         settings: mergeSettings(runCfg.settings, { temperature: 0, maxTokens: 60000 }),
         functionToolNames: []
-      });
+      }) as any, traceId);
+      spec.observability = {
+        ...(spec.observability ?? {}),
+        captureMessages: 'full'
+      };
 
       const result = await runCoordinator({
         args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath],
@@ -70,6 +76,10 @@ for (let i = 0; i < testRuns.length; i++) {
 
       // Verify it used the correct provider
       expect(payload.provider).toBe(runCfg.llmPriority[0].provider);
-    }, 180000);
+
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: TEST_FILE });
+      const traceText = stringifyLangfuseTrace(trace);
+      expect(traceText).toContain('sample.pdf');
+    }, liveTestTimeout(180000));
   });
 }

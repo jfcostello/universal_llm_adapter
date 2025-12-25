@@ -1,6 +1,7 @@
 import { RetryPolicy, createDefaultRetryPolicy } from './retry-policy.js';
 import { getDefaults } from '../../kernel/index.js';
 import type { AdapterLogger } from '../../kernel/index.js';
+import { sleep } from '../../shared/index.js';
 
 export interface RetrySequenceItem {
   provider: string;
@@ -122,8 +123,4 @@ export async function withRetries<T>(
   }
   
   throw new Error('Retry sequence empty');
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }

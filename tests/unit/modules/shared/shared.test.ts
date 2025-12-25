@@ -1,4 +1,13 @@
-import { normalizeFlag, createDeferred, type Deferred } from '@/modules/shared/index.ts';
+import {
+  normalizeFlag,
+  createDeferred,
+  calculateBackoffDelay,
+  sleep,
+  truncateUtf8Bytes,
+  safeJsonStringify,
+  flattenPrimitiveStrings,
+  type Deferred
+} from '@/modules/shared/index.ts';
 
 describe('modules/shared', () => {
   describe('normalizeFlag', () => {
@@ -152,6 +161,180 @@ describe('modules/shared', () => {
       expect(deferred.promise instanceof Promise).toBe(true);
       expect(typeof deferred.resolve).toBe('function');
       expect(typeof deferred.reject).toBe('function');
+    });
+  });
+
+  describe('calculateBackoffDelay', () => {
+    test('returns base delay for first attempt', () => {
+      // With jitter, result should be between baseDelay * 0.75 and baseDelay * 1.25
+      const delay = calculateBackoffDelay(0, 250, 30000);
+      expect(delay).toBeGreaterThanOrEqual(187); // 250 * 0.75 (floored)
+      expect(delay).toBeLessThanOrEqual(312); // 250 * 1.25 (floored, jitter < 1.25)
+    });
+
+    test('increases exponentially with attempts', () => {
+      // Attempt 1: base * 2 = 500ms (with jitter: 375-625)
+      const delay1 = calculateBackoffDelay(1, 250, 30000);
+      expect(delay1).toBeGreaterThanOrEqual(375);
+      expect(delay1).toBeLessThanOrEqual(625);
+
+      // Attempt 2: base * 4 = 1000ms (with jitter: 750-1250)
+      const delay2 = calculateBackoffDelay(2, 250, 30000);
+      expect(delay2).toBeGreaterThanOrEqual(750);
+      expect(delay2).toBeLessThanOrEqual(1250);
+    });
+
+    test('caps at max delay', () => {
+      // Very high attempt should be capped at maxDelay (with jitter: maxDelay * 0.75 to maxDelay * 1.25)
+      const delay = calculateBackoffDelay(20, 250, 1000);
+      expect(delay).toBeGreaterThanOrEqual(750); // 1000 * 0.75
+      expect(delay).toBeLessThanOrEqual(1250); // 1000 * 1.25
+    });
+  });
+
+  describe('sleep', () => {
+    test('waits for specified duration', async () => {
+      const start = Date.now();
+      await sleep(50);
+      const elapsed = Date.now() - start;
+
+      expect(elapsed).toBeGreaterThanOrEqual(45); // Allow some tolerance
+    });
+  });
+
+  describe('truncateUtf8Bytes', () => {
+    test('returns input unchanged when within limit', () => {
+      expect(truncateUtf8Bytes('hello', 5)).toBe('hello');
+      expect(truncateUtf8Bytes('hello', 100)).toBe('hello');
+    });
+
+    test('truncates and appends suffix when over limit', () => {
+      const out = truncateUtf8Bytes('hello world', 6);
+      expect(out).toBe('hel…');
+      expect(Buffer.byteLength(out, 'utf8')).toBeLessThanOrEqual(6);
+    });
+
+    test('does not split surrogate pairs (emoji)', () => {
+      const emoji = '🙂'; // 4 bytes in UTF-8
+      const input = `${emoji}${emoji}${emoji}`;
+      const out = truncateUtf8Bytes(input, 5);
+      expect(Buffer.byteLength(out, 'utf8')).toBeLessThanOrEqual(5);
+      expect(out.endsWith('…')).toBe(true);
+      // Should not contain the replacement character due to broken UTF-16/UTF-8.
+      expect(out.includes('\uFFFD')).toBe(false);
+    });
+
+    test('returns empty string for non-positive limits', () => {
+      expect(truncateUtf8Bytes('hello', 0)).toBe('');
+      expect(truncateUtf8Bytes('hello', -1)).toBe('');
+    });
+
+    test('returns suffix-only (or empty) when limit cannot fit any content', () => {
+      expect(truncateUtf8Bytes('hello', 3)).toBe('…');
+      expect(truncateUtf8Bytes('hello', 2)).toBe('');
+    });
+
+    test('coerces non-string inputs and handles nullish values', () => {
+      expect(truncateUtf8Bytes(123 as any, 10)).toBe('123');
+      expect(truncateUtf8Bytes(null as any, 10)).toBe('');
+    });
+
+    test('treats non-finite maxBytes as zero', () => {
+      expect(truncateUtf8Bytes('hello', Number.NaN as any)).toBe('');
+      expect(truncateUtf8Bytes('hello', Number.POSITIVE_INFINITY as any)).toBe('');
+    });
+  });
+
+  describe('safeJsonStringify', () => {
+    test('serializes values and is safe for BigInt and cycles', () => {
+      expect(safeJsonStringify(BigInt(1))).toBe('\"1\"');
+
+      const obj: any = { a: 1 };
+      obj.self = obj;
+      const out = safeJsonStringify(obj);
+      expect(out).toContain('Circular');
+      expect(JSON.parse(out).a).toBe(1);
+    });
+
+    test('handles symbols, functions, and byte arrays', () => {
+      expect(JSON.parse(safeJsonStringify(Symbol('x')))).toContain('Symbol');
+      expect(JSON.parse(safeJsonStringify(() => {}))).toContain('=>');
+
+      expect(JSON.parse(safeJsonStringify(new Uint8Array([1, 2, 3])))).toBe('[Uint8Array 3 bytes]');
+      expect(JSON.parse(safeJsonStringify(Buffer.from([1, 2, 3])))).toBe('[Buffer 3 bytes]');
+    });
+
+    test('respects maxDepth for arrays and objects', () => {
+      expect(JSON.parse(safeJsonStringify([1, 2, 3], { maxDepth: 0 }))).toEqual(['[Truncated]']);
+      expect(JSON.parse(safeJsonStringify({ a: { b: 1 } }, { maxDepth: 0 }))).toBe('[Truncated]');
+    });
+
+    test('bounds output size with maxBytes and appends ellipsis', () => {
+      const out = safeJsonStringify({ a: 'x'.repeat(1000) }, { maxBytes: 50 });
+      expect(Buffer.byteLength(out, 'utf8')).toBeLessThanOrEqual(50);
+      expect(out.endsWith('…')).toBe(true);
+    });
+
+    test('applies structural limits for arrays and objects', () => {
+      const out = safeJsonStringify(
+        { a: 1, b: 2, c: 3 },
+        { maxObjectKeys: 1 }
+      );
+      const parsed = JSON.parse(out);
+      expect(parsed.a).toBe(1);
+      expect(parsed['…']).toBe('+2 keys');
+
+      const outArray = safeJsonStringify([1, 2, 3, 4], { maxArrayLength: 2 });
+      expect(JSON.parse(outArray)).toEqual([1, 2, '…']);
+    });
+
+    test('returns empty string for non-positive maxBytes', () => {
+      expect(safeJsonStringify({ a: 1 }, { maxBytes: 0 })).toBe('');
+      expect(safeJsonStringify({ a: 1 }, { maxBytes: -1 })).toBe('');
+    });
+  });
+
+  describe('flattenPrimitiveStrings', () => {
+    test('collects primitives from nested structures', () => {
+      const out = flattenPrimitiveStrings({
+        a: 'hi',
+        b: 2,
+        c: true,
+        d: null,
+        e: ['x', { y: 'z' }]
+      });
+      expect(out).toContain('hi');
+      expect(out).toContain('2');
+      expect(out).toContain('true');
+      expect(out).toContain('x');
+      expect(out).toContain('z');
+    });
+
+    test('skips whitespace-only primitives and can halt by maxValues', () => {
+      expect(flattenPrimitiveStrings('   ', { maxBytes: 50 })).toBe('');
+      expect(flattenPrimitiveStrings(['one', 'two'], { maxValues: 1 })).toBe('one');
+      expect(flattenPrimitiveStrings(['one', 'two'], { maxValues: 1, maxBytes: 100 })).toBe('one');
+    });
+
+    test('handles byte arrays and depth truncation', () => {
+      expect(flattenPrimitiveStrings(new Uint8Array([1, 2, 3]), { maxBytes: 100 })).toContain('Uint8Array');
+      expect(flattenPrimitiveStrings([1, 2], { maxDepth: 0, maxBytes: 100 })).toBe('[Truncated]');
+      expect(flattenPrimitiveStrings({ a: { b: 1 } }, { maxDepth: 0, maxBytes: 100 })).toBe('[Truncated]');
+    });
+
+    test('when there is no remaining budget for the separator, it drops subsequent values', () => {
+      expect(flattenPrimitiveStrings(['aaaa', 'bbbb'], { maxBytes: 5 })).toBe('aaaa');
+    });
+
+    test('bounds output size with maxBytes and appends ellipsis', () => {
+      const out = flattenPrimitiveStrings({ a: 'x'.repeat(1000) }, { maxBytes: 20 });
+      expect(Buffer.byteLength(out, 'utf8')).toBeLessThanOrEqual(20);
+      expect(out.endsWith('…')).toBe(true);
+    });
+
+    test('returns empty string for non-positive maxBytes', () => {
+      expect(flattenPrimitiveStrings('hi', { maxBytes: 0 })).toBe('');
+      expect(flattenPrimitiveStrings('hi', { maxBytes: -1 })).toBe('');
     });
   });
 });

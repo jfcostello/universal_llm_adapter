@@ -95,6 +95,16 @@ export async function createEmbeddingCoordinator(
  * Uses dynamic import to preserve lazy loading.
  */
 export async function closeLogger(): Promise<void> {
+  const runtimeSymbol = Symbol.for('llm_adapter_observability_runtime');
+  const runtime = (globalThis as any)[runtimeSymbol];
+  if (runtime && typeof runtime.shutdownAll === 'function') {
+    try {
+      await runtime.shutdownAll();
+    } catch {
+      // Swallow observability shutdown failures; closing logging should still proceed.
+    }
+  }
+
   const { closeLogger: close } = await import('../../logging/index.js');
   return close();
 }

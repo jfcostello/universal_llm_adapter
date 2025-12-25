@@ -1010,6 +1010,31 @@ export EMBEDDINGS_API_KEY=...
 export VECTOR_STORE_API_KEY=...
 ```
 
+### Observability (Optional)
+
+For LLM call telemetry export to Langfuse (capture is minimal unless you opt in):
+
+```bash
+export LANGFUSE_SECRET_KEY=sk-lf-...
+export LANGFUSE_PUBLIC_KEY=pk-lf-...
+```
+
+Enable observability in your spec:
+
+```json
+{
+  "observability": {
+    "enabled": true,
+    "provider": "langfuse",
+    "captureMessages": "text"
+  }
+}
+```
+
+Tip: set `metadata.correlationId` (trace name) and `metadata.tags` (tags) for stable naming/grouping.
+
+Or globally via `plugins/configs/defaults.json`.
+
 ---
 
 ## Output Formats

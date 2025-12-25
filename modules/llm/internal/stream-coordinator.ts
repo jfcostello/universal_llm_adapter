@@ -5,12 +5,16 @@ import type {
   RuntimeSettings,
   UsageStats,
   ReasoningData,
-  AdapterLogger
+  AdapterLogger,
+  ObservabilityContext
 } from '../../kernel/index.js';
 import { StreamEventType, ToolCallEventType, getDefaults, safeJsonParse } from '../../kernel/index.js';
 import { normalizeFlag } from '../../shared/index.js';
 import { partitionSettings } from '../../settings/index.js';
 import { usageStatsToJson } from '../../usage/index.js';
+import { redactJsonCredentials } from '../../security/index.js';
+import { randomUUID } from 'crypto';
+import { filterContentForObservability, filterMessagesForObservability } from './observability-capture.js';
 
 interface StreamingContext {
   provider: string;
@@ -20,6 +24,7 @@ interface StreamingContext {
   toolNameMap: Map<string, string>;
   logger: AdapterLogger;
   metadata?: Record<string, any>;
+  observability?: ObservabilityContext;
 }
 
 export class StreamCoordinator {
@@ -36,6 +41,8 @@ export class StreamCoordinator {
     context: StreamingContext,
     options?: { requireFinishToExecute?: boolean }
   ): AsyncGenerator<LLMStreamEvent> {
+    const startTime = Date.now();
+    const generationId = context.observability ? randomUUID() : undefined;
     const { runtime, provider: providerSettings, providerExtras } = partitionSettings(spec.settings);
     const executionSpec: LLMCallSpec = {
       ...spec,
@@ -47,6 +54,48 @@ export class StreamCoordinator {
 
     // Get compat module for parsing stream chunks
     const compat = await this.registry.getCompatModule(providerManifest.compat);
+
+    // Record LLM request event if observability is enabled (never throws)
+    if (context.observability) {
+      try {
+        const captureMessages = context.observability.captureMessages ?? 'full';
+        const event = {
+          traceId: context.observability.traceId,
+          generationId,
+          timestamp: new Date().toISOString(),
+          provider: providerManifest.id,
+          model,
+          messages: filterMessagesForObservability(messages, captureMessages),
+          sessionId: context.observability.sessionId,
+          metadata: context.observability.metadata,
+          tools: tools.map((t: any) => ({ name: t.name, description: t.description })),
+          settings: executionSpec.settings as any
+        };
+
+        context.observability.exporter.recordLLMRequest(event as any);
+
+        if (process.env.LLM_LIVE === '1') {
+          try {
+            const { logObservabilityEvent } = await import('./live-test-logger.js');
+            logObservabilityEvent(
+              {
+                eventType: 'LLM_REQUEST',
+                traceId: event.traceId,
+                generationId: event.generationId,
+                event
+              },
+              context.metadata
+            );
+          } catch {
+            // ignore
+          }
+        }
+      } catch (e) {
+        context.logger?.warning?.('Failed to record observability request event', {
+          error: (e as Error).message
+        });
+      }
+    }
 
     // Track accumulated content and tool calls for final response
     let accumulatedContent = '';
@@ -242,7 +291,7 @@ export class StreamCoordinator {
           providerExtras,
           logger: context.logger,
           toolNameMap,
-          runContext: { metadata: executionSpec.metadata },
+          runContext: { metadata: executionSpec.metadata, observability: context.observability },
           metadata: executionSpec.metadata,
           initialToolCalls: preparedToolCalls,
           initialReasoning: reasoningAggregate,
@@ -268,6 +317,9 @@ export class StreamCoordinator {
         if (followUpResult?.usage) {
           latestUsage = followUpResult.usage;
         }
+        if (followUpResult?.toolCalls && followUpResult.toolCalls.length > 0) {
+          allToolCalls.push(...followUpResult.toolCalls);
+        }
         if (followUpResult?.reasoning) {
           if (!reasoningAggregate) {
             reasoningAggregate = { ...followUpResult.reasoning };
@@ -292,6 +344,77 @@ export class StreamCoordinator {
       if (usageCostEnabled) {
         const { attachUsageCostIfMissing } = await import('../../usage-cost/index.js');
         attachUsageCostIfMissing({ usage: latestUsage, provider, model });
+      }
+    }
+
+    // Record final response event if observability is enabled (never throws)
+	    if (context.observability) {
+	      try {
+          const captureMessages = context.observability.captureMessages ?? 'full';
+          const captureToolArgs = context.observability.captureToolArgs ?? true;
+	        const durationMs = Date.now() - startTime;
+	        const promptTokens = latestUsage?.promptTokens ?? undefined;
+	        const completionTokens = latestUsage?.completionTokens ?? undefined;
+	        const totalTokens = latestUsage?.totalTokens ?? (
+	          typeof promptTokens === 'number' || typeof completionTokens === 'number'
+	            ? (promptTokens || 0) + (completionTokens || 0)
+	            : undefined
+	        );
+
+	        const event = {
+	          traceId: context.observability.traceId,
+	          generationId,
+	          sessionId: context.observability.sessionId,
+	          timestamp: new Date().toISOString(),
+	          provider: providerManifest.id,
+	          model,
+	          content: filterContentForObservability([{ type: 'text', text: accumulatedContent }] as any, captureMessages),
+	          toolCalls: allToolCalls.map(tc => {
+	            const base = { id: (tc as any).id, name: (tc as any).name } as any;
+	            if (!captureToolArgs) return base;
+	            const args = (tc as any).arguments ?? (tc as any).args;
+	            const metadata = (tc as any).metadata;
+	            return {
+	              ...base,
+	              ...(args !== undefined ? { arguments: redactJsonCredentials(args) } : {}),
+	              ...(metadata !== undefined ? { metadata: redactJsonCredentials(metadata) } : {})
+	            };
+	          }),
+	          usage: latestUsage ? {
+	            promptTokens,
+	            completionTokens,
+	            totalTokens,
+	            cachedTokens: latestUsage.cachedTokens ?? undefined,
+	            reasoningTokens: latestUsage.reasoningTokens ?? undefined,
+	            audioTokens: latestUsage.audioTokens ?? undefined,
+	            cost: latestUsage.cost ?? undefined
+	          } : undefined,
+	          durationMs,
+	          metadata: context.observability.metadata
+	        };
+
+        context.observability.exporter.recordLLMResponse(event as any);
+
+        if (process.env.LLM_LIVE === '1') {
+          try {
+            const { logObservabilityEvent } = await import('./live-test-logger.js');
+            logObservabilityEvent(
+              {
+                eventType: 'LLM_RESPONSE',
+                traceId: event.traceId,
+                generationId: event.generationId,
+                event
+              },
+              context.metadata
+            );
+          } catch {
+            // ignore
+          }
+        }
+      } catch (e) {
+        context.logger?.warning?.('Failed to record observability response event', {
+          error: (e as Error).message
+        });
       }
     }
 

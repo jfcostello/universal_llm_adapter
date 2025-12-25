@@ -114,4 +114,58 @@ describe('modules/llm/internal/live-test-logger', () => {
       expect(content).toContain('Status: 201 OK');
     });
   });
+
+  test('logObservabilityEvent writes observability event bodies', async () => {
+    delete process.env.LLM_LIVE_TRANSPORT;
+
+    await withTempCwd('live-test-logger-observability', async () => {
+      const { logObservabilityEvent } = await import('@/modules/llm/internal/live-test-logger.ts');
+
+      logObservabilityEvent(
+        {
+          eventType: 'LLM_REQUEST',
+          traceId: 'trace-123',
+          generationId: 'gen-456',
+          event: {
+            traceId: 'trace-123',
+            generationId: 'gen-456',
+            messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }]
+          }
+        },
+        { testFile: 'observability', testName: 'observability event', correlationId: 'trace-123' }
+      );
+
+      const logFile = getLogFilePath('observability');
+      const content = fs.readFileSync(logFile, 'utf-8');
+      expect(content).toContain('>>> OBSERVABILITY EVENT >>>');
+      expect(content).toContain('Event Type: LLM_REQUEST');
+      expect(content).toContain('TraceId: trace-123');
+      expect(content).toContain('GenerationId: gen-456');
+      expect(content).toContain('--- BODY ---');
+      expect(content).toContain('"messages"');
+      expect(content).toContain('hello');
+    });
+  });
+
+  test('logObservabilityEvent tolerates missing correlationId/traceId/generationId', async () => {
+    delete process.env.LLM_LIVE_TRANSPORT;
+
+    await withTempCwd('live-test-logger-observability-missing', async () => {
+      const { logObservabilityEvent } = await import('@/modules/llm/internal/live-test-logger.ts');
+
+      logObservabilityEvent({
+        eventType: 'LLM_REQUEST',
+        event: { ok: true }
+      });
+
+      const logFile = getLogFilePath('unknown-test');
+      const content = fs.readFileSync(logFile, 'utf-8');
+      expect(content).toContain('>>> OBSERVABILITY EVENT >>>');
+      expect(content).toContain('Event Type: LLM_REQUEST');
+      expect(content).toContain('"ok": true');
+      expect(content).not.toContain('CorrelationId:');
+      expect(content).not.toContain('TraceId:');
+      expect(content).not.toContain('GenerationId:');
+    });
+  });
 });

@@ -223,7 +223,7 @@ describe('integration/providers/google-provider-extended', () => {
         const params: any = compat.buildSDKParams('gemini-2.5-flash', {}, messages, [], undefined);
 
         const toolMsg = params.contents.find((c: any) => c.parts.some((p: any) => p.functionResponse));
-        expect(toolMsg.parts[0].functionResponse.response).toEqual({ data: 123 });
+        expect(toolMsg.parts[0].functionResponse.response).toEqual({ result: { data: 123 } });
       });
 
       test('sanitizes tool name in functionResponse', () => {
@@ -252,7 +252,10 @@ describe('integration/providers/google-provider-extended', () => {
         const params: any = compat.buildSDKParams('gemini-2.5-flash', {}, messages, [], undefined);
 
         const toolMsg = params.contents.find((c: any) => c.parts.some((p: any) => p.functionResponse));
-        expect(toolMsg.parts[0].functionResponse.response).toEqual({ output: 'Temperature is 72°F' });
+        expect(toolMsg.parts[0].functionResponse.response).toEqual({
+          output: 'Temperature is 72°F',
+          result: { temp: 72 }
+        });
       });
 
       test('combines multiple text parts in tool response', () => {
@@ -271,7 +274,10 @@ describe('integration/providers/google-provider-extended', () => {
         const params: any = compat.buildSDKParams('gemini-2.5-flash', {}, messages, [], undefined);
 
         const toolMsg = params.contents.find((c: any) => c.parts.some((p: any) => p.functionResponse));
-        expect(toolMsg.parts[0].functionResponse.response).toEqual({ output: 'Line 1\nLine 2' });
+        expect(toolMsg.parts[0].functionResponse.response).toEqual({
+          output: 'Line 1\nLine 2',
+          result: 'data'
+        });
       });
 
       test('handles tool message with empty text parts', () => {
@@ -289,7 +295,7 @@ describe('integration/providers/google-provider-extended', () => {
         const params: any = compat.buildSDKParams('gemini-2.5-flash', {}, messages, [], undefined);
 
         const toolMsg = params.contents.find((c: any) => c.parts.some((p: any) => p.functionResponse));
-        expect(toolMsg.parts[0].functionResponse.response).toEqual({ output: '' });
+        expect(toolMsg.parts[0].functionResponse.response).toEqual({ output: '', result: { value: 42 } });
       });
     });
   });
@@ -1004,7 +1010,7 @@ describe('integration/providers/google-provider-extended', () => {
       expect(parsed.toolEvents?.[2].type).toBe(ToolCallEventType.TOOL_CALL_END);
     });
 
-    test('handles multiple tool calls in single chunk (only first is processed in streaming)', () => {
+    test('handles multiple tool calls in single chunk', () => {
       const chunk = {
         candidates: [
           {
@@ -1020,9 +1026,9 @@ describe('integration/providers/google-provider-extended', () => {
       };
       const parsed = compat.parseSDKChunk(chunk);
 
-      // Google streaming only processes first tool call (uses parts.find())
-      expect(parsed.toolEvents).toHaveLength(3);
+      expect(parsed.toolEvents).toHaveLength(6);
       expect(parsed.toolEvents?.[0].name).toBe('tool1');
+      expect(parsed.toolEvents?.[3].name).toBe('tool2');
     });
 
     test('sets finishedWithToolCalls when STOP + tool calls seen', () => {

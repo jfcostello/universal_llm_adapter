@@ -81,3 +81,23 @@ await failing.promise; // throws Error('oops')
 - `promise` - The Promise instance
 - `resolve(value: T)` - Function to resolve the promise
 - `reject(reason?: unknown)` - Function to reject the promise
+
+### `sleep(ms)`
+
+Sleep for a specified duration.
+
+```typescript
+import { sleep } from '../shared/index.js';
+
+await sleep(250);
+```
+
+### `calculateBackoffDelay(attempt, baseDelayMs, maxDelayMs)`
+
+Calculate an exponential backoff delay with jitter (+/- 25%), capped at `maxDelayMs`.
+
+```typescript
+import { calculateBackoffDelay } from '../shared/index.js';
+
+const delayMs = calculateBackoffDelay(2, 250, 30_000);
+```

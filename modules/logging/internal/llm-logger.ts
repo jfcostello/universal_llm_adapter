@@ -125,7 +125,6 @@ export class LLMLogger extends BaseAdapterLogger {
     if (this.llmRetentionApplied || disableFileLogs) return;
     const { batchId, useBatchDir } = getBatchEnv();
 
-    /* istanbul ignore else */
     if (batchId && useBatchDir) {
       applyRetentionOnce(llmLogDir, {
         includeDirs: true,
@@ -133,7 +132,6 @@ export class LLMLogger extends BaseAdapterLogger {
         maxFiles: LLM_MAX_FILES,
         maxAgeDays: LLM_MAX_AGE_DAYS,
         // Exclude current batch dir when present; safe to ignore when missing during tests
-        /* istanbul ignore next */
         exclude: this.llmLogFile ? [path.dirname(this.llmLogFile)] : undefined
       });
     } else {
@@ -143,7 +141,6 @@ export class LLMLogger extends BaseAdapterLogger {
         maxFiles: LLM_MAX_FILES,
         maxAgeDays: LLM_MAX_AGE_DAYS,
         // Exclude current log file if present to avoid pruning the active file
-        /* istanbul ignore next */
         exclude: this.llmLogFile ? [this.llmLogFile] : undefined
       });
     }
@@ -151,4 +148,3 @@ export class LLMLogger extends BaseAdapterLogger {
     this.llmRetentionApplied = true;
   }
 }
-

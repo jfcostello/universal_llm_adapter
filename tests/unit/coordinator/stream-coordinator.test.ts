@@ -173,6 +173,97 @@ describe('StreamCoordinator', () => {
 	    expect(doneEvents[0].response.toolCalls?.filter((tc: any) => tc.id === '1').length).toBe(1);
 	  });
 
+    test('coordinateStream executes tool calls emitted in follow-up stream', async () => {
+      const streamResponses = [
+        (async function* () {
+          yield { choices: [{ delta: { content: 'pre-tool' } }] };
+        })(),
+        (async function* () {
+          yield { choices: [{}] };
+        })(),
+        (async function* () {
+          yield { choices: [{ delta: { content: 'final' } }] };
+        })()
+      ];
+
+      let parseCallCount = 0;
+      const { coordinator, llmManager, toolCoordinator, compatModule } = createCoordinator({
+        compatModule: {
+          parseStreamChunk: jest.fn((chunk: any) => {
+            parseCallCount++;
+            if (parseCallCount === 1) {
+              return {
+                text: chunk.choices?.[0]?.delta?.content,
+                toolEvents: [
+                  { type: ToolCallEventType.TOOL_CALL_START, callId: '1', name: 'tool.sanitized' },
+                  { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: '1', argumentsDelta: '{"a":1}' },
+                  { type: ToolCallEventType.TOOL_CALL_END, callId: '1', name: 'tool.sanitized', arguments: '{"a":1}' }
+                ]
+              };
+            }
+
+            if (parseCallCount === 2) {
+              return {
+                text: undefined,
+                toolEvents: [
+                  { type: ToolCallEventType.TOOL_CALL_START, callId: '2', name: 'tool.sanitized' },
+                  { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: '2', argumentsDelta: '{"b":2}' },
+                  { type: ToolCallEventType.TOOL_CALL_END, callId: '2', name: 'tool.sanitized', arguments: '{"b":2}' }
+                ]
+              };
+            }
+
+            return {
+              text: chunk.choices?.[0]?.delta?.content,
+              toolEvents: undefined
+            };
+          })
+        },
+        llmManager: {
+          streamProvider: jest.fn(() => streamResponses.shift()!)
+        },
+        toolCoordinator: {
+          routeAndInvoke: jest.fn().mockResolvedValue({ result: 'ok' })
+        }
+      });
+
+      const spec: any = {
+        llmPriority: [{ provider: 'provider', model: 'model' }],
+        settings: { maxToolIterations: 5 },
+        metadata: {}
+      };
+
+      const context = createContext();
+      context.toolNameMap = new Map([['tool.sanitized', 'tool.raw']]);
+
+      const events: any[] = [];
+      for await (const event of coordinator.coordinateStream(spec, [], [{ name: 'tool.raw' }], context)) {
+        events.push(event);
+      }
+
+      expect(llmManager.streamProvider).toHaveBeenCalledTimes(3);
+      expect(compatModule.parseStreamChunk).toHaveBeenCalled();
+
+      expect(toolCoordinator.routeAndInvoke).toHaveBeenCalledWith(
+        'tool.raw',
+        '1',
+        { a: 1 },
+        expect.objectContaining({ provider: 'provider', model: 'model' })
+      );
+      expect(toolCoordinator.routeAndInvoke).toHaveBeenCalledWith(
+        'tool.raw',
+        '2',
+        { b: 2 },
+        expect.objectContaining({ provider: 'provider', model: 'model' })
+      );
+
+      const toolCallEvents = events.filter(e => e.type === 'tool_call');
+      expect(toolCallEvents.map((e: any) => e.toolCall?.id)).toEqual(['1', '2']);
+
+      const done = events.find(e => e.type === 'done');
+      expect(done?.response?.toolCalls?.map((tc: any) => tc.id)).toEqual(['1', '2']);
+    });
+
 	  test('coordinateStream ignores pending tool-call state for already-detected callIds', async () => {
 	    const streamResponses = [
 	      (async function* () {

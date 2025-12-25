@@ -13,6 +13,7 @@
 
 import { runEmbeddingCoordinator, runVectorCoordinator } from '@tests/helpers/node-cli.ts';
 import { requireEnv } from '@tests/helpers/require-env.ts';
+import { liveTestTimeout } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 if (runLive) {
@@ -69,7 +70,7 @@ describeLive('16-vector-store (transported)', () => {
       }
     });
     expect(createRes.success).toBe(true);
-  }, 120000);
+  }, liveTestTimeout(120000));
 
   afterAll(async () => {
     try {
@@ -142,7 +143,7 @@ describeLive('16-vector-store (transported)', () => {
     expect(res.dimensions).toBe(dimensions);
 
     await new Promise(resolve => setTimeout(resolve, 2000));
-  }, 120000);
+  }, liveTestTimeout(120000));
 
   test('queries similar documents', async () => {
     const res = await runVector({
@@ -221,5 +222,5 @@ describeLive('16-vector-store (transported)', () => {
     });
     const stillHasDoc = (after.results ?? []).some((r: any) => String(r.id) === docId);
     expect(stillHasDoc).toBe(false);
-  }, 90000);
+  }, liveTestTimeout(90000));
 });

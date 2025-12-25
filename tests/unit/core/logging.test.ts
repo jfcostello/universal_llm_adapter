@@ -247,6 +247,15 @@ describe('core/logging', () => {
     });
   });
 
+  test('BaseAdapterLogger defaults to info level when constructed directly', async () => {
+    const { module, mocks } = await setupLoggingTestHarness({ disableFileLogs: true });
+    const { BaseAdapterLogger } = module;
+
+    const logger = new BaseAdapterLogger();
+    logger.info('hello');
+    expect(mocks.logger.info).toHaveBeenCalledWith('hello', {});
+  });
+
   test('AdapterLogger defaults to info level and omits correlation metadata', async () => {
     const { module, mocks } = await setupLoggingTestHarness({ disableFileLogs: true });
     const { AdapterLogger } = module;

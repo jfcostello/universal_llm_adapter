@@ -86,6 +86,61 @@ describe('utils/tools/runToolLoop', () => {
     expect(result.raw?.toolResults?.[0].result).toEqual({ value: 42 });
   });
 
+  test('non-stream loop relaxes required toolChoice after tool execution', async () => {
+    const callProvider = jest.fn().mockResolvedValue({
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [{ type: 'text', text: 'final' }]
+    });
+
+    const llmManager: any = {
+      callProvider,
+      streamProvider: jest.fn()
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    const initialResponse = {
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [],
+      toolCalls: [
+        {
+          id: 'call-1',
+          name: 'example_tool',
+          arguments: {}
+        }
+      ]
+    } as any;
+
+    await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'example_tool' }],
+      toolChoice: { type: 'required', allowed: ['example_tool'] } as any,
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 2 } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: {},
+      toolNameMap: { example_tool: 'example_tool' },
+      metadata: {},
+      initialResponse,
+      invokeTool
+    });
+
+    expect(invokeTool).toHaveBeenCalled();
+    expect(callProvider).toHaveBeenCalledTimes(1);
+    // toolChoice arg in callProvider signature should be relaxed to auto for follow-up
+    expect(callProvider.mock.calls[0][5]).toBe('auto');
+  });
+
   test('stream loop emits tool result and honors countdown progress fields', async () => {
     const streamChunks = [
       { choices: [{ delta: { content: 'token-1' } }] },
@@ -841,6 +896,139 @@ describe('utils/tools/runToolLoop', () => {
       text: 'Step1 and step2 and finish',
       metadata: { step2: true }
     });
+  });
+
+  test('stream loop parses follow-up tool calls (including pending state) and preserves metadata', async () => {
+    const llmManager: any = {
+      streamProvider: jest
+        .fn()
+        .mockReturnValueOnce((async function* () {
+          yield {
+            toolEvents: [
+              {
+                type: ToolCallEventType.TOOL_CALL_START,
+                callId: '1',
+                name: 'test_tool',
+                metadata: { started: true }
+              },
+              {
+                type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA,
+                callId: '1',
+                argumentsDelta: undefined
+              },
+              {
+                type: ToolCallEventType.TOOL_CALL_END,
+                callId: '1',
+                name: 'test_tool',
+                arguments: '{"a":1}'
+              },
+              // Duplicate START reintroduces pending state after the callId has been detected.
+              { type: ToolCallEventType.TOOL_CALL_START, callId: '1', name: 'test_tool' },
+              // Pending call with metadata but no END should be finalized after stream ends.
+              {
+                type: ToolCallEventType.TOOL_CALL_START,
+                callId: '2',
+                name: 'test_tool',
+                metadata: { pending: true }
+              },
+              // End with no args -> exercise empty-string fallback.
+              { type: ToolCallEventType.TOOL_CALL_START, callId: '3', name: 'test_tool' },
+              { type: ToolCallEventType.TOOL_CALL_END, callId: '3', name: 'test_tool' }
+            ],
+            finishedWithToolCalls: true
+          };
+        })())
+        .mockReturnValueOnce((async function* () {
+          // No additional tool calls - end the loop.
+        })())
+    };
+
+    const compat = {
+      parseStreamChunk: (chunk: any) => chunk
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    const iterator = runToolLoop({
+      mode: 'stream',
+      llmManager,
+      registry: { getCompatModule: () => compat } as any,
+      messages: [{ role: Role.USER, content: [] }],
+      tools: [],
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 10 } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      toolNameMap: {},
+      metadata: {},
+      initialToolCalls: [],
+      invokeTool
+    });
+
+    const events: any[] = [];
+    let finalResult: any;
+    while (true) {
+      const { value, done } = await iterator.next();
+      if (done) {
+        finalResult = value;
+        break;
+      }
+      events.push(value);
+    }
+
+    const toolCallEvents = events.filter(e => e.type === 'tool_call');
+    expect(toolCallEvents.length).toBeGreaterThanOrEqual(3);
+    expect(invokeTool).toHaveBeenCalledTimes(3);
+    expect(toolCallEvents.some(e => e.toolCall?.metadata)).toBe(true);
+    expect(finalResult?.toolCalls?.some((tc: any) => tc.metadata)).toBe(true);
+  });
+
+  test('stream loop exits cleanly when provider signals tool_calls finish without any tool events', async () => {
+    const llmManager: any = {
+      streamProvider: jest.fn(async function* () {
+        yield { finishedWithToolCalls: true };
+      })
+    };
+
+    const compat = {
+      parseStreamChunk: (chunk: any) => chunk
+    };
+
+    const iterator = runToolLoop({
+      mode: 'stream',
+      llmManager,
+      registry: { getCompatModule: () => compat } as any,
+      messages: [{ role: Role.USER, content: [] }],
+      tools: [],
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 10 } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      toolNameMap: {},
+      metadata: {},
+      initialToolCalls: [],
+      invokeTool: jest.fn()
+    });
+
+    const events: any[] = [];
+    let finalResult: any;
+    while (true) {
+      const { value, done } = await iterator.next();
+      if (done) {
+        finalResult = value;
+        break;
+      }
+      events.push(value);
+    }
+
+    expect(events).toHaveLength(0);
+    expect(finalResult).toBeUndefined();
   });
 
   test('non-stream loop captures tool execution failures', async () => {

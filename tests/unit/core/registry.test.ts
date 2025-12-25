@@ -791,6 +791,265 @@ describe('core/registry', () => {
     });
   });
 
+  describe('observability providers and compats', () => {
+    test('loads observability provider manifest from plugins/observability-providers', async () => {
+      await withTempCwd('registry-observability', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        // Create observability-providers directory and manifest
+        const obsProvidersDir = path.join(pluginsDir, 'observability-providers');
+        fs.mkdirSync(obsProvidersDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(obsProvidersDir, 'test-obs.json'),
+          JSON.stringify({
+            id: 'test-obs',
+            compat: 'test-obs-compat',
+            endpoint: {
+              urlTemplate: 'https://test.api/ingest',
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' }
+            },
+            auth: {
+              type: 'basic',
+              publicKeyEnv: 'TEST_OBS_PUBLIC',
+              secretKeyEnv: 'TEST_OBS_SECRET'
+            },
+            limits: {
+              maxBatchBytes: 1000000
+            }
+          }),
+          'utf-8'
+        );
+
+        // Create observability-compat directory and module
+        const obsCompatDir = path.join(pluginsDir, 'observability-compat');
+        fs.mkdirSync(obsCompatDir, { recursive: true });
+        fs.writeFileSync(
+	          path.join(obsCompatDir, 'test-obs-compat.js'),
+	          `module.exports = class TestObsCompat {
+	            constructor() { this.kind = 'test-obs'; }
+	            buildBatch(events, manifest) { return { payload: {}, eventIndexByEnvelopeId: new Map() }; }
+	            async sendBatch(payload, manifest) { return { success: true, outcomes: [] }; }
+	          }`,
+	          'utf-8'
+	        );
+
+        const registry = new PluginRegistry(pluginsDir);
+        const manifest = await registry.getObservabilityProvider('test-obs');
+
+        expect(manifest.id).toBe('test-obs');
+        expect(manifest.compat).toBe('test-obs-compat');
+        expect(manifest.endpoint.urlTemplate).toBe('https://test.api/ingest');
+        expect(manifest.auth?.type).toBe('basic');
+        expect(manifest.limits?.maxBatchBytes).toBe(1000000);
+
+        // Call again to cover the early return when already loaded
+        const manifest2 = await registry.getObservabilityProvider('test-obs');
+        expect(manifest2.id).toBe('test-obs');
+      });
+    });
+
+    test('throws ManifestError for unknown observability provider', async () => {
+      await withTempCwd('registry-obs-missing', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.getObservabilityProvider('nonexistent')).rejects.toThrow(ManifestError);
+      });
+    });
+
+    test('loads observability compat module from plugins/observability-compat', async () => {
+      await withTempCwd('registry-obs-compat', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        // Create observability-compat directory and module
+        const obsCompatDir = path.join(pluginsDir, 'observability-compat');
+        fs.mkdirSync(obsCompatDir, { recursive: true });
+        fs.writeFileSync(
+	          path.join(obsCompatDir, 'test-obs-compat.js'),
+	          `module.exports = class TestObsCompat {
+	            constructor() { this.kind = 'test'; }
+	            buildBatch(events, manifest) { return { payload: {}, eventIndexByEnvelopeId: new Map() }; }
+	            async sendBatch(payload, manifest) { return { success: true, outcomes: [] }; }
+	          }`,
+	          'utf-8'
+	        );
+
+        const registry = new PluginRegistry(pluginsDir);
+        const compatA = await registry.getObservabilityCompat('test-obs-compat');
+        const compatB = await registry.getObservabilityCompat('test-obs-compat');
+
+        // Each call returns a fresh instance
+        expect(compatA).not.toBe(compatB);
+        expect(typeof compatA.buildBatch).toBe('function');
+        expect(typeof compatA.sendBatch).toBe('function');
+      });
+    });
+
+    test('throws ManifestError for unknown observability compat', async () => {
+      await withTempCwd('registry-obs-compat-missing', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.getObservabilityCompat('nonexistent')).rejects.toThrow(ManifestError);
+      });
+    });
+
+    test('skips invalid observability provider manifests but continues loading', async () => {
+      await withTempCwd('registry-obs-invalid', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const obsProvidersDir = path.join(pluginsDir, 'observability-providers');
+        fs.mkdirSync(obsProvidersDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(obsProvidersDir, 'invalid.json'),
+          '{"id":',
+          'utf-8'
+        );
+        fs.writeFileSync(
+          path.join(obsProvidersDir, 'valid.json'),
+          JSON.stringify({ id: 'valid-obs', compat: 'test', endpoint: { urlTemplate: 'http://test', method: 'POST' } }),
+          'utf-8'
+        );
+
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.getObservabilityProvider('nonexistent')).rejects.toThrow(ManifestError);
+        expect(warnSpy).toHaveBeenCalled();
+        warnSpy.mockRestore();
+      });
+    });
+
+    test('validateAll validates observability providers and compats', async () => {
+      await withTempCwd('registry-obs-validate', async (dir) => {
+        process.env.TEST_LLM_ENDPOINT = 'http://localhost';
+
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        // Create observability-providers directory and manifest
+        const obsProvidersDir = path.join(pluginsDir, 'observability-providers');
+        fs.mkdirSync(obsProvidersDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(obsProvidersDir, 'test-obs.json'),
+          JSON.stringify({
+            id: 'test-obs',
+            compat: 'test-obs-compat',
+            endpoint: { urlTemplate: 'http://test', method: 'POST' }
+          }),
+          'utf-8'
+        );
+
+        // Create observability-compat directory and module
+        const obsCompatDir = path.join(pluginsDir, 'observability-compat');
+        fs.mkdirSync(obsCompatDir, { recursive: true });
+        fs.writeFileSync(
+	          path.join(obsCompatDir, 'test-obs-compat.js'),
+	          `module.exports = class TestObsCompat {
+	            buildBatch() { return { payload: {}, eventIndexByEnvelopeId: new Map() }; }
+	            async sendBatch() { return { success: true, outcomes: [] }; }
+	          }`,
+	          'utf-8'
+	        );
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.validateAll()).resolves.toBeUndefined();
+      });
+    });
+
+    test('validateAll fails when observability provider references missing compat', async () => {
+      await withTempCwd('registry-obs-validate-missing-compat', async (dir) => {
+        process.env.TEST_LLM_ENDPOINT = 'http://localhost';
+
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        // Create observability-providers directory and manifest with missing compat
+        const obsProvidersDir = path.join(pluginsDir, 'observability-providers');
+        fs.mkdirSync(obsProvidersDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(obsProvidersDir, 'test-obs-missing.json'),
+          JSON.stringify({
+            id: 'test-obs-missing',
+            compat: 'definitely-missing-obs-compat',
+            endpoint: { urlTemplate: 'http://test', method: 'POST' }
+          }),
+          'utf-8'
+        );
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.validateAll()).rejects.toThrow(ManifestError);
+      });
+    });
+
+    test('rejects invalid observability compat module names (path traversal)', async () => {
+      await withTempCwd('registry-obs-compat-invalid-name', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.getObservabilityCompat('.')).rejects.toThrow(ManifestError);
+        await expect(registry.getObservabilityCompat('..')).rejects.toThrow(ManifestError);
+        await expect(registry.getObservabilityCompat('a..b')).rejects.toThrow(ManifestError);
+        await expect(registry.getObservabilityCompat('../evil')).rejects.toThrow(ManifestError);
+      });
+    });
+
+    test('handles observability compat module that throws on import', async () => {
+      await withTempCwd('registry-obs-compat-broken', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        // Create observability-compat directory with a broken module
+        const obsCompatDir = path.join(pluginsDir, 'observability-compat');
+        fs.mkdirSync(obsCompatDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(obsCompatDir, 'broken-obs.js'),
+          'throw new Error("broken observability compat module");',
+          'utf-8'
+        );
+
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.getObservabilityCompat('broken-obs')).rejects.toThrow(ManifestError);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('broken-obs'));
+
+        warnSpy.mockRestore();
+      });
+    });
+
+    test('handles observability compat module that exports non-constructor', async () => {
+      await withTempCwd('registry-obs-compat-not-constructor', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        // Create observability-compat directory with a module that exports an object instead of a class
+        const obsCompatDir = path.join(pluginsDir, 'observability-compat');
+        fs.mkdirSync(obsCompatDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(obsCompatDir, 'object-obs.js'),
+          'module.exports = { kind: "object" };',
+          'utf-8'
+        );
+
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.getObservabilityCompat('object-obs')).rejects.toThrow(ManifestError);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('object-obs'));
+
+        warnSpy.mockRestore();
+      });
+    });
+  });
+
   describe('validation hardening', () => {
     test('rejects invalid plugin module names (path traversal)', async () => {
       await withTempCwd('registry-invalid-module-name', async (dir) => {
@@ -813,6 +1072,9 @@ describe('core/registry', () => {
         await expect(registry.getRealtimeCompat('.')).rejects.toThrow(ManifestError);
         await expect(registry.getRealtimeCompat('..')).rejects.toThrow(ManifestError);
         await expect(registry.getRealtimeCompat('a..b')).rejects.toThrow(ManifestError);
+        await expect(registry.getObservabilityCompat('.')).rejects.toThrow(ManifestError);
+        await expect(registry.getObservabilityCompat('..')).rejects.toThrow(ManifestError);
+        await expect(registry.getObservabilityCompat('a..b')).rejects.toThrow(ManifestError);
       });
     });
 

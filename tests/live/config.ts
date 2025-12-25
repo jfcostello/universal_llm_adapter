@@ -2,14 +2,17 @@
 export interface TestRun {
   name: string;
   llmPriority: Array<{ provider: string; model: string }>;
-  settings: {
-    temperature: number;
-    maxTokens: number;
-    reasoning?: {
-      enabled: boolean;
-      budget?: number;
-    };
+  settings: TestRunSettings;
+}
+
+export interface TestRunSettings {
+  temperature: number;
+  maxTokens: number;
+  reasoning?: {
+    enabled: boolean;
+    budget?: number;
   };
+  [key: string]: any;
 }
 
 export interface RealtimeTestRun {
@@ -54,12 +57,17 @@ export const testRuns: TestRun[] = [
     llmPriority: [
       {
         provider: 'openrouter',
-        model: 'x-ai/grok-4.1-fast'
+        model: 'openai/gpt-oss-120b'
       }
     ],
     settings: {
-      temperature: 0.3,
-      maxTokens: 60000
+      temperature: 0,
+      maxTokens: 60000,
+      provider: {
+        order: ['google-vertex', 'groq', 'together', 'fireworks'],
+        only: ['google-vertex', 'groq', 'together', 'fireworks'],
+        allow_fallbacks: false
+      }
     }
   },
   {
@@ -205,6 +213,12 @@ export const invalidPriorityEntry = {
 export const baseTestTimeout = 120000; // 120 seconds per provider
 export const timeoutMultiplier = filteredTestRuns.length;
 export const totalTestTimeout = baseTestTimeout * timeoutMultiplier;
+export const minLiveTestTimeout = 300000; // 300 seconds floor for Langfuse read-back
+
+export function liveTestTimeout(minMs: number): number {
+  const baseline = !Number.isFinite(minMs) || minMs < 0 ? totalTestTimeout : Math.max(minMs, totalTestTimeout);
+  return Math.max(baseline, minLiveTestTimeout);
+}
 
 // Default Jest worker count for live runs (can be overridden via env/CLI)
-export const maxWorkersDefault = 5;
+export const maxWorkersDefault = 30;

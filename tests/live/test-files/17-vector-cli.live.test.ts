@@ -13,6 +13,7 @@
 
 import { runEmbeddingCoordinator, runVectorCoordinator } from '@tests/helpers/node-cli.ts';
 import { requireEnv } from '@tests/helpers/require-env.ts';
+import { liveTestTimeout } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 if (runLive) {
@@ -86,7 +87,7 @@ describeLive('17-vector-cli (transported)', () => {
       }
     });
     expect(createRes.success).toBe(true);
-  }, 120000);
+  }, liveTestTimeout(120000));
 
   afterAll(async () => {
     try {
@@ -140,7 +141,7 @@ describeLive('17-vector-cli (transported)', () => {
       expect(result.embedded).toBe(3);
       expect(result.upserted).toBe(3);
       expect(result.dimensions).toBe(dimensions);
-    }, 120000);
+    }, liveTestTimeout(120000));
 
     test('streams progress for batch embed', async () => {
       const texts = Array.from(
@@ -164,12 +165,12 @@ describeLive('17-vector-cli (transported)', () => {
       expect(errorEvents).toHaveLength(0);
       expect(progressEvents.length).toBeGreaterThan(0);
       expect(doneEvent).toBeDefined();
-    }, 180000);
+    }, liveTestTimeout(180000));
   });
 
   describe('query operation', () => {
-    test('queries with text and retrieves similar documents', async () => {
-      await new Promise(resolve => setTimeout(resolve, 1500));
+	    test('queries with text and retrieves similar documents', async () => {
+	      await new Promise(resolve => setTimeout(resolve, 1500));
 
       const result = await runVector({
         operation: 'query',
@@ -189,15 +190,15 @@ describeLive('17-vector-cli (transported)', () => {
       expect(result.operation).toBe('query');
       expect(Array.isArray(result.results)).toBe(true);
       expect(result.results.length).toBeLessThanOrEqual(3);
-      if (result.results.length > 0) {
-        expect(result.results[0]).toHaveProperty('id');
-        expect(result.results[0]).toHaveProperty('score');
-        expect(result.results[0]).toHaveProperty('payload');
-      }
-    }, 90000);
+	      if (result.results.length > 0) {
+	        expect(result.results[0]).toHaveProperty('id');
+	        expect(result.results[0]).toHaveProperty('score');
+	        expect(result.results[0]).toHaveProperty('payload');
+	      }
+	    }, liveTestTimeout(90000));
 
-    test('applies metadata filter', async () => {
-      const result = await runVector({
+	    test('applies metadata filter', async () => {
+	      const result = await runVector({
         operation: 'query',
         store: 'qdrant-cloud',
         collection: testCollection,
@@ -212,10 +213,10 @@ describeLive('17-vector-cli (transported)', () => {
         }
       });
 
-      expect(result.success).toBe(true);
-      for (const r of result.results ?? []) {
-        expect(r.payload?.category).toBe('ml');
-      }
-    }, 90000);
-  });
-});
+	      expect(result.success).toBe(true);
+	      for (const r of result.results ?? []) {
+	        expect(r.payload?.category).toBe('ml');
+	      }
+	    }, liveTestTimeout(90000));
+	  });
+	});

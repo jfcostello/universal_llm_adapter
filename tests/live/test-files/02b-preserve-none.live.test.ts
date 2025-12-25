@@ -1,7 +1,8 @@
 // 02b — Preserve None
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns } from '../config.ts';
+import { filteredTestRuns as testRuns, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, makeSpec, buildLogPathFor, parseLogBodies, mergeSettings } from '@tests/helpers/live-v2.ts';
+import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 import fs from 'fs';
 
 const runLive = process.env.LLM_LIVE === '1';
@@ -35,19 +36,25 @@ for (let i = 0; i < testRuns.length; i++) {
       const payload = JSON.parse(result.stdout.trim());
       const toolCalls = payload.toolCalls || [];
       expect(Array.isArray(toolCalls) && toolCalls.length >= 1).toBe(true);
-    }, 120000);
+    }, liveTestTimeout(120000));
 
     test('Call 2 — next request has placeholder redaction', async () => {
+      const traceId = createTraceId(`02b-preserve-none-${runCfg.name}-call-2`);
       const spec = makeSpec({
         messages: [
           { role: 'system', content: [{ type: 'text', text: 'Use a function whenever the task is to reflect or repeat input.' }]},
-          { role: 'user', content: [{ type: 'text', text: 'Continue.' }]}
+          { role: 'user', content: [{ type: 'text', text: 'Reflect "placeholder-check" exactly once.' }]}
         ],
         llmPriority: runCfg.llmPriority,
         functionToolNames: ['test.echo'],
+        toolChoice: { type: 'required', allowed: ['test.echo'] },
         settings: mergeSettings(runCfg.settings, { temperature: runTemp, maxTokens: 300, preserveToolResults: 'none', toolCountdownEnabled: true, provider: { require_parameters: true } })
       });
-      const result = await runCoordinator({ args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath], cwd: process.cwd(), env: withLiveEnv({ TEST_FILE }) });
+      const result = await runCoordinator({
+        args: ['run', '--spec', JSON.stringify(attachLangfuseObservability(spec as any, traceId)), '--plugins', pluginsPath],
+        cwd: process.cwd(),
+        env: withLiveEnv({ TEST_FILE })
+      });
       if (result.code !== 0 && providerNotSupportingTools(result.stderr)) { expect(true).toBe(true); return; }
       expect(result.code).toBe(0);
       const logPath = buildLogPathFor(TEST_FILE);
@@ -63,6 +70,12 @@ for (let i = 0; i < testRuns.length; i++) {
           expect(bodyStr.includes('keep-me-once') || bodyStr.includes('[R:12]ecno-em-peek')).toBe(false);
         }
       }
-    }, 120000);
+
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: TEST_FILE });
+      const traceText = stringifyLangfuseTrace(trace);
+      expect(traceText).toContain(
+        'This is a placeholder, not the original tool response; the tool output has been redacted to save context.'
+      );
+    }, liveTestTimeout(120000));
   });
 }

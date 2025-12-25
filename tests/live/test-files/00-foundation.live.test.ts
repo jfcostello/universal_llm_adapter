@@ -1,8 +1,9 @@
 // 00 — Foundation: exact phrase + fallback; deterministic math; header redaction
 import fs from 'fs';
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
-import { filteredTestRuns as testRuns, invalidPriorityEntry } from '../config.ts';
+import { filteredTestRuns as testRuns, invalidPriorityEntry, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, buildLogPathFor, redactionFoundIn, makeSpec, mergeSettings, parseLogBodies } from '@tests/helpers/live-v2.ts';
+import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
@@ -47,30 +48,46 @@ function assertUsageCost(payload: any, usageCostEnabled: boolean): void {
 }
 
 function readCachedTokensFromBody(body: any): number | null {
-  const cachedOpenAI = body?.usage?.prompt_tokens_details?.cached_tokens ??
-    body?.usage?.input_tokens_details?.cached_tokens ??
-    body?.usage?.input_token_details?.cached_tokens;
-  if (typeof cachedOpenAI === 'number') return cachedOpenAI;
+  const candidates = [body, body?.raw, body?.rawResponse].filter(v => v && typeof v === 'object');
 
-  const cachedAnthropicRead = body?.usage?.cache_read_input_tokens;
-  const cachedAnthropicCreate = body?.usage?.cache_creation_input_tokens;
-  if (typeof cachedAnthropicRead === 'number' || typeof cachedAnthropicCreate === 'number') {
-    return (typeof cachedAnthropicRead === 'number' ? cachedAnthropicRead : 0) +
-      (typeof cachedAnthropicCreate === 'number' ? cachedAnthropicCreate : 0);
+  for (const candidate of candidates) {
+    const cachedOpenAI = (candidate as any)?.usage?.prompt_tokens_details?.cached_tokens ??
+      (candidate as any)?.usage?.input_tokens_details?.cached_tokens ??
+      (candidate as any)?.usage?.input_token_details?.cached_tokens;
+    if (typeof cachedOpenAI === 'number') return cachedOpenAI;
+
+    const cachedAnthropicRead = (candidate as any)?.usage?.cache_read_input_tokens;
+    const cachedAnthropicCreate = (candidate as any)?.usage?.cache_creation_input_tokens;
+    if (typeof cachedAnthropicRead === 'number' || typeof cachedAnthropicCreate === 'number') {
+      return (typeof cachedAnthropicRead === 'number' ? cachedAnthropicRead : 0) +
+        (typeof cachedAnthropicCreate === 'number' ? cachedAnthropicCreate : 0);
+    }
+
+    const cachedGoogle = (candidate as any)?.usageMetadata?.cachedContentTokenCount;
+    if (typeof cachedGoogle === 'number') return cachedGoogle;
   }
-
-  const cachedGoogle = body?.usageMetadata?.cachedContentTokenCount;
-  if (typeof cachedGoogle === 'number') return cachedGoogle;
 
   return null;
 }
 
 function assertCachedTokensExtracted(payload: any, logPath: string): void {
   const bodies = parseLogBodies(logPath);
+  const model = typeof payload?.model === 'string' ? payload.model : '';
   let cachedRaw: number | null = null;
 
   for (let i = bodies.length - 1; i >= 0; i--) {
-    const candidate = readCachedTokensFromBody(bodies[i]);
+    const body = bodies[i];
+    const bodyModel =
+      typeof body?.model === 'string'
+        ? body.model
+        : typeof body?.raw?.model === 'string'
+          ? body.raw.model
+          : '';
+    if (model && bodyModel && bodyModel !== model) {
+      continue;
+    }
+
+    const candidate = readCachedTokensFromBody(body);
     if (typeof candidate === 'number') {
       cachedRaw = candidate;
       break;
@@ -105,7 +122,8 @@ for (let i = 0; i < testRuns.length; i++) {
       const testFileBase = '00-foundation';
       const env = withLiveEnv({ TEST_FILE: testFileBase });
 
-      const spec = makeSpec({
+      const traceId = createTraceId(`${testFileBase}-${runCfg.name}-call-1`);
+      const spec = attachLangfuseObservability(makeSpec({
         messages: [
           { role: 'system', content: [{ type: 'text', text: 'Reply with exactly: INTEGRATION_TEST_OK' }]},
           { role: 'user', content: [{ type: 'text', text: 'Reply now.' }]}
@@ -113,7 +131,7 @@ for (let i = 0; i < testRuns.length; i++) {
         llmPriority: [invalidPriorityEntry as any, ...runCfg.llmPriority],
         settings: mergeSettings(runCfg.settings, { temperature: 0, maxTokens: 60000, fakeField: 'fakeValue', usageCost: true }),
         functionToolNames: []
-      });
+      }) as any, traceId);
 
       const result = await runCoordinator({
         args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath],
@@ -138,11 +156,25 @@ for (let i = 0; i < testRuns.length; i++) {
         expect(redactionFoundIn(logText)).toBe(true);
       }
       assertCachedTokensExtracted(payload, logPath);
-    }, 120000);
 
-    test('Call 2: deterministic math', async () => {
-      const env = withLiveEnv({ TEST_FILE: '00-foundation' });
-      const spec = makeSpec({
+      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: testFileBase });
+      const traceText = stringifyLangfuseTrace(trace);
+      expect(traceText).toContain('Reply now.');
+      expect(traceText).toContain(payload.provider);
+      expect(traceText).toContain(payload.model);
+      if (Array.isArray((trace as any)?.input)) {
+        expect((trace as any).input.length).toBeGreaterThan(0);
+      } else {
+        expect(traceText).toContain('INTEGRATION_TEST_OK');
+      }
+    }, liveTestTimeout(120000));
+
+    test('Call 2: observability non-blocking on export failure', async () => {
+      const testFileBase = '00-foundation';
+      const env = withLiveEnv({ TEST_FILE: testFileBase });
+
+      const traceId = createTraceId(`${testFileBase}-${runCfg.name}-call-2`);
+      const spec: any = attachLangfuseObservability(makeSpec({
         messages: [
           { role: 'system', content: [{ type: 'text', text: 'Respond concisely. When a user asks a math question and says "reply with only the number", reply with only the number and no words.' }]},
           { role: 'user', content: [{ type: 'text', text: 'What is 2 + 2? Reply with only the number.' }]}
@@ -150,7 +182,17 @@ for (let i = 0; i < testRuns.length; i++) {
         llmPriority: runCfg.llmPriority,
         settings: mergeSettings(runCfg.settings, { temperature: 0, maxTokens: 60000 }),
         functionToolNames: []
-      });
+      }) as any, traceId);
+
+      spec.observability = {
+        ...(spec.observability ?? {}),
+        // Flush deterministically and fail quickly
+        flushAt: 2,
+        maxAttempts: 1,
+        timeoutMs: 250,
+        // Route the exporter to an unreachable local endpoint; with LLM_LIVE=1, the compat permits overrides.
+        providerConfig: { baseUrl: 'http://127.0.0.1:1' }
+      };
 
       const result = await runCoordinator({
         args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath],
@@ -162,6 +204,48 @@ for (let i = 0; i < testRuns.length; i++) {
       const payload = JSON.parse(result.stdout.trim());
       const text = String(payload.content?.[0]?.text ?? '').trim();
       expect(text).toBe('4');
-    }, 120000);
+
+      const combinedLogs = `${result.logs.join('\n')}\n${String(result.stderr || '')}`;
+      const marker = 'Observability export failed after max attempts';
+      let hasExportFailed = combinedLogs.includes(marker);
+
+      // Server transport returns a snapshot of the server process logs; the observability failure
+      // can be logged shortly after the response is returned. Poll the server log file directly
+      // to avoid flakiness.
+      if (!hasExportFailed && process.env.LLM_LIVE_TRANSPORT === 'server') {
+        const serverLogPath = process.env.LLM_TEST_SERVER_PROCESS_LOG_PATH;
+        if (serverLogPath) {
+          const start = Date.now();
+          const parsedCorrelationId = (() => {
+            for (const line of result.logs) {
+              try {
+                const parsed = JSON.parse(line);
+                if (parsed?.correlationId) return String(parsed.correlationId);
+              } catch {
+                // ignore
+              }
+            }
+            const raw = `${testFileBase}-${runCfg.llmPriority[0].provider}-${runCfg.llmPriority[0].model}`;
+            return raw
+              .normalize('NFKD')
+              .replace(/[^\w]+/g, '-')
+              .replace(/-+/g, '-')
+              .replace(/^-+|-+$/g, '');
+          })();
+          const correlationNeedle = `\"correlationId\":\"${parsedCorrelationId}\"`;
+          while (Date.now() - start < 10000) {
+            if (fs.existsSync(serverLogPath)) {
+              const serverText = fs.readFileSync(serverLogPath, 'utf-8');
+              if (serverText.includes(marker) && serverText.includes(correlationNeedle)) {
+                hasExportFailed = true;
+                break;
+              }
+            }
+            await new Promise(res => setTimeout(res, 200));
+          }
+        }
+      }
+      expect(hasExportFailed).toBe(true);
+    }, liveTestTimeout(120000));
   });
 }

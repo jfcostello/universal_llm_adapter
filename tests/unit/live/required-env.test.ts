@@ -1,7 +1,6 @@
-import { getMissingRequiredEnv, getTestPathPatternsFromJestArgs } from '../../live/required-env.ts';
-
 describe('live/required-env', () => {
-  test('getTestPathPatternsFromJestArgs parses --testPathPattern= form', () => {
+  test('getTestPathPatternsFromJestArgs parses --testPathPattern= form', async () => {
+    const { getTestPathPatternsFromJestArgs } = await import('../../live/required-env.ts');
     const patterns = getTestPathPatternsFromJestArgs([
       'jest.js',
       '--testPathPattern=live',
@@ -10,7 +9,8 @@ describe('live/required-env', () => {
     expect(patterns).toEqual(['live']);
   });
 
-  test('getTestPathPatternsFromJestArgs parses --testPathPattern <value> form', () => {
+  test('getTestPathPatternsFromJestArgs parses --testPathPattern <value> form', async () => {
+    const { getTestPathPatternsFromJestArgs } = await import('../../live/required-env.ts');
     const patterns = getTestPathPatternsFromJestArgs([
       'jest.js',
       '--testPathPattern',
@@ -19,16 +19,19 @@ describe('live/required-env', () => {
     expect(patterns).toEqual(['15-embeddings']);
   });
 
-  test('getMissingRequiredEnv requires provider key for selected providers (openrouter)', () => {
+  test('getMissingRequiredEnv requires provider key for selected providers (openrouter)', async () => {
+    const { getMissingRequiredEnv } = await import('../../live/required-env.ts');
     const missing = getMissingRequiredEnv({
       selectedProviders: ['openrouter'],
       testPathPatterns: ['00-foundation'],
       env: {}
     });
-    expect(missing).toEqual(['OPENROUTER_API_KEY']);
+    // Langfuse keys are required for LLM live runs when observability provider is langfuse.
+    expect(missing).toEqual(['OPENROUTER_API_KEY', 'LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY']);
   });
 
-  test('getMissingRequiredEnv requires provider key for selected providers (openai)', () => {
+  test('getMissingRequiredEnv requires provider key for selected providers (openai)', async () => {
+    const { getMissingRequiredEnv } = await import('../../live/required-env.ts');
     const missing = getMissingRequiredEnv({
       selectedProviders: ['openai'],
       testPathPatterns: ['20-realtime'],
@@ -37,7 +40,18 @@ describe('live/required-env', () => {
     expect(missing).toEqual(['OPENAI_API_KEY']);
   });
 
-  test('getMissingRequiredEnv requires OpenRouter key for embeddings suite', () => {
+  test('getMissingRequiredEnv requires provider key for selected providers (grok)', async () => {
+    const { getMissingRequiredEnv } = await import('../../live/required-env.ts');
+    const missing = getMissingRequiredEnv({
+      selectedProviders: ['grok'],
+      testPathPatterns: ['20-realtime'],
+      env: {}
+    });
+    expect(missing).toEqual(['XAI_API_KEY']);
+  });
+
+  test('getMissingRequiredEnv requires OpenRouter key for embeddings suite', async () => {
+    const { getMissingRequiredEnv } = await import('../../live/required-env.ts');
     const missing = getMissingRequiredEnv({
       selectedProviders: [],
       testPathPatterns: ['15-embeddings'],
@@ -46,7 +60,8 @@ describe('live/required-env', () => {
     expect(missing).toEqual(['OPENROUTER_API_KEY']);
   });
 
-  test('getMissingRequiredEnv requires Qdrant + OpenRouter keys for vector suites', () => {
+  test('getMissingRequiredEnv requires Qdrant + OpenRouter keys for vector suites', async () => {
+    const { getMissingRequiredEnv } = await import('../../live/required-env.ts');
     const missing = getMissingRequiredEnv({
       selectedProviders: [],
       testPathPatterns: ['16-vector-store'],
@@ -55,13 +70,30 @@ describe('live/required-env', () => {
     expect(missing).toEqual(['QDRANT_CLOUD_URL', 'QDRANT_API_KEY']);
   });
 
-  test('getMissingRequiredEnv requires Qdrant + OpenRouter keys for full live suite', () => {
+  test('getMissingRequiredEnv requires Qdrant + OpenRouter keys for full live suite', async () => {
+    const { getMissingRequiredEnv } = await import('../../live/required-env.ts');
     const missing = getMissingRequiredEnv({
       selectedProviders: [],
       testPathPatterns: ['live'],
       env: {}
     });
-    expect(missing).toEqual(['OPENROUTER_API_KEY', 'QDRANT_CLOUD_URL', 'QDRANT_API_KEY']);
+    expect(missing).toEqual([
+      'OPENROUTER_API_KEY',
+      'QDRANT_CLOUD_URL',
+      'QDRANT_API_KEY',
+      'LANGFUSE_PUBLIC_KEY',
+      'LANGFUSE_SECRET_KEY'
+    ]);
+  });
+
+  test('getMissingRequiredEnv does not require Langfuse keys for embeddings-only patterns', async () => {
+    const { getMissingRequiredEnv } = await import('../../live/required-env.ts');
+    const missing = getMissingRequiredEnv({
+      selectedProviders: [],
+      testPathPatterns: ['15-embeddings'],
+      env: {}
+    });
+    expect(missing).not.toContain('LANGFUSE_SECRET_KEY');
+    expect(missing).not.toContain('LANGFUSE_PUBLIC_KEY');
   });
 });
-

@@ -56,6 +56,9 @@ describe('modules/kernel', () => {
       jest.unstable_mockModule('../../../modules/usage/index.js', () => {
         throw new Error('kernel must not import usage module');
       });
+      jest.unstable_mockModule('../../../modules/observability/index.js', () => {
+        throw new Error('kernel must not import observability module');
+      });
 
       const kernel = await import('@/modules/kernel/index.ts');
 

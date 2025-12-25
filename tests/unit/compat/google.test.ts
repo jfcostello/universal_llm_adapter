@@ -84,7 +84,7 @@ describe('unit/compat/google', () => {
     });
     expect(result.contents[1].role).toBe('user');
     expect(result.contents[1].parts[0]).toEqual({
-      functionResponse: { name: 'get_weather', response: { temp: 72 } }
+      functionResponse: { name: 'get_weather', response: { result: { temp: 72 } } }
     });
   });
 
@@ -357,7 +357,7 @@ describe('unit/compat/google', () => {
     const [name, response] = compat.extractToolResponse(message);
 
     expect(name).toBe('weather');
-    expect(response).toEqual({ temp: 75, unit: 'F' });
+    expect(response).toEqual({ result: { temp: 75, unit: 'F' } });
   });
 
   test('extractToolResponse falls back to text when no structured result', () => {
@@ -564,7 +564,7 @@ describe('unit/compat/google', () => {
     const [name, response] = compat.extractToolResponse(message);
 
     expect(name).toBe('test');
-    expect(response).toEqual({ output: 'Result: 42\nTool calls used 1 of 10' });
+    expect(response).toEqual({ output: 'Result: 42\nTool calls used 1 of 10', result: { value: 42 } });
   });
 
   test('buildSDKParams includes all config options', () => {
@@ -918,7 +918,7 @@ describe('unit/compat/google', () => {
     const [name, response] = compat.extractToolResponse(message);
 
     expect(name).toBe('test_tool');
-    expect(response).toEqual({ data: 'value' });
+    expect(response).toEqual({ result: { data: 'value' } });
   });
 
   test('extractToolResponse handles no text parts but has result', () => {
@@ -933,7 +933,7 @@ describe('unit/compat/google', () => {
     const [name, response] = compat.extractToolResponse(message);
 
     expect(name).toBe('test_tool');
-    expect(response).toBe('string result');
+    expect(response).toEqual({ result: 'string result' });
   });
 
   test('serializeToolsForSDK handles missing tool description', () => {
@@ -1109,7 +1109,7 @@ describe('unit/compat/google', () => {
     const [name, response] = compat.extractToolResponse(message);
 
     expect(name).toBe('test_tool');
-    expect(response).toEqual({ output: '' });
+    expect(response).toEqual({ output: '', result: 'value' });
   });
 
   test('extractToolResponse handles undefined result', () => {
@@ -1124,7 +1124,23 @@ describe('unit/compat/google', () => {
     const [name, response] = compat.extractToolResponse(message);
 
     expect(name).toBe('test_tool');
-    expect(response).toEqual({});
+    expect(response).toEqual({ output: '' });
+  });
+
+  test('extractToolResponse omits result when missing but includes text parts', () => {
+    const compat: any = new GoogleCompat();
+    const message = {
+      role: 'tool',
+      content: [
+        { type: 'tool_result', toolName: 'test.tool' }, // No result field
+        { type: 'text', text: 'Tool returned something' }
+      ]
+    };
+
+    const [name, response] = compat.extractToolResponse(message);
+
+    expect(name).toBe('test_tool');
+    expect(response).toEqual({ output: 'Tool returned something' });
   });
 
   test('extractToolResponse handles fallback with non-string text', () => {
@@ -1163,7 +1179,7 @@ describe('unit/compat/google', () => {
     const [name, response] = compat.extractToolResponse(message);
 
     expect(name).toBe('test_tool');
-    expect(response).toEqual({ value: 'data' });
+    expect(response).toEqual({ result: { value: 'data' } });
   });
 
   test('extractToolResponse fallback handles message with undefined content for line 254', () => {
@@ -1249,7 +1265,7 @@ describe('unit/compat/google', () => {
     // Now remove text parts - keep only tool_result
     const [name, response] = compat.extractToolResponse(message);
     expect(name).toBe('my_tool');
-    expect(response).toEqual({ answer: 42 });
+    expect(response).toEqual({ result: { answer: 42 } });
   });
 
   test('parseSDKResponse maps part with text filter but undefined text uses ?? fallback on line 446', () => {

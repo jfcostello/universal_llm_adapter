@@ -11,7 +11,10 @@ import type {
   VectorContextConfig,
   PluginRegistry,
   AdapterLogger,
-  LoggingDeps
+  LoggingDeps,
+  RunContext,
+  ObservabilityContext,
+  ObservabilitySpec
 } from '../../kernel/index.js';
 import {
   Role,
@@ -20,6 +23,7 @@ import {
   getDefaults,
   resolveLoggingDeps
 } from '../../kernel/index.js';
+import { randomUUID } from 'crypto';
 import { LLMManager } from './llm-manager.js';
 import { normalizeFlag } from '../../shared/index.js';
 import { pruneToolResults, pruneReasoning } from '../../context/index.js';
@@ -134,6 +138,112 @@ export class LLMCoordinator {
     this.logger = this.logging.getLogger();
   }
 
+  /**
+   * Create observability context if observability is enabled.
+   * Lazy-loads the observability module only when needed.
+   */
+  private async createObservabilityContext(
+    spec: LLMCallSpec,
+    runtime: RuntimeSettings
+  ): Promise<ObservabilityContext | undefined> {
+    const defaults = getDefaults().observability;
+    const obsSpec = spec.observability;
+
+    // Determine if observability is enabled
+    const enabled = obsSpec?.enabled ?? defaults.enabled;
+    if (!enabled) {
+      return undefined;
+    }
+
+    const normalizeCaptureMessages = (
+      value: unknown,
+      fallback: 'none' | 'text' | 'full'
+    ): 'none' | 'text' | 'full' => {
+      const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+      if (raw === 'none' || raw === 'text' || raw === 'full') return raw;
+      return fallback;
+    };
+
+    const normalizeBool = (value: unknown, fallback: boolean): boolean => {
+      return typeof value === 'boolean' ? value : fallback;
+    };
+
+    const normalizeNumber = (value: unknown): number | null => {
+      if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+      if (typeof value === 'string') {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    const clampInt = (value: unknown, fallback: number, min: number, max: number): number => {
+      const normalized = normalizeNumber(value);
+      const asInt = Number.isFinite(normalized as any) ? Math.floor(normalized as number) : Math.floor(fallback);
+      return Math.min(max, Math.max(min, asInt));
+    };
+
+    const clampRate = (value: unknown, fallback: number): number => {
+      const normalized = normalizeNumber(value);
+      const asNum = Number.isFinite(normalized as any) ? (normalized as number) : fallback;
+      return Math.min(1, Math.max(0, asNum));
+    };
+
+    const captureMessages = normalizeCaptureMessages(obsSpec?.captureMessages, defaults.captureMessages);
+    const captureToolArgs = normalizeBool(obsSpec?.captureToolArgs, defaults.captureToolArgs);
+    const captureRequestPayload = normalizeBool(obsSpec?.captureRequestPayload, defaults.captureRequestPayload);
+    const captureRawResponse = normalizeBool(obsSpec?.captureRawResponse, defaults.captureRawResponse);
+    const sampleRate = clampRate(obsSpec?.sampleRate, defaults.sampleRate);
+    const maxInputTextBytes = clampInt(obsSpec?.maxInputTextBytes, defaults.maxInputTextBytes, 0, 1_000_000);
+    const maxOutputTextBytes = clampInt(obsSpec?.maxOutputTextBytes, defaults.maxOutputTextBytes, 0, 1_000_000);
+    const maxJsonBytes = clampInt(obsSpec?.maxJsonBytes, defaults.maxJsonBytes, 0, 5_000_000);
+
+    // If sampling is disabled or this call is not selected, skip observability entirely.
+    if (sampleRate <= 0) return undefined;
+    if (sampleRate < 1 && Math.random() >= sampleRate) return undefined;
+
+    // Use the base logger (no correlation) because the exporter can be shared across many calls.
+    const obsLogger = this.logger;
+
+    // Lazy-load observability module
+    const { createObservabilityDeps } = await import('../../observability/index.js');
+    const obsDeps = await createObservabilityDeps(this.registry, obsSpec, obsLogger);
+
+    // If observability couldn't be initialized, return undefined
+    if (!obsDeps.isEnabled()) {
+      return undefined;
+    }
+
+    const exporter = obsDeps.getExporter();
+
+    // Determine trace ID: spec override > correlation ID > generated UUID
+    const traceId = obsSpec?.traceId ??
+      (spec.metadata?.correlationId as string | undefined) ??
+      randomUUID();
+
+    // Determine session ID: spec override > batch ID
+    const sessionId = obsSpec?.sessionId ??
+      (runtime.batchId ? String(runtime.batchId) : undefined) ??
+      (typeof process.env.LLM_ADAPTER_BATCH_ID === 'string' && process.env.LLM_ADAPTER_BATCH_ID.trim()
+        ? process.env.LLM_ADAPTER_BATCH_ID.trim()
+        : undefined);
+
+    return {
+      exporter,
+      traceId,
+      sessionId,
+      metadata: spec.metadata,
+      captureMessages,
+      captureToolArgs,
+      captureRequestPayload,
+      captureRawResponse,
+      sampleRate,
+      maxInputTextBytes,
+      maxOutputTextBytes,
+      maxJsonBytes
+    };
+  }
+
   async run(spec: LLMCallSpec): Promise<LLMResponse> {
     const { runtime, provider, providerExtras } = partitionSettings(spec.settings);
     await this.applyRuntimeEnvironment(runtime);
@@ -183,11 +293,15 @@ export class LLMCoordinator {
       executionSpec.toolChoice = sanitizeToolChoice(executionSpec.toolChoice);
     }
 
-    const runContext = {
+    // Create observability context if enabled (lazy-loads observability module)
+    const observability = await this.createObservabilityContext(spec, runtime);
+
+    const runContext: RunContext = {
       tools: tools.map(t => t.name),
       mcpServers,
       toolNameMap,
-      metadata: spec.metadata
+      metadata: spec.metadata,
+      observability
     };
 
     const runLogger = this.logger.withCorrelation(spec.metadata?.correlationId as string);
@@ -357,6 +471,9 @@ export class LLMCoordinator {
       mcpServers
     });
 
+    // Create observability context if enabled (lazy-loads observability module)
+    const observability = await this.createObservabilityContext(spec, runtime);
+
     // Delegate streaming to StreamCoordinator
     const streamCoordinator = new (await import('./stream-coordinator.js')).StreamCoordinator(
       this.registry,
@@ -371,7 +488,8 @@ export class LLMCoordinator {
       mcpServers,
       toolNameMap: new Map<string, string>(Object.entries(toolNameMap)),
       logger: runLogger,
-      metadata: spec.metadata
+      metadata: spec.metadata,
+      observability
     };
 
     yield* streamCoordinator.coordinateStream(

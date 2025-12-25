@@ -121,6 +121,10 @@ describe('lifecycle/internal/factories', () => {
   describe('closeLogger', () => {
     test('calls closeLogger from logging module', async () => {
       const closeLoggerMock = jest.fn().mockResolvedValue(undefined);
+      const shutdownAllMock = jest.fn().mockResolvedValue(undefined);
+
+      const runtimeSymbol = Symbol.for('llm_adapter_observability_runtime');
+      (globalThis as any)[runtimeSymbol] = { shutdownAll: shutdownAllMock };
 
       (jest as any).unstable_mockModule('@/modules/logging/index.ts', () => ({
         closeLogger: closeLoggerMock
@@ -129,7 +133,30 @@ describe('lifecycle/internal/factories', () => {
       const { closeLogger } = await import('@/modules/lifecycle/internal/factories.ts');
       await closeLogger();
 
+      expect(shutdownAllMock).toHaveBeenCalled();
       expect(closeLoggerMock).toHaveBeenCalled();
+
+      delete (globalThis as any)[runtimeSymbol];
+    });
+
+    test('swallows observability shutdown failures and still closes logging', async () => {
+      const closeLoggerMock = jest.fn().mockResolvedValue(undefined);
+      const shutdownAllMock = jest.fn().mockRejectedValue(undefined);
+
+      const runtimeSymbol = Symbol.for('llm_adapter_observability_runtime');
+      (globalThis as any)[runtimeSymbol] = { shutdownAll: shutdownAllMock };
+
+      (jest as any).unstable_mockModule('@/modules/logging/index.ts', () => ({
+        closeLogger: closeLoggerMock
+      }));
+
+      const { closeLogger } = await import('@/modules/lifecycle/internal/factories.ts');
+      await expect(closeLogger()).resolves.toBeUndefined();
+
+      expect(shutdownAllMock).toHaveBeenCalled();
+      expect(closeLoggerMock).toHaveBeenCalled();
+
+      delete (globalThis as any)[runtimeSymbol];
     });
   });
 });

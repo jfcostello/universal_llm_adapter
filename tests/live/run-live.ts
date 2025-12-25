@@ -6,7 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { parseLaunchConfig, buildJestArgs } from './launcher/index.js';
-import { maxWorkersDefault } from './config.ts';
+import { maxWorkersDefault, realtimeTestRuns } from './config.ts';
 import { getTestPathPatternsFromJestArgs, getMissingRequiredEnv } from './required-env.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -17,6 +17,20 @@ function createRunId(prefix: string): string {
   // File-safe + stable, avoids characters that are invalid in env-derived IDs.
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   return `${prefix}-${stamp}`;
+}
+
+function createLiveBatchId(): string {
+  const now = new Date();
+  const pad2 = (n: number) => String(n).padStart(2, '0');
+  return [
+    'live-test',
+    now.getUTCFullYear(),
+    pad2(now.getUTCMonth() + 1),
+    pad2(now.getUTCDate()),
+    pad2(now.getUTCHours()),
+    pad2(now.getUTCMinutes()),
+    pad2(now.getUTCSeconds())
+  ].join('-');
 }
 
 async function spawnAndWait(
@@ -180,6 +194,9 @@ async function main() {
 
   const baseEnv: NodeJS.ProcessEnv = { ...process.env, LLM_LIVE: '1' };
   if (provider) baseEnv.LLM_TEST_PROVIDERS = provider;
+  const liveBatchId = createLiveBatchId();
+  baseEnv.LLM_ADAPTER_BATCH_ID = liveBatchId;
+  baseEnv.LLM_LIVE_BATCH_ID = liveBatchId;
 
   const testPathPatterns = getTestPathPatternsFromJestArgs(jestArgs);
 
@@ -212,7 +229,9 @@ async function main() {
     selectedProviders.length > 0
       ? selectedProviders
       : wantsRealtime
-        ? ['openai', 'google']
+        ? Array.from(
+            new Set(realtimeTestRuns.map(r => String((r as any)?.provider || '').trim()).filter(Boolean))
+          )
         : expectsLlmSuites
           ? ['anthropic', 'openai-responses', 'openrouter', 'google']
           : [];
@@ -268,7 +287,7 @@ async function main() {
     }
   }
 
-  const batchId = createRunId('live-server');
+  const batchId = liveBatchId;
   const server = await startLiveServer({
     env: {
       ...process.env,
