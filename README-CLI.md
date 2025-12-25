@@ -1012,7 +1012,7 @@ export VECTOR_STORE_API_KEY=...
 
 ### Observability (Optional)
 
-For LLM call telemetry export to Langfuse:
+For LLM call telemetry export to Langfuse (capture is minimal unless you opt in):
 
 ```bash
 export LANGFUSE_SECRET_KEY=sk-lf-...
@@ -1025,7 +1025,8 @@ Enable observability in your spec:
 {
   "observability": {
     "enabled": true,
-    "provider": "langfuse"
+    "provider": "langfuse",
+    "captureMessages": "text"
   }
 }
 ```

@@ -243,7 +243,7 @@ MCP server configurations live in `plugins/mcp/*.json`:
 
 ### Observability (Optional)
 
-Observability enables export of LLM call telemetry to platforms like Langfuse. It is disabled by default.
+Observability enables export of LLM call telemetry to platforms like Langfuse. It is disabled by default, and capture is intentionally minimal unless you opt in.
 
 **Global Configuration** (`plugins/configs/defaults.json`):
 
@@ -251,7 +251,8 @@ Observability enables export of LLM call telemetry to platforms like Langfuse. I
 {
   "observability": {
     "enabled": true,
-    "provider": "langfuse"
+    "provider": "langfuse",
+    "captureMessages": "text"
   }
 }
 ```
@@ -264,7 +265,12 @@ Observability enables export of LLM call telemetry to platforms like Langfuse. I
     enabled: true,
     provider: 'langfuse',
     traceId: 'custom-trace-id',    // Optional
-    sessionId: 'session-abc'        // Optional
+    sessionId: 'session-abc',       // Optional
+    // Capture controls (defaults are safe/lightweight)
+    captureMessages: 'text',        // 'none' | 'text' | 'full'
+    captureToolArgs: false,
+    captureRequestPayload: false,
+    captureRawResponse: false
   }
 }
 ```

@@ -1020,7 +1020,8 @@ Enable LLM call telemetry export in your request body:
 {
   "observability": {
     "enabled": true,
-    "provider": "langfuse"
+    "provider": "langfuse",
+    "captureMessages": "text"
   },
   "messages": [...],
   "llmPriority": [...]
