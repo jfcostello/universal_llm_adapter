@@ -51,6 +51,8 @@ interface QueuedEvent {
 // OBSERVABILITY EXPORTER
 // ============================================================
 
+const DROP_WARNING_THROTTLE_MS = 10_000;
+
 /**
  * Configuration for the observability exporter.
  */
@@ -101,6 +103,8 @@ export class ObservabilityExporter implements IObservabilityExporter {
   private shuttingDown = false;
   private flushPromise: Promise<void> | null = null;
   private logger: AdapterLogger;
+  private droppedSinceLastWarning = 0;
+  private lastDropWarningMs: number | null = null;
 
   constructor(
     private config: ObservabilityExporterConfig,
@@ -171,6 +175,28 @@ export class ObservabilityExporter implements IObservabilityExporter {
     return dropped;
   }
 
+  private warnOnQueueDrop(dropped: QueuedEvent): void {
+    this.droppedSinceLastWarning += 1;
+    const now = Date.now();
+
+    const shouldLog =
+      this.lastDropWarningMs === null || now - this.lastDropWarningMs >= DROP_WARNING_THROTTLE_MS;
+    if (!shouldLog) {
+      return;
+    }
+
+    const droppedEvents = this.droppedSinceLastWarning;
+    this.droppedSinceLastWarning = 0;
+    this.lastDropWarningMs = now;
+
+    this.logger.warning('Observability queue full; dropped oldest event', {
+      provider: this.config.provider,
+      droppedEventId: dropped.id,
+      maxQueueSize: this.config.maxQueueSize,
+      ...(droppedEvents > 1 ? { droppedEvents } : {})
+    });
+  }
+
   /**
    * Enqueue an event.
    */
@@ -185,11 +211,7 @@ export class ObservabilityExporter implements IObservabilityExporter {
       // Drop oldest events to make room
       const dropped = this.dropOldestEvent();
       if (dropped) {
-        this.logger.warning('Observability queue full; dropped oldest event', {
-          provider: this.config.provider,
-          droppedEventId: dropped.id,
-          maxQueueSize: this.config.maxQueueSize
-        });
+        this.warnOnQueueDrop(dropped);
       }
     }
 

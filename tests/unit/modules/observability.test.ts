@@ -995,6 +995,68 @@ describe('modules/observability', () => {
       await exporter.shutdown();
     });
 
+    test('throttles queue-drop warnings and aggregates suppressed drops', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+      const mockLogger = createMockLogger();
+      const nowSpy = jest.spyOn(Date, 'now');
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      nowSpy.mockReturnValue(0);
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          logger: mockLogger,
+          flushAt: 100, // prevent auto-flush
+          flushIntervalMs: 60000,
+          maxQueueSize: 1,
+          maxAttempts: 1,
+          baseDelayMs: 1,
+          maxDelayMs: 1,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      const first = exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
+      exporter.recordLLMRequest({ traceId: 'trace-2', timestamp: '', provider: '', model: '', messages: [] });
+
+      expect(mockLogger.warning).toHaveBeenCalledTimes(1);
+      expect(mockLogger.warning).toHaveBeenCalledWith(
+        'Observability queue full; dropped oldest event',
+        expect.objectContaining({ droppedEventId: first.eventId })
+      );
+
+      const third = exporter.recordLLMRequest({ traceId: 'trace-3', timestamp: '', provider: '', model: '', messages: [] });
+      expect(mockLogger.warning).toHaveBeenCalledTimes(1);
+
+      nowSpy.mockReturnValue(10_000 + 1);
+      exporter.recordLLMRequest({ traceId: 'trace-4', timestamp: '', provider: '', model: '', messages: [] });
+
+      expect(mockLogger.warning).toHaveBeenCalledTimes(2);
+      expect(mockLogger.warning).toHaveBeenLastCalledWith(
+        'Observability queue full; dropped oldest event',
+        expect.objectContaining({
+          droppedEventId: third.eventId,
+          droppedEvents: 2
+        })
+      );
+
+      nowSpy.mockRestore();
+      await exporter.shutdown();
+    });
+
     test('compacts the queue backing array after many drops', async () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
 
