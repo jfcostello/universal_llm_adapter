@@ -52,6 +52,8 @@ export LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE="1"
 export LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST="your-langfuse-instance.com"
 ```
 
+In non-live mode, the override is ignored unless the allowlist is present and non-empty. In live-test mode (`LLM_LIVE=1`), overrides are intentionally permissive to support local failure-path testing.
+
 Then you may specify `baseUrl` in `providerConfig`:
 
 ```typescript

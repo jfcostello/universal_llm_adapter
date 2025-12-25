@@ -368,6 +368,56 @@ describe('LangfuseCompat (OTLP)', () => {
       nowSpy.mockRestore();
     });
 
+    it('bounds the request cache with LRU eviction and stores compact summaries', () => {
+      const cache = (compat as any).requestCache;
+      cache.setMaxEntries(2);
+
+      const req1: ObservabilityLLMRequestEvent = {
+        ...requestEvent,
+        traceId: makeHexTraceId('aaaa'),
+        generationId: 'gen-1'
+      };
+      const req2: ObservabilityLLMRequestEvent = {
+        ...requestEvent,
+        traceId: makeHexTraceId('bbbb'),
+        generationId: 'gen-2'
+      };
+      const req3: ObservabilityLLMRequestEvent = {
+        ...requestEvent,
+        traceId: makeHexTraceId('cccc'),
+        generationId: 'gen-3'
+      };
+
+      compat.buildBatch([req1], mockManifest, { eventIds: ['req-1'], maxAttributeValueBytes: 1024 } as any);
+      compat.buildBatch([req2], mockManifest, { eventIds: ['req-2'], maxAttributeValueBytes: 1024 } as any);
+      compat.buildBatch([req3], mockManifest, { eventIds: ['req-3'], maxAttributeValueBytes: 1024 } as any);
+
+      expect(cache.size).toBe(2);
+      expect(cache.has(`${req1.traceId}:${req1.generationId}`)).toBe(false);
+
+      const cached = cache.get(`${req3.traceId}:${req3.generationId}`);
+      expect(cached).toBeDefined();
+      expect(typeof cached.summary?.startTimeIso).toBe('string');
+      // Should not retain full request event trees.
+      expect(cached.summary?.event).toBeUndefined();
+      expect(cached.summary?.messages).toBeUndefined();
+    });
+
+    it('caches empty provider/model as empty strings', () => {
+      const req: ObservabilityLLMRequestEvent = {
+        ...requestEvent,
+        traceId: makeHexTraceId('empty'),
+        generationId: 'gen-empty',
+        provider: '' as any,
+        model: '' as any
+      };
+
+      compat.buildBatch([req], mockManifest, { eventIds: ['event-req'], maxAttributeValueBytes: 1024 } as any);
+      const cached = (compat as any).requestCache.get(`${req.traceId}:${req.generationId}`);
+      expect(cached.summary.provider).toBe('');
+      expect(cached.summary.model).toBe('');
+    });
+
     it('falls back to response timestamp when durationMs is missing and model can be empty', () => {
       const resp: ObservabilityLLMResponseEvent = {
         traceId: '' as any,
@@ -576,7 +626,29 @@ describe('LangfuseCompat (OTLP)', () => {
       expect(fetchCall?.[0]).toBe('http://localhost:1234/api/public/otel/v1/traces');
     });
 
-    it('treats empty allowlist entries as no allowlist (allows override)', async () => {
+    it('blocks baseUrl override when allow env var is set but allowlist is missing (non-live)', async () => {
+      process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
+      delete process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST;
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: { get: () => null }
+      } as any);
+
+      compat.buildBatch([requestEvent], mockManifest, { eventIds: ['event-req'] } as any);
+      const { payload } = compat.buildBatch([responseEvent], mockManifest, { eventIds: ['event-resp'] } as any);
+
+      await compat.sendBatch(payload, mockManifest, {
+        providerConfig: { baseUrl: 'http://127.0.0.1:1' }
+      } as any);
+
+      const fetchCall = mockFetch.mock.calls[0];
+      expect(fetchCall?.[0]).toBe('https://cloud.langfuse.com/api/public/otel/v1/traces');
+    });
+
+    it('treats empty allowlist entries as missing allowlist (blocks override in non-live)', async () => {
       process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
       process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST = ',,';
 
@@ -595,7 +667,7 @@ describe('LangfuseCompat (OTLP)', () => {
       } as any);
 
       const fetchCall = mockFetch.mock.calls[0];
-      expect(fetchCall?.[0]).toBe('http://127.0.0.1:1/api/public/otel/v1/traces');
+      expect(fetchCall?.[0]).toBe('https://cloud.langfuse.com/api/public/otel/v1/traces');
     });
 
     it('allows baseUrl overrides when allowlist matches host (including port)', async () => {
@@ -690,6 +762,7 @@ describe('LangfuseCompat (OTLP)', () => {
 
     it('resolves relative templates against baseUrl override and prefixes missing leading slash', async () => {
       process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
+      process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST = '127.0.0.1';
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -719,6 +792,7 @@ describe('LangfuseCompat (OTLP)', () => {
 
     it('resolves leading-slash relative templates against baseUrl override', async () => {
       process.env.LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE = '1';
+      process.env.LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST = '127.0.0.1';
 
       mockFetch.mockResolvedValueOnce({
         ok: true,

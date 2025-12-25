@@ -6,7 +6,7 @@ import type {
   ObservabilityLLMRequestEvent,
   ObservabilityLLMResponseEvent
 } from '../../../../modules/kernel/index.js';
-import { substituteEnv } from '../../../../modules/kernel/index.js';
+import { LruMap, substituteEnv } from '../../../../modules/kernel/index.js';
 import { truncateUtf8Bytes } from '../../../../modules/shared/index.js';
 import type { OtlpSpanSpec } from '../../../../modules/observability/index.js';
 import { deriveOtlpSpanIdHex, deriveOtlpTraceIdHex } from '../../../../modules/observability/index.js';
@@ -17,6 +17,7 @@ const ALLOW_BASEURL_OVERRIDE_ENV = 'LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVER
 const BASEURL_OVERRIDE_ALLOWLIST_ENV = 'LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST';
 
 const REQUEST_CACHE_TTL_MS = 10 * 60_000;
+const REQUEST_CACHE_MAX_ENTRIES = 1000;
 
 function safeJson(value: unknown): string {
   try {
@@ -143,6 +144,7 @@ function resolveIngestionUrl(
   if (overrideUrl.protocol !== 'http:' && overrideUrl.protocol !== 'https:') return resolved;
 
   const allowlist = getBaseUrlOverrideAllowlist();
+  if (process.env.LLM_LIVE !== '1' && !allowlist) return resolved;
   if (!isUrlHostAllowlisted(overrideUrl, allowlist)) return resolved;
 
   let pathnameAndSearch = '';
@@ -212,8 +214,21 @@ function deriveStartTimeIso(response: ObservabilityLLMResponseEvent): string {
 }
 
 type CachedRequest = {
-  event: ObservabilityLLMRequestEvent;
+  summary: CachedRequestSummary;
   createdAtMs: number;
+};
+
+type CachedRequestSummary = {
+  startTimeIso: string;
+  sessionId?: string;
+  provider: string;
+  model: string;
+  correlationId?: string;
+  batchId?: string;
+  tags?: string[];
+  inputText: string;
+  observationInput: string;
+  modelParameters: string;
 };
 
 function cacheKey(traceId: string, generationId?: string): string {
@@ -246,6 +261,30 @@ function truncateAttribute(value: string, context?: ObservabilityCompatContext):
   return truncateUtf8Bytes(value, max);
 }
 
+function buildCachedRequestSummary(
+  request: ObservabilityLLMRequestEvent,
+  context?: ObservabilityCompatContext
+): CachedRequestSummary {
+  const metadata = request.metadata;
+  const sessionId = request.sessionId ? String(request.sessionId) : undefined;
+  const correlationId = getStringMetadata(metadata, 'correlationId');
+  const batchId = getStringMetadata(metadata, 'batchId') ?? sessionId;
+  const tags = getStringArrayMetadata(metadata, 'tags');
+
+  return {
+    startTimeIso: String(request.timestamp),
+    sessionId,
+    provider: String(request.provider || ''),
+    model: String(request.model || ''),
+    correlationId,
+    batchId,
+    tags,
+    inputText: truncateAttribute(flattenPrimitiveStrings(request.messages), context),
+    observationInput: truncateAttribute(buildInputJson(request), context),
+    modelParameters: truncateAttribute(safeJson(request.settings ?? {}), context)
+  };
+}
+
 function collectPrimitiveStrings(value: unknown, out: string[]): void {
   if (value === null || value === undefined) return;
   if (typeof value === 'string') {
@@ -274,7 +313,7 @@ function flattenPrimitiveStrings(value: unknown): string {
 }
 
 export class LangfuseCompat implements IObservabilityCompat {
-  private requestCache = new Map<string, CachedRequest>();
+  private requestCache = new LruMap<string, CachedRequest>(REQUEST_CACHE_MAX_ENTRIES);
 
   buildBatch(
     events: unknown[],
@@ -293,7 +332,7 @@ export class LangfuseCompat implements IObservabilityCompat {
 
       if (isRequestEvent(event)) {
         const key = cacheKey(event.traceId, event.generationId);
-        this.requestCache.set(key, { event, createdAtMs: now });
+        this.requestCache.set(key, { summary: buildCachedRequestSummary(event, context), createdAtMs: now });
         continue;
       }
 
@@ -303,16 +342,17 @@ export class LangfuseCompat implements IObservabilityCompat {
 
       const key = cacheKey(event.traceId, event.generationId);
       const cached = this.requestCache.get(key);
+      const cachedSummary = cached?.summary;
 
-      const sessionId = cached?.event?.sessionId
-        ? String(cached.event.sessionId)
+      const sessionId = cachedSummary?.sessionId
+        ? String(cachedSummary.sessionId)
         : event.sessionId
           ? String(event.sessionId)
           : undefined;
-      const metadata = cached?.event?.metadata ?? event.metadata;
-      const correlationId = getStringMetadata(metadata, 'correlationId');
-      const batchId = getStringMetadata(metadata, 'batchId') ?? sessionId;
-      const tags = getStringArrayMetadata(metadata, 'tags');
+      const metadata = event.metadata;
+      const correlationId = cachedSummary?.correlationId ?? getStringMetadata(metadata, 'correlationId');
+      const batchId = cachedSummary?.batchId ?? (getStringMetadata(metadata, 'batchId') ?? sessionId);
+      const tags = cachedSummary?.tags ?? getStringArrayMetadata(metadata, 'tags');
 
       const envelopeId = getEnvelopeId(
         eventIds,
@@ -324,7 +364,7 @@ export class LangfuseCompat implements IObservabilityCompat {
         traceIdHex: deriveOtlpTraceIdHex(String(event.traceId)),
         spanIdHex: deriveOtlpSpanIdHex(String(event.generationId || envelopeId)),
         name: DEFAULT_SPAN_NAME,
-        startTimeIso: cached?.event?.timestamp ? String(cached.event.timestamp) : deriveStartTimeIso(event),
+        startTimeIso: cachedSummary?.startTimeIso ? String(cachedSummary.startTimeIso) : deriveStartTimeIso(event),
         endTimeIso: String(event.timestamp),
         status: event.error
           ? { code: 'ERROR', message: String(event.error.message || 'error') }
@@ -336,9 +376,9 @@ export class LangfuseCompat implements IObservabilityCompat {
           ...(tags ? { 'langfuse.trace.tags': tags } : {}),
           ...(correlationId ? { 'llm.adapter.correlation_id': correlationId } : {}),
           ...(batchId ? { 'llm.adapter.batch_id': batchId } : {}),
-          'llm.adapter.provider': String(event.provider || cached?.event?.provider || ''),
+          'llm.adapter.provider': String(event.provider || cachedSummary?.provider || ''),
           'llm.adapter.input_text': truncateAttribute(
-            cached?.event ? flattenPrimitiveStrings(cached.event.messages) : '',
+            cachedSummary?.inputText ?? '',
             context
           ),
           'llm.adapter.output_text': truncateAttribute(
@@ -348,11 +388,14 @@ export class LangfuseCompat implements IObservabilityCompat {
           }),
             context
           ),
-          'langfuse.observation.input': truncateAttribute(buildInputJson(cached?.event), context),
+          'langfuse.observation.input': truncateAttribute(
+            cachedSummary?.observationInput ?? buildInputJson(undefined),
+            context
+          ),
           'langfuse.observation.output': truncateAttribute(buildOutputJson(event), context),
-          'langfuse.observation.model.name': String(event.model || cached?.event?.model || ''),
+          'langfuse.observation.model.name': String(event.model || cachedSummary?.model || ''),
           'langfuse.observation.model.parameters': truncateAttribute(
-            safeJson(cached?.event?.settings ?? {}),
+            cachedSummary?.modelParameters ?? safeJson({}),
             context
           ),
           'langfuse.observation.usage_details': truncateAttribute(
