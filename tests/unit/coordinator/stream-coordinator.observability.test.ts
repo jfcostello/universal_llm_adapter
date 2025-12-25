@@ -131,6 +131,125 @@ describe('StreamCoordinator observability', () => {
     expect(requestArg.generationId).toBe(responseArg.generationId);
   });
 
+  test('records tool call arguments in the final observability response event (minimally redacted)', async () => {
+    const parseStreamChunk = () => ({
+      toolEvents: [
+        { type: ToolCallEventType.TOOL_CALL_START, callId: 'tool-1', name: 'echo.text' },
+        {
+          type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA,
+          callId: 'tool-1',
+          argumentsDelta: '{"a":1,"api_key":"supersecret"}'
+        },
+        { type: ToolCallEventType.TOOL_CALL_END, callId: 'tool-1', name: 'echo.text' }
+      ],
+      finishedWithToolCalls: true
+    });
+
+    const { coordinator } = await createCoordinator({
+      streamChunks: [{}],
+      parseStreamChunk,
+      runToolLoopReturn: { content: 'follow-up' }
+    });
+
+    const observability = createObservabilityContext();
+
+    const spec: any = {
+      llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
+      settings: {},
+      metadata: { correlationId: 'corr-789' }
+    };
+
+    const messages: any[] = [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }];
+    const tools: any[] = [{ name: 'echo.text', description: 'echo' }];
+
+    const context: any = {
+      provider: 'stub-provider',
+      model: 'stub-model',
+      tools,
+      mcpServers: [],
+      toolNameMap: new Map(),
+      logger: { info: jest.fn(), warning: jest.fn() },
+      metadata: spec.metadata,
+      observability
+    };
+
+    for await (const _event of coordinator.coordinateStream(spec, messages, tools, context, { requireFinishToExecute: true })) {
+      // consume
+    }
+
+    expect(observability.exporter.recordLLMResponse).toHaveBeenCalled();
+    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+    expect(responseArg.toolCalls).toEqual([
+      { id: 'tool-1', name: 'echo.text', arguments: { a: 1, api_key: '***cret' } }
+    ]);
+  });
+
+  test('observability toolCalls mapping handles args fallback, missing args, and metadata', async () => {
+    const parseStreamChunk = () => ({
+      toolEvents: [
+        { type: ToolCallEventType.TOOL_CALL_START, callId: 'tool-1', name: 'echo.text' },
+        { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: 'tool-1', argumentsDelta: '{"a":1}' },
+        { type: ToolCallEventType.TOOL_CALL_END, callId: 'tool-1', name: 'echo.text' },
+        { type: ToolCallEventType.TOOL_CALL_START, callId: 'tool-2', name: 'echo.other' },
+        { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: 'tool-2', argumentsDelta: '{"b":2}' },
+        { type: ToolCallEventType.TOOL_CALL_END, callId: 'tool-2', name: 'echo.other' }
+      ],
+      finishedWithToolCalls: true
+    });
+
+    const { coordinator } = await createCoordinator({
+      streamChunks: [{}],
+      parseStreamChunk,
+      runToolLoopReturn: { content: 'follow-up' }
+    });
+
+    const observability = createObservabilityContext();
+
+    const spec: any = {
+      llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
+      settings: {},
+      metadata: { correlationId: 'corr-789' }
+    };
+
+    const messages: any[] = [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }];
+    const tools: any[] = [
+      { name: 'echo.text', description: 'echo' },
+      { name: 'echo.other', description: 'echo' }
+    ];
+
+    const context: any = {
+      provider: 'stub-provider',
+      model: 'stub-model',
+      tools,
+      mcpServers: [],
+      toolNameMap: new Map(),
+      logger: { info: jest.fn(), warning: jest.fn() },
+      metadata: spec.metadata,
+      observability
+    };
+
+    for await (const event of coordinator.coordinateStream(spec, messages, tools, context, { requireFinishToExecute: true })) {
+      // Mutate the emitted toolCall object; it's the same reference stored for the final observability event.
+      if (event.type === 'tool_call') {
+        if (event.toolCall?.id === 'tool-1') {
+          delete (event.toolCall as any).arguments;
+          event.toolCall.metadata = { token: 'abcd1234' };
+        }
+
+        if (event.toolCall?.id === 'tool-2') {
+          delete (event.toolCall as any).arguments;
+          delete (event.toolCall as any).args;
+        }
+      }
+    }
+
+    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+    expect(responseArg.toolCalls).toEqual([
+      { id: 'tool-1', name: 'echo.text', arguments: { a: 1 }, metadata: { token: '***1234' } },
+      { id: 'tool-2', name: 'echo.other' }
+    ]);
+  });
+
   test('when LLM_LIVE=1, stream coordinator logs observability events to the live log', async () => {
     const prevLive = process.env.LLM_LIVE;
     process.env.LLM_LIVE = '1';

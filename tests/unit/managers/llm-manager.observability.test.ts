@@ -117,7 +117,7 @@ describe('LLMManager observability', () => {
         content: [{ type: 'text', text: 'SDK response' }],
         rawResponse: { token: '***1234', ok: true },
         usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
-        toolCalls: [{ id: 'tc-1', name: 'test_tool' }],
+        toolCalls: [{ id: 'tc-1', name: 'test_tool', arguments: { arg1: 'value1' } }],
         durationMs: expect.any(Number),
         metadata: { correlationId: 'corr-789' }
       })
@@ -126,6 +126,39 @@ describe('LLMManager observability', () => {
     const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
     const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
     expect(requestArg.generationId).toBe(responseArg.generationId);
+  });
+
+  test('records tool call args via args fallback and includes metadata when present', async () => {
+    const registry = { getCompatModule: jest.fn() } as any;
+    const manager = new LLMManager(registry);
+
+    const observability = createMockObservabilityContext();
+    const context: RunContext = { observability };
+
+    await (manager as any).recordObservabilityResponse(
+      context,
+      'test-sdk-provider',
+      'test-model',
+      'gen-1',
+      Date.now() - 5,
+      {
+        content: [],
+        role: Role.ASSISTANT,
+        toolCalls: [
+          { id: 'tc-1', name: 'tool-a', args: { arg1: 'value1' }, metadata: { token: 'abcd1234' } },
+          { id: 'tc-2', name: 'tool-b' }
+        ]
+      },
+      undefined,
+      undefined,
+      undefined
+    );
+
+    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+    expect(responseArg.toolCalls).toEqual([
+      { id: 'tc-1', name: 'tool-a', arguments: { arg1: 'value1' }, metadata: { token: '***1234' } },
+      { id: 'tc-2', name: 'tool-b' }
+    ]);
   });
 
   test('callProvider computes totalTokens when promptTokens/completionTokens are zero', async () => {

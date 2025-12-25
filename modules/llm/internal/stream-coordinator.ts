@@ -12,6 +12,7 @@ import { StreamEventType, ToolCallEventType, getDefaults, safeJsonParse } from '
 import { normalizeFlag } from '../../shared/index.js';
 import { partitionSettings } from '../../settings/index.js';
 import { usageStatsToJson } from '../../usage/index.js';
+import { redactJsonCredentials } from '../../security/index.js';
 import { randomUUID } from 'crypto';
 
 interface StreamingContext {
@@ -364,10 +365,16 @@ export class StreamCoordinator {
 	          provider: providerManifest.id,
 	          model,
 	          content: [{ type: 'text', text: accumulatedContent }],
-	          toolCalls: allToolCalls.map(tc => ({
-	            id: tc.id,
-	            name: tc.name
-	          })),
+	          toolCalls: allToolCalls.map(tc => {
+	            const args = (tc as any).arguments ?? (tc as any).args;
+	            const metadata = (tc as any).metadata;
+	            return {
+	              id: (tc as any).id,
+	              name: (tc as any).name,
+	              ...(args !== undefined ? { arguments: redactJsonCredentials(args) } : {}),
+	              ...(metadata !== undefined ? { metadata: redactJsonCredentials(metadata) } : {})
+	            };
+	          }),
 	          usage: latestUsage ? {
 	            promptTokens,
 	            completionTokens,

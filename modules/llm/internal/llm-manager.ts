@@ -128,10 +128,16 @@ export class LLMManager {
           audioTokens: response.usage.audioTokens ?? undefined,
           cost: response.usage.cost ?? undefined
         } : undefined,
-        toolCalls: response?.toolCalls?.map(tc => ({
-          id: tc.id,
-          name: tc.name
-        })),
+        toolCalls: response?.toolCalls?.map(tc => {
+          const args = (tc as any).arguments ?? (tc as any).args;
+          const metadata = (tc as any).metadata;
+          return {
+            id: (tc as any).id,
+            name: (tc as any).name,
+            ...(args !== undefined ? { arguments: redactJsonCredentials(args) } : {}),
+            ...(metadata !== undefined ? { metadata: redactJsonCredentials(metadata) } : {})
+          };
+        }),
         durationMs,
         error
       };
