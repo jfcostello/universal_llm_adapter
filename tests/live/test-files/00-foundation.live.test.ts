@@ -3,7 +3,7 @@ import fs from 'fs';
 import { runCoordinator } from '@tests/helpers/node-cli.ts';
 import { filteredTestRuns as testRuns, invalidPriorityEntry, liveTestTimeout } from '../config.ts';
 import { withLiveEnv, buildLogPathFor, redactionFoundIn, makeSpec, mergeSettings, parseLogBodies } from '@tests/helpers/live-v2.ts';
-import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
+import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace, getLangfuseTraceTotalCost } from '@tests/helpers/langfuse.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const pluginsPath = './plugins';
@@ -167,6 +167,11 @@ for (let i = 0; i < testRuns.length; i++) {
       } else {
         expect(traceText).toContain('INTEGRATION_TEST_OK');
       }
+
+      // Verify Langfuse calculated cost for the trace (requires all observations to be generations)
+      const totalCost = getLangfuseTraceTotalCost(trace);
+      expect(totalCost).not.toBeNull();
+      expect(totalCost).toBeGreaterThan(0);
     }, liveTestTimeout(120000));
 
     test('Call 2: observability non-blocking on export failure', async () => {

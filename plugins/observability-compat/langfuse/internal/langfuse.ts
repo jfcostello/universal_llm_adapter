@@ -362,6 +362,7 @@ export class LangfuseCompat implements IObservabilityCompat {
             { content: event.content, toolCalls: event.toolCalls ?? [] },
             { maxBytes }
           ),
+          'langfuse.observation.type': 'generation',
           'langfuse.observation.input': cachedSummary?.observationInput ?? safeJsonStringify(buildInputJson(undefined), { maxBytes }),
           'langfuse.observation.output': safeJsonStringify(buildOutputJson(event), { maxBytes }),
           'langfuse.observation.model.name': String(event.model || cachedSummary?.model || ''),

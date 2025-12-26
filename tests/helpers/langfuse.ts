@@ -387,6 +387,15 @@ export function stringifyLangfuseTrace(trace: unknown): string {
   }
 }
 
+export function getLangfuseTraceTotalCost(trace: unknown): number | null {
+  if (!trace || typeof trace !== 'object') return null;
+  const totalCost = (trace as any).totalCost;
+  if (typeof totalCost === 'number' && Number.isFinite(totalCost)) {
+    return totalCost;
+  }
+  return null;
+}
+
 type LangfuseNeedle =
   | { kind: 'substring'; value: string }
   | { kind: 'toolName'; value: string };
