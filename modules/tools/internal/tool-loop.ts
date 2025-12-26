@@ -83,6 +83,8 @@ export function runToolLoop(
   return runStreamToolLoop(options);
 }
 
+const TERMINAL_TOOL_RESULT_OVERRIDE_KEY = 'tool_type_response_override_terminal';
+
 function resolveFollowUpToolChoice(toolChoice?: ToolChoice): ToolChoice | undefined {
   // "required" is intended to ensure *at least one* tool call occurs.
   // After tools have been executed, relax to auto to avoid providers that interpret
@@ -91,6 +93,39 @@ function resolveFollowUpToolChoice(toolChoice?: ToolChoice): ToolChoice | undefi
     return 'auto';
   }
   return toolChoice;
+}
+
+function resolveTerminalOverride(invocationResult: unknown): boolean | undefined {
+  if (!invocationResult || typeof invocationResult !== 'object') {
+    return undefined;
+  }
+
+  const record = invocationResult as Record<string, any>;
+  const direct = record[TERMINAL_TOOL_RESULT_OVERRIDE_KEY];
+  if (typeof direct === 'boolean') {
+    return direct;
+  }
+
+  const nested = record.result;
+  if (nested && typeof nested === 'object') {
+    const nestedValue = (nested as Record<string, any>)[TERMINAL_TOOL_RESULT_OVERRIDE_KEY];
+    if (typeof nestedValue === 'boolean') {
+      return nestedValue;
+    }
+  }
+
+  return undefined;
+}
+
+function isToolTerminalByDefinition(toolName: string, toolByName: Map<string, UnifiedTool>): boolean {
+  const direct = toolByName.get(toolName);
+  if (direct?.terminal === true) {
+    return true;
+  }
+
+  const sanitized = sanitizeToolName(toolName);
+  const sanitizedTool = toolByName.get(sanitized);
+  return sanitizedTool?.terminal === true;
 }
 
 async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<LLMResponse> {
@@ -124,11 +159,13 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
   const preserveReasoning = runtime.preserveReasoning ?? toolDefaults.preserveReasoning;
 
   const toolBudget = new ToolCallBudget(maxToolIterations);
+  const toolByName = new Map<string, UnifiedTool>(tools.map(tool => [tool.name, tool]));
   const allToolResults: Array<{ tool: string; result: any }> = [];
   const allToolCalls: ToolCall[] = [];
 
   let response = initialResponse;
   let forceFinalize = false;
+  let terminalStop = false;
 
   while (response.toolCalls && response.toolCalls.length > 0 && !forceFinalize) {
     logger.info('Tool calls detected', {
@@ -154,9 +191,11 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
     );
 
     const toolResultsThisRound: Array<{ tool: string; result: any }> = [];
+    let terminalStopThisRound = false;
 
     const executeToolCall = async (toolCall: ToolCall) => {
       const targetToolName = toolNameMap[toolCall.name] || toolCall.name;
+      const terminalByDefinition = isToolTerminalByDefinition(toolCall.name, toolByName);
 
       if (toolBudget.exhausted) {
         logger.info('Tool budget exhausted; skipping invocation', {
@@ -219,16 +258,21 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
 
         logger.info('Tool completed', logPayload);
 
+        const overrideTerminal = resolveTerminalOverride(invocationResult);
         const normalizedPayload = invocationResult?.result !== undefined
           ? invocationResult.result
           : invocationResult;
+        const isTerminal = overrideTerminal !== undefined
+          ? overrideTerminal
+          : terminalByDefinition;
 
         return {
           type: 'success' as const,
           toolName: targetToolName,
           toolCall,
           payload: normalizedPayload,
-          countdownText: resolveCountdownText(toolCountdownEnabled, toolBudget)
+          countdownText: resolveCountdownText(toolCountdownEnabled, toolBudget),
+          terminal: isTerminal
         };
       } catch (error: any) {
         logger.error?.('Tool execution failed', {
@@ -245,7 +289,8 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
             error: 'tool_execution_failed',
             message: error?.message ?? String(error),
             tool: targetToolName
-          }
+          },
+          terminal: terminalByDefinition
         };
       }
     };
@@ -276,6 +321,10 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
           }
         );
 
+        if (result.terminal) {
+          terminalStopThisRound = true;
+        }
+
         return;
       }
 
@@ -297,6 +346,11 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
 
       if (result.type === 'exhausted') {
         forceFinalize = true;
+        return;
+      }
+
+      if ((result as any).terminal) {
+        terminalStopThisRound = true;
       }
     };
 
@@ -316,6 +370,11 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
     }
 
     allToolResults.push(...toolResultsThisRound);
+
+    if (terminalStopThisRound) {
+      terminalStop = true;
+      break;
+    }
 
     if (toolBudget.exhausted || forceFinalize) {
       break;
@@ -359,7 +418,7 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
     });
   }
 
-  if (toolBudget.maxCalls !== null && toolBudget.exhausted && toolFinalPromptEnabled) {
+  if (!terminalStop && toolBudget.maxCalls !== null && toolBudget.exhausted && toolFinalPromptEnabled) {
     const finalPrompt = buildFinalPrompt(toolBudget);
 
     messages.push({
@@ -391,6 +450,13 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
     });
   }
 
+  if (terminalStop) {
+    response = {
+      ...response,
+      finishReason: 'tool_stop'
+    };
+  }
+
   if (allToolCalls.length > 0) {
     response = {
       ...response,
@@ -413,6 +479,7 @@ interface StreamLoopResult {
   usage?: UsageStats;
   reasoning?: ReasoningData;
   toolCalls?: ToolCall[];
+  finishReason?: string;
 }
 
 async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerator<LLMStreamEvent, StreamLoopResult | undefined> {
@@ -445,12 +512,14 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
   const maxResultLength = typeof runtime.toolResultMaxChars === 'number' && runtime.toolResultMaxChars > 0
     ? Math.floor(runtime.toolResultMaxChars)
     : null;
+  const toolByName = new Map<string, UnifiedTool>(tools.map(tool => [tool.name, tool]));
 
   const emittedToolCalls: ToolCall[] = [];
 
   let followUpContent = '';
   let latestUsage: UsageStats | undefined;
   let reasoningAggregate: ReasoningData | undefined;
+  let terminalStop = false;
 
   let toolCallsToExecute: ToolCall[] = initialToolCalls;
   let toolCallReasoning: ReasoningData | undefined = initialReasoning;
@@ -478,6 +547,7 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
   while (true) {
     if (toolCallsToExecute.length > 0) {
       appendAssistantCalls(toolCallsToExecute, toolCallReasoning);
+      let terminalStopThisRound = false;
 
       for (const toolCall of toolCallsToExecute) {
         const sanitizedName = sanitizeToolName(toolCall.name ?? `tool_${toolCall.id}`);
@@ -487,6 +557,8 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
           ?? sanitizedMatch
           ?? toolCall.name
           ?? 'unknown_tool';
+        const definitionName = toolCall.name ?? sanitizedName;
+        const terminalByDefinition = isToolTerminalByDefinition(definitionName, toolByName);
 
         if (budget.exhausted) {
           const exhaustedPayload = {
@@ -532,6 +604,7 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
         });
 
         let normalizedPayload: any;
+        let overrideTerminal: boolean | undefined;
         try {
           const invocationResult = await invokeTool(
             targetToolName,
@@ -549,6 +622,7 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
             callId: toolCall.id,
             ...(progressFields ?? {})
           });
+          overrideTerminal = resolveTerminalOverride(invocationResult);
           normalizedPayload = invocationResult?.result !== undefined
             ? invocationResult.result
             : invocationResult;
@@ -558,6 +632,13 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
             message: error?.message ?? String(error)
           };
           normalizedPayload = errorResult;
+        }
+
+        const isTerminal = overrideTerminal !== undefined
+          ? overrideTerminal
+          : terminalByDefinition;
+        if (isTerminal) {
+          terminalStopThisRound = true;
         }
 
         const resultText = typeof normalizedPayload === 'string'
@@ -595,6 +676,11 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
 
       pruneToolResults(messages, preserveToolResults);
       pruneReasoning(messages, preserveReasoning);
+
+      if (terminalStopThisRound) {
+        terminalStop = true;
+        break;
+      }
     }
 
     const stream = llmManager.streamProvider(
@@ -772,7 +858,7 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
     toolCallReasoning = segmentReasoning;
   }
 
-  if (!followUpContent && !latestUsage && !reasoningAggregate && emittedToolCalls.length === 0) {
+  if (!followUpContent && !latestUsage && !reasoningAggregate && emittedToolCalls.length === 0 && !terminalStop) {
     return undefined;
   }
 
@@ -780,7 +866,8 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
     content: followUpContent || undefined,
     usage: latestUsage,
     reasoning: reasoningAggregate,
-    toolCalls: emittedToolCalls.length > 0 ? emittedToolCalls : undefined
+    toolCalls: emittedToolCalls.length > 0 ? emittedToolCalls : undefined,
+    ...(terminalStop ? { finishReason: 'tool_stop' } : {})
   };
 }
 

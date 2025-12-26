@@ -5,6 +5,48 @@ import { PluginRegistry } from '@/kernel/index.ts';
 import { MCPManager } from '@/modules/mcp/index.ts';
 
 describe('utils/tools/tool-discovery', () => {
+  test('collectTools preserves terminal flags through sanitization', async () => {
+    const spec = {
+      messages: [],
+      llmPriority: [],
+      settings: {},
+      tools: [
+        {
+          name: 'finalize.order',
+          description: 'Finalizes an order',
+          terminal: true,
+          parametersJsonSchema: { type: 'object' }
+        },
+        {
+          name: 'nonterminal.tool',
+          terminal: false,
+          parametersJsonSchema: { type: 'object' }
+        },
+        {
+          name: 'unset.terminal',
+          parametersJsonSchema: { type: 'object' }
+        }
+      ]
+    } as unknown as LLMCallSpec;
+
+    const registry = {
+      getTool: jest.fn()
+    } as unknown as PluginRegistry;
+
+    const result = await collectTools({ spec, registry });
+
+    expect(result.tools.map(tool => tool.name)).toEqual([
+      'finalize_order',
+      'nonterminal_tool',
+      'unset_terminal'
+    ]);
+
+    const byName = Object.fromEntries(result.tools.map(tool => [tool.name, tool]));
+    expect(byName.finalize_order).toMatchObject({ terminal: true });
+    expect(byName.nonterminal_tool).toMatchObject({ terminal: false });
+    expect(byName.unset_terminal.terminal).toBeUndefined();
+  });
+
   test('collectTools merges spec, function, and MCP tools with sanitized names', async () => {
     const spec = {
       messages: [],

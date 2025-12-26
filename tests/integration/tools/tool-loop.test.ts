@@ -138,6 +138,169 @@ describe('integration/tools/tool-loop', () => {
     expect(exhaustedResult).toBeDefined();
   });
 
+  test('stops without follow-up LLM call when tool definition is terminal', async () => {
+    const llmManager = {
+      callProvider: jest.fn().mockResolvedValue({
+        provider: 'test-openai',
+        model: 'stub-model',
+        role: Role.ASSISTANT,
+        content: [{ type: 'text', text: 'should-not-run' }]
+      } as LLMResponse)
+    } as unknown as LLMManager;
+
+    const messages = [
+      { role: Role.SYSTEM, content: [{ type: 'text', text: 'System' }] },
+      { role: Role.USER, content: [{ type: 'text', text: 'Request' }] }
+    ];
+
+    const invokeTool = jest
+      .fn()
+      .mockResolvedValueOnce({ result: { echoed: 'hello' } });
+
+    const toolNameMap = {
+      'echo.text': 'echo.text',
+      echo_text: 'echo.text'
+    };
+
+    const runtime = {
+      toolCountdownEnabled: true,
+      toolFinalPromptEnabled: true,
+      maxToolIterations: 2,
+      preserveToolResults: 'all' as const,
+      preserveReasoning: 'all' as const
+    };
+
+    const response = await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry,
+      messages,
+      tools: [
+        {
+          name: 'echo_text',
+          terminal: true,
+          description: 'Echo tool',
+          parametersJsonSchema: {
+            type: 'object',
+            properties: { text: { type: 'string' } }
+          }
+        } as any
+      ],
+      toolChoice: 'auto',
+      providerManifest: baseOptions().providerManifest,
+      model: baseOptions().model,
+      runtime,
+      providerSettings: {},
+      providerExtras: {},
+      logger: loggerStub(),
+      toolNameMap,
+      invokeTool,
+      initialResponse: {
+        provider: 'test-openai',
+        model: 'stub-model',
+        role: Role.ASSISTANT,
+        content: [{ type: 'text', text: 'Working…' }],
+        toolCalls: [
+          { id: 'call-1', name: 'echo.text', arguments: { text: 'hello' } }
+        ],
+        finishReason: 'tool_calls'
+      }
+    });
+
+    expect(invokeTool).toHaveBeenCalledTimes(1);
+    const manager = llmManager as unknown as { callProvider: jest.Mock };
+    expect(manager.callProvider).toHaveBeenCalledTimes(0);
+    expect(response.finishReason).toBe('tool_stop');
+    expect(response.raw?.toolResults).toHaveLength(1);
+  });
+
+  test('executes all tool calls in a single round then stops when any call is terminal', async () => {
+    const llmManager = {
+      callProvider: jest.fn().mockResolvedValue({
+        provider: 'test-openai',
+        model: 'stub-model',
+        role: Role.ASSISTANT,
+        content: [{ type: 'text', text: 'should-not-run' }]
+      } as LLMResponse)
+    } as unknown as LLMManager;
+
+    const messages = [
+      { role: Role.SYSTEM, content: [{ type: 'text', text: 'System' }] },
+      { role: Role.USER, content: [{ type: 'text', text: 'Request' }] }
+    ];
+
+    const invokeTool = jest
+      .fn()
+      .mockResolvedValueOnce({ result: { ok: 'alpha' } })
+      .mockResolvedValueOnce({ result: { ok: 'beta' } });
+
+    const toolNameMap = {
+      'alpha.tool': 'alpha.tool',
+      'beta.tool': 'beta.tool',
+      alpha_tool: 'alpha.tool',
+      beta_tool: 'beta.tool'
+    };
+
+    const runtime = {
+      toolCountdownEnabled: true,
+      toolFinalPromptEnabled: true,
+      maxToolIterations: 2,
+      parallelToolExecution: false,
+      preserveToolResults: 'all' as const,
+      preserveReasoning: 'all' as const
+    };
+
+    const response = await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry,
+      messages,
+      tools: [
+        { name: 'alpha_tool', terminal: true, description: 'Alpha', parametersJsonSchema: { type: 'object' } } as any,
+        { name: 'beta_tool', description: 'Beta', parametersJsonSchema: { type: 'object' } } as any
+      ],
+      toolChoice: 'auto',
+      providerManifest: baseOptions().providerManifest,
+      model: baseOptions().model,
+      runtime,
+      providerSettings: {},
+      providerExtras: {},
+      logger: loggerStub(),
+      toolNameMap,
+      invokeTool,
+      initialResponse: {
+        provider: 'test-openai',
+        model: 'stub-model',
+        role: Role.ASSISTANT,
+        content: [{ type: 'text', text: 'Working…' }],
+        toolCalls: [
+          { id: 'call-1', name: 'alpha.tool', arguments: {} },
+          { id: 'call-2', name: 'beta.tool', arguments: {} }
+        ],
+        finishReason: 'tool_calls'
+      }
+    });
+
+    expect(invokeTool).toHaveBeenCalledTimes(2);
+    expect(invokeTool).toHaveBeenNthCalledWith(
+      1,
+      'alpha.tool',
+      expect.objectContaining({ id: 'call-1' }),
+      expect.any(Object)
+    );
+    expect(invokeTool).toHaveBeenNthCalledWith(
+      2,
+      'beta.tool',
+      expect.objectContaining({ id: 'call-2' }),
+      expect.any(Object)
+    );
+
+    const manager = llmManager as unknown as { callProvider: jest.Mock };
+    expect(manager.callProvider).toHaveBeenCalledTimes(0);
+    expect(response.finishReason).toBe('tool_stop');
+    expect(response.raw?.toolResults).toHaveLength(2);
+  });
+
   test('continues execution when invokeTool throws and records error result', async () => {
     const llmManager = {
       callProvider: jest.fn().mockResolvedValue({

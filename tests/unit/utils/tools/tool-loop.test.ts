@@ -141,6 +141,470 @@ describe('utils/tools/runToolLoop', () => {
     expect(callProvider.mock.calls[0][5]).toBe('auto');
   });
 
+  test('non-stream loop stops without follow-up when tool definition is terminal', async () => {
+    const callProvider = jest.fn().mockResolvedValue({
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [{ type: 'text', text: 'should-not-run' }],
+      finishReason: 'stop'
+    });
+
+    const llmManager: any = {
+      callProvider,
+      streamProvider: jest.fn()
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    const messages = [{
+      role: Role.USER,
+      content: [{ type: 'text', text: 'hello' }]
+    }];
+
+    const initialResponse = {
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [],
+      toolCalls: [
+        {
+          id: 'call-1',
+          name: 'example.tool',
+          arguments: {}
+        }
+      ]
+    } as any;
+
+    const result = await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages,
+      tools: [{ name: 'example_tool', terminal: true }] as any,
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: {
+        maxToolIterations: 2,
+        toolFinalPromptEnabled: false
+      } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: {},
+      toolNameMap: { example_tool: 'example.tool' },
+      metadata: {},
+      initialResponse,
+      invokeTool
+    });
+
+    expect(invokeTool).toHaveBeenCalledTimes(1);
+    expect(callProvider).toHaveBeenCalledTimes(0);
+    expect(result.finishReason).toBe('tool_stop');
+    expect(result.raw?.toolResults?.[0].result).toEqual({ ok: true });
+  });
+
+  test('non-stream loop stops on terminal tool definition even when tool invocation fails', async () => {
+    const callProvider = jest.fn().mockResolvedValue({
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [{ type: 'text', text: 'should-not-run' }]
+    });
+
+    const llmManager: any = {
+      callProvider,
+      streamProvider: jest.fn()
+    };
+
+    const invokeTool = jest.fn().mockRejectedValue(new Error('boom'));
+
+    const result = await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'example_tool', terminal: true }] as any,
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 2, toolFinalPromptEnabled: true } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: {},
+      toolNameMap: { example_tool: 'example_tool' },
+      metadata: {},
+      initialResponse: {
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: [],
+        toolCalls: [{ id: 'call-1', name: 'example_tool', arguments: {} }]
+      } as any,
+      invokeTool
+    });
+
+    expect(callProvider).toHaveBeenCalledTimes(0);
+    expect(result.finishReason).toBe('tool_stop');
+    expect(result.raw?.toolResults?.[0].result).toMatchObject({ error: 'tool_execution_failed' });
+  });
+
+  test('non-stream loop stops without follow-up when tool result override is terminal (top-level)', async () => {
+    const callProvider = jest.fn().mockResolvedValue({
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [{ type: 'text', text: 'should-not-run' }]
+    });
+
+    const llmManager: any = {
+      callProvider,
+      streamProvider: jest.fn()
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({
+      result: { ok: true },
+      tool_type_response_override_terminal: true
+    });
+
+    const result = await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'example_tool' }] as any,
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 2, toolFinalPromptEnabled: false } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: {},
+      toolNameMap: { example_tool: 'example.tool' },
+      metadata: {},
+      initialResponse: {
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: [],
+        toolCalls: [{ id: 'call-1', name: 'example.tool', arguments: {} }]
+      } as any,
+      invokeTool
+    });
+
+    expect(callProvider).toHaveBeenCalledTimes(0);
+    expect(result.finishReason).toBe('tool_stop');
+  });
+
+  test('non-stream loop stops without follow-up when tool result override is terminal (nested in result)', async () => {
+    const callProvider = jest.fn().mockResolvedValue({
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [{ type: 'text', text: 'should-not-run' }]
+    });
+
+    const llmManager: any = {
+      callProvider,
+      streamProvider: jest.fn()
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({
+      result: { ok: true, tool_type_response_override_terminal: true }
+    });
+
+    const result = await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'example_tool' }] as any,
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 2, toolFinalPromptEnabled: false } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: {},
+      toolNameMap: { example_tool: 'example.tool' },
+      metadata: {},
+      initialResponse: {
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: [],
+        toolCalls: [{ id: 'call-1', name: 'example.tool', arguments: {} }]
+      } as any,
+      invokeTool
+    });
+
+    expect(callProvider).toHaveBeenCalledTimes(0);
+    expect(result.finishReason).toBe('tool_stop');
+  });
+
+  test('non-stream loop prefers top-level override over nested override', async () => {
+    const callProvider = jest.fn().mockResolvedValue({
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [{ type: 'text', text: 'follow-up' }],
+      finishReason: 'stop'
+    });
+
+    const llmManager: any = {
+      callProvider,
+      streamProvider: jest.fn()
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({
+      result: { ok: true, tool_type_response_override_terminal: true },
+      tool_type_response_override_terminal: false
+    });
+
+    const result = await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'example_tool' }] as any,
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 2, toolFinalPromptEnabled: false } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: {},
+      toolNameMap: { example_tool: 'example.tool' },
+      metadata: {},
+      initialResponse: {
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: [],
+        toolCalls: [{ id: 'call-1', name: 'example.tool', arguments: {} }]
+      } as any,
+      invokeTool
+    });
+
+    expect(callProvider).toHaveBeenCalledTimes(1);
+    expect(result.finishReason).toBe('stop');
+  });
+
+  test('non-stream loop continues when override is false even if tool definition is terminal', async () => {
+    const callProvider = jest.fn().mockResolvedValue({
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [{ type: 'text', text: 'follow-up' }],
+      finishReason: 'stop'
+    });
+
+    const llmManager: any = {
+      callProvider,
+      streamProvider: jest.fn()
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({
+      result: { ok: true },
+      tool_type_response_override_terminal: false
+    });
+
+    const result = await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'example_tool', terminal: true }] as any,
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 2, toolFinalPromptEnabled: false } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: {},
+      toolNameMap: { example_tool: 'example.tool' },
+      metadata: {},
+      initialResponse: {
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: [],
+        toolCalls: [{ id: 'call-1', name: 'example.tool', arguments: {} }]
+      } as any,
+      invokeTool
+    });
+
+    expect(callProvider).toHaveBeenCalledTimes(1);
+    expect(result.finishReason).toBe('stop');
+  });
+
+  test('non-stream loop ignores non-boolean terminal overrides (strict boolean)', async () => {
+    const callProvider = jest.fn().mockResolvedValue({
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [{ type: 'text', text: 'follow-up' }],
+      finishReason: 'stop'
+    });
+
+    const llmManager: any = {
+      callProvider,
+      streamProvider: jest.fn()
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({
+      result: { ok: true },
+      // Should be ignored
+      tool_type_response_override_terminal: 'true'
+    });
+
+    const result = await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'example_tool' }] as any,
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 2, toolFinalPromptEnabled: false } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: {},
+      toolNameMap: { example_tool: 'example.tool' },
+      metadata: {},
+      initialResponse: {
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: [],
+        toolCalls: [{ id: 'call-1', name: 'example.tool', arguments: {} }]
+      } as any,
+      invokeTool
+    });
+
+    expect(callProvider).toHaveBeenCalledTimes(1);
+    expect(result.finishReason).toBe('stop');
+  });
+
+  test('stream loop stops without follow-up stream when terminal override is true', async () => {
+    const llmManager: any = {
+      streamProvider: jest.fn(async function* () {
+        yield { choices: [{ delta: { content: 'should-not-run' } }] };
+      })
+    };
+
+    const iterator = runToolLoop({
+      mode: 'stream',
+      llmManager,
+      registry: {
+        getCompatModule: () => ({
+          parseStreamChunk: (chunk: any) => ({ text: chunk.choices?.[0]?.delta?.content })
+        })
+      } as any,
+      messages: [{ role: Role.USER, content: [] }],
+      tools: [{ name: 'demo_tool' }] as any,
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 2 } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      toolNameMap: { demo_tool: 'demo_tool' },
+      metadata: {},
+      initialToolCalls: [{ id: 'call-1', name: 'demo_tool', arguments: {} }],
+      invokeTool: jest.fn().mockResolvedValue({
+        result: { ok: true },
+        tool_type_response_override_terminal: true
+      })
+    });
+
+    const events: any[] = [];
+    let finalResult: any;
+    while (true) {
+      const next = await iterator.next();
+      if (next.done) {
+        finalResult = next.value;
+        break;
+      }
+      events.push(next.value);
+    }
+
+    expect(events.filter(e => e.type === StreamEventType.TOOL && e.toolEvent?.type === ToolCallEventType.TOOL_RESULT)).toHaveLength(1);
+    expect(llmManager.streamProvider).toHaveBeenCalledTimes(0);
+    expect(finalResult).toEqual({ finishReason: 'tool_stop' });
+  });
+
+  test('stream loop executes all tool calls in a round then stops when any call is terminal', async () => {
+    const llmManager: any = {
+      streamProvider: jest.fn(async function* () {
+        yield { choices: [{ delta: { content: 'should-not-run' } }] };
+      })
+    };
+
+    const invokeTool = jest
+      .fn()
+      .mockResolvedValueOnce({
+        result: { ok: 'alpha' },
+        tool_type_response_override_terminal: true
+      })
+      .mockResolvedValueOnce({
+        result: { ok: 'beta' }
+      });
+
+    const iterator = runToolLoop({
+      mode: 'stream',
+      llmManager,
+      registry: {
+        getCompatModule: () => ({
+          parseStreamChunk: (chunk: any) => ({ text: chunk.choices?.[0]?.delta?.content })
+        })
+      } as any,
+      messages: [{ role: Role.USER, content: [] }],
+      tools: [{ name: 'alpha_tool' }, { name: 'beta_tool' }] as any,
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 3 } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      toolNameMap: {},
+      metadata: {},
+      initialToolCalls: [
+        { id: 'call-1', name: 'alpha_tool', arguments: {} },
+        { id: 'call-2', name: 'beta_tool', arguments: {} }
+      ],
+      invokeTool
+    });
+
+    const events: any[] = [];
+    let finalResult: any;
+    while (true) {
+      const next = await iterator.next();
+      if (next.done) {
+        finalResult = next.value;
+        break;
+      }
+      events.push(next.value);
+    }
+
+    expect(invokeTool).toHaveBeenCalledTimes(2);
+    expect(
+      events.filter(e => e.type === StreamEventType.TOOL && e.toolEvent?.type === ToolCallEventType.TOOL_RESULT)
+    ).toHaveLength(2);
+    expect(llmManager.streamProvider).toHaveBeenCalledTimes(0);
+    expect(finalResult).toEqual({ finishReason: 'tool_stop' });
+  });
+
   test('stream loop emits tool result and honors countdown progress fields', async () => {
     const streamChunks = [
       { choices: [{ delta: { content: 'token-1' } }] },
