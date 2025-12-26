@@ -2145,8 +2145,8 @@ describe('modules/observability', () => {
           await expect(deps.shutdown()).resolves.toBeUndefined();
         });
 
-        test('reuses a shared exporter instance for identical configs (per registry)', async () => {
-          const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
+    test('reuses a shared exporter instance for identical configs (per registry)', async () => {
+      const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
 
       const mockCompat = {
         buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
@@ -2193,6 +2193,40 @@ describe('modules/observability', () => {
       expect(exporter3).not.toBe(exporter1);
 
       await deps3.shutdown();
+    });
+
+    test('treats missing and null providerConfig as the same cache key', async () => {
+      const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test-compat',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const mockRegistry = {
+        getObservabilityProvider: jest.fn(async () => mockManifest),
+        getObservabilityCompat: jest.fn(async () => mockCompat)
+      };
+
+      const baseSpec = { enabled: true, provider: 'test' } as any;
+
+      const deps1 = await createObservabilityDeps(mockRegistry as any, baseSpec);
+      const exporter1 = deps1.getExporter();
+
+      const deps2 = await createObservabilityDeps(mockRegistry as any, { ...baseSpec, providerConfig: null });
+      const exporter2 = deps2.getExporter();
+
+      expect(exporter1).toBe(exporter2);
+      expect(mockRegistry.getObservabilityProvider).toHaveBeenCalledTimes(1);
+      expect(mockRegistry.getObservabilityCompat).toHaveBeenCalledTimes(1);
+
+      await deps1.shutdown();
     });
 
     test('computes a stable cache key for complex providerConfig shapes (including circular refs)', async () => {

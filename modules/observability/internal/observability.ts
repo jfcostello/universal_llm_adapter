@@ -602,7 +602,10 @@ function hashKey(value: string): string {
 }
 
 function buildExporterCacheKey(config: ObservabilityExporterConfig): string {
-  const providerConfigHash = hashKey(stableStringifyForKey(config.providerConfig ?? null));
+  const providerConfigHash =
+    config.providerConfig === null || config.providerConfig === undefined
+      ? 'no_provider_config'
+      : hashKey(stableStringifyForKey(config.providerConfig));
   return [
     String(config.provider),
     String(config.flushAt),
