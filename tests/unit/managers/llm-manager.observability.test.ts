@@ -268,7 +268,7 @@ describe('LLMManager observability', () => {
     const context: RunContext = {
       observability,
       toolCallsSoFar: [{ id: 'tc-ctx-1', name: 'tool-from-context', arguments: { secret: 'abcd1234' } }]
-    } as any;
+    };
 
     await (manager as any).recordObservabilityResponse(
       context,

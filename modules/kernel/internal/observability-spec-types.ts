@@ -128,7 +128,7 @@ export interface RunContext {
    * When present, may be used to include tool call metadata even if the final model
    * response does not contain tool calls.
    */
-  toolCallsSoFar?: unknown[];
+  toolCallsSoFar?: import('./types.js').ToolCall[];
 
   /**
    * Call metadata (correlationId, etc.).

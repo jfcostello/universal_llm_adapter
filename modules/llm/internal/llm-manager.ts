@@ -5,6 +5,7 @@ import type {
   LLMCallSettings,
   Message,
   UnifiedTool,
+  ToolCall,
   ToolChoice,
   LLMResponse,
   AdapterLogger,
@@ -99,10 +100,10 @@ export class LLMManager {
       const promptTokens = response?.usage?.promptTokens ?? undefined;
       const completionTokens = response?.usage?.completionTokens ?? undefined;
       const totalTokens = response?.usage?.totalTokens ?? undefined;
-      const toolCallsForObservability = (() => {
-        const fromResponse = Array.isArray((response as any)?.toolCalls) ? ((response as any).toolCalls as any[]) : [];
+      const toolCallsForObservability: ToolCall[] | undefined = (() => {
+        const fromResponse = Array.isArray(response?.toolCalls) ? response.toolCalls : [];
         if (fromResponse.length > 0) return fromResponse;
-        const fromContext = Array.isArray((context as any)?.toolCallsSoFar) ? ((context as any).toolCallsSoFar as any[]) : [];
+        const fromContext = Array.isArray(context.toolCallsSoFar) ? context.toolCallsSoFar : [];
         return fromContext.length > 0 ? fromContext : undefined;
       })();
       const event = {
@@ -129,9 +130,9 @@ export class LLMManager {
           cost: response.usage.cost ?? undefined
         } : undefined,
         toolCalls: toolCallsForObservability?.map(tc => {
-          const args = (tc as any).arguments ?? (tc as any).args;
-          const metadata = (tc as any).metadata;
-          const base = { id: (tc as any).id, name: (tc as any).name } as any;
+          const args = tc.arguments ?? tc.args;
+          const metadata = tc.metadata;
+          const base = { id: tc.id, name: tc.name };
           if (!captureToolArgs) return base;
           return {
             ...base,
