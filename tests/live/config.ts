@@ -64,8 +64,8 @@ export const testRuns: TestRun[] = [
       temperature: 0,
       maxTokens: 60000,
       provider: {
-        order: ['google-vertex', 'groq', 'together', 'fireworks'],
-        only: ['google-vertex', 'groq', 'together', 'fireworks'],
+        order: ['groq', 'google-vertex', 'sambanova', 'together', 'fireworks'],
+        only: ['groq', 'google-vertex', 'sambanova', 'together', 'fireworks'],
         allow_fallbacks: false
       }
     }
