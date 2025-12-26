@@ -1,8 +1,8 @@
 import { jest } from '@jest/globals';
-import { PluginRegistry } from '@/modules/kernel/index.ts';
+import { PluginRegistry } from '@/kernel/index.ts';
 import { LLMCoordinator } from '@/modules/llm/index.ts';
 import { LLMManager } from '@/modules/llm/index.ts';
-import { Role, StreamEventType, ToolCallEventType } from '@/modules/kernel/index.ts';
+import { Role, StreamEventType, ToolCallEventType } from '@/kernel/index.ts';
 import { ROOT_DIR, resolveFixture } from '@tests/helpers/paths.ts';
 
 const spec = {

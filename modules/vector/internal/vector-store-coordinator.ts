@@ -18,7 +18,7 @@ import {
   IEmbeddingOperationLogger,
   IVectorOperationLogger,
   resolveLoggingDeps
-} from '../../kernel/index.js';
+} from '../../../kernel/index.js';
 import { VectorStoreManager } from './vector-store-manager.js';
 
 export class VectorStoreCoordinator {

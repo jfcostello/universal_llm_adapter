@@ -7,7 +7,7 @@ import {
   sanitizeToolName,
   TextContent,
   ToolResultContent
-} from '../../kernel/index.js';
+} from '../../../kernel/index.js';
 
 export function prepareMessages(spec: LLMCallSpec): Message[] {
   const baseMessages = [...spec.messages];

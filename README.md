@@ -29,12 +29,21 @@ See [README-CLI.md](README-CLI.md) for complete CLI documentation and [README-SE
 
 ## Architecture
 
+The codebase is intentionally split into **four layers**:
+
+1. **Kernel** (`kernel/`): always-loaded core primitives (types/errors, defaults/config helpers, plugin registry).
+2. **Modules** (`modules/`): provider-agnostic feature modules (LLM, embeddings, vector, tools, MCP, etc). Lazy-loaded only when required.
+3. **Plugin compats** (`plugins/**-compat/`): thin compatibility layers for external SDKs/APIs. They translate unified specs to/from provider formats and should do minimal execution.
+4. **Plugin JSON** (`plugins/**/*.json`): concrete provider endpoints + provider-specific payload extensions. Hot-swappable without code changes.
+
+JSON is the default configuration format today; longer-term these JSON sources can be moved into your own DB/tables for centralized configuration management.
+
 ```
 universal_llm_adapter/
 ├── bin/
 │   └── cli.ts                    # CLI entry point (thin shell, lazy-loads modules)
+├── kernel/                       # Always-loaded core primitives (types, defaults, registry, config)
 ├── modules/                      # Provider-agnostic core logic
-│   ├── kernel/                   # Core primitives: types, defaults, registry, config
 │   ├── cli/                      # Unified CLI program and handlers
 │   ├── llm/                      # LLM coordinator and manager
 │   ├── realtime/                 # Realtime session entrypoint + controller

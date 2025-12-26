@@ -1,4 +1,4 @@
-import type { UsageStats, JsonObject } from '../../kernel/index.js';
+import type { UsageStats, JsonObject } from '../../../kernel/index.js';
 import { getPromptTokensIncludeCached, setPromptTokensIncludeCached } from './usage-extractor.js';
 
 export function usageStatsToJson(usage: UsageStats): JsonObject {

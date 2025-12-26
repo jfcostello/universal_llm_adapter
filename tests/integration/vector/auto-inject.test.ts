@@ -4,8 +4,8 @@ import { fileURLToPath } from 'url';
 
 // Type imports
 import type { LLMCoordinator } from '@/modules/llm/index.ts';
-import type { PluginRegistry } from '@/modules/kernel/index.ts';
-import type { LLMCallSpec, Message, Role, VectorContextConfig, TextContent } from '@/modules/kernel/index.ts';
+import type { PluginRegistry } from '@/kernel/index.ts';
+import type { LLMCallSpec, Message, Role, VectorContextConfig, TextContent } from '@/kernel/index.ts';
 import type { VectorContextInjector } from '@/modules/vector/index.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -22,7 +22,7 @@ describe('integration/vector/auto-inject', () => {
   beforeAll(async () => {
     try {
       const coordinatorModule = await import('@/modules/llm/index.ts');
-      const registryModule = await import('@/modules/kernel/index.ts');
+      const registryModule = await import('@/kernel/index.ts');
       const injectorModule = await import('@/modules/vector/index.ts');
       LLMCoordinatorClass = coordinatorModule.LLMCoordinator;
       PluginRegistryClass = registryModule.PluginRegistry;

@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { MCPConnectionError } from '@/modules/kernel/index.ts';
+import { MCPConnectionError } from '@/kernel/index.ts';
 
 async function loadClientModule() {
   return import('@/modules/mcp/index.ts');

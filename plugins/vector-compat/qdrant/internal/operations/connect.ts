@@ -1,6 +1,6 @@
 import type { QdrantClient } from '@qdrant/js-client-rest';
-import type { IVectorOperationLogger, VectorStoreConfig } from '../../../../../modules/kernel/index.js';
-import { VectorStoreConnectionError } from '../../../../../modules/kernel/index.js';
+import type { IVectorOperationLogger, VectorStoreConfig } from '../../../../../kernel/index.js';
+import { VectorStoreConnectionError } from '../../../../../kernel/index.js';
 import { createClientFromConnection, redactConnectionUrlForLogs, type QdrantClientFactory } from '../client/create-client.js';
 
 export async function connectQdrant(options: {

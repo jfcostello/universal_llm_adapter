@@ -1,4 +1,4 @@
-import type { VectorPoint, VectorQueryOptions, VectorQueryResult } from '../../../../modules/kernel/index.js';
+import type { VectorPoint, VectorQueryOptions, VectorQueryResult } from '../../../../kernel/index.js';
 import { cosineSimilarity, matchesFlatFilter } from '../../../../modules/vector/index.js';
 
 export function queryCollection(

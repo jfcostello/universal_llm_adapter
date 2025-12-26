@@ -1,5 +1,5 @@
 import { LLMCoordinator } from '@/modules/llm/index.ts';
-import * as kernel from '@/modules/kernel/index.ts';
+import * as kernel from '@/kernel/index.ts';
 import { calculateUsageCost } from '@/modules/usage-cost/index.ts';
 
 const { sanitizeToolChoice } = kernel;

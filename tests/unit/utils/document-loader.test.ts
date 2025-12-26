@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@jest/globals';
 import { loadDocumentFromPath, loadDocumentFromBase64, processDocumentContent } from '@/modules/documents/index.ts';
-import type { DocumentContent } from '@/modules/kernel/index.ts';
+import type { DocumentContent } from '@/kernel/index.ts';
 import * as path from 'path';
 
 const FIXTURES_DIR = path.join(process.cwd(), 'tests', 'fixtures', 'sample-documents');

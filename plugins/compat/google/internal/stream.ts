@@ -1,5 +1,5 @@
-import type { ParsedStreamChunk, ToolCallEvent, UsageStats } from '../../../../modules/kernel/index.js';
-import { ToolCallEventType } from '../../../../modules/kernel/index.js';
+import type { ParsedStreamChunk, ToolCallEvent, UsageStats } from '../../../../kernel/index.js';
+import { ToolCallEventType } from '../../../../kernel/index.js';
 import { extractReasoning, extractUsage } from './response.js';
 
 export interface GoogleStreamState {

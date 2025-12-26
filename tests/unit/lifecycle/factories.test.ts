@@ -14,7 +14,7 @@ describe('lifecycle/internal/factories', () => {
       const mockRegistry = { loadAll: jest.fn() };
       const PluginRegistryMock = jest.fn().mockImplementation(() => mockRegistry);
 
-      (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
+      (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
         PluginRegistry: PluginRegistryMock
       }));
 

@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 import http from 'http';
 import { createServer } from '@/modules/server/index.ts';
-import type { LLMCallSpec } from '@/modules/kernel/index.ts';
+import type { LLMCallSpec } from '@/kernel/index.ts';
 
 export interface HttpResult {
   status: number;

@@ -1,4 +1,4 @@
-import type { IRealtimeCompat, RealtimeCompatSession, RealtimeSessionSpec } from '../../../../modules/kernel/index.js';
+import type { IRealtimeCompat, RealtimeCompatSession, RealtimeSessionSpec } from '../../../../kernel/index.js';
 
 import { createGrokRealtimeWsCompatSession } from './session-ws.js';
 

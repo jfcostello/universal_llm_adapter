@@ -4,8 +4,8 @@ import type {
   JsonObject,
   VectorQueryOptions,
   VectorQueryResult
-} from '../../../../../modules/kernel/index.js';
-import { VectorStoreError } from '../../../../../modules/kernel/index.js';
+} from '../../../../../kernel/index.js';
+import { VectorStoreError } from '../../../../../kernel/index.js';
 import { convertFilter } from '../filters/convert-filter.js';
 import { ORIGINAL_ID_KEY } from '../ids/normalize-point-id.js';
 

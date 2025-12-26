@@ -1,5 +1,5 @@
-import type { UsageStats, PathSegment } from '../../kernel/index.js';
-import { getByPath } from '../../kernel/index.js';
+import type { UsageStats, PathSegment } from '../../../kernel/index.js';
+import { getByPath } from '../../../kernel/index.js';
 
 export type UsagePath = string | PathSegment[];
 

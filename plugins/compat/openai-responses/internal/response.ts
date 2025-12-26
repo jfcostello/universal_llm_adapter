@@ -1,5 +1,5 @@
-import type { ContentPart, LLMResponse, TextContent, ToolCall, UsageStats } from '../../../../modules/kernel/index.js';
-import { Role, safeJsonParse } from '../../../../modules/kernel/index.js';
+import type { ContentPart, LLMResponse, TextContent, ToolCall, UsageStats } from '../../../../kernel/index.js';
+import { Role, safeJsonParse } from '../../../../kernel/index.js';
 import { extractUsageStats, getGlobalUsageSpec, mergeUsageExtractionSpecs } from '../../../../modules/usage/index.js';
 
 const responsesUsageSpec = {

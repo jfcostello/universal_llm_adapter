@@ -1,10 +1,10 @@
 import { jest } from '@jest/globals';
-import type { PluginRegistry } from '@/modules/kernel/index.ts';
+import type { PluginRegistry } from '@/kernel/index.ts';
 import { collectTools } from '@/modules/tools/index.ts';
 import { MCPManager } from '@/modules/mcp/index.ts';
 import { VectorStoreManager } from '@/modules/vector/index.ts';
 import { ToolCoordinator } from '@/modules/tools/index.ts';
-import { Role, LLMResponse } from '@/modules/kernel/index.ts';
+import { Role, LLMResponse } from '@/kernel/index.ts';
 import { runToolLoop } from '@/modules/tools/index.ts';
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
 import {

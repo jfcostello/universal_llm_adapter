@@ -3,7 +3,7 @@ import {
   RuntimeSettings,
   RUNTIME_SETTING_KEYS,
   PROVIDER_SETTING_KEYS
-} from '../../kernel/index.js';
+} from '../../../kernel/index.js';
 
 const runtimeKeySet = new Set<string>(RUNTIME_SETTING_KEYS);
 const providerKeySet = new Set<string>(PROVIDER_SETTING_KEYS);

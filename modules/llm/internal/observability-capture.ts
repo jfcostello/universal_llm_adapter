@@ -1,4 +1,4 @@
-import type { ContentPart, Message } from '../../kernel/index.js';
+import type { ContentPart, Message } from '../../../kernel/index.js';
 
 export type ObservabilityCaptureMessagesMode = 'none' | 'text' | 'full';
 

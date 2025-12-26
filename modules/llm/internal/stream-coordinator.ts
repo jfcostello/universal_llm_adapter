@@ -7,9 +7,9 @@ import type {
   ReasoningData,
   AdapterLogger,
   ObservabilityContext
-} from '../../kernel/index.js';
-import { StreamEventType, ToolCallEventType, getDefaults, safeJsonParse } from '../../kernel/index.js';
-import { monotonicElapsedMs, monotonicNowNs, normalizeFlag } from '../../shared/index.js';
+} from '../../../kernel/index.js';
+import { StreamEventType, ToolCallEventType, getDefaults, safeJsonParse } from '../../../kernel/index.js';
+import { deriveObservabilityModel, monotonicElapsedMs, monotonicNowNs, normalizeFlag } from '../../shared/index.js';
 import { partitionSettings } from '../../settings/index.js';
 import { usageStatsToJson } from '../../usage/index.js';
 import { redactJsonCredentials } from '../../security/index.js';
@@ -101,6 +101,7 @@ export class StreamCoordinator {
     // Track accumulated content and tool calls for final response
     let accumulatedContent = '';
     const allToolCalls: any[] = [];
+    let upstreamProviderHint: string | undefined;
 
     // Track accumulated tool calls
     const pendingToolCalls = new Map<string, {
@@ -129,6 +130,16 @@ export class StreamCoordinator {
     let reasoningAggregate: ReasoningData | undefined;
 
     for await (const chunk of stream) {
+      if (context.observability && upstreamProviderHint === undefined) {
+        const maybeProvider = (chunk as any)?.provider;
+        if (typeof maybeProvider === 'string') {
+          const trimmed = maybeProvider.trim();
+          if (trimmed && trimmed !== providerManifest.id) {
+            upstreamProviderHint = trimmed;
+          }
+        }
+      }
+
       // Parse chunk using compat module
       const parsed = compat.parseStreamChunk(chunk);
 
@@ -353,6 +364,11 @@ export class StreamCoordinator {
       try {
         const captureMessages = context.observability.captureMessages ?? 'full';
         const captureToolArgs = context.observability.captureToolArgs ?? true;
+        const observabilityModel = deriveObservabilityModel({
+          provider: providerManifest.id,
+          model,
+          providerHint: upstreamProviderHint
+        });
         const endTimeMs = Date.now();
         const durationMs = monotonicElapsedMs(startTimeMonoNs);
         const promptTokens = latestUsage?.promptTokens ?? undefined;
@@ -369,7 +385,7 @@ export class StreamCoordinator {
           sessionId: context.observability.sessionId,
           timestampMs: endTimeMs,
           provider: providerManifest.id,
-          model,
+          model: observabilityModel,
           content: filterContentForObservability([{ type: 'text', text: accumulatedContent }] as any, captureMessages),
           toolCalls: allToolCalls.map(tc => {
             const base = { id: (tc as any).id, name: (tc as any).name } as any;

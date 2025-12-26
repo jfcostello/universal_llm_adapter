@@ -3,9 +3,9 @@ import {
   MCPServerConfig,
   UnifiedTool,
   resolveLoggingDeps
-} from '../../kernel/index.js';
-import type { AdapterLogger, LoggingDeps } from '../../kernel/index.js';
-import { MCPConnectionError } from '../../kernel/index.js';
+} from '../../../kernel/index.js';
+import type { AdapterLogger, LoggingDeps } from '../../../kernel/index.js';
+import { MCPConnectionError } from '../../../kernel/index.js';
 import { MCPClientPool } from './client.js';
 
 export class MCPManager {

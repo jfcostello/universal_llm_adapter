@@ -332,7 +332,7 @@ describe('modules/usage-cost loading fallback', () => {
     fsMock.default = fsMock;
 
     (jest as any).unstable_mockModule('fs', () => fsMock);
-    (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
+    (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
       __esModule: true,
       PACKAGE_ROOT: process.cwd(),
       loadJsonFile: () => {
@@ -361,7 +361,7 @@ describe('modules/usage-cost loading fallback', () => {
     const pkgRoot = '/tmp/pkg-root-usage-cost-test';
     const goodTable = { providerB: { modelZ: { input: 1, output: 2 } } };
 
-    (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
+    (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
       __esModule: true,
       PACKAGE_ROOT: pkgRoot,
       loadJsonFile: (filePath: string) => {
@@ -395,7 +395,7 @@ describe('modules/usage-cost loading fallback', () => {
     const cwdTable = { providerC: { modelA: { input: 1, output: 2 } } };
     const pkgTable = { providerD: { modelB: { input: 3, output: 4 } } };
 
-    (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
+    (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
       __esModule: true,
       PACKAGE_ROOT: pkgRoot,
       loadJsonFile: (filePath: string) => {

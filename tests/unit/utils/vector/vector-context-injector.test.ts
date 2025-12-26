@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { Message, Role, VectorContextConfig, EmbeddingPriorityItem } from '@/modules/kernel/index.ts';
+import { Message, Role, VectorContextConfig, EmbeddingPriorityItem } from '@/kernel/index.ts';
 
 // Module imports - will exist after implementation
 let VectorContextInjector: any;

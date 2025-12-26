@@ -4,8 +4,8 @@ import type {
   ReasoningData,
   ToolCall,
   UsageStats
-} from '../../../../modules/kernel/index.js';
-import { Role } from '../../../../modules/kernel/index.js';
+} from '../../../../kernel/index.js';
+import { Role } from '../../../../kernel/index.js';
 import { extractUsageStats, getGlobalUsageSpec, mergeUsageExtractionSpecs } from '../../../../modules/usage/index.js';
 import { ANTHROPIC_STOP_REASON_MAP, ANTHROPIC_USAGE_SPEC } from './mappings.js';
 

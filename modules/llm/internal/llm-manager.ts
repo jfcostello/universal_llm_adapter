@@ -10,11 +10,11 @@ import type {
   LLMResponse,
   AdapterLogger,
   RunContext
-} from '../../kernel/index.js';
-import { ProviderExecutionError, getDefaults } from '../../kernel/index.js';
+} from '../../../kernel/index.js';
+import { ProviderExecutionError, getDefaults } from '../../../kernel/index.js';
 import { aggregateSystemMessages } from '../../messages/index.js';
 import { redactJsonCredentials } from '../../security/index.js';
-import { monotonicElapsedMs, monotonicNowNs } from '../../shared/index.js';
+import { deriveObservabilityModel, monotonicElapsedMs, monotonicNowNs } from '../../shared/index.js';
 import { buildFinalPayload } from './payload/payload-builder.js';
 import { filterContentForObservability, filterMessagesForObservability } from './observability-capture.js';
 
@@ -562,10 +562,10 @@ export class LLMManager {
           }
         }
 
-        if (response.status >= 400) {
-          const isRateLimit = this.isRateLimitResponse(provider, response);
+      if (response.status >= 400) {
+        const isRateLimit = this.isRateLimitResponse(provider, response);
 
-          if (logger) {
+        if (logger) {
             logger.error('Provider call failed', {
               provider: provider.id,
               model,
@@ -575,10 +575,16 @@ export class LLMManager {
           }
 
           // Record HTTP error response to observability
+          const observabilityModel = deriveObservabilityModel({
+            provider: provider.id,
+            model,
+            providerHint: lastRawResponse
+          });
+
           const requestEvent = this.recordObservabilityRequest(
             context,
             provider.id,
-            model,
+            observabilityModel,
             generationId,
             requestTimestampMs,
             normalizedMessages,
@@ -599,7 +605,7 @@ export class LLMManager {
           const responseEvent = this.recordObservabilityResponse(
             context,
             provider.id,
-            model,
+            observabilityModel,
             generationId,
             startTimeMonoNs,
             undefined,
@@ -629,10 +635,16 @@ export class LLMManager {
       parsed.toolCalls = await this.normalizeToolCallsIfPresent(parsed.toolCalls);
       parsed.provider = provider.id;
 
+      const observabilityModel = deriveObservabilityModel({
+        provider: provider.id,
+        model,
+        providerHint: lastRawResponse
+      });
+
       const requestEvent = this.recordObservabilityRequest(
         context,
         provider.id,
-        model,
+        observabilityModel,
         generationId,
         requestTimestampMs,
         normalizedMessages,
@@ -654,7 +666,7 @@ export class LLMManager {
       const responseEvent = this.recordObservabilityResponse(
         context,
         provider.id,
-        model,
+        observabilityModel,
         generationId,
         startTimeMonoNs,
         parsed,
@@ -676,10 +688,16 @@ export class LLMManager {
     } catch (error: any) {
       // Record error response to observability (only for errors not already recorded)
       if (!(error instanceof ProviderExecutionError && error.statusCode !== undefined)) {
+        const observabilityModel = deriveObservabilityModel({
+          provider: provider.id,
+          model,
+          providerHint: lastRawResponse
+        });
+
         const requestEvent = this.recordObservabilityRequest(
           context,
           provider.id,
-          model,
+          observabilityModel,
           generationId,
           requestTimestampMs,
           normalizedMessages,
@@ -700,7 +718,7 @@ export class LLMManager {
         const responseEvent = this.recordObservabilityResponse(
           context,
           provider.id,
-          model,
+          observabilityModel,
           generationId,
           startTimeMonoNs,
           undefined,

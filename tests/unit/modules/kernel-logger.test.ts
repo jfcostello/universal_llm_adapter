@@ -4,9 +4,9 @@ import {
   getNoopEmbeddingLogger,
   getNoopVectorLogger,
   getNoopLoggingDeps
-} from '@/modules/kernel/index.ts';
+} from '@/kernel/index.ts';
 
-describe('modules/kernel logger helpers', () => {
+describe('kernel logger helpers', () => {
   afterEach(() => {
     jest.restoreAllMocks();
   });
@@ -46,4 +46,3 @@ describe('modules/kernel logger helpers', () => {
     expect(second).not.toBe(first);
   });
 });
-

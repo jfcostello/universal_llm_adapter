@@ -9,18 +9,18 @@ import {
   VectorContextConfig,
   TextContent,
   QueryConstructionSettings,
-} from '../../kernel/index.js';
-import type { PluginRegistry, EmbeddingPriorityItem } from '../../kernel/index.js';
-import { getDefaults } from '../../kernel/index.js';
+} from '../../../kernel/index.js';
+import type { PluginRegistry, EmbeddingPriorityItem } from '../../../kernel/index.js';
+import { getDefaults } from '../../../kernel/index.js';
 import {
   resolveLoggingDeps,
-} from '../../kernel/index.js';
+} from '../../../kernel/index.js';
 import type {
   AdapterLogger,
   LoggingDeps,
   IEmbeddingOperationLogger,
   IVectorOperationLogger
-} from '../../kernel/index.js';
+} from '../../../kernel/index.js';
 import { interpolate } from '../../string/index.js';
 import type { EmbeddingManager } from '../../embeddings/index.js';
 import { VectorStoreManager } from './vector-store-manager.js';

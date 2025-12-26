@@ -1,5 +1,5 @@
-import type { Message, TextContent } from '../../../../modules/kernel/index.js';
-import { Role, sanitizeToolName } from '../../../../modules/kernel/index.js';
+import type { Message, TextContent } from '../../../../kernel/index.js';
+import { Role, sanitizeToolName } from '../../../../kernel/index.js';
 import type { GoogleContent, GooglePart } from './mappings.js';
 
 export function extractToolResponse(message: Message): [string | undefined, any] {

@@ -10,7 +10,7 @@ import type {
   UnifiedTool,
   UsageStats,
   LLMResponse
-} from '../../../../modules/kernel/index.js';
+} from '../../../../kernel/index.js';
 import { extractToolResponse as extractToolResponseFromMessage, serializeMessages as serializeGoogleMessages } from './messages.js';
 import {
   extractReasoning as extractGoogleReasoning,

@@ -1,6 +1,6 @@
 import type { QdrantClient } from '@qdrant/js-client-rest';
-import type { IVectorOperationLogger, JsonObject } from '../../../../../modules/kernel/index.js';
-import { VectorStoreError } from '../../../../../modules/kernel/index.js';
+import type { IVectorOperationLogger, JsonObject } from '../../../../../kernel/index.js';
+import { VectorStoreError } from '../../../../../kernel/index.js';
 
 export async function createPayloadIndexQdrant(options: {
   client: QdrantClient;

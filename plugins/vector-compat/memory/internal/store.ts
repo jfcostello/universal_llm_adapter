@@ -1,4 +1,4 @@
-import type { VectorPoint } from '../../../../modules/kernel/index.js';
+import type { VectorPoint } from '../../../../kernel/index.js';
 
 export type MemoryCollections = Map<string, Map<string, VectorPoint>>;
 

@@ -1,5 +1,5 @@
-import type { ContentPart, Message } from '../../../../modules/kernel/index.js';
-import { Role } from '../../../../modules/kernel/index.js';
+import type { ContentPart, Message } from '../../../../kernel/index.js';
+import { Role } from '../../../../kernel/index.js';
 
 export function hasPDFDocuments(messages: Message[]): boolean {
   for (const message of messages) {

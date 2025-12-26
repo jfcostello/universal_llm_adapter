@@ -1,4 +1,4 @@
-import type { AsyncQueue } from '../../../../../modules/kernel/index.js';
+import type { AsyncQueue } from '../../../../../kernel/index.js';
 
 export type RealtimeTransportEvent =
   | { type: 'open' }

@@ -1,5 +1,5 @@
-import type { ContentPart, Message, TextContent } from '../../../../modules/kernel/index.js';
-import { Role } from '../../../../modules/kernel/index.js';
+import type { ContentPart, Message, TextContent } from '../../../../kernel/index.js';
+import { Role } from '../../../../kernel/index.js';
 import { extractToolResultFromMessage } from '../../../../modules/messages/index.js';
 import type { ResponsesAPIContentPart, ResponsesAPIInputItem } from './mappings.js';
 

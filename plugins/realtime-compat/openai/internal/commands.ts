@@ -1,4 +1,4 @@
-import type { JsonValue, RealtimeAudioFrame, RealtimeSessionSpec, UnifiedTool } from '../../../../modules/kernel/index.js';
+import type { JsonValue, RealtimeAudioFrame, RealtimeSessionSpec, UnifiedTool } from '../../../../kernel/index.js';
 
 type OpenAIRealtimeClientEvent = Record<string, any>;
 

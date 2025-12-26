@@ -1,6 +1,6 @@
 import { jest, describe, test, expect, beforeEach } from '@jest/globals';
 import { LLMCoordinator } from '@/modules/llm/index.ts';
-import { Role, getDefaults } from '@/modules/kernel/index.ts';
+import { Role, getDefaults } from '@/kernel/index.ts';
 
 describe('LLMCoordinator observability', () => {
   beforeEach(() => {

@@ -1,4 +1,4 @@
-import type { RealtimeAudioFrame, RealtimeEvent } from '../../../../modules/kernel/index.js';
+import type { RealtimeAudioFrame, RealtimeEvent } from '../../../../kernel/index.js';
 import { convertProviderAudioToSessionOutput } from './audio.js';
 
 type GeminiFunctionCall = { id?: string; name?: string; args?: any };

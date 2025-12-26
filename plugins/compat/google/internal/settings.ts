@@ -1,4 +1,4 @@
-import type { LLMCallSettings } from '../../../../modules/kernel/index.js';
+import type { LLMCallSettings } from '../../../../kernel/index.js';
 
 /**
  * Convert settings to Google generation config fields.

@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 
 // Type imports - will exist after implementation
-import type { TextChunk } from '@/modules/kernel/index.ts';
+import type { TextChunk } from '@/kernel/index.ts';
 
 // Module imports - will exist after implementation
 let chunkText: (text: string, options?: ChunkOptions) => TextChunk[];

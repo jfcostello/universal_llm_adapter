@@ -6,8 +6,8 @@ import {
   VectorQueryResult,
   VectorQueryOptions,
   IVectorOperationLogger
-} from '../../kernel/index.js';
-import { VectorStoreError } from '../../kernel/index.js';
+} from '../../../kernel/index.js';
+import { VectorStoreError } from '../../../kernel/index.js';
 
 /**
  * Legacy adapter interface for backward compatibility.

@@ -1,8 +1,8 @@
 import { LLMLogger } from './llm-logger.js';
 import { EmbeddingLogger } from './embedding-logger.js';
 import { VectorLogger } from './vector-logger.js';
-import type { LoggingDeps } from '../../kernel/index.js';
-import type { LoggerCorrelationId } from '../../kernel/index.js';
+import type { LoggingDeps } from '../../../kernel/index.js';
+import type { LoggerCorrelationId } from '../../../kernel/index.js';
 
 let llmLogger: AdapterLogger | null = null;
 let embeddingLogger: EmbeddingLogger | null = null;

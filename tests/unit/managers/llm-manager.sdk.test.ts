@@ -1,7 +1,7 @@
 import { describe, expect, test, jest } from '@jest/globals';
 import { LLMManager } from '@/modules/llm/index.ts';
-import { ProviderExecutionError } from '@/modules/kernel/index.ts';
-import { Role } from '@/modules/kernel/index.ts';
+import { ProviderExecutionError } from '@/kernel/index.ts';
+import { Role } from '@/kernel/index.ts';
 
 describe('LLMManager SDK paths', () => {
   test('callProvider uses SDK when compat has callSDK method', async () => {

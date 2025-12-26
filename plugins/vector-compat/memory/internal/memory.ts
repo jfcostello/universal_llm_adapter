@@ -7,7 +7,7 @@ import {
   JsonObject,
   IVectorOperationLogger,
   VectorStoreError
-} from '../../../../modules/kernel/index.js';
+} from '../../../../kernel/index.js';
 import { queryCollection } from './query.js';
 import {
   clearCollections,

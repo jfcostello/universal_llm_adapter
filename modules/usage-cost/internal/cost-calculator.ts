@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import type { UsageStats } from '../../kernel/index.js';
-import { loadJsonFile, PACKAGE_ROOT } from '../../kernel/index.js';
+import type { UsageStats } from '../../../kernel/index.js';
+import { loadJsonFile, PACKAGE_ROOT } from '../../../kernel/index.js';
 import { getPromptTokensIncludeCached } from '../../usage/index.js';
 
 export interface UsageCostRates {

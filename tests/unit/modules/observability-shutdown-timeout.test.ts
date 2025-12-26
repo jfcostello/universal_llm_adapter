@@ -32,7 +32,7 @@ describe('observability shutdownTimeoutMs', () => {
 
       (jest as any).unstable_mockModule('fs', () => fsMock);
 
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { getDefaults } = await import('@/kernel/index.ts');
       expect(getDefaults().observability.shutdownTimeoutMs).toBe(0);
 
       const { createObservabilityDeps } = await import('@/modules/observability/index.ts');

@@ -1,5 +1,5 @@
-import type { IRealtimeCompat } from '../../../../modules/kernel/index.js';
-import type { RealtimeSessionSpec } from '../../../../modules/kernel/index.js';
+import type { IRealtimeCompat } from '../../../../kernel/index.js';
+import type { RealtimeSessionSpec } from '../../../../kernel/index.js';
 
 import { resolveOpenAIClientSecretUrl } from './session-core.js';
 

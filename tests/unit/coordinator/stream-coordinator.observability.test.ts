@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { Role, ToolCallEventType } from '@/modules/kernel/index.ts';
+import { Role, ToolCallEventType } from '@/kernel/index.ts';
 import fs from 'fs';
 import path from 'path';
 import { withTempCwd } from '@tests/helpers/temp-files.ts';
@@ -144,6 +144,49 @@ describe('StreamCoordinator observability', () => {
 	    expect(typeof requestArg.generationId).toBe('string');
 	    expect(requestArg.generationId).toBe(responseArg.generationId);
 	  });
+
+  test('enriches streaming observability response model from an upstream provider hint on stream chunks', async () => {
+    const parseStreamChunk = (chunk: any) => ({
+      text: chunk.text
+    });
+
+    const { coordinator } = await createCoordinator({
+      streamChunks: [{ text: 'hello', provider: 'upstream-a' }],
+      parseStreamChunk
+    });
+
+    const observability = createObservabilityContext();
+
+    const spec: any = {
+      llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
+      settings: {},
+      metadata: { correlationId: 'corr-789' }
+    };
+
+    const messages: any[] = [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }];
+    const tools: any[] = [{ name: 'demo-tool', description: 'demo' }];
+
+    const context: any = {
+      provider: 'stub-provider',
+      model: 'stub-model',
+      tools,
+      mcpServers: [],
+      toolNameMap: new Map(),
+      logger: { info: jest.fn(), warning: jest.fn() },
+      metadata: spec.metadata,
+      observability
+    };
+
+    for await (const _event of coordinator.coordinateStream(spec, messages, tools, context)) {
+      // consume
+    }
+
+    const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
+    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+
+    expect(requestArg.model).toBe('stub-model');
+    expect(responseArg.model).toBe('upstream-a/stub-model');
+  });
 
   test('falls back to compatibility defaults when capture fields are missing on the observability context', async () => {
     const parseStreamChunk = () => ({

@@ -5,7 +5,7 @@ import {
   EmbeddingResult,
   IEmbeddingOperationLogger,
   EmbeddingProviderError
-} from '../../../../modules/kernel/index.js';
+} from '../../../../kernel/index.js';
 import { createOpenRouterEmbeddingHttpClient } from './http.js';
 import { isRateLimitResponse, parseEmbeddingResponse } from './response.js';
 

@@ -1,5 +1,5 @@
-import type { ParsedStreamChunk, ReasoningData, UsageStats } from '../../../../modules/kernel/index.js';
-import { ToolCallEventType } from '../../../../modules/kernel/index.js';
+import type { ParsedStreamChunk, ReasoningData, UsageStats } from '../../../../kernel/index.js';
+import { ToolCallEventType } from '../../../../kernel/index.js';
 import { extractUsageStats, getGlobalUsageSpec, mergeUsageExtractionSpecs, stripNullUsageStats } from '../../../../modules/usage/index.js';
 import { OPENAI_USAGE_SPEC_STREAM } from './mappings.js';
 

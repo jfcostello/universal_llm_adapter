@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import OpenAICompat from '@/plugins/compat/openai/index.ts';
-import { ToolCallEventType, Role } from '@/modules/kernel/index.ts';
+import { ToolCallEventType, Role } from '@/kernel/index.ts';
 
 /**
  * Extended comprehensive tests for OpenAI provider

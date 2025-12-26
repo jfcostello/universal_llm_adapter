@@ -1,6 +1,6 @@
 import MemoryCompat from '@/plugins/vector-compat/memory/index.ts';
-import { VectorStoreError } from '@/modules/kernel/index.ts';
-import type { VectorStoreConfig, VectorPoint } from '@/modules/kernel/index.ts';
+import { VectorStoreError } from '@/kernel/index.ts';
+import type { VectorStoreConfig, VectorPoint } from '@/kernel/index.ts';
 
 function createConfig(): VectorStoreConfig {
   return {

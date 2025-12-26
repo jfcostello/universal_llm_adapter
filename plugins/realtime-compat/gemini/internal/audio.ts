@@ -1,4 +1,4 @@
-import type { RealtimeAudioFrame } from '../../../../modules/kernel/index.js';
+import type { RealtimeAudioFrame } from '../../../../kernel/index.js';
 import {
   base64ToBytes,
   bytesToBase64,

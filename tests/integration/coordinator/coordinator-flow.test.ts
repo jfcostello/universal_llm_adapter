@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 import { LLMManager } from '@/modules/llm/index.ts';
 import { ToolCoordinator } from '@/modules/tools/index.ts';
-import { Role, LLMResponse } from '@/modules/kernel/index.ts';
+import { Role, LLMResponse } from '@/kernel/index.ts';
 import { TOOL_REDACTION_PLACEHOLDER, TOOL_REDACTION_REASON } from '@/modules/context/index.ts';
 import { AdapterLogger } from '@/modules/logging/index.ts';
 import { ROOT_DIR } from '@tests/helpers/paths.ts';

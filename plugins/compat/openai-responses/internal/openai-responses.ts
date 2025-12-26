@@ -7,7 +7,7 @@ import type {
   ToolChoice,
   UnifiedTool,
   LLMResponse
-} from '../../../../modules/kernel/index.js';
+} from '../../../../kernel/index.js';
 import { serializeMessages as serializeOpenAIResponsesMessages } from './messages.js';
 import { parseSDKResponse as parseOpenAIResponsesSDKResponse } from './response.js';
 import { serializeSettings as serializeOpenAIResponsesSettings } from './settings.js';

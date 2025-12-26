@@ -1,7 +1,7 @@
 import { describe, expect, jest, test } from '@jest/globals';
 import { Readable } from 'stream';
 import { LLMManager } from '@/modules/llm/index.ts';
-import { Role } from '@/modules/kernel/index.ts';
+import { Role } from '@/kernel/index.ts';
 
 describe('LLMManager transport selection', () => {
   test('callProvider prefers HTTP when provider has an http(s) endpoint, even if compat exposes callSDK', async () => {

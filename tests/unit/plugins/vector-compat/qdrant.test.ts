@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 import QdrantCompat from '@/plugins/vector-compat/qdrant/index.ts';
-import { VectorStoreConnectionError, VectorStoreError } from '@/modules/kernel/index.ts';
-import type { VectorStoreConfig } from '@/modules/kernel/index.ts';
+import { VectorStoreConnectionError, VectorStoreError } from '@/kernel/index.ts';
+import type { VectorStoreConfig } from '@/kernel/index.ts';
 
 const ORIGINAL_ID_KEY = '__llm_adapter_original_id';
 const UUID_V4_REGEX =

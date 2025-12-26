@@ -1,8 +1,8 @@
 import { jest } from '@jest/globals';
 import { LLMCoordinator } from '@/modules/llm/index.ts';
-import { PluginRegistry } from '@/modules/kernel/index.ts';
+import { PluginRegistry } from '@/kernel/index.ts';
 import { LLMManager } from '@/modules/llm/index.ts';
-import { Role, LLMResponse } from '@/modules/kernel/index.ts';
+import { Role, LLMResponse } from '@/kernel/index.ts';
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
 import path from 'path';
 

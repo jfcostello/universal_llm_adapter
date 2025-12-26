@@ -4,7 +4,7 @@ import {
   MCPConnectionError,
   VectorStoreError,
   EmbeddingProviderError
-} from '../../../kernel/index.js';
+} from '../../../../kernel/index.js';
 
 function normalizeCode(status: number, error: any): string {
   const explicitCode = error?.code;

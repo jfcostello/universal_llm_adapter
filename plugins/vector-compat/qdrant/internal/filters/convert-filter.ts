@@ -1,4 +1,4 @@
-import type { JsonObject } from '../../../../../modules/kernel/index.js';
+import type { JsonObject } from '../../../../../kernel/index.js';
 
 /**
  * Convert generic JsonObject filter to Qdrant filter format

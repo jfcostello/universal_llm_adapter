@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { bytesToBase64 } from '@/modules/audio/index.js';
-import { PluginRegistry } from '@/modules/kernel/index.js';
+import { PluginRegistry } from '@/kernel/index.js';
 import { createRealtimeSession, type RealtimeAudioFrame, type RealtimeEvent } from '@/modules/realtime/index.js';
 
 type RealtimeAudioFormat = RealtimeAudioFrame['format'];

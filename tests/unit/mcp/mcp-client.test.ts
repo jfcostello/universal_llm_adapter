@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import { MCPClientPool, MCPConnection } from '@/modules/mcp/index.ts';
-import { MCPConnectionError } from '@/modules/kernel/index.ts';
+import { MCPConnectionError } from '@/kernel/index.ts';
 import { resolveFixture } from '@tests/helpers/paths.ts';
 
 describe('mcp/mcp-client', () => {

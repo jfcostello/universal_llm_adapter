@@ -1,5 +1,5 @@
 import { parseMCPManifest } from '@/modules/mcp/index.ts';
-import { ManifestError } from '@/modules/kernel/index.ts';
+import { ManifestError } from '@/kernel/index.ts';
 
 describe('mcp/mcp-manifest', () => {
   test('parses standard wrapper manifest with optional fields', () => {

@@ -1,6 +1,6 @@
 import { createRequire } from 'module';
 
-import { AsyncQueue } from '../../../kernel/index.js';
+import { AsyncQueue } from '../../../../kernel/index.js';
 
 type WsLike = {
   readyState: number;

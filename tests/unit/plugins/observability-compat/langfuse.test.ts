@@ -3,7 +3,7 @@ import type {
   ObservabilityProviderManifest,
   ObservabilityLLMRequestEvent,
   ObservabilityLLMResponseEvent
-} from '@/modules/kernel/index.ts';
+} from '@/kernel/index.ts';
 import { LangfuseCompat } from '@/plugins/observability-compat/langfuse/internal/langfuse.ts';
 import defaultCompat from '@/plugins/observability-compat/langfuse/index.ts';
 

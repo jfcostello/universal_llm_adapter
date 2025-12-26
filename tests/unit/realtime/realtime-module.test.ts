@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 
-import { AsyncQueue } from '@/modules/kernel/index.ts';
+import { AsyncQueue } from '@/kernel/index.ts';
 import { createRealtimeSessionController } from '@/modules/realtime/internal/realtime-session.ts';
 import { createRealtimeSession } from '@/modules/realtime/index.ts';
 
@@ -10,7 +10,7 @@ import type {
   RealtimeEvent,
   RealtimeSessionSpec,
   UnifiedTool
-} from '@/modules/kernel/index.ts';
+} from '@/kernel/index.ts';
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;

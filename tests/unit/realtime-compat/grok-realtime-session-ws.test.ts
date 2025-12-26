@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 import { createRequire } from 'module';
 
-import type { RealtimeEvent } from '@/modules/kernel/index.ts';
+import type { RealtimeEvent } from '@/kernel/index.ts';
 import GrokRealtimeCompat from '@/plugins/realtime-compat/grok/internal/grok-realtime.ts';
 import { createGrokRealtimeWsCompatSession } from '@/plugins/realtime-compat/grok/internal/session-ws.ts';
 

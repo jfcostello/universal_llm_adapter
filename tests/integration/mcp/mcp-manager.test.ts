@@ -1,8 +1,8 @@
 import { jest } from '@jest/globals';
 import { MCPManager } from '@/modules/mcp/index.ts';
-import { MCPServerConfig } from '@/modules/kernel/index.ts';
+import { MCPServerConfig } from '@/kernel/index.ts';
 import { MCPClientPool } from '@/modules/mcp/index.ts';
-import { MCPConnectionError } from '@/modules/kernel/index.ts';
+import { MCPConnectionError } from '@/kernel/index.ts';
 
 describe('integration/mcp/mcp-manager', () => {
   beforeEach(() => {

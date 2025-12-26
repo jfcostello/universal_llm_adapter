@@ -1,5 +1,5 @@
-import type { EmbeddingPriorityItem } from '../../kernel/index.js';
-import type { PluginRegistry } from '../../kernel/index.js';
+import type { EmbeddingPriorityItem } from '../../../kernel/index.js';
+import type { PluginRegistry } from '../../../kernel/index.js';
 
 function normalizePriority(priority: EmbeddingPriorityItem[]): string {
   return JSON.stringify(priority);

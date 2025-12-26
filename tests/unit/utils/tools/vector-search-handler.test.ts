@@ -6,8 +6,8 @@ import {
   VectorSearchHandlerContext,
   VectorSearchResult
 } from '@/modules/vector/index.ts';
-import { VectorContextConfig, VectorQueryResult } from '@/modules/kernel/index.ts';
-import { PluginRegistry } from '@/modules/kernel/index.ts';
+import { VectorContextConfig, VectorQueryResult } from '@/kernel/index.ts';
+import { PluginRegistry } from '@/kernel/index.ts';
 
 describe('utils/tools/vector-search-handler', () => {
   // Mock implementations

@@ -1,7 +1,7 @@
 import http from 'http';
 import { AddressInfo } from 'net';
-import { PluginRegistry, getDefaults } from '../kernel/index.js';
-import type { LLMCallSpec, LLMStreamEvent } from '../kernel/index.js';
+import { PluginRegistry, getDefaults } from '../../kernel/index.js';
+import type { LLMCallSpec, LLMStreamEvent } from '../../kernel/index.js';
 import type {
   CoordinatorLifecycleDeps,
   PluginRegistryLike

@@ -1,4 +1,4 @@
-import type { RealtimeAudioFrame } from '@/modules/kernel/index.ts';
+import type { RealtimeAudioFrame } from '@/kernel/index.ts';
 import { mapOpenAIRealtimeServerEvent } from '@/plugins/realtime-compat/openai/internal/event-mapper.ts';
 
 function makeState(): any {

@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import OpenAIResponsesCompat from '@/plugins/compat/openai-responses/index.ts';
-import { Role, ToolCallEventType } from '@/modules/kernel/index.ts';
+import { Role, ToolCallEventType } from '@/kernel/index.ts';
 
 describe('integration/providers/openai-responses-provider-extended', () => {
   let compat: OpenAIResponsesCompat;

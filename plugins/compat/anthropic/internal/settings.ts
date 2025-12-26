@@ -1,4 +1,4 @@
-import type { LLMCallSettings } from '../../../../modules/kernel/index.js';
+import type { LLMCallSettings } from '../../../../kernel/index.js';
 
 export function serializeSettings(settings: LLMCallSettings): any {
   const result: any = {};

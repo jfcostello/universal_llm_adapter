@@ -1,4 +1,4 @@
-import type { UnifiedTool } from '@/modules/kernel/index.ts';
+import type { UnifiedTool } from '@/kernel/index.ts';
 import {
   buildConversationItemCreateEvent,
   buildResponseCreateEvent,

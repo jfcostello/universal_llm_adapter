@@ -4,7 +4,7 @@
  * All imports are dynamic to preserve lazy loading.
  */
 
-import type { PluginRegistry } from '../../kernel/index.js';
+import type { PluginRegistry } from '../../../kernel/index.js';
 
 /**
  * Registry-like interface for type safety without forcing an import.
@@ -18,7 +18,7 @@ export interface PluginRegistryLike {
  * Uses dynamic import to preserve lazy loading.
  */
 export async function createRegistry(pluginsPath: string): Promise<PluginRegistryLike> {
-  const { PluginRegistry } = await import('../../kernel/index.js');
+  const { PluginRegistry } = await import('../../../kernel/index.js');
   return new PluginRegistry(pluginsPath);
 }
 

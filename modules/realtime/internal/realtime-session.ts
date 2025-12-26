@@ -8,8 +8,8 @@ import type {
   RealtimeHistoryItem,
   RealtimeSessionSpec,
   UnifiedTool
-} from '../../kernel/index.js';
-import { AsyncQueue } from '../../kernel/index.js';
+} from '../../../kernel/index.js';
+import { AsyncQueue } from '../../../kernel/index.js';
 
 export interface RealtimeSession {
   sendText: (options: { text: string; role?: 'system' | 'user' }) => Promise<void>;

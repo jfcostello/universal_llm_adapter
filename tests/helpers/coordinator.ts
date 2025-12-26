@@ -1,4 +1,4 @@
-import { PluginRegistry } from '@/modules/kernel/index.ts';
+import { PluginRegistry } from '@/kernel/index.ts';
 import { LLMCoordinator } from '@/modules/llm/index.ts';
 import { VectorStoreManager } from '@/modules/vector/index.ts';
 import { createLoggingDeps } from '@/modules/logging/index.ts';

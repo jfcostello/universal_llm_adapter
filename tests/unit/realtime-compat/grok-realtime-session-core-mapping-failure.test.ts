@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 
-import type { RealtimeEvent } from '@/modules/kernel/index.ts';
-import { AsyncQueue } from '@/modules/kernel/index.ts';
+import type { RealtimeEvent } from '@/kernel/index.ts';
+import { AsyncQueue } from '@/kernel/index.ts';
 
 type TransportEvent =
   | { type: 'open' }

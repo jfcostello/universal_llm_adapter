@@ -1,4 +1,4 @@
-import type { RealtimeAudioFrame } from '@/modules/kernel/index.ts';
+import type { RealtimeAudioFrame } from '@/kernel/index.ts';
 import { mapGrokRealtimeServerEvent } from '@/plugins/realtime-compat/grok/internal/event-mapper.ts';
 
 describe('realtime-compat/grok — event mapper', () => {

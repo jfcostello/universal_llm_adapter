@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import { StreamCoordinator } from '@/modules/llm/index.ts';
-import { StreamEventType, ToolCallEventType } from '@/modules/kernel/index.ts';
+import { StreamEventType, ToolCallEventType } from '@/kernel/index.ts';
 import { ToolCallBudget } from '@/modules/tools/index.ts';
 import OpenAICompat from '@/plugins/compat/openai/index.ts';
 

@@ -1,9 +1,9 @@
 import { jest } from '@jest/globals';
-import { PluginRegistry } from '@/modules/kernel/index.ts';
+import { PluginRegistry } from '@/kernel/index.ts';
 import { LLMCoordinator } from '@/modules/llm/index.ts';
-import { Role, LLMResponse } from '@/modules/kernel/index.ts';
+import { Role, LLMResponse } from '@/kernel/index.ts';
 import { LLMManager } from '@/modules/llm/index.ts';
-import { ProviderExecutionError } from '@/modules/kernel/index.ts';
+import { ProviderExecutionError } from '@/kernel/index.ts';
 import { ToolCoordinator } from '@/modules/tools/index.ts';
 import { MCPManager } from '@/modules/mcp/index.ts';
 import { AdapterLogger, createLoggingDeps } from '@/modules/logging/index.ts';

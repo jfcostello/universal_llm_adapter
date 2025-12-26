@@ -1,4 +1,4 @@
-import type { JsonObject, RealtimeAudioFrame, RealtimeEvent } from '../../../../modules/kernel/index.js';
+import type { JsonObject, RealtimeAudioFrame, RealtimeEvent } from '../../../../kernel/index.js';
 
 export interface OpenAIRealtimeMapperState {
   audio: { input: RealtimeAudioFrame; output: RealtimeAudioFrame };

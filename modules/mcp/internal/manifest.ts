@@ -1,5 +1,5 @@
-import { JsonObject, MCPServerConfig } from '../../kernel/index.js';
-import { ManifestError } from '../../kernel/index.js';
+import { JsonObject, MCPServerConfig } from '../../../kernel/index.js';
+import { ManifestError } from '../../../kernel/index.js';
 
 type RawServerConfig = Partial<MCPServerConfig> & {
   command?: unknown;

@@ -1,4 +1,4 @@
-import { AsyncQueue } from '../../../../../modules/kernel/index.js';
+import { AsyncQueue } from '../../../../../kernel/index.js';
 
 import type { IRealtimeTransport, RealtimeTransportEvent } from './types.js';
 

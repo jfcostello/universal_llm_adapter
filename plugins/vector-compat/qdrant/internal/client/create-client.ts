@@ -1,6 +1,6 @@
 import { QdrantClient } from '@qdrant/js-client-rest';
-import type { VectorStoreConfig } from '../../../../../modules/kernel/index.js';
-import { VectorStoreConnectionError } from '../../../../../modules/kernel/index.js';
+import type { VectorStoreConfig } from '../../../../../kernel/index.js';
+import { VectorStoreConnectionError } from '../../../../../kernel/index.js';
 import { redactUrlCredentials } from '../../../../../modules/security/index.js';
 
 export type QdrantClientFactory = (options: {

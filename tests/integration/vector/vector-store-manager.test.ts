@@ -2,7 +2,7 @@ import { jest } from '@jest/globals';
 import { VectorStoreManager } from '@/modules/vector/index.ts';
 import { EmbeddingManager } from '@/modules/embeddings/index.ts';
 import MemoryCompat from '@/plugins/vector-compat/memory/index.ts';
-import type { IVectorStoreCompat, VectorStoreConfig, EmbeddingPriorityItem } from '@/modules/kernel/index.ts';
+import type { IVectorStoreCompat, VectorStoreConfig, EmbeddingPriorityItem } from '@/kernel/index.ts';
 
 describe('integration/vector/vector-store-manager', () => {
   describe('basic adapter interface', () => {

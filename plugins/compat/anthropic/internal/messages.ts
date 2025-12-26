@@ -1,5 +1,5 @@
-import type { ContentPart, Message, ReasoningData } from '../../../../modules/kernel/index.js';
-import { Role } from '../../../../modules/kernel/index.js';
+import type { ContentPart, Message, ReasoningData } from '../../../../kernel/index.js';
+import { Role } from '../../../../kernel/index.js';
 
 function serializeToolResult(contentParts: ContentPart[]): string {
   const textParts = contentParts

@@ -14,7 +14,7 @@ import type { RequestListener } from 'node:http';
 
 export type { ServerOptions, RunningServer } from './modules/server/index.js';
 export type { UnifiedCliDependencies } from './modules/cli/index.js';
-export type { DefaultSettings } from './modules/kernel/index.js';
+export type { DefaultSettings } from './kernel/index.js';
 export type {
   CoordinatorLifecycleDeps,
   PluginRegistryLike,
@@ -25,8 +25,8 @@ export type {
 } from './modules/lifecycle/index.js';
 export type { RealtimeSession } from './modules/realtime/index.js';
 
-let kernelPromise: Promise<typeof import('./modules/kernel/index.js')> | null = null;
-const loadKernel = () => (kernelPromise ??= import('./modules/kernel/index.js'));
+let kernelPromise: Promise<typeof import('./kernel/index.js')> | null = null;
+const loadKernel = () => (kernelPromise ??= import('./kernel/index.js'));
 
 let cliPromise: Promise<typeof import('./modules/cli/index.js')> | null = null;
 const loadCli = () => (cliPromise ??= import('./modules/cli/index.js'));
@@ -49,7 +49,7 @@ export async function runUnifiedCli(argv?: string[]): Promise<void> {
 
 // ==================== Defaults ====================
 
-export async function getDefaults(): Promise<import('./modules/kernel/index.js').DefaultSettings> {
+export async function getDefaults(): Promise<import('./kernel/index.js').DefaultSettings> {
   const { getDefaults } = await loadKernel();
   return getDefaults();
 }

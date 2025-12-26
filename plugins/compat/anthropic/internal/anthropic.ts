@@ -8,8 +8,8 @@ import type {
   ToolChoice,
   UnifiedTool,
   UsageStats
-} from '../../../../modules/kernel/index.js';
-import { Role } from '../../../../modules/kernel/index.js';
+} from '../../../../kernel/index.js';
+import { Role } from '../../../../kernel/index.js';
 import { serializeMessages } from './messages.js';
 import { parseResponse as parseAnthropicResponse } from './response.js';
 import { serializeSettings } from './settings.js';

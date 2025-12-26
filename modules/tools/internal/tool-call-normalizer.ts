@@ -1,4 +1,4 @@
-import type { ToolCall } from '../../kernel/index.js';
+import type { ToolCall } from '../../../kernel/index.js';
 
 /**
  * Normalizes tool call argument structures for downstream consumers.

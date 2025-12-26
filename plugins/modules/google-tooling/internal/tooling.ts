@@ -1,5 +1,5 @@
-import type { ToolChoice, UnifiedTool } from '../../../../modules/kernel/index.js';
-import { sanitizeToolName } from '../../../../modules/kernel/index.js';
+import type { ToolChoice, UnifiedTool } from '../../../../kernel/index.js';
+import { sanitizeToolName } from '../../../../kernel/index.js';
 
 /**
  * Convert JSON Schema to Google parameters format.

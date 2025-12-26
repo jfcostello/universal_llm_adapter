@@ -1,5 +1,5 @@
-import { Message, Role, ToolResultContent, ContentPart, TextContent } from '../../kernel/index.js';
-import { getDefaults } from '../../kernel/index.js';
+import { Message, Role, ToolResultContent, ContentPart, TextContent } from '../../../kernel/index.js';
+import { getDefaults } from '../../../kernel/index.js';
 
 export const TOOL_REDACTION_PLACEHOLDER =
   'This is a placeholder, not the original tool response; the tool output has been redacted to save context.';

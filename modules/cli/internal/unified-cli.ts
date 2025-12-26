@@ -13,7 +13,7 @@
 
 import { Command } from 'commander';
 import type { ServerOptions, RunningServer } from '../../server/index.js';
-import type { LLMCallSpec, LLMStreamEvent, VectorCallSpec, VectorStreamEvent, EmbeddingCallSpec } from '../../kernel/index.js';
+import type { LLMCallSpec, LLMStreamEvent, VectorCallSpec, VectorStreamEvent, EmbeddingCallSpec } from '../../../kernel/index.js';
 import type { FactoryPluginRegistryLike as PluginRegistryLike, LLMCoordinatorLike, VectorCoordinatorLike, EmbeddingCoordinatorLike } from '../../lifecycle/index.js';
 
 export interface UnifiedCliDependencies {

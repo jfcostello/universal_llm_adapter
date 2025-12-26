@@ -16,13 +16,13 @@ import type {
   ObservabilityCompatContext,
   ObservabilityProviderManifest,
   DefaultSettings
-} from '../../kernel/index.js';
+} from '../../../kernel/index.js';
 import {
   getNoopObservabilityDeps,
   resolveObservabilityDeps,
   getDefaults,
   getNoopLogger
-} from '../../kernel/index.js';
+} from '../../../kernel/index.js';
 import { randomUUID, createHash } from 'crypto';
 import { calculateBackoffDelay, sleepWithSignal } from '../../shared/index.js';
 

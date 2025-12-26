@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 
-import type { RealtimeAudioFrame, RealtimeCompatSession, RealtimeEvent } from '@/modules/kernel/index.ts';
-import { AsyncQueue } from '@/modules/kernel/index.ts';
+import type { RealtimeAudioFrame, RealtimeCompatSession, RealtimeEvent } from '@/kernel/index.ts';
+import { AsyncQueue } from '@/kernel/index.ts';
 
 import { createGrokRealtimeCompatSessionWithTransport } from '@/plugins/realtime-compat/grok/internal/session-core.ts';
 

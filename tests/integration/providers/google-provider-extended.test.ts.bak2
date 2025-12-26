@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import GoogleCompat from '@/plugins/compat/google.ts';
-import { ToolCallEventType, Role } from '@/modules/kernel/index.ts';
+import { ToolCallEventType, Role } from '@/kernel/index.ts';
 
 /**
  * Extended comprehensive tests for Google provider
