@@ -125,6 +125,7 @@ export class StreamCoordinator {
     );
 
     let hasToolCalls = false;
+    let toolStop = false;
     const detectedCallsById = new Map<string, any>();
     let latestUsage: UsageStats | undefined;
     let reasoningAggregate: ReasoningData | undefined;
@@ -323,6 +324,7 @@ export class StreamCoordinator {
         });
 
         const followUpResult = yield* streamGenerator;
+        const followUpFinishReason = followUpResult?.finishReason;
         if (followUpResult?.content) {
           accumulatedContent += followUpResult.content;
         }
@@ -344,6 +346,10 @@ export class StreamCoordinator {
               };
             }
           }
+        }
+
+        if (followUpFinishReason === 'tool_stop') {
+          toolStop = true;
         }
       }
     }
@@ -444,7 +450,7 @@ export class StreamCoordinator {
         role: 'assistant' as any,
         content: [{ type: 'text', text: accumulatedContent }],
         toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
-        finishReason: hasToolCalls ? 'tool_calls' : 'stop',
+        finishReason: toolStop ? 'tool_stop' : (hasToolCalls ? 'tool_calls' : 'stop'),
         usage: latestUsage,
         reasoning: reasoningAggregate
       }

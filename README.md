@@ -208,6 +208,7 @@ Tool definitions live in `plugins/tools/*.json`:
 {
   "name": "test.echo",
   "description": "Echo back a message exactly as provided",
+  "terminal": true,
   "parametersJsonSchema": {
     "type": "object",
     "properties": {
@@ -217,6 +218,17 @@ Tool definitions live in `plugins/tools/*.json`:
   }
 }
 ```
+
+#### Terminal Tool Calls
+
+Tools can be marked as **terminal** so the tool loop stops immediately after the tool result is produced (no follow-up LLM call). This reduces latency/cost when the tool execution is the final action.
+
+There are two ways to mark terminal:
+
+1) **Tool definition:** set `"terminal": true` in the tool JSON.
+2) **Tool result override (per-call):** include `tool_type_response_override_terminal: true|false` in the tool return payload (either top-level or inside `result`; top-level wins). Only strict booleans are honored.
+
+When terminal, the adapter returns the tool result to the client and sets `finishReason: 'tool_stop'`.
 
 Process routing (how tools are invoked) lives in `plugins/processes/*.json`:
 
@@ -325,6 +337,17 @@ interface LLMCallSpec {
 
   // Metadata
   metadata?: JsonObject;
+}
+```
+
+### UnifiedTool
+
+```typescript
+interface UnifiedTool {
+  name: string;
+  description?: string;
+  parametersJsonSchema?: JsonObject;
+  terminal?: boolean;
 }
 ```
 

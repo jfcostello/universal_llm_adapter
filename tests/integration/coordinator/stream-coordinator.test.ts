@@ -166,6 +166,31 @@ describe('StreamCoordinator', () => {
     });
   });
 
+  test('stops after terminal tool execution without follow-up stream and sets finishReason tool_stop', async () => {
+    const { coordinator, context, llmManager, toolCoordinator, spec } = createCoordinatorMocks({
+      toolResult: {
+        result: { echoed: 'tool-output' },
+        tool_type_response_override_terminal: true
+      }
+    });
+
+    const events: any[] = [];
+    for await (const event of coordinator.coordinateStream(
+      spec,
+      [...spec.messages],
+      [],
+      context
+    )) {
+      events.push(event);
+    }
+
+    expect(toolCoordinator.routeAndInvoke).toHaveBeenCalledTimes(1);
+    expect(llmManager.streamProvider).toHaveBeenCalledTimes(1);
+
+    const doneEvent = events.find(e => e.type === StreamEventType.DONE);
+    expect(doneEvent?.response.finishReason).toBe('tool_stop');
+  });
+
   test('respects tool budget exhaustion and clears tools for follow-up stream', async () => {
     const { coordinator, context, llmManager, toolCoordinator, spec } = createCoordinatorMocks({
       maxToolIterations: 0,

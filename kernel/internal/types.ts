@@ -89,6 +89,11 @@ export interface UnifiedTool {
   name: string;
   description?: string;
   parametersJsonSchema?: JsonObject;
+  /**
+   * When true, executing this tool call should end the tool loop immediately after
+   * the tool result is produced (no follow-up LLM call).
+   */
+  terminal?: boolean;
 }
 
 export interface ToolCall {

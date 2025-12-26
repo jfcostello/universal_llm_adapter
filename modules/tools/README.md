@@ -15,3 +15,12 @@ Owns tool discovery, tool loop orchestration, and tool routing (process routes +
 - `runToolLoop` (non-stream + stream tool loops)
 - `ToolCoordinator` (process routing)
 - `sanitizeToolName` / `sanitizeToolChoice` / `normalizeToolCalls`
+
+## Terminal Tool Calls
+`runToolLoop` supports **terminal** tool calls that stop the loop immediately after tool execution (no follow-up LLM call).
+
+Terminal can be set via:
+- Tool definition: `UnifiedTool.terminal: true`
+- Tool result override: `tool_type_response_override_terminal: true|false` (strict boolean; top-level overrides nested)
+
+When terminal, the response `finishReason` is set to `tool_stop`.

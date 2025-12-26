@@ -85,7 +85,8 @@ export async function collectTools({
     sanitizedTools.push({
       name: sanitizedName,
       description: originalTool.description,
-      parametersJsonSchema: originalTool.parametersJsonSchema
+      parametersJsonSchema: originalTool.parametersJsonSchema,
+      terminal: originalTool.terminal
     });
   }
 
