@@ -14,6 +14,7 @@ import { applyCors } from './security/cors.js';
 import { applySecurityHeaders } from './security/security-headers.js';
 import { assertAuthorized } from './security/auth.js';
 import { createRateLimiter, getClientIp } from './security/rate-limiter.js';
+import { monotonicElapsedMs, monotonicNowNs } from '../../shared/index.js';
 import {
   runWithCoordinatorLifecycle,
   streamWithCoordinatorLifecycle
@@ -370,7 +371,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           const correlationId = spec.metadata?.correlationId as string | undefined;
           const { getLogger } = await import('../../logging/index.js');
           const logger = getLogger(correlationId);
-          const startTime = Date.now();
+          const startTimeMonoNs = monotonicNowNs();
           const callPromise = runWithCoordinatorLifecycleFn<LLMCallSpec, any, any, any>({
             spec,
             pluginsPath,
@@ -397,12 +398,12 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
             try {
               const response = await Promise.race([callPromise, timeoutPromise]);
               writeJson(res, 200, { type: 'response', data: response });
-              logger.info('HTTP /run completed', { durationMs: Date.now() - startTime });
+              logger.info('HTTP /run completed', { durationMs: monotonicElapsedMs(startTimeMonoNs) });
             } catch (error: any) {
               if (timedOut) {
                 const mapped = mapErrorToHttp(error);
                 writeJson(res, mapped.status, mapped.body);
-                logger.warning('HTTP /run timed out', { durationMs: Date.now() - startTime });
+                logger.warning('HTTP /run timed out', { durationMs: monotonicElapsedMs(startTimeMonoNs) });
                 releaseDeferred = true;
                 callPromise
                   .catch(err => logger.error('Coordinator finished after timeout', { error: err }))
@@ -412,7 +413,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
 
               const mapped = mapErrorToHttp(error);
               writeJson(res, mapped.status, mapped.body);
-              logger.error('HTTP /run failed', { durationMs: Date.now() - startTime, error });
+              logger.error('HTTP /run failed', { durationMs: monotonicElapsedMs(startTimeMonoNs), error });
             } finally {
               if (timeoutId) clearTimeout(timeoutId);
             }
@@ -423,11 +424,11 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           try {
             const response = await callPromise;
             writeJson(res, 200, { type: 'response', data: response });
-            logger.info('HTTP /run completed', { durationMs: Date.now() - startTime });
+            logger.info('HTTP /run completed', { durationMs: monotonicElapsedMs(startTimeMonoNs) });
           } catch (error: any) {
             const mapped = mapErrorToHttp(error);
             writeJson(res, mapped.status, mapped.body);
-            logger.error('HTTP /run failed', { durationMs: Date.now() - startTime, error });
+            logger.error('HTTP /run failed', { durationMs: monotonicElapsedMs(startTimeMonoNs), error });
           }
         } catch (error: any) {
           const mapped = mapErrorToHttp(error);
@@ -457,7 +458,8 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           const correlationId = spec.metadata?.correlationId as string | undefined;
           const { getLogger } = await import('../../logging/index.js');
           const logger = getLogger(correlationId);
-          const startTime = Date.now();
+          const startTimeMs = Date.now();
+          const startTimeMonoNs = monotonicNowNs();
           res.writeHead(200, {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
@@ -488,7 +490,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
             await handleSseStream({
               iterator,
               res,
-              startTimeMs: startTime,
+              startTimeMs,
               requestTimeoutMs,
               idleTimeoutMs
             });
@@ -502,7 +504,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
             res.end();
           }
 
-          logger.info('HTTP /stream completed', { durationMs: Date.now() - startTime });
+          logger.info('HTTP /stream completed', { durationMs: monotonicElapsedMs(startTimeMonoNs) });
         } finally {
           release();
         }
@@ -531,7 +533,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           const correlationId = spec.metadata?.correlationId as string | undefined;
           const { getVectorLogger } = await import('../../logging/index.js');
           const logger = getVectorLogger(correlationId);
-          const startTime = Date.now();
+          const startTimeMonoNs = monotonicNowNs();
           const createVectorCoordinator = (deps as any).createVectorCoordinator as
             | ServerDependencies['createVectorCoordinator']
             | undefined;
@@ -569,12 +571,12 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
             try {
               const response = await Promise.race([callPromise, timeoutPromise]);
               writeJson(res, 200, { type: 'response', data: response });
-              logger.info('HTTP /vector/run completed', { durationMs: Date.now() - startTime });
+              logger.info('HTTP /vector/run completed', { durationMs: monotonicElapsedMs(startTimeMonoNs) });
             } catch (error: any) {
               if (timedOut) {
                 const mapped = mapErrorToHttp(error);
                 writeJson(res, mapped.status, mapped.body);
-                logger.warning('HTTP /vector/run timed out', { durationMs: Date.now() - startTime });
+                logger.warning('HTTP /vector/run timed out', { durationMs: monotonicElapsedMs(startTimeMonoNs) });
                 releaseDeferred = true;
                 callPromise
                   .catch(err => logger.error('Coordinator finished after timeout', { error: err }))
@@ -584,7 +586,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
 
               const mapped = mapErrorToHttp(error);
               writeJson(res, mapped.status, mapped.body);
-              logger.error('HTTP /vector/run failed', { durationMs: Date.now() - startTime, error });
+              logger.error('HTTP /vector/run failed', { durationMs: monotonicElapsedMs(startTimeMonoNs), error });
             } finally {
               if (timeoutId) clearTimeout(timeoutId);
             }
@@ -595,11 +597,11 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           try {
             const response = await callPromise;
             writeJson(res, 200, { type: 'response', data: response });
-            logger.info('HTTP /vector/run completed', { durationMs: Date.now() - startTime });
+            logger.info('HTTP /vector/run completed', { durationMs: monotonicElapsedMs(startTimeMonoNs) });
           } catch (error: any) {
             const mapped = mapErrorToHttp(error);
             writeJson(res, mapped.status, mapped.body);
-            logger.error('HTTP /vector/run failed', { durationMs: Date.now() - startTime, error });
+            logger.error('HTTP /vector/run failed', { durationMs: monotonicElapsedMs(startTimeMonoNs), error });
           }
         } catch (error: any) {
           const mapped = mapErrorToHttp(error);
@@ -630,7 +632,8 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           const correlationId = spec.metadata?.correlationId as string | undefined;
           const { getVectorLogger } = await import('../../logging/index.js');
           const logger = getVectorLogger(correlationId);
-          const startTime = Date.now();
+          const startTimeMs = Date.now();
+          const startTimeMonoNs = monotonicNowNs();
           res.writeHead(200, {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
@@ -670,7 +673,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
             await handleSseStream({
               iterator,
               res,
-              startTimeMs: startTime,
+              startTimeMs,
               requestTimeoutMs: config.requestTimeoutMs,
               idleTimeoutMs: config.streamIdleTimeoutMs
             });
@@ -684,7 +687,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
             res.end();
           }
 
-          logger.info('HTTP /vector/stream completed', { durationMs: Date.now() - startTime });
+          logger.info('HTTP /vector/stream completed', { durationMs: monotonicElapsedMs(startTimeMonoNs) });
         } finally {
           release();
         }
@@ -713,7 +716,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           const correlationId = spec.metadata?.correlationId as string | undefined;
           const { getEmbeddingLogger } = await import('../../logging/index.js');
           const logger = getEmbeddingLogger(correlationId);
-          const startTime = Date.now();
+          const startTimeMonoNs = monotonicNowNs();
           const createEmbeddingCoordinator = (deps as any).createEmbeddingCoordinator as
             | ServerDependencies['createEmbeddingCoordinator']
             | undefined;
@@ -751,12 +754,12 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
             try {
               const response = await Promise.race([callPromise, timeoutPromise]);
               writeJson(res, 200, { type: 'response', data: response });
-              logger.info('HTTP /embeddings/run completed', { durationMs: Date.now() - startTime });
+              logger.info('HTTP /embeddings/run completed', { durationMs: monotonicElapsedMs(startTimeMonoNs) });
             } catch (error: any) {
               if (timedOut) {
                 const mapped = mapErrorToHttp(error);
                 writeJson(res, mapped.status, mapped.body);
-                logger.warning('HTTP /embeddings/run timed out', { durationMs: Date.now() - startTime });
+                logger.warning('HTTP /embeddings/run timed out', { durationMs: monotonicElapsedMs(startTimeMonoNs) });
                 releaseDeferred = true;
                 callPromise
                   .catch(err => logger.error('Coordinator finished after timeout', { error: err }))
@@ -766,7 +769,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
 
               const mapped = mapErrorToHttp(error);
               writeJson(res, mapped.status, mapped.body);
-              logger.error('HTTP /embeddings/run failed', { durationMs: Date.now() - startTime, error });
+              logger.error('HTTP /embeddings/run failed', { durationMs: monotonicElapsedMs(startTimeMonoNs), error });
             } finally {
               if (timeoutId) clearTimeout(timeoutId);
             }
@@ -777,11 +780,11 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           try {
             const response = await callPromise;
             writeJson(res, 200, { type: 'response', data: response });
-            logger.info('HTTP /embeddings/run completed', { durationMs: Date.now() - startTime });
+            logger.info('HTTP /embeddings/run completed', { durationMs: monotonicElapsedMs(startTimeMonoNs) });
           } catch (error: any) {
             const mapped = mapErrorToHttp(error);
             writeJson(res, mapped.status, mapped.body);
-            logger.error('HTTP /embeddings/run failed', { durationMs: Date.now() - startTime, error });
+            logger.error('HTTP /embeddings/run failed', { durationMs: monotonicElapsedMs(startTimeMonoNs), error });
           }
         } catch (error: any) {
           const mapped = mapErrorToHttp(error);

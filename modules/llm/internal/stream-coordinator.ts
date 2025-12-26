@@ -9,7 +9,7 @@ import type {
   ObservabilityContext
 } from '../../kernel/index.js';
 import { StreamEventType, ToolCallEventType, getDefaults, safeJsonParse } from '../../kernel/index.js';
-import { normalizeFlag } from '../../shared/index.js';
+import { monotonicElapsedMs, monotonicNowNs, normalizeFlag } from '../../shared/index.js';
 import { partitionSettings } from '../../settings/index.js';
 import { usageStatsToJson } from '../../usage/index.js';
 import { redactJsonCredentials } from '../../security/index.js';
@@ -41,7 +41,8 @@ export class StreamCoordinator {
     context: StreamingContext,
     options?: { requireFinishToExecute?: boolean }
   ): AsyncGenerator<LLMStreamEvent> {
-    const startTime = Date.now();
+    const startTimeMs = Date.now();
+    const startTimeMonoNs = monotonicNowNs();
     const generationId = context.observability ? randomUUID() : undefined;
     const { runtime, provider: providerSettings, providerExtras } = partitionSettings(spec.settings);
     const executionSpec: LLMCallSpec = {
@@ -62,7 +63,7 @@ export class StreamCoordinator {
         const event = {
           traceId: context.observability.traceId,
           generationId,
-          timestampMs: startTime,
+          timestampMs: startTimeMs,
           provider: providerManifest.id,
           model,
           messages: filterMessagesForObservability(messages, captureMessages),
@@ -353,7 +354,7 @@ export class StreamCoordinator {
         const captureMessages = context.observability.captureMessages ?? 'full';
         const captureToolArgs = context.observability.captureToolArgs ?? true;
         const endTimeMs = Date.now();
-        const durationMs = endTimeMs - startTime;
+        const durationMs = monotonicElapsedMs(startTimeMonoNs);
         const promptTokens = latestUsage?.promptTokens ?? undefined;
         const completionTokens = latestUsage?.completionTokens ?? undefined;
         const totalTokens = latestUsage?.totalTokens ?? (

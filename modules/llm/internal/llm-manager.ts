@@ -14,6 +14,7 @@ import type {
 import { ProviderExecutionError, getDefaults } from '../../kernel/index.js';
 import { aggregateSystemMessages } from '../../messages/index.js';
 import { redactJsonCredentials } from '../../security/index.js';
+import { monotonicElapsedMs, monotonicNowNs } from '../../shared/index.js';
 import { buildFinalPayload } from './payload/payload-builder.js';
 import { filterContentForObservability, filterMessagesForObservability } from './observability-capture.js';
 
@@ -82,7 +83,7 @@ export class LLMManager {
     provider: string,
     model: string,
     generationId: string | undefined,
-    startTime: number,
+    startTimeMonoNs: bigint,
     response?: LLMResponse,
     rawResponse?: unknown,
     error?: { message: string; code?: string; retryable?: boolean },
@@ -96,7 +97,7 @@ export class LLMManager {
       const captureRawResponse = context.observability.captureRawResponse ?? true;
 
       const endTimeMs = Date.now();
-      const durationMs = endTimeMs - startTime;
+      const durationMs = monotonicElapsedMs(startTimeMonoNs);
       const promptTokens = response?.usage?.promptTokens ?? undefined;
       const completionTokens = response?.usage?.completionTokens ?? undefined;
       const totalTokens = response?.usage?.totalTokens ?? undefined;
@@ -181,9 +182,10 @@ export class LLMManager {
     logger?: AdapterLogger,
     context: RunContext = {}
   ): Promise<LLMResponse> {
-    const startTime = Date.now();
+    const startTimeMs = Date.now();
+    const startTimeMonoNs = monotonicNowNs();
     const generationId = context.observability ? randomUUID() : undefined;
-    const requestTimestampMs = startTime;
+    const requestTimestampMs = startTimeMs;
     const normalizedMessages = aggregateSystemMessages(messages);
     const shouldLogLive = process.env.LLM_LIVE === '1';
     const compat = await this.registry.getCompatModule(provider.compat);
@@ -246,7 +248,7 @@ export class LLMManager {
 
         // Log SDK response using existing logging infrastructure
         if (logger) {
-          const duration = Date.now() - startTime;
+          const duration = monotonicElapsedMs(startTimeMonoNs);
           logger.logLLMResponse({
             status: 200,
             statusText: 'SDK_SUCCESS',
@@ -298,7 +300,7 @@ export class LLMManager {
           provider.id,
           model,
           generationId,
-          startTime,
+          startTimeMonoNs,
           response,
           response.raw,
           undefined,
@@ -343,7 +345,7 @@ export class LLMManager {
           provider.id,
           model,
           generationId,
-          startTime,
+          startTimeMonoNs,
           undefined,
           undefined,
           { message: error.message, retryable: error instanceof ProviderExecutionError ? error.isRateLimit : false },
@@ -444,7 +446,7 @@ export class LLMManager {
 
       // Log beautiful formatted LLM response to dedicated log file
       if (logger) {
-        const duration = Date.now() - startTime;
+        const duration = monotonicElapsedMs(startTimeMonoNs);
         logger.logLLMResponse({
           status: response.status,
           statusText: response.statusText,
@@ -486,7 +488,7 @@ export class LLMManager {
 
           // Log response for retry attempt
           if (logger) {
-            const duration = Date.now() - startTime;
+            const duration = monotonicElapsedMs(startTimeMonoNs);
             logger.logLLMResponse({
               status: response.status,
               statusText: response.statusText,
@@ -532,7 +534,7 @@ export class LLMManager {
           lastRawResponse = response.data;
 
           if (logger) {
-            const duration = Date.now() - startTime;
+            const duration = monotonicElapsedMs(startTimeMonoNs);
             logger.logLLMResponse({
               status: response.status,
               statusText: response.statusText,
@@ -599,7 +601,7 @@ export class LLMManager {
             provider.id,
             model,
             generationId,
-            startTime,
+            startTimeMonoNs,
             undefined,
             lastRawResponse,
             { message: JSON.stringify(response.data), code: String(response.status), retryable: isRateLimit },
@@ -654,7 +656,7 @@ export class LLMManager {
         provider.id,
         model,
         generationId,
-        startTime,
+        startTimeMonoNs,
         parsed,
         lastRawResponse,
         undefined,
@@ -700,7 +702,7 @@ export class LLMManager {
           provider.id,
           model,
           generationId,
-          startTime,
+          startTimeMonoNs,
           undefined,
           lastRawResponse,
           { message: error.message, retryable: false },

@@ -110,6 +110,29 @@ export function sleepWithSignal(ms: number, signal?: AbortSignal): Promise<boole
 }
 
 /**
+ * Get a monotonic high-resolution timestamp.
+ *
+ * This is safe for duration deltas and is not affected by wall-clock changes.
+ * Prefer using `Date.now()` for epoch timestamps and `monotonicElapsedMs()` for durations.
+ */
+export function monotonicNowNs(): bigint {
+  return process.hrtime.bigint();
+}
+
+/**
+ * Compute a monotonic elapsed duration (ms) from a monotonic start timestamp.
+ *
+ * @param startNs - Start time from `monotonicNowNs()`
+ * @param endNs - Optional end time; defaults to `monotonicNowNs()`
+ * @returns Elapsed milliseconds (floored), never negative
+ */
+export function monotonicElapsedMs(startNs: bigint, endNs: bigint = monotonicNowNs()): number {
+  const deltaNs = endNs - startNs;
+  if (deltaNs <= 0n) return 0;
+  return Number(deltaNs / 1_000_000n);
+}
+
+/**
  * Calculate delay with exponential backoff and jitter.
  *
  * @param attempt - Current attempt number (0-indexed)

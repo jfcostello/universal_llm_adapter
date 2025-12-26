@@ -239,7 +239,7 @@ describe('LLMManager observability', () => {
       'test-sdk-provider',
       'test-model',
       'gen-1',
-      Date.now() - 5,
+      process.hrtime.bigint(),
       {
         content: [],
         role: Role.ASSISTANT,
@@ -275,7 +275,7 @@ describe('LLMManager observability', () => {
       'test-sdk-provider',
       'test-model',
       'gen-1',
-      Date.now() - 5,
+      process.hrtime.bigint(),
       {
         content: [],
         role: Role.ASSISTANT,

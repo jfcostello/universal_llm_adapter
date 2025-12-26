@@ -5,6 +5,8 @@ import {
   calculateBackoffDelay,
   sleep,
   sleepWithSignal,
+  monotonicNowNs,
+  monotonicElapsedMs,
   truncateUtf8Bytes,
   safeJsonStringify,
   flattenPrimitiveStrings,
@@ -262,6 +264,35 @@ describe('modules/shared', () => {
         expect(resolved).toBe(false);
       } finally {
         jest.useRealTimers();
+      }
+    });
+  });
+
+  describe('monotonic timing', () => {
+    test('monotonicNowNs returns a bigint and uses process.hrtime.bigint()', () => {
+      const spy = jest.spyOn(process.hrtime, 'bigint').mockReturnValueOnce(1234n);
+      try {
+        expect(monotonicNowNs()).toBe(1234n);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    test('monotonicElapsedMs floors nanoseconds to milliseconds and never returns negative', () => {
+      expect(monotonicElapsedMs(0n, 0n)).toBe(0);
+      expect(monotonicElapsedMs(100n, 99n)).toBe(0);
+      expect(monotonicElapsedMs(0n, 999_999n)).toBe(0);
+      expect(monotonicElapsedMs(0n, 1_000_000n)).toBe(1);
+      expect(monotonicElapsedMs(0n, 1_999_999n)).toBe(1);
+      expect(monotonicElapsedMs(0n, 2_000_000n)).toBe(2);
+    });
+
+    test('monotonicElapsedMs defaults endNs to monotonicNowNs()', () => {
+      const spy = jest.spyOn(process.hrtime, 'bigint').mockReturnValueOnce(2_500_000n);
+      try {
+        expect(monotonicElapsedMs(0n)).toBe(2);
+      } finally {
+        spy.mockRestore();
       }
     });
   });
