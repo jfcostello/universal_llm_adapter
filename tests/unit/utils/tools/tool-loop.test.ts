@@ -543,6 +543,68 @@ describe('utils/tools/runToolLoop', () => {
     expect(finalResult).toEqual({ finishReason: 'tool_stop' });
   });
 
+  test('stream loop executes all tool calls in a round then stops when any call is terminal', async () => {
+    const llmManager: any = {
+      streamProvider: jest.fn(async function* () {
+        yield { choices: [{ delta: { content: 'should-not-run' } }] };
+      })
+    };
+
+    const invokeTool = jest
+      .fn()
+      .mockResolvedValueOnce({
+        result: { ok: 'alpha' },
+        tool_type_response_override_terminal: true
+      })
+      .mockResolvedValueOnce({
+        result: { ok: 'beta' }
+      });
+
+    const iterator = runToolLoop({
+      mode: 'stream',
+      llmManager,
+      registry: {
+        getCompatModule: () => ({
+          parseStreamChunk: (chunk: any) => ({ text: chunk.choices?.[0]?.delta?.content })
+        })
+      } as any,
+      messages: [{ role: Role.USER, content: [] }],
+      tools: [{ name: 'alpha_tool' }, { name: 'beta_tool' }] as any,
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 3 } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      toolNameMap: {},
+      metadata: {},
+      initialToolCalls: [
+        { id: 'call-1', name: 'alpha_tool', arguments: {} },
+        { id: 'call-2', name: 'beta_tool', arguments: {} }
+      ],
+      invokeTool
+    });
+
+    const events: any[] = [];
+    let finalResult: any;
+    while (true) {
+      const next = await iterator.next();
+      if (next.done) {
+        finalResult = next.value;
+        break;
+      }
+      events.push(next.value);
+    }
+
+    expect(invokeTool).toHaveBeenCalledTimes(2);
+    expect(
+      events.filter(e => e.type === StreamEventType.TOOL && e.toolEvent?.type === ToolCallEventType.TOOL_RESULT)
+    ).toHaveLength(2);
+    expect(llmManager.streamProvider).toHaveBeenCalledTimes(0);
+    expect(finalResult).toEqual({ finishReason: 'tool_stop' });
+  });
+
   test('stream loop emits tool result and honors countdown progress fields', async () => {
     const streamChunks = [
       { choices: [{ delta: { content: 'token-1' } }] },

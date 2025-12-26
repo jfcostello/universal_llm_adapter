@@ -256,44 +256,44 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
           }
         );
 
-	        logger.info('Tool completed', logPayload);
+        logger.info('Tool completed', logPayload);
 
-	        const overrideTerminal = resolveTerminalOverride(invocationResult);
-	        const normalizedPayload = invocationResult?.result !== undefined
-	          ? invocationResult.result
-	          : invocationResult;
-	        const isTerminal = overrideTerminal !== undefined
-	          ? overrideTerminal
-	          : terminalByDefinition;
+        const overrideTerminal = resolveTerminalOverride(invocationResult);
+        const normalizedPayload = invocationResult?.result !== undefined
+          ? invocationResult.result
+          : invocationResult;
+        const isTerminal = overrideTerminal !== undefined
+          ? overrideTerminal
+          : terminalByDefinition;
 
-	        return {
-	          type: 'success' as const,
-	          toolName: targetToolName,
-	          toolCall,
-	          payload: normalizedPayload,
-	          countdownText: resolveCountdownText(toolCountdownEnabled, toolBudget),
-	          terminal: isTerminal
-	        };
-	      } catch (error: any) {
-	        logger.error?.('Tool execution failed', {
-	          toolName: targetToolName,
-	          callId: toolCall.id,
-	          error: error?.message ?? String(error)
-	        });
+        return {
+          type: 'success' as const,
+          toolName: targetToolName,
+          toolCall,
+          payload: normalizedPayload,
+          countdownText: resolveCountdownText(toolCountdownEnabled, toolBudget),
+          terminal: isTerminal
+        };
+      } catch (error: any) {
+        logger.error?.('Tool execution failed', {
+          toolName: targetToolName,
+          callId: toolCall.id,
+          error: error?.message ?? String(error)
+        });
 
-	        return {
-	          type: 'error' as const,
-	          toolName: targetToolName,
-	          toolCall,
-	          payload: {
-	            error: 'tool_execution_failed',
-	            message: error?.message ?? String(error),
-	            tool: targetToolName
-	          },
-	          terminal: terminalByDefinition
-	        };
-	      }
-	    };
+        return {
+          type: 'error' as const,
+          toolName: targetToolName,
+          toolCall,
+          payload: {
+            error: 'tool_execution_failed',
+            message: error?.message ?? String(error),
+            tool: targetToolName
+          },
+          terminal: terminalByDefinition
+        };
+      }
+    };
 
     const processResult = (result: Awaited<ReturnType<typeof executeToolCall>>) => {
       if (result.type === 'success') {
@@ -307,26 +307,26 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
           ? `${rawText.slice(0, maxResultLength)}…`
           : rawText;
 
-	        appendToolResult(
-	          messages,
-	          {
-	            toolName: result.toolName,
-	            callId: result.toolCall.id,
+        appendToolResult(
+          messages,
+          {
+            toolName: result.toolName,
+            callId: result.toolCall.id,
             result: result.payload,
             resultText: truncatedText
           },
           {
             countdownText: result.countdownText,
-	            maxLength: maxResultLength
-	          }
-	        );
+            maxLength: maxResultLength
+          }
+        );
 
-	        if (result.terminal) {
-	          terminalStopThisRound = true;
-	        }
+        if (result.terminal) {
+          terminalStopThisRound = true;
+        }
 
-	        return;
-	      }
+        return;
+      }
 
       toolResultsThisRound.push({ tool: result.toolName, result: result.payload });
 
@@ -342,17 +342,17 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
           countdownText: resolveCountdownText(toolCountdownEnabled, toolBudget),
           maxLength: maxResultLength
         }
-	      );
+      );
 
-	      if (result.type === 'exhausted') {
-	        forceFinalize = true;
-	        return;
-	      }
+      if (result.type === 'exhausted') {
+        forceFinalize = true;
+        return;
+      }
 
-	      if ((result as any).terminal) {
-	        terminalStopThisRound = true;
-	      }
-	    };
+      if ((result as any).terminal) {
+        terminalStopThisRound = true;
+      }
+    };
 
     if (parallelExecution) {
       const results = await Promise.all(response.toolCalls.map(executeToolCall));

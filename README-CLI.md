@@ -932,6 +932,15 @@ Define tools directly in the spec:
 }
 ```
 
+### Terminal Tool Calls
+
+Tools can be marked as **terminal** so the tool loop stops immediately after tool execution (no follow-up LLM call). This is useful when the tool execution is the final action.
+
+- Tool definition: set `"terminal": true` on the tool definition (plugin tool JSON or inline `tools` entry).
+- Tool result override (per-call): include `tool_type_response_override_terminal: true|false` in the tool return payload (top-level or nested inside `result`; top-level wins). Only strict booleans are honored.
+
+When terminal, the response `finishReason` is set to `tool_stop`.
+
 ### MCP Servers
 
 Use MCP server tools:
