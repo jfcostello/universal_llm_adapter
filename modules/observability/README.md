@@ -144,7 +144,7 @@ Formula: `delay = min(baseDelayMs * 2^attempt, maxDelayMs) * (0.75 + random() * 
 
 ### Metrics and Duration Semantics
 
-- `durationMs` in response events is end-to-end wall-clock time (includes retries/backoff).
+- `durationMs` in response events is end-to-end elapsed time in milliseconds (includes internal retries/backoff). It is measured using a monotonic clock (not affected by wall-clock adjustments).
 - Exporter metrics:
   - `enqueuedTotal` / `droppedTotal` count events.
   - `sentCount` / `failedCount` count batch send attempts/outcomes (not individual events).
@@ -156,8 +156,8 @@ Observability exporters are **process-level** and may be shared across many LLM 
 When observability shutdown is triggered (CLI completion / server shutdown):
 1. Timer is stopped (no new automatic flushes)
 2. All remaining events in queue are flushed
-3. Retries continue until success or max attempts reached
-4. If `shutdownTimeoutMs > 0` (default `5000ms`), shutdown waiting is bounded; if the timeout is hit, shutdown continues and a summary is logged
+3. Retries continue until success or max attempts reached (unless the shutdown cap is hit)
+4. If `shutdownTimeoutMs > 0` (default `5000ms`), shutdown waiting is bounded; if the timeout is hit, in-flight exports are aborted best-effort, remaining queued events are dropped, and a summary is logged
    - Set `shutdownTimeoutMs = 0` to disable the shutdown cap (wait unbounded)
 5. After shutdown, new events are rejected with `reason: 'shutdown'`
 

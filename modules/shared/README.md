@@ -92,6 +92,30 @@ import { sleep } from '../shared/index.js';
 await sleep(250);
 ```
 
+### `sleepWithSignal(ms, signal?)`
+
+Sleep for a specified duration, but resolve early if the provided `AbortSignal` is aborted.
+
+```typescript
+import { sleepWithSignal } from '../shared/index.js';
+
+const abortController = new AbortController();
+const completed = await sleepWithSignal(5000, abortController.signal);
+// completed === false if aborted before 5s elapses
+```
+
+### `monotonicNowNs()` / `monotonicElapsedMs(startNs, endNs?)`
+
+Monotonic timing helpers for duration deltas. Use epoch timestamps (`Date.now()`) for `timestampMs` fields and monotonic deltas for `durationMs`/`duration` fields.
+
+```typescript
+import { monotonicNowNs, monotonicElapsedMs } from '../shared/index.js';
+
+const start = monotonicNowNs();
+// ...do work...
+const durationMs = monotonicElapsedMs(start);
+```
+
 ### `calculateBackoffDelay(attempt, baseDelayMs, maxDelayMs)`
 
 Calculate an exponential backoff delay with jitter (+/- 25%), capped at `maxDelayMs`.
