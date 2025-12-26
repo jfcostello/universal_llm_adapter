@@ -31,6 +31,7 @@ Enable observability globally by adding to your `plugins/configs/defaults.json`:
     "baseDelayMs": 250,
     "maxDelayMs": 30000,
     "timeoutMs": 10000,
+    "shutdownTimeoutMs": 5000,
     "maxAttributeValueBytes": 16384,
     "captureMessages": "none",
     "captureToolArgs": false,
@@ -85,7 +86,8 @@ const spec = {
 In addition to `spec.observability.*`, the adapter uses `spec.metadata` for correlation and grouping:
 
 - `spec.metadata.correlationId`: stable per-request identifier (some providers use this as a trace name/display label).
-- `spec.observability.sessionId`: stable per-session identifier to group related traces (in live tests this is typically the run-wide `batchId`).
+- `spec.metadata.batchId`: optional per-request batch identifier; when `spec.observability.sessionId` is not set, this is used as the default session/grouping ID for observability.
+- `spec.observability.sessionId`: stable per-session identifier to group related traces (overrides `spec.metadata.batchId`).
 - `spec.metadata.tags`: optional array of strings forwarded to observability providers that support tagging.
 
 The adapter also forwards token breakdown details (e.g., input/output/total, cached/reasoning/audio tokens) when they are provided by the underlying provider or can be derived from the response.
@@ -121,7 +123,7 @@ Observability is designed to **never block or slow down** LLM operations:
 
 The event queue has a maximum size (`maxQueueSize`, default 1000):
 - When the queue is full, the **oldest events are dropped**
-- A warning is logged for each dropped event
+- Drop warnings are **throttled** to avoid log spam under sustained overload; warnings include the number of drops since the last warning
 - This prevents unbounded memory growth during high-volume bursts
 
 ### Flush Triggers
@@ -141,6 +143,13 @@ Failed exports are retried with exponential backoff and jitter:
 
 Formula: `delay = min(baseDelayMs * 2^attempt, maxDelayMs) * (0.75 + random() * 0.5)`
 
+### Metrics and Duration Semantics
+
+- `durationMs` in response events is end-to-end elapsed time in milliseconds (includes internal retries/backoff). It is measured using a monotonic clock (not affected by wall-clock adjustments).
+- Exporter metrics:
+  - `enqueuedTotal` / `droppedTotal` count events.
+  - `sentCount` / `failedCount` count batch send attempts/outcomes (not individual events).
+
 ### Shutdown Behavior
 
 Observability exporters are **process-level** and may be shared across many LLM calls (especially in server mode).
@@ -148,8 +157,10 @@ Observability exporters are **process-level** and may be shared across many LLM 
 When observability shutdown is triggered (CLI completion / server shutdown):
 1. Timer is stopped (no new automatic flushes)
 2. All remaining events in queue are flushed
-3. Retries continue until success or max attempts reached
-4. After shutdown, new events are rejected with `reason: 'shutdown'`
+3. Retries continue until success or max attempts reached (unless the shutdown cap is hit)
+4. If `shutdownTimeoutMs > 0` (default `5000ms`), shutdown waiting is bounded; if the timeout is hit, in-flight exports are aborted best-effort, remaining queued events are dropped, and a summary is logged
+   - Set `shutdownTimeoutMs = 0` to disable the shutdown cap (wait unbounded)
+5. After shutdown, new events are rejected with `reason: 'shutdown'`
 
 ## Provider Limits
 
@@ -190,6 +201,7 @@ Env var:
 | `baseDelayMs` | number | `250` | Base delay for exponential backoff |
 | `maxDelayMs` | number | `30000` | Maximum delay cap for backoff |
 | `timeoutMs` | number | `10000` | HTTP timeout for export requests |
+| `shutdownTimeoutMs` | number | `5000` | Max time to wait for exporter shutdown during process exit (set `0` to disable cap) |
 | `maxAttributeValueBytes` | number | `16384` | Max UTF-8 bytes for any exported attribute string value |
 | `captureMessages` | `'none' \| 'text' \| 'full'` | `'none'` | Capture prompt/response content bodies |
 | `captureToolArgs` | boolean | `false` | Capture tool-call args/metadata |

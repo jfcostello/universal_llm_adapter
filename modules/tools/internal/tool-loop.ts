@@ -324,6 +324,10 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
     pruneToolResults(messages, preserveToolResults);
     pruneReasoning(messages, preserveReasoning);
 
+    const followUpRunContext = runContext
+      ? { ...runContext, toolCallsSoFar: allToolCalls }
+      : { toolCallsSoFar: allToolCalls };
+
     response = await llmManager.callProvider(
       providerManifest,
       model,
@@ -333,7 +337,7 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
       resolveFollowUpToolChoice(toolChoice),
       providerExtras,
       logger,
-      runContext
+      followUpRunContext
     );
 
     await maybeAttachUsageCost(response, providerManifest, model, providerSettings);
@@ -376,8 +380,8 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
       providerExtras,
       logger,
       runContext
-        ? { ...runContext, tools: [], mcpServers: [], toolNameMap: {} }
-        : undefined
+        ? { ...runContext, tools: [], mcpServers: [], toolNameMap: {}, toolCallsSoFar: allToolCalls }
+        : { tools: [], mcpServers: [], toolNameMap: {}, toolCallsSoFar: allToolCalls }
     );
 
     await maybeAttachUsageCost(response, providerManifest, model, providerSettings);

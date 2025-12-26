@@ -124,6 +124,13 @@ export interface RunContext {
   toolNameMap?: Record<string, string>;
 
   /**
+   * Tool calls executed so far in this run (for observability enrichment).
+   * When present, may be used to include tool call metadata even if the final model
+   * response does not contain tool calls.
+   */
+  toolCallsSoFar?: import('./types.js').ToolCall[];
+
+  /**
    * Call metadata (correlationId, etc.).
    */
   metadata?: Record<string, unknown>;

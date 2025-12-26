@@ -9,7 +9,7 @@ import type {
   ObservabilityContext
 } from '../../kernel/index.js';
 import { StreamEventType, ToolCallEventType, getDefaults, safeJsonParse } from '../../kernel/index.js';
-import { normalizeFlag } from '../../shared/index.js';
+import { monotonicElapsedMs, monotonicNowNs, normalizeFlag } from '../../shared/index.js';
 import { partitionSettings } from '../../settings/index.js';
 import { usageStatsToJson } from '../../usage/index.js';
 import { redactJsonCredentials } from '../../security/index.js';
@@ -41,7 +41,8 @@ export class StreamCoordinator {
     context: StreamingContext,
     options?: { requireFinishToExecute?: boolean }
   ): AsyncGenerator<LLMStreamEvent> {
-    const startTime = Date.now();
+    const startTimeMs = Date.now();
+    const startTimeMonoNs = monotonicNowNs();
     const generationId = context.observability ? randomUUID() : undefined;
     const { runtime, provider: providerSettings, providerExtras } = partitionSettings(spec.settings);
     const executionSpec: LLMCallSpec = {
@@ -62,7 +63,7 @@ export class StreamCoordinator {
         const event = {
           traceId: context.observability.traceId,
           generationId,
-          timestamp: new Date().toISOString(),
+          timestampMs: startTimeMs,
           provider: providerManifest.id,
           model,
           messages: filterMessagesForObservability(messages, captureMessages),
@@ -212,7 +213,7 @@ export class StreamCoordinator {
         }
       }
     }
-    
+
     // Handle tool calls if stream finished with tool_calls (matches prior behavior)
     const mustRequireFinish = options?.requireFinishToExecute === true;
     if ((mustRequireFinish && finishedWithToolCalls) || (!mustRequireFinish && (finishedWithToolCalls || detectedCallsById.size > 0))) {
@@ -348,50 +349,51 @@ export class StreamCoordinator {
     }
 
     // Record final response event if observability is enabled (never throws)
-	    if (context.observability) {
-	      try {
-          const captureMessages = context.observability.captureMessages ?? 'full';
-          const captureToolArgs = context.observability.captureToolArgs ?? true;
-	        const durationMs = Date.now() - startTime;
-	        const promptTokens = latestUsage?.promptTokens ?? undefined;
-	        const completionTokens = latestUsage?.completionTokens ?? undefined;
-	        const totalTokens = latestUsage?.totalTokens ?? (
-	          typeof promptTokens === 'number' || typeof completionTokens === 'number'
-	            ? (promptTokens || 0) + (completionTokens || 0)
-	            : undefined
-	        );
+    if (context.observability) {
+      try {
+        const captureMessages = context.observability.captureMessages ?? 'full';
+        const captureToolArgs = context.observability.captureToolArgs ?? true;
+        const endTimeMs = Date.now();
+        const durationMs = monotonicElapsedMs(startTimeMonoNs);
+        const promptTokens = latestUsage?.promptTokens ?? undefined;
+        const completionTokens = latestUsage?.completionTokens ?? undefined;
+        const totalTokens = latestUsage?.totalTokens ?? (
+          typeof promptTokens === 'number' || typeof completionTokens === 'number'
+            ? (promptTokens || 0) + (completionTokens || 0)
+            : undefined
+        );
 
-	        const event = {
-	          traceId: context.observability.traceId,
-	          generationId,
-	          sessionId: context.observability.sessionId,
-	          timestamp: new Date().toISOString(),
-	          provider: providerManifest.id,
-	          model,
-	          content: filterContentForObservability([{ type: 'text', text: accumulatedContent }] as any, captureMessages),
-	          toolCalls: allToolCalls.map(tc => {
-	            const base = { id: (tc as any).id, name: (tc as any).name } as any;
-	            if (!captureToolArgs) return base;
-	            const args = (tc as any).arguments ?? (tc as any).args;
-	            const metadata = (tc as any).metadata;
-	            return {
-	              ...base,
-	              ...(args !== undefined ? { arguments: redactJsonCredentials(args) } : {}),
-	              ...(metadata !== undefined ? { metadata: redactJsonCredentials(metadata) } : {})
-	            };
-	          }),
-	          usage: latestUsage ? {
-	            promptTokens,
-	            completionTokens,
-	            totalTokens,
-	            cachedTokens: latestUsage.cachedTokens ?? undefined,
-	            reasoningTokens: latestUsage.reasoningTokens ?? undefined,
-	            audioTokens: latestUsage.audioTokens ?? undefined,
-	            cost: latestUsage.cost ?? undefined
-	          } : undefined,
-	          durationMs,
-	          metadata: context.observability.metadata
-	        };
+        const event = {
+          traceId: context.observability.traceId,
+          generationId,
+          sessionId: context.observability.sessionId,
+          timestampMs: endTimeMs,
+          provider: providerManifest.id,
+          model,
+          content: filterContentForObservability([{ type: 'text', text: accumulatedContent }] as any, captureMessages),
+          toolCalls: allToolCalls.map(tc => {
+            const base = { id: (tc as any).id, name: (tc as any).name } as any;
+            if (!captureToolArgs) return base;
+            const args = (tc as any).arguments ?? (tc as any).args;
+            const metadata = (tc as any).metadata;
+            return {
+              ...base,
+              ...(args !== undefined ? { arguments: redactJsonCredentials(args) } : {}),
+              ...(metadata !== undefined ? { metadata: redactJsonCredentials(metadata) } : {})
+            };
+          }),
+          usage: latestUsage ? {
+            promptTokens,
+            completionTokens,
+            totalTokens,
+            cachedTokens: latestUsage.cachedTokens ?? undefined,
+            reasoningTokens: latestUsage.reasoningTokens ?? undefined,
+            audioTokens: latestUsage.audioTokens ?? undefined,
+            cost: latestUsage.cost ?? undefined
+          } : undefined,
+          durationMs,
+          metadata: context.observability.metadata
+        };
 
         context.observability.exporter.recordLLMResponse(event as any);
 
@@ -432,5 +434,4 @@ export class StreamCoordinator {
       }
     };
   }
-
 }

@@ -1,8 +1,13 @@
+import { jest } from '@jest/globals';
 import {
-  normalizeFlag,
-  createDeferred,
-  calculateBackoffDelay,
-  sleep,
+	  normalizeFlag,
+	  readTrimmedStringProperty,
+	  createDeferred,
+	  calculateBackoffDelay,
+	  sleep,
+	  sleepWithSignal,
+	  monotonicNowNs,
+  monotonicElapsedMs,
   truncateUtf8Bytes,
   safeJsonStringify,
   flattenPrimitiveStrings,
@@ -10,7 +15,7 @@ import {
 } from '@/modules/shared/index.ts';
 
 describe('modules/shared', () => {
-  describe('normalizeFlag', () => {
+	describe('normalizeFlag', () => {
     test('returns defaultValue for null and undefined', () => {
       expect(normalizeFlag(null, true)).toBe(true);
       expect(normalizeFlag(null, false)).toBe(false);
@@ -76,9 +81,25 @@ describe('modules/shared', () => {
       expect(normalizeFlag([], false)).toBe(true);
       expect(normalizeFlag(() => {}, false)).toBe(true);
     });
-  });
+	});
 
-  describe('createDeferred', () => {
+	describe('readTrimmedStringProperty', () => {
+	  test('returns undefined for missing/invalid values', () => {
+	    expect(readTrimmedStringProperty(null, 'k')).toBeUndefined();
+	    expect(readTrimmedStringProperty(undefined, 'k')).toBeUndefined();
+	    expect(readTrimmedStringProperty('nope', 'k')).toBeUndefined();
+	    expect(readTrimmedStringProperty({}, 'k')).toBeUndefined();
+	    expect(readTrimmedStringProperty({ k: 123 }, 'k')).toBeUndefined();
+	    expect(readTrimmedStringProperty({ k: '   ' }, 'k')).toBeUndefined();
+	  });
+
+	  test('returns trimmed string when present', () => {
+	    expect(readTrimmedStringProperty({ k: '  value  ' }, 'k')).toBe('value');
+	    expect(readTrimmedStringProperty({ k: 'value' }, 'k')).toBe('value');
+	  });
+	});
+
+	describe('createDeferred', () => {
     test('resolve() settles promise with value', async () => {
       const deferred = createDeferred<string>();
       deferred.resolve('hello');
@@ -199,6 +220,97 @@ describe('modules/shared', () => {
       const elapsed = Date.now() - start;
 
       expect(elapsed).toBeGreaterThanOrEqual(45); // Allow some tolerance
+    });
+  });
+
+  describe('sleepWithSignal', () => {
+    test('returns true immediately for non-positive durations', async () => {
+      const ac = new AbortController();
+      await expect(sleepWithSignal(0, ac.signal)).resolves.toBe(true);
+      await expect(sleepWithSignal(-1, ac.signal)).resolves.toBe(true);
+    });
+
+    test('returns true immediately for non-finite durations', async () => {
+      const ac = new AbortController();
+      await expect(sleepWithSignal(Number.NaN, ac.signal)).resolves.toBe(true);
+      await expect(sleepWithSignal(Number.POSITIVE_INFINITY, ac.signal)).resolves.toBe(true);
+    });
+
+    test('returns false immediately when signal is already aborted', async () => {
+      const ac = new AbortController();
+      ac.abort();
+      await expect(sleepWithSignal(50, ac.signal)).resolves.toBe(false);
+    });
+
+    test('resolves true after duration elapses when not aborted', async () => {
+      jest.useFakeTimers();
+      try {
+        const ac = new AbortController();
+        let resolved: boolean | undefined;
+        const promise = sleepWithSignal(100, ac.signal).then(value => {
+          resolved = value;
+          return value;
+        });
+
+        await Promise.resolve();
+        expect(resolved).toBeUndefined();
+
+        jest.advanceTimersByTime(100);
+        await expect(promise).resolves.toBe(true);
+        expect(resolved).toBe(true);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    test('resolves false when aborted during sleep', async () => {
+      jest.useFakeTimers();
+      try {
+        const ac = new AbortController();
+        let resolved: boolean | undefined;
+        const promise = sleepWithSignal(1000, ac.signal).then(value => {
+          resolved = value;
+          return value;
+        });
+
+        await Promise.resolve();
+        expect(resolved).toBeUndefined();
+
+        ac.abort();
+        await expect(promise).resolves.toBe(false);
+        expect(resolved).toBe(false);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  describe('monotonic timing', () => {
+    test('monotonicNowNs returns a bigint and uses process.hrtime.bigint()', () => {
+      const spy = jest.spyOn(process.hrtime, 'bigint').mockReturnValueOnce(1234n);
+      try {
+        expect(monotonicNowNs()).toBe(1234n);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    test('monotonicElapsedMs floors nanoseconds to milliseconds and never returns negative', () => {
+      expect(monotonicElapsedMs(0n, 0n)).toBe(0);
+      expect(monotonicElapsedMs(100n, 99n)).toBe(0);
+      expect(monotonicElapsedMs(0n, 999_999n)).toBe(0);
+      expect(monotonicElapsedMs(0n, 1_000_000n)).toBe(1);
+      expect(monotonicElapsedMs(0n, 1_999_999n)).toBe(1);
+      expect(monotonicElapsedMs(0n, 2_000_000n)).toBe(2);
+    });
+
+    test('monotonicElapsedMs defaults endNs to monotonicNowNs()', () => {
+      const spy = jest.spyOn(process.hrtime, 'bigint').mockReturnValueOnce(2_500_000n);
+      try {
+        expect(monotonicElapsedMs(0n)).toBe(2);
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 

@@ -1,10 +1,20 @@
 import type { ObservabilityEnvelopeOutcome } from '../../../kernel/index.js';
 import type { OtlpSpanSpec } from './types.js';
-import { sleep } from '../../../shared/index.js';
+import { sleepWithSignal } from '../../../shared/index.js';
 import { chunkAndEncodeOtlpTraceSpans, type EncodedOtlpChunk } from './chunk-and-encode.js';
 
 function isRetryableStatus(status: number): boolean {
   return status === 429 || (status >= 500 && status < 600);
+}
+
+function isAbortError(error: unknown): boolean {
+  return !!error && typeof error === 'object' && String((error as any).name) === 'AbortError';
+}
+
+function createAbortError(message = 'Aborted'): Error {
+  const error = new Error(message);
+  (error as any).name = 'AbortError';
+  return error;
 }
 
 function parseRetryAfterMs(headerValue: unknown): number | null {
@@ -82,6 +92,15 @@ async function getEncodeWorkerState(): Promise<OtlpEncodeWorkerState> {
     pendingById: new Map()
   };
 
+  const unrefWorkerIfIdle = () => {
+    if (state.pendingById.size !== 0) return;
+    try {
+      (worker as any)?.unref?.();
+    } catch {
+      // best-effort
+    }
+  };
+
   const failAll = (error: unknown) => {
     encodeWorkerDisabled = true;
     encodeWorkerState = null;
@@ -126,6 +145,7 @@ async function getEncodeWorkerState(): Promise<OtlpEncodeWorkerState> {
     const pending = state.pendingById.get(id);
     if (!pending) return;
     state.pendingById.delete(id);
+    unrefWorkerIfIdle();
 
     const ok = (message as any)?.ok === true;
     if (!ok) {
@@ -147,17 +167,70 @@ async function getEncodeWorkerState(): Promise<OtlpEncodeWorkerState> {
 
 async function chunkAndEncodeWithWorker(
   spans: OtlpSpanSpec[],
-  maxBatchBytes: number
+  maxBatchBytes: number,
+  signal?: AbortSignal
 ): Promise<EncodedOtlpChunk[]> {
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
   const state = await getEncodeWorkerState();
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
   const id = state.nextId++;
 
   return await new Promise<EncodedOtlpChunk[]>((resolve, reject) => {
-    state.pendingById.set(id, { resolve, reject });
+    const wasIdle = state.pendingById.size === 0;
+    const cleanup = () => {
+      if (signal) signal.removeEventListener('abort', onAbort);
+    };
+
+    const resolveOnce = (chunks: EncodedOtlpChunk[]) => {
+      cleanup();
+      resolve(chunks);
+    };
+
+    const rejectOnce = (error: unknown) => {
+      cleanup();
+      reject(error);
+    };
+
+    const onAbort = () => {
+      state.pendingById.delete(id);
+      if (state.pendingById.size === 0) {
+        try {
+          state.worker?.unref?.();
+        } catch {
+          // best-effort
+        }
+      }
+      rejectOnce(createAbortError());
+    };
+
+    if (signal) {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    state.pendingById.set(id, { resolve: resolveOnce, reject: rejectOnce });
+    if (wasIdle) {
+      try {
+        state.worker?.ref?.();
+      } catch {
+        // best-effort
+      }
+    }
     try {
       state.worker.postMessage({ id, spans, maxBatchBytes });
     } catch (error) {
       state.pendingById.delete(id);
+      cleanup();
+      if (state.pendingById.size === 0) {
+        try {
+          state.worker?.unref?.();
+        } catch {
+          // best-effort
+        }
+      }
       reject(error);
     }
   });
@@ -165,15 +238,22 @@ async function chunkAndEncodeWithWorker(
 
 async function chunkAndEncode(
   spans: OtlpSpanSpec[],
-  maxBatchBytes: number
+  maxBatchBytes: number,
+  signal?: AbortSignal
 ): Promise<EncodedOtlpChunk[]> {
   if (!shouldUseOtlpEncodeWorker()) {
+    if (signal?.aborted) {
+      throw createAbortError();
+    }
     return chunkAndEncodeOtlpTraceSpans(spans, maxBatchBytes);
   }
 
   try {
-    return await chunkAndEncodeWithWorker(spans, maxBatchBytes);
-  } catch {
+    return await chunkAndEncodeWithWorker(spans, maxBatchBytes, signal);
+  } catch (error) {
+    if (signal?.aborted || isAbortError(error)) {
+      throw error;
+    }
     // Best-effort fallback to sync encoding; observability must never take down the caller.
     encodeWorkerDisabled = true;
     encodeWorkerState = null;
@@ -187,6 +267,7 @@ export async function sendOtlpTraceSpans(options: {
   headers: Record<string, string>;
   timeoutMs?: number;
   maxBatchBytes?: number;
+  signal?: AbortSignal;
 }): Promise<{ success: boolean; outcomes: ObservabilityEnvelopeOutcome[] }> {
   const spans = Array.isArray(options.spans) ? options.spans : [];
   const url = String(options.url);
@@ -194,6 +275,7 @@ export async function sendOtlpTraceSpans(options: {
   const timeoutMs = typeof options.timeoutMs === 'number' && options.timeoutMs > 0
     ? Math.floor(options.timeoutMs)
     : undefined;
+  const signal = options.signal;
 
   // Conservative default to avoid oversized protobuf exports.
   const maxBatchBytes = typeof options.maxBatchBytes === 'number' && options.maxBatchBytes > 0
@@ -204,12 +286,16 @@ export async function sendOtlpTraceSpans(options: {
     return { success: true, outcomes: [] };
   }
 
-  const chunks = await chunkAndEncode(spans, maxBatchBytes);
+  const chunks = await chunkAndEncode(spans, maxBatchBytes, signal);
 
   const outcomes: ObservabilityEnvelopeOutcome[] = [];
   let overallSuccess = true;
 
   for (const chunk of chunks) {
+    if (signal?.aborted) {
+      throw createAbortError();
+    }
+
     const envelopeIds = chunk.envelopeIds;
 
     if (chunk.oversize) {
@@ -226,12 +312,19 @@ export async function sendOtlpTraceSpans(options: {
     }
 
     const controller = new AbortController();
+    let cleanupSignal: (() => void) | undefined;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     if (timeoutMs !== undefined) {
       timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     }
 
     try {
+      if (signal) {
+        const onAbort = () => controller.abort();
+        cleanupSignal = () => signal.removeEventListener('abort', onAbort);
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+
       const res = await fetch(url, {
         method: 'POST',
         headers,
@@ -270,10 +363,16 @@ export async function sendOtlpTraceSpans(options: {
         const retryAfterHeader = (res as any)?.headers?.get?.('retry-after');
         const retryAfterMs = parseRetryAfterMs(retryAfterHeader);
         if (retryAfterMs && retryAfterMs > 0) {
-          await sleep(retryAfterMs);
+          const slept = await sleepWithSignal(retryAfterMs, signal);
+          if (!slept) {
+            throw createAbortError();
+          }
         }
       }
     } catch (error: any) {
+      if (signal?.aborted || isAbortError(error)) {
+        throw createAbortError();
+      }
       overallSuccess = false;
       const message = (error as Error)?.message ?? String(error);
       for (const envelopeId of envelopeIds) {
@@ -286,6 +385,7 @@ export async function sendOtlpTraceSpans(options: {
       }
     } finally {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
+      cleanupSignal?.();
     }
   }
 

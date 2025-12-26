@@ -32,7 +32,6 @@ describe('integration/mcp/mcp-manager', () => {
     const listSpy = jest.spyOn(MCPClientPool.prototype, 'listTools');
 
     try {
-
       const [firstTools, firstServers] = await manager.gatherTools(['local']);
       expect(firstServers).toEqual(['local']);
       expect(firstTools.map(tool => tool.name)).toEqual(
@@ -69,7 +68,7 @@ describe('integration/mcp/mcp-manager', () => {
     const failingServer = {
       id: 'broken',
       command: 'node',
-      args: ['--bad-command'],
+      args: ['-e', 'process.exit(1)'],
       autoStart: true
     } as MCPServerConfig;
 

@@ -185,6 +185,9 @@ describe('managers/llm-manager', () => {
     expect(compat.parseResponse).toHaveBeenCalled();
     expect(logger.logLLMRequest).toHaveBeenCalled();
     expect(logger.logLLMResponse).toHaveBeenCalled();
+    const responseLog = (logger.logLLMResponse as any).mock.calls[0][0];
+    expect(typeof responseLog.duration).toBe('number');
+    expect(responseLog.duration).toBeGreaterThanOrEqual(0);
     expect(response.provider).toBe('test-openai');
 
     // Verify that unconsumed extra field triggered a warning

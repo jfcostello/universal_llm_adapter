@@ -94,13 +94,13 @@ describe('modules/observability', () => {
       const deps = getNoopObservabilityDeps();
       const exporter = deps.getExporter();
 
-      const result = exporter.recordLLMRequest({
-        traceId: 'test',
-        timestamp: new Date().toISOString(),
-        provider: 'test',
-        model: 'test',
-        messages: []
-      });
+        const result = exporter.recordLLMRequest({
+          traceId: 'test',
+          timestampMs: 1704067200000,
+          provider: 'test',
+          model: 'test',
+          messages: []
+        });
 
       expect(result.queued).toBe(false);
       expect(result.reason).toBe('disabled');
@@ -111,13 +111,13 @@ describe('modules/observability', () => {
       const deps = getNoopObservabilityDeps();
       const exporter = deps.getExporter();
 
-      const result = exporter.recordLLMResponse({
-        traceId: 'test',
-        timestamp: new Date().toISOString(),
-        provider: 'test',
-        model: 'test',
-        content: 'test response'
-      });
+        const result = exporter.recordLLMResponse({
+          traceId: 'test',
+          timestampMs: 1704067201000,
+          provider: 'test',
+          model: 'test',
+          content: 'test response'
+        });
 
       expect(result.queued).toBe(false);
       expect(result.reason).toBe('disabled');
@@ -213,21 +213,278 @@ describe('modules/observability', () => {
         mockManifest as any
       );
 
-      const result = exporter.recordLLMResponse({
-        traceId: 'trace-1',
-        timestamp: new Date().toISOString(),
-        provider: 'test',
-        model: 'test-model',
-        content: [{ type: 'text', text: 'Hello' }],
-        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
-        durationMs: 100
-      });
+        const result = exporter.recordLLMResponse({
+          traceId: 'trace-1',
+          timestampMs: 1704067201000,
+          provider: 'test',
+          model: 'test-model',
+          content: [{ type: 'text', text: 'Hello' }],
+          usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+          durationMs: 100
+        });
 
       expect(result.queued).toBe(true);
       expect(result.eventId).toBeDefined();
 
       await exporter.shutdown();
     });
+
+    test('tracks enqueued/dropped counters and includes metrics in queue-drop warnings', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+      const logger = createMockLogger();
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          logger,
+          flushAt: 9999, // prevent auto-flush
+          flushIntervalMs: 60000,
+          maxQueueSize: 1,
+          maxAttempts: 1,
+          baseDelayMs: 0,
+          maxDelayMs: 0,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      exporter.recordLLMRequest({ traceId: 't1', timestampMs: 0, provider: 'p', model: 'm', messages: [] });
+      exporter.recordLLMRequest({ traceId: 't2', timestampMs: 0, provider: 'p', model: 'm', messages: [] });
+
+      const metrics = (exporter as any).metrics;
+      expect(metrics.enqueuedTotal).toBe(2);
+      expect(metrics.droppedTotal).toBe(1);
+
+      expect(logger.warning).toHaveBeenCalledWith(
+        'Observability queue full; dropped oldest event',
+        expect.objectContaining({
+          provider: 'test',
+          maxQueueSize: 1,
+          metrics: expect.objectContaining({ enqueuedTotal: 1, droppedTotal: 1 })
+        })
+      );
+
+      await exporter.shutdown();
+    });
+
+      test('tracks flush/retry/send/failure counters and includes metrics in export-failure warnings', async () => {
+        const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+        const logger = createMockLogger();
+
+        const mockCompat = {
+          buildBatch: jest.fn(() => ({
+            payload: {},
+            eventIndexByEnvelopeId: new Map<string, number>([['envelope-0', 0]])
+          })),
+          sendBatch: jest.fn()
+            .mockRejectedValueOnce(new Error('Network error'))
+            .mockResolvedValueOnce({ success: true, outcomes: [] })
+        };
+
+        const mockManifest = {
+          id: 'test',
+          compat: 'test',
+          endpoint: { urlTemplate: 'http://test', method: 'POST' }
+        };
+
+        const exporter = new ObservabilityExporter(
+          {
+            provider: 'test',
+            logger,
+            flushAt: 9999, // manual flush
+            flushIntervalMs: 60000,
+            maxQueueSize: 1000,
+            maxAttempts: 2,
+            baseDelayMs: 0,
+            maxDelayMs: 0,
+            timeoutMs: 10000
+          },
+          mockCompat as any,
+          mockManifest as any
+        );
+
+        exporter.recordLLMRequest({ traceId: 't1', timestampMs: 0, provider: 'p', model: 'm', messages: [] });
+        await exporter.flush();
+
+        expect(logger.warning).toHaveBeenCalledWith(
+          'Observability batch export failed',
+          expect.objectContaining({
+            provider: 'test',
+            attempt: 1,
+            maxAttempts: 2,
+            error: 'Network error',
+            metrics: expect.objectContaining({ enqueuedTotal: 1, sentCount: 1, failedCount: 1 })
+          })
+        );
+
+        const metrics = (exporter as any).metrics;
+        expect(metrics.flushCount).toBe(1);
+        expect(metrics.retryCount).toBe(1);
+        expect(metrics.sentCount).toBe(2);
+        expect(metrics.failedCount).toBe(1);
+
+        await exporter.shutdown();
+      });
+
+      test('logs metrics when buildBatch throws (Error)', async () => {
+        const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+        const logger = createMockLogger();
+
+        const mockCompat = {
+          buildBatch: jest.fn(() => {
+            throw new Error('buildBatch broke');
+          }),
+          sendBatch: jest.fn()
+        };
+
+        const mockManifest = {
+          id: 'test',
+          compat: 'test',
+          endpoint: { urlTemplate: 'http://test', method: 'POST' }
+        };
+
+        const exporter = new ObservabilityExporter(
+          {
+            provider: 'test',
+            logger,
+            flushAt: 9999,
+            flushIntervalMs: 60000,
+            maxQueueSize: 1000,
+            maxAttempts: 1,
+            baseDelayMs: 0,
+            maxDelayMs: 0,
+            timeoutMs: 10000
+          },
+          mockCompat as any,
+          mockManifest as any
+        );
+
+        exporter.recordLLMRequest({ traceId: 't1', timestampMs: 0, provider: 'p', model: 'm', messages: [] });
+        await exporter.flush();
+
+        expect(logger.warning).toHaveBeenCalledWith(
+          'Observability batch export failed',
+          expect.objectContaining({
+            provider: 'test',
+            attempt: 1,
+            maxAttempts: 1,
+            error: 'buildBatch broke',
+            metrics: expect.any(Object)
+          })
+        );
+
+        await exporter.shutdown();
+      });
+
+      test('logs metrics when buildBatch throws (non-Error)', async () => {
+        const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+        const logger = createMockLogger();
+
+        const mockCompat = {
+          buildBatch: jest.fn(() => {
+            throw undefined;
+          }),
+          sendBatch: jest.fn()
+        };
+
+        const mockManifest = {
+          id: 'test',
+          compat: 'test',
+          endpoint: { urlTemplate: 'http://test', method: 'POST' }
+        };
+
+        const exporter = new ObservabilityExporter(
+          {
+            provider: 'test',
+            logger,
+            flushAt: 9999,
+            flushIntervalMs: 60000,
+            maxQueueSize: 1000,
+            maxAttempts: 1,
+            baseDelayMs: 0,
+            maxDelayMs: 0,
+            timeoutMs: 10000
+          },
+          mockCompat as any,
+          mockManifest as any
+        );
+
+        exporter.recordLLMRequest({ traceId: 't1', timestampMs: 0, provider: 'p', model: 'm', messages: [] });
+        await exporter.flush();
+
+        expect(logger.warning).toHaveBeenCalledWith(
+          'Observability batch export failed',
+          expect.objectContaining({
+            provider: 'test',
+            attempt: 1,
+            maxAttempts: 1,
+            error: 'undefined',
+            metrics: expect.any(Object)
+          })
+        );
+
+        await exporter.shutdown();
+      });
+
+      test('logs a shutdown summary with counters', async () => {
+        const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+        const logger = createMockLogger();
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          logger,
+          flushAt: 9999,
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 1,
+          baseDelayMs: 0,
+          maxDelayMs: 0,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      exporter.recordLLMRequest({ traceId: 't1', timestampMs: 0, provider: 'p', model: 'm', messages: [] });
+      await exporter.shutdown();
+
+        expect(logger.info).toHaveBeenCalledWith(
+          'Observability exporter shutdown summary',
+          expect.objectContaining({
+            provider: 'test',
+            timedOut: false,
+            enqueuedTotal: 1
+          })
+        );
+
+        expect(logger.info).toHaveBeenCalledTimes(1);
+        exporter.logShutdownSummary();
+        expect(logger.info).toHaveBeenCalledTimes(1);
+      });
 
     test('logs export success when LLM_LIVE=1', async () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
@@ -263,8 +520,8 @@ describe('modules/observability', () => {
           mockManifest as any
         );
 
-        exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
-        await exporter.flush();
+          exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+          await exporter.flush();
 
         expect(logger.info).toHaveBeenCalledWith(
           'Observability batch export succeeded',
@@ -408,13 +665,13 @@ describe('modules/observability', () => {
         mockManifest as any
       );
 
-      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
-      const flushPromise = exporter.flush();
+        exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+        const flushPromise = exporter.flush();
 
       await firstSendStarted;
 
       // Enqueue a second event while the first export is in-flight.
-      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
+        exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
 
       // Calling flush while already flushing should return the same promise, and the loop
       // should drain the newly enqueued event before resolving.
@@ -464,8 +721,8 @@ describe('modules/observability', () => {
         mockManifest as any
       );
 
-      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
-      await exporter.flush();
+        exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+        await exporter.flush();
 
       expect(mockCompat.buildBatch).toHaveBeenCalledWith(
         expect.any(Array),
@@ -519,8 +776,8 @@ describe('modules/observability', () => {
         mockManifest as any
       );
 
-      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
-      exporter.recordLLMResponse({ traceId: 'trace-1', timestamp: '', provider: '', model: '', content: [] });
+        exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+        exporter.recordLLMResponse({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', content: [] });
 
       await exporter.shutdown();
 
@@ -564,8 +821,8 @@ describe('modules/observability', () => {
         mockManifest as any
       );
 
-      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
-      exporter.recordLLMResponse({ traceId: 'trace-1', timestamp: '', provider: '', model: '', content: [] });
+        exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+        exporter.recordLLMResponse({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', content: [] });
 
       await exporter.shutdown();
 
@@ -608,13 +865,13 @@ describe('modules/observability', () => {
         mockManifest as any
       );
 
-      const record = exporter.recordLLMRequest({
-        traceId: 'trace-1',
-        timestamp: '',
-        provider: '',
-        model: '',
-        messages: []
-      });
+        const record = exporter.recordLLMRequest({
+          traceId: 'trace-1',
+          timestampMs: 0,
+          provider: '',
+          model: '',
+          messages: []
+        });
 
       await exporter.shutdown();
 
@@ -662,7 +919,7 @@ describe('modules/observability', () => {
         mockManifest as any
       );
 
-      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
+        exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
 
       await exporter.flush();
 
@@ -720,8 +977,8 @@ describe('modules/observability', () => {
         mockManifest as any
       );
 
-      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
-      await exporter.flush();
+        exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+        await exporter.flush();
 
       expect(mockLogger.warning).toHaveBeenCalledWith(
         'Observability batch export failed',
@@ -766,7 +1023,7 @@ describe('modules/observability', () => {
       );
 
       // Add event but don't reach flushAt threshold
-      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
+        exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
 
       expect(mockCompat.sendBatch).not.toHaveBeenCalled();
 
@@ -822,7 +1079,7 @@ describe('modules/observability', () => {
       exporterRef = exporter;
 
       // Add event
-      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
+        exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
 
       // Advance timer to trigger flush - this will call sendBatch which calls shutdown
       jest.advanceTimersByTime(1000);
@@ -873,13 +1130,13 @@ describe('modules/observability', () => {
         mockManifest as any
       );
 
-      const result = exporter.recordLLMRequest({
-        traceId: 'trace-1',
-        timestamp: new Date().toISOString(),
-        provider: 'test',
-        model: 'test-model',
-        messages: []
-      });
+        const result = exporter.recordLLMRequest({
+          traceId: 'trace-1',
+          timestampMs: 1704067200000,
+          provider: 'test',
+          model: 'test-model',
+          messages: []
+        });
 
       expect(result.queued).toBe(true);
       expect(result.eventId).toBeDefined();
@@ -918,24 +1175,24 @@ describe('modules/observability', () => {
       );
 
       // Add first event - should not trigger flush
-      exporter.recordLLMRequest({
-        traceId: 'trace-1',
-        timestamp: new Date().toISOString(),
-        provider: 'test',
-        model: 'test-model',
-        messages: []
-      });
+        exporter.recordLLMRequest({
+          traceId: 'trace-1',
+          timestampMs: 1704067200000,
+          provider: 'test',
+          model: 'test-model',
+          messages: []
+        });
 
       expect(mockCompat.sendBatch).not.toHaveBeenCalled();
 
       // Add second event - should trigger flush
-      exporter.recordLLMRequest({
-        traceId: 'trace-2',
-        timestamp: new Date().toISOString(),
-        provider: 'test',
-        model: 'test-model',
-        messages: []
-      });
+        exporter.recordLLMRequest({
+          traceId: 'trace-2',
+          timestampMs: 1704067200001,
+          provider: 'test',
+          model: 'test-model',
+          messages: []
+        });
 
       // Wait for async flush
       await new Promise(resolve => setTimeout(resolve, 50));
@@ -978,11 +1235,11 @@ describe('modules/observability', () => {
       );
 
       // Fill the queue
-      const oldest = exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
-      exporter.recordLLMRequest({ traceId: 'trace-2', timestamp: '', provider: '', model: '', messages: [] });
+        const oldest = exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+        exporter.recordLLMRequest({ traceId: 'trace-2', timestampMs: 0, provider: '', model: '', messages: [] });
 
       // This should drop the oldest
-      exporter.recordLLMRequest({ traceId: 'trace-3', timestamp: '', provider: '', model: '', messages: [] });
+        exporter.recordLLMRequest({ traceId: 'trace-3', timestampMs: 0, provider: '', model: '', messages: [] });
 
       expect(mockLogger.warning).toHaveBeenCalledWith(
         'Observability queue full; dropped oldest event',
@@ -1029,8 +1286,8 @@ describe('modules/observability', () => {
         mockManifest as any
       );
 
-      const first = exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
-      exporter.recordLLMRequest({ traceId: 'trace-2', timestamp: '', provider: '', model: '', messages: [] });
+        const first = exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+        exporter.recordLLMRequest({ traceId: 'trace-2', timestampMs: 0, provider: '', model: '', messages: [] });
 
       expect(mockLogger.warning).toHaveBeenCalledTimes(1);
       expect(mockLogger.warning).toHaveBeenCalledWith(
@@ -1038,11 +1295,11 @@ describe('modules/observability', () => {
         expect.objectContaining({ droppedEventId: first.eventId })
       );
 
-      const third = exporter.recordLLMRequest({ traceId: 'trace-3', timestamp: '', provider: '', model: '', messages: [] });
+        const third = exporter.recordLLMRequest({ traceId: 'trace-3', timestampMs: 0, provider: '', model: '', messages: [] });
       expect(mockLogger.warning).toHaveBeenCalledTimes(1);
 
       nowSpy.mockReturnValue(10_000 + 1);
-      exporter.recordLLMRequest({ traceId: 'trace-4', timestamp: '', provider: '', model: '', messages: [] });
+        exporter.recordLLMRequest({ traceId: 'trace-4', timestampMs: 0, provider: '', model: '', messages: [] });
 
       expect(mockLogger.warning).toHaveBeenCalledTimes(2);
       expect(mockLogger.warning).toHaveBeenLastCalledWith(
@@ -1089,9 +1346,9 @@ describe('modules/observability', () => {
       // Cover empty-drop behavior
       expect((exporter as any).dropOldestEvent()).toBeNull();
 
-      for (let i = 0; i < 60; i++) {
-        exporter.recordLLMRequest({ traceId: `trace-${i}`, timestamp: '', provider: '', model: '', messages: [] });
-      }
+        for (let i = 0; i < 60; i++) {
+          exporter.recordLLMRequest({ traceId: `trace-${i}`, timestampMs: 0, provider: '', model: '', messages: [] });
+        }
 
       // If compaction runs, the backing array should not grow with every enqueue.
       expect(((exporter as any).queue as any[]).length).toBeLessThan(20);
@@ -1139,7 +1396,7 @@ describe('modules/observability', () => {
         mockManifest as any
       );
 
-      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
+        exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
 
       await exporter.flush();
 
@@ -1187,13 +1444,13 @@ describe('modules/observability', () => {
 
       await exporter.shutdown();
 
-      const result = exporter.recordLLMRequest({
-        traceId: 'trace-1',
-        timestamp: new Date().toISOString(),
-        provider: 'test',
-        model: 'test-model',
-        messages: []
-      });
+        const result = exporter.recordLLMRequest({
+          traceId: 'trace-1',
+          timestampMs: 1704067200000,
+          provider: 'test',
+          model: 'test-model',
+          messages: []
+        });
 
       expect(result.queued).toBe(false);
       expect(result.reason).toBe('shutdown');
@@ -1249,7 +1506,7 @@ describe('modules/observability', () => {
         mockManifest as any
       );
 
-      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
+        exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
 
       await exporter.flush();
 
@@ -1298,8 +1555,8 @@ describe('modules/observability', () => {
         mockManifest as any
       );
 
-      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
-      exporter.recordLLMRequest({ traceId: 'trace-2', timestamp: '', provider: '', model: '', messages: [] });
+        exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+        exporter.recordLLMRequest({ traceId: 'trace-2', timestampMs: 0, provider: '', model: '', messages: [] });
 
       await exporter.flush();
 
@@ -1358,14 +1615,14 @@ describe('modules/observability', () => {
         mockManifest as any
       );
 
-      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
-      const record2 = exporter.recordLLMRequest({
-        traceId: 'trace-2',
-        timestamp: '',
-        provider: '',
-        model: '',
-        messages: []
-      });
+        exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+        const record2 = exporter.recordLLMRequest({
+          traceId: 'trace-2',
+          timestampMs: 0,
+          provider: '',
+          model: '',
+          messages: []
+        });
 
       await exporter.flush();
 
@@ -1435,7 +1692,7 @@ describe('modules/observability', () => {
         mockManifest as any
       );
 
-      exporter.recordLLMRequest({ traceId: 'trace-1', timestamp: '', provider: '', model: '', messages: [] });
+        exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
 
       // Start first flush
       const flush1 = exporter.flush();
@@ -1452,6 +1709,181 @@ describe('modules/observability', () => {
       expect(mockCompat.sendBatch).toHaveBeenCalledTimes(1);
 
       await exporter.shutdown();
+    });
+
+    test('drops queued events immediately when shutdown signal is already aborted', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 9999, // prevent auto-flush
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 3,
+          baseDelayMs: 250,
+          maxDelayMs: 30000,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+
+      const abortController = new AbortController();
+      abortController.abort();
+      exporter.setShutdownSignal(abortController.signal);
+
+      await exporter.shutdown();
+
+      expect(mockCompat.buildBatch).not.toHaveBeenCalled();
+      expect(mockCompat.sendBatch).not.toHaveBeenCalled();
+    });
+
+    test('stops retry backoff sleep when shutdown signal aborts', async () => {
+      jest.useFakeTimers();
+      const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0);
+      try {
+        const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+        const mockCompat = {
+          buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map([['env-1', 0]]) })),
+          sendBatch: jest.fn(async () => {
+            throw new Error('export failed');
+          })
+        };
+
+        const mockManifest = {
+          id: 'test',
+          compat: 'test',
+          endpoint: { urlTemplate: 'http://test', method: 'POST' }
+        };
+
+        const exporter = new ObservabilityExporter(
+          {
+            provider: 'test',
+            flushAt: 9999, // prevent auto-flush
+            flushIntervalMs: 60000,
+            maxQueueSize: 1000,
+            maxAttempts: 3,
+            baseDelayMs: 1000,
+            maxDelayMs: 1000,
+            timeoutMs: 10000
+          },
+          mockCompat as any,
+          mockManifest as any
+        );
+
+        exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+
+        const abortController = new AbortController();
+        exporter.setShutdownSignal(abortController.signal);
+
+        const shutdownPromise = exporter.shutdown();
+
+        // Allow the first attempt to run and schedule the retry delay.
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(mockCompat.sendBatch).toHaveBeenCalledTimes(1);
+
+        abortController.abort();
+
+        await expect(shutdownPromise).resolves.toBeUndefined();
+        expect(mockCompat.sendBatch).toHaveBeenCalledTimes(1);
+      } finally {
+        randomSpy.mockRestore();
+        jest.useRealTimers();
+      }
+    });
+
+    test('returns batch events from size-splitting recursion when shutdown signal aborts', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      const abortController = new AbortController();
+      let resolveLeftSend: (() => void) | undefined;
+
+      const mockCompat = {
+        buildBatch: jest.fn((batch: any[]) => {
+          const count = Array.isArray(batch) ? batch.length : 0;
+          if (count > 1) {
+            return {
+              payload: new Uint8Array(20),
+              eventIndexByEnvelopeId: new Map([
+                ['env-1', 0],
+                ['env-2', 1]
+              ])
+            };
+          }
+          return {
+            payload: new Uint8Array(1),
+            eventIndexByEnvelopeId: new Map([['env-1', 0]])
+          };
+        }),
+        sendBatch: jest.fn(async (_payload: any, _manifest: any, context: any) => {
+          await new Promise<void>((resolve) => {
+            resolveLeftSend = resolve;
+            const signal = context?.signal as AbortSignal | undefined;
+            if (signal) {
+              signal.addEventListener('abort', resolve, { once: true });
+            }
+          });
+          return { success: true, outcomes: [] };
+        })
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' },
+        limits: { maxBatchBytes: 10 }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 9999, // prevent auto-flush
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 1,
+          baseDelayMs: 0,
+          maxDelayMs: 0,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      exporter.setShutdownSignal(abortController.signal);
+
+      exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+      exporter.recordLLMRequest({ traceId: 'trace-2', timestampMs: 1, provider: '', model: '', messages: [] });
+
+      const shutdownPromise = exporter.shutdown();
+
+      for (let i = 0; i < 20 && !resolveLeftSend; i++) {
+        await new Promise(res => setImmediate(res));
+      }
+      expect(typeof resolveLeftSend).toBe('function');
+
+      abortController.abort();
+      resolveLeftSend?.();
+
+      await shutdownPromise;
+
+      expect(mockCompat.sendBatch).toHaveBeenCalledTimes(1);
+      expect(mockCompat.buildBatch).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -1603,8 +2035,8 @@ describe('modules/observability', () => {
       );
     });
 
-    test('creates working deps when provider loads successfully', async () => {
-      const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
+      test('creates working deps when provider loads successfully', async () => {
+        const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
 
       const mockCompat = {
         buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
@@ -1630,18 +2062,88 @@ describe('modules/observability', () => {
       expect(deps.isEnabled()).toBe(true);
 
       const exporter = deps.getExporter();
-      const result = exporter.recordLLMRequest({
-        traceId: 'trace-1',
-        timestamp: new Date().toISOString(),
-        provider: 'test',
-        model: 'model',
-        messages: []
-      });
+        const result = exporter.recordLLMRequest({
+          traceId: 'trace-1',
+          timestampMs: 1704067200000,
+          provider: 'test',
+          model: 'model',
+          messages: []
+        });
 
       expect(result.queued).toBe(true);
 
-      await deps.shutdown();
-    });
+        await deps.shutdown();
+      });
+
+        test('deps shutdown resolves even when exporter flush hangs (shutdownTimeoutMs)', async () => {
+          jest.useFakeTimers();
+
+        try {
+          const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
+
+          const mockCompat = {
+            buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+            sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+          };
+
+          const mockManifest = {
+            id: 'test',
+            compat: 'test-compat',
+            endpoint: { urlTemplate: 'http://test', method: 'POST' }
+          };
+
+          const mockRegistry = {
+            getObservabilityProvider: jest.fn(async () => mockManifest),
+            getObservabilityCompat: jest.fn(async () => mockCompat)
+          };
+
+          const deps = await createObservabilityDeps(mockRegistry as any, {
+            enabled: true,
+            provider: 'test'
+          });
+
+          const exporter: any = deps.getExporter();
+          const flushSpy = jest.spyOn(exporter, 'flush').mockImplementation(() => new Promise(() => {}));
+
+          const shutdownPromise = deps.shutdown();
+          await Promise.resolve();
+          jest.advanceTimersByTime(5000);
+          await Promise.resolve();
+          await shutdownPromise;
+
+          expect(flushSpy).toHaveBeenCalled();
+        } finally {
+          jest.useRealTimers();
+          }
+        });
+
+        test('deps shutdown swallows unexpected exporter.shutdown throws', async () => {
+          const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
+
+          const mockCompat = {
+            buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+            sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+          };
+
+          const mockManifest = {
+            id: 'test',
+            compat: 'test-compat',
+            endpoint: { urlTemplate: 'http://test', method: 'POST' }
+          };
+
+          const mockRegistry = {
+            getObservabilityProvider: jest.fn(async () => mockManifest),
+            getObservabilityCompat: jest.fn(async () => mockCompat)
+          };
+
+          const deps = await createObservabilityDeps(mockRegistry as any, { enabled: true, provider: 'test' });
+          const exporter: any = deps.getExporter();
+          exporter.shutdown = () => {
+            throw new Error('boom');
+          };
+
+          await expect(deps.shutdown()).resolves.toBeUndefined();
+        });
 
     test('reuses a shared exporter instance for identical configs (per registry)', async () => {
       const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
@@ -1691,6 +2193,40 @@ describe('modules/observability', () => {
       expect(exporter3).not.toBe(exporter1);
 
       await deps3.shutdown();
+    });
+
+    test('treats missing and null providerConfig as the same cache key', async () => {
+      const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test-compat',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const mockRegistry = {
+        getObservabilityProvider: jest.fn(async () => mockManifest),
+        getObservabilityCompat: jest.fn(async () => mockCompat)
+      };
+
+      const baseSpec = { enabled: true, provider: 'test' } as any;
+
+      const deps1 = await createObservabilityDeps(mockRegistry as any, baseSpec);
+      const exporter1 = deps1.getExporter();
+
+      const deps2 = await createObservabilityDeps(mockRegistry as any, { ...baseSpec, providerConfig: null });
+      const exporter2 = deps2.getExporter();
+
+      expect(exporter1).toBe(exporter2);
+      expect(mockRegistry.getObservabilityProvider).toHaveBeenCalledTimes(1);
+      expect(mockRegistry.getObservabilityCompat).toHaveBeenCalledTimes(1);
+
+      await deps1.shutdown();
     });
 
     test('computes a stable cache key for complex providerConfig shapes (including circular refs)', async () => {

@@ -697,6 +697,16 @@ export interface ObservabilityCompatContext {
   timeoutMs?: number;
 
   /**
+   * Optional shutdown signal for exporters.
+   * When provided and aborted, compat implementations should abort any in-flight
+   * export requests and stop retry/backoff work as quickly as possible.
+   *
+   * This exists so `observability.shutdownTimeoutMs` can be a true hard cap that
+   * does not keep the process alive under backpressure.
+   */
+  signal?: AbortSignal;
+
+  /**
    * Maximum UTF-8 bytes for any exported attribute string value.
    * Compat implementations should truncate large fields to stay within ingestion limits.
    */
@@ -1243,6 +1253,14 @@ export interface ObservabilityDefaults {
    * @default 10000
    */
   timeoutMs: number;
+
+  /**
+   * Maximum time (ms) to wait for observability shutdown/flush before giving up.
+   * This prevents process shutdown from hanging indefinitely on retries/timeouts.
+   * Set to 0 to disable the shutdown cap (wait unbounded).
+   * @default 5000
+   */
+  shutdownTimeoutMs: number;
 
   /**
    * Maximum UTF-8 bytes for any exported attribute string value.

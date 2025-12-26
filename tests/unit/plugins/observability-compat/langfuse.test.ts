@@ -42,11 +42,13 @@ describe('LangfuseCompat (OTLP)', () => {
     }
   };
 
-  const requestEvent: ObservabilityLLMRequestEvent = {
+  const requestEvent: any = {
     traceId,
     generationId,
     sessionId: 'session-456',
-    timestamp: '2024-01-01T00:00:00.000Z',
+    // Intentionally mismatch timestamp vs timestampMs to ensure compat prefers timestampMs.
+    timestamp: '1999-01-01T00:00:00.000Z',
+    timestampMs: 1704067200000,
     provider: 'provider-a',
     model: 'model-a',
     messages: [
@@ -59,11 +61,12 @@ describe('LangfuseCompat (OTLP)', () => {
     metadata: { custom: 'value', correlationId: 'corr-123', batchId: 'batch-xyz' }
   };
 
-  const responseEvent: ObservabilityLLMResponseEvent = {
+  const responseEvent: any = {
     traceId,
     generationId,
     sessionId: 'session-456',
-    timestamp: '2024-01-01T00:00:01.000Z',
+    timestamp: '1999-01-01T00:00:01.000Z',
+    timestampMs: 1704067201000,
     provider: 'provider-a',
     model: 'model-a',
     content: [{ type: 'text', text: 'Hello there!' }],
@@ -110,6 +113,8 @@ describe('LangfuseCompat (OTLP)', () => {
       expect(spans).toHaveLength(1);
 
       const span = spans[0];
+      expect(span.startTimeIso).toBe('2024-01-01T00:00:00.000Z');
+      expect(span.endTimeIso).toBe('2024-01-01T00:00:01.000Z');
       const attrs = span?.attributes ?? {};
       expect(String(attrs['langfuse.observation.input'] || '')).toContain('sys msg');
       expect(String(attrs['langfuse.observation.input'] || '')).toContain('Hello');
@@ -126,6 +131,47 @@ describe('LangfuseCompat (OTLP)', () => {
 
       const output = JSON.parse(String(attrs['langfuse.observation.output'] || '{}'));
       expect(output.rawResponse).toEqual(responseEvent.rawResponse);
+    });
+
+    it('parses ISO timestamps when timestampMs is missing (back-compat)', () => {
+      const req: any = {
+        traceId,
+        generationId,
+        timestamp: '2024-01-01T00:00:00.000Z',
+        provider: 'provider-a',
+        model: 'model-a',
+        messages: []
+      };
+
+      compat.buildBatch([req], mockManifest, { eventIds: ['event-req'] } as any);
+      const cached = (compat as any).requestCache.get(`${traceId}:${generationId}`);
+      expect(cached.summary.startTimeIso).toBe('2024-01-01T00:00:00.000Z');
+    });
+
+    it('falls back to epoch timestamps when timestamps are missing/invalid', () => {
+      const cases: any[] = [
+        { timestamp: 123 },
+        { timestamp: '   ' },
+        { timestamp: 'not-a-date' },
+        {}
+      ];
+
+      for (const extra of cases) {
+        const resp: any = {
+          traceId,
+          generationId,
+          provider: 'provider-a',
+          model: 'model-a',
+          content: [],
+          ...extra
+        };
+
+        const batch = compat.buildBatch([resp], mockManifest, { eventIds: ['event-resp'] } as any);
+        const spans = (batch.payload as any)?.spans ?? [];
+        expect(spans).toHaveLength(1);
+        expect(spans[0].startTimeIso).toBe('1970-01-01T00:00:00.000Z');
+        expect(spans[0].endTimeIso).toBe('1970-01-01T00:00:00.000Z');
+      }
     });
 
     it('truncates large attribute strings when maxAttributeValueBytes is provided', () => {
@@ -418,15 +464,16 @@ describe('LangfuseCompat (OTLP)', () => {
       expect(cached.summary.model).toBe('');
     });
 
-    it('falls back to response timestamp when durationMs is missing and model can be empty', () => {
-      const resp: ObservabilityLLMResponseEvent = {
-        traceId: '' as any,
-        generationId: undefined,
-        timestamp: '2024-01-01T00:00:01.000Z',
-        provider: '' as any,
-        model: '' as any,
-        content: []
-      };
+	    it('falls back to response timestamp when durationMs is missing and model can be empty', () => {
+	      const resp: ObservabilityLLMResponseEvent = {
+	        traceId: '' as any,
+	        generationId: undefined,
+	        timestamp: '2024-01-01T00:00:01.000Z',
+	        timestampMs: 1704067201000,
+	        provider: '' as any,
+	        model: '' as any,
+	        content: []
+	      };
 
       const batch = compat.buildBatch([resp as any], mockManifest, undefined);
       const spans = (batch.payload as any)?.spans ?? [];
@@ -440,24 +487,26 @@ describe('LangfuseCompat (OTLP)', () => {
       const traceId = makeHexTraceId('cafebabe');
       const generationId = 'gen-error';
 
-      const req: ObservabilityLLMRequestEvent = {
-        traceId,
-        generationId,
-        timestamp: '2024-01-01T00:00:00.000Z',
-        provider: 'provider-a',
-        model: 'req-model',
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }]
-      };
+	      const req: ObservabilityLLMRequestEvent = {
+	        traceId,
+	        generationId,
+	        timestamp: '2024-01-01T00:00:00.000Z',
+	        timestampMs: 1704067200000,
+	        provider: 'provider-a',
+	        model: 'req-model',
+	        messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }]
+	      };
 
-      const resp: ObservabilityLLMResponseEvent = {
-        traceId,
-        generationId,
-        timestamp: '2024-01-01T00:00:01.000Z',
-        provider: '' as any,
-        model: '' as any,
-        content: [{ type: 'text', text: 'oops' }],
-        durationMs: -1,
-        error: { message: '' } as any
+	      const resp: ObservabilityLLMResponseEvent = {
+	        traceId,
+	        generationId,
+	        timestamp: '2024-01-01T00:00:01.000Z',
+	        timestampMs: 1704067201000,
+	        provider: '' as any,
+	        model: '' as any,
+	        content: [{ type: 'text', text: 'oops' }],
+	        durationMs: -1,
+	        error: { message: '' } as any
       };
 
       compat.buildBatch([req], mockManifest, { eventIds: ['req'] } as any);
@@ -479,24 +528,26 @@ describe('LangfuseCompat (OTLP)', () => {
       const traceId = makeHexTraceId('badjson');
       const generationId = 'gen-badjson';
 
-      const req: ObservabilityLLMRequestEvent = {
-        traceId,
-        generationId,
-        timestamp: '2024-01-01T00:00:00.000Z',
-        provider: 'provider-a',
-        model: 'm',
-        messages: [],
-        settings: BigInt(1) as any
-      };
+	      const req: ObservabilityLLMRequestEvent = {
+	        traceId,
+	        generationId,
+	        timestamp: '2024-01-01T00:00:00.000Z',
+	        timestampMs: 1704067200000,
+	        provider: 'provider-a',
+	        model: 'm',
+	        messages: [],
+	        settings: BigInt(1) as any
+	      };
 
-      const resp: ObservabilityLLMResponseEvent = {
-        traceId,
-        generationId,
-        timestamp: '2024-01-01T00:00:01.000Z',
-        provider: 'provider-a',
-        model: 'm',
-        content: []
-      };
+	      const resp: ObservabilityLLMResponseEvent = {
+	        traceId,
+	        generationId,
+	        timestamp: '2024-01-01T00:00:01.000Z',
+	        timestampMs: 1704067201000,
+	        provider: 'provider-a',
+	        model: 'm',
+	        content: []
+	      };
 
       compat.buildBatch([req], mockManifest, { eventIds: ['req'] } as any);
       const { payload } = compat.buildBatch([resp], mockManifest, { eventIds: ['resp'] } as any);

@@ -44,21 +44,21 @@ describe('LLMCoordinator observability lifecycle', () => {
     const ctx = await (coordinator as any).createObservabilityContext(spec, {});
     expect(ctx).toBeDefined();
 
-    ctx.exporter.recordLLMRequest({
-      traceId: ctx.traceId,
-      timestamp: new Date().toISOString(),
-      provider: 'test-provider',
-      model: 'test-model',
-      messages: []
-    });
+	    ctx.exporter.recordLLMRequest({
+	      traceId: ctx.traceId,
+	      timestampMs: 1704067200000,
+	      provider: 'test-provider',
+	      model: 'test-model',
+	      messages: []
+	    });
 
-    ctx.exporter.recordLLMResponse({
-      traceId: ctx.traceId,
-      timestamp: new Date().toISOString(),
-      provider: 'test-provider',
-      model: 'test-model',
-      content: []
-    });
+	    ctx.exporter.recordLLMResponse({
+	      traceId: ctx.traceId,
+	      timestampMs: 1704067201000,
+	      provider: 'test-provider',
+	      model: 'test-model',
+	      content: []
+	    });
 
     expect(sendBatch).not.toHaveBeenCalled();
 

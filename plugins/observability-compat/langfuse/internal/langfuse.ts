@@ -7,7 +7,7 @@ import type {
   ObservabilityLLMResponseEvent
 } from '../../../../modules/kernel/index.js';
 import { LruMap, substituteEnv } from '../../../../modules/kernel/index.js';
-import { safeJsonStringify, flattenPrimitiveStrings } from '../../../../modules/shared/index.js';
+import { safeJsonStringify, flattenPrimitiveStrings, readTrimmedStringProperty } from '../../../../modules/shared/index.js';
 import type { OtlpSpanSpec } from '../../../../modules/observability/index.js';
 import { deriveOtlpSpanIdHex, deriveOtlpTraceIdHex } from '../../../../modules/observability/index.js';
 
@@ -18,13 +18,6 @@ const BASEURL_OVERRIDE_ALLOWLIST_ENV = 'LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWL
 
 const REQUEST_CACHE_TTL_MS = 10 * 60_000;
 const REQUEST_CACHE_MAX_ENTRIES = 1000;
-
-function getStringMetadata(metadata: unknown, key: string): string | undefined {
-  const value = (metadata as any)?.[key];
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : undefined;
-}
 
 function getStringArrayMetadata(metadata: unknown, key: string): string[] | undefined {
   const value = (metadata as any)?.[key];
@@ -37,6 +30,27 @@ function readUsageNumber(value: unknown): number | undefined {
   if (typeof value !== 'number') return undefined;
   if (!Number.isFinite(value)) return undefined;
   return value;
+}
+
+function readTimestampMs(event: { timestampMs?: unknown; timestamp?: unknown }): number | undefined {
+  if (typeof event.timestampMs === 'number' && Number.isFinite(event.timestampMs)) {
+    return event.timestampMs;
+  }
+
+  const raw = event.timestamp;
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+
+  const parsed = Date.parse(trimmed);
+  if (!Number.isFinite(parsed)) return undefined;
+  return parsed;
+}
+
+function eventTimestampToIso(event: { timestampMs?: unknown; timestamp?: unknown }): string {
+  const ms = readTimestampMs(event);
+  if (ms === undefined) return '1970-01-01T00:00:00.000Z';
+  return new Date(ms).toISOString();
 }
 
 function buildLangfuseUsageDetails(usage: unknown): Record<string, number> {
@@ -197,10 +211,10 @@ function isResponseEvent(event: any): event is ObservabilityLLMResponseEvent {
 }
 
 function deriveStartTimeIso(response: ObservabilityLLMResponseEvent): string {
-  const endMs = Date.parse(String(response.timestamp));
+  const endMs = readTimestampMs(response);
   const durationMs = typeof response.durationMs === 'number' ? response.durationMs : NaN;
-  if (!Number.isFinite(endMs) || !Number.isFinite(durationMs) || durationMs < 0) {
-    return String(response.timestamp);
+  if (endMs === undefined || !Number.isFinite(durationMs) || durationMs < 0) {
+    return eventTimestampToIso(response);
   }
   return new Date(endMs - durationMs).toISOString();
 }
@@ -256,12 +270,12 @@ function buildCachedRequestSummary(
     : 16384;
   const metadata = request.metadata;
   const sessionId = request.sessionId ? String(request.sessionId) : undefined;
-  const correlationId = getStringMetadata(metadata, 'correlationId');
-  const batchId = getStringMetadata(metadata, 'batchId') ?? sessionId;
+  const correlationId = readTrimmedStringProperty(metadata, 'correlationId');
+  const batchId = readTrimmedStringProperty(metadata, 'batchId') ?? sessionId;
   const tags = getStringArrayMetadata(metadata, 'tags');
 
   return {
-    startTimeIso: String(request.timestamp),
+    startTimeIso: eventTimestampToIso(request),
     sessionId,
     provider: String(request.provider || ''),
     model: String(request.model || ''),
@@ -316,8 +330,8 @@ export class LangfuseCompat implements IObservabilityCompat {
           ? String(event.sessionId)
           : undefined;
       const metadata = event.metadata;
-      const correlationId = cachedSummary?.correlationId ?? getStringMetadata(metadata, 'correlationId');
-      const batchId = cachedSummary?.batchId ?? (getStringMetadata(metadata, 'batchId') ?? sessionId);
+      const correlationId = cachedSummary?.correlationId ?? readTrimmedStringProperty(metadata, 'correlationId');
+      const batchId = cachedSummary?.batchId ?? (readTrimmedStringProperty(metadata, 'batchId') ?? sessionId);
       const tags = cachedSummary?.tags ?? getStringArrayMetadata(metadata, 'tags');
 
       const envelopeId = getEnvelopeId(
@@ -331,7 +345,7 @@ export class LangfuseCompat implements IObservabilityCompat {
         spanIdHex: deriveOtlpSpanIdHex(String(event.generationId || envelopeId)),
         name: DEFAULT_SPAN_NAME,
         startTimeIso: cachedSummary?.startTimeIso ? String(cachedSummary.startTimeIso) : deriveStartTimeIso(event),
-        endTimeIso: String(event.timestamp),
+        endTimeIso: eventTimestampToIso(event),
         status: event.error
           ? { code: 'ERROR', message: String(event.error.message || 'error') }
           : { code: 'OK' },
@@ -397,7 +411,8 @@ export class LangfuseCompat implements IObservabilityCompat {
       url,
       headers,
       timeoutMs: context?.timeoutMs,
-      maxBatchBytes: manifest.limits?.maxBatchBytes
+      maxBatchBytes: manifest.limits?.maxBatchBytes,
+      signal: context?.signal
     });
   }
 }

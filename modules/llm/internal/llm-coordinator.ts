@@ -25,7 +25,7 @@ import {
 } from '../../kernel/index.js';
 import { randomUUID } from 'crypto';
 import { LLMManager } from './llm-manager.js';
-import { normalizeFlag } from '../../shared/index.js';
+import { normalizeFlag, readTrimmedStringProperty } from '../../shared/index.js';
 import { pruneToolResults, pruneReasoning } from '../../context/index.js';
 import { partitionSettings, mergeProviderSettings } from '../../settings/index.js';
 import { prepareMessages, appendAssistantToolCalls, appendToolResult } from '../../messages/index.js';
@@ -216,21 +216,22 @@ export class LLMCoordinator {
 
     const exporter = obsDeps.getExporter();
 
-    // Determine trace ID: spec override > correlation ID > generated UUID
-    const traceId = obsSpec?.traceId ??
-      (spec.metadata?.correlationId as string | undefined) ??
-      randomUUID();
+	    // Determine trace ID: spec override > correlation ID > generated UUID
+	    const traceId = obsSpec?.traceId ??
+	      (spec.metadata?.correlationId as string | undefined) ??
+	      randomUUID();
 
-    // Determine session ID: spec override > batch ID
-    const sessionId = obsSpec?.sessionId ??
-      (runtime.batchId ? String(runtime.batchId) : undefined) ??
-      (typeof process.env.LLM_ADAPTER_BATCH_ID === 'string' && process.env.LLM_ADAPTER_BATCH_ID.trim()
-        ? process.env.LLM_ADAPTER_BATCH_ID.trim()
-        : undefined);
+	    // Determine session ID: spec override > metadata.batchId > runtime/env batchId
+	    const metadataBatchId = readTrimmedStringProperty(spec.metadata, 'batchId');
+	    const envBatchId = readTrimmedStringProperty(process.env, 'LLM_ADAPTER_BATCH_ID');
+	    const sessionId = obsSpec?.sessionId ??
+	      metadataBatchId ??
+	      (runtime.batchId ? String(runtime.batchId) : undefined) ??
+	      envBatchId;
 
-    return {
-      exporter,
-      traceId,
+	    return {
+	      exporter,
+	      traceId,
       sessionId,
       metadata: spec.metadata,
       captureMessages,

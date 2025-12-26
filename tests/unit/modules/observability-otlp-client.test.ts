@@ -43,6 +43,26 @@ describe('modules/observability OTLP client', () => {
     expect(result).toEqual({ success: true, outcomes: [] });
   });
 
+  test('sendOtlpTraceSpans throws AbortError when signal is already aborted (sync encoding path)', async () => {
+    const fetchMock = jest.fn(async () => {
+      throw new Error('fetch should not be called');
+    });
+    (globalThis as any).fetch = fetchMock;
+
+    const abortController = new AbortController();
+    abortController.abort();
+
+    const { sendOtlpTraceSpans } = await import('@/modules/observability/internal/otlp/client.ts');
+    await expect(sendOtlpTraceSpans({
+      spans: [makeSpan('env-1')],
+      url: 'http://example.com',
+      headers: {},
+      signal: abortController.signal
+    })).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('sendOtlpTraceSpans marks oversize spans as non-retryable and does not call fetch', async () => {
     const fetchMock = jest.fn(async () => {
       throw new Error('fetch should not be called');
@@ -243,6 +263,56 @@ describe('modules/observability OTLP client', () => {
     jest.useRealTimers();
   });
 
+  test('sendOtlpTraceSpans aborts Retry-After sleep when signal is aborted', async () => {
+    jest.useFakeTimers();
+    try {
+      const abortController = new AbortController();
+      const fetchMock = jest.fn(async () => {
+        return {
+          ok: false,
+          status: 429,
+          statusText: 'Too Many Requests',
+          headers: {
+            get: (key: string) => (key.toLowerCase() === 'retry-after' ? '1' : null)
+          }
+        } as any;
+      });
+      (globalThis as any).fetch = fetchMock;
+
+      const { sendOtlpTraceSpans } = await import('@/modules/observability/internal/otlp/client.ts');
+      const promise = sendOtlpTraceSpans({
+        spans: [makeSpan('env-1')],
+        url: 'http://example.com',
+        headers: {},
+        signal: abortController.signal
+      });
+
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      abortController.abort();
+
+      await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('sendOtlpTraceSpans throws AbortError when fetch rejects with AbortError', async () => {
+    const abortError = new Error('aborted');
+    (abortError as any).name = 'AbortError';
+    const fetchMock = jest.fn(async () => { throw abortError; });
+    (globalThis as any).fetch = fetchMock;
+
+    const { sendOtlpTraceSpans } = await import('@/modules/observability/internal/otlp/client.ts');
+    await expect(sendOtlpTraceSpans({
+      spans: [makeSpan('env-1')],
+      url: 'http://example.com',
+      headers: {}
+    })).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
   test('sendOtlpTraceSpans ignores invalid Retry-After values on 429 responses', async () => {
     jest.useFakeTimers();
     const { sendOtlpTraceSpans } = await import('@/modules/observability/internal/otlp/client.ts');
@@ -274,6 +344,307 @@ describe('modules/observability OTLP client', () => {
     jest.useRealTimers();
   });
 
+  test('sendOtlpTraceSpans throws AbortError before constructing encode worker when signal is already aborted', async () => {
+    const previous = process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER;
+    process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER = '1';
+
+    const fetchMock = jest.fn(async () => {
+      throw new Error('fetch should not be called');
+    });
+    (globalThis as any).fetch = fetchMock;
+
+    let workerConstructed = 0;
+    class MockWorker {
+      constructor() {
+        workerConstructed += 1;
+      }
+    }
+    unstableMockModule('node:worker_threads', () => ({ Worker: MockWorker }));
+
+    const abortController = new AbortController();
+    abortController.abort();
+
+    const { sendOtlpTraceSpans } = await import('@/modules/observability/internal/otlp/client.ts');
+    await expect(sendOtlpTraceSpans({
+      spans: [makeSpan('env-1')],
+      url: 'http://example.com',
+      headers: {},
+      signal: abortController.signal
+    })).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(workerConstructed).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    if (previous === undefined) {
+      delete process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER;
+    } else {
+      process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER = previous;
+    }
+  });
+
+  test('sendOtlpTraceSpans throws AbortError when aborted while waiting for encode worker to be ready', async () => {
+    const previous = process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER;
+    process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER = '1';
+
+    const fetchMock = jest.fn(async () => {
+      throw new Error('fetch should not be called');
+    });
+    (globalThis as any).fetch = fetchMock;
+
+    let activeWorker: any;
+    class DelayedOnlineWorker {
+      private listeners = new Map<string, Set<(...args: any[]) => void>>();
+
+      constructor() {
+        activeWorker = this;
+      }
+
+      ref() {}
+      unref() {}
+
+      on(event: string, handler: (...args: any[]) => void) {
+        const set = this.listeners.get(event) ?? new Set();
+        set.add(handler);
+        this.listeners.set(event, set);
+        return this;
+      }
+
+      once(event: string, handler: (...args: any[]) => void) {
+        const wrapped = (...args: any[]) => {
+          this.off(event, wrapped);
+          handler(...args);
+        };
+        return this.on(event, wrapped);
+      }
+
+      off(event: string, handler: (...args: any[]) => void) {
+        const set = this.listeners.get(event);
+        set?.delete(handler);
+        return this;
+      }
+
+      emit(event: string, ...args: any[]) {
+        const set = this.listeners.get(event);
+        if (!set) return;
+        for (const handler of Array.from(set)) {
+          handler(...args);
+        }
+      }
+
+      terminate() {}
+
+      postMessage(_message: any) {
+        throw new Error('postMessage should not be called before online');
+      }
+    }
+
+    unstableMockModule('node:worker_threads', () => ({ Worker: DelayedOnlineWorker }));
+
+    const abortController = new AbortController();
+
+    const { sendOtlpTraceSpans } = await import('@/modules/observability/internal/otlp/client.ts');
+    const promise = sendOtlpTraceSpans({
+      spans: [makeSpan('env-1')],
+      url: 'http://example.com',
+      headers: {},
+      signal: abortController.signal
+    });
+
+    for (let i = 0; i < 10 && !activeWorker; i++) {
+      await new Promise(res => setImmediate(res));
+    }
+    expect(activeWorker).toBeDefined();
+
+    abortController.abort();
+    activeWorker.emit('online');
+
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    if (previous === undefined) {
+      delete process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER;
+    } else {
+      process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER = previous;
+    }
+  });
+
+  test('sendOtlpTraceSpans aborts encode worker job and rethrows AbortError', async () => {
+    const previous = process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER;
+    process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER = '1';
+
+    const fetchMock = jest.fn(async () => {
+      throw new Error('fetch should not be called');
+    });
+    (globalThis as any).fetch = fetchMock;
+
+    let activeWorker: any;
+    const postedIds: number[] = [];
+    let workerUnrefCalls = 0;
+    class HangingWorker {
+      private listeners = new Map<string, Set<(...args: any[]) => void>>();
+
+      constructor() {
+        activeWorker = this;
+        setImmediate(() => this.emit('online'));
+      }
+
+      ref() {}
+      unref() {
+        workerUnrefCalls += 1;
+      }
+
+      on(event: string, handler: (...args: any[]) => void) {
+        const set = this.listeners.get(event) ?? new Set();
+        set.add(handler);
+        this.listeners.set(event, set);
+        return this;
+      }
+
+      once(event: string, handler: (...args: any[]) => void) {
+        const wrapped = (...args: any[]) => {
+          this.off(event, wrapped);
+          handler(...args);
+        };
+        return this.on(event, wrapped);
+      }
+
+      off(event: string, handler: (...args: any[]) => void) {
+        const set = this.listeners.get(event);
+        set?.delete(handler);
+        return this;
+      }
+
+      emit(event: string, ...args: any[]) {
+        const set = this.listeners.get(event);
+        if (!set) return;
+        for (const handler of Array.from(set)) {
+          handler(...args);
+        }
+      }
+
+      terminate() {}
+
+      postMessage(message: any) {
+        postedIds.push(message.id);
+      }
+    }
+
+    unstableMockModule('node:worker_threads', () => ({ Worker: HangingWorker }));
+
+    const abortController = new AbortController();
+
+    const { sendOtlpTraceSpans } = await import('@/modules/observability/internal/otlp/client.ts');
+    const promise = sendOtlpTraceSpans({
+      spans: [makeSpan('env-1')],
+      url: 'http://example.com',
+      headers: {},
+      signal: abortController.signal
+    });
+
+    for (let i = 0; i < 20 && postedIds.length < 1; i++) {
+      await new Promise(res => setImmediate(res));
+    }
+    expect(activeWorker).toBeDefined();
+    expect(postedIds.length).toBe(1);
+
+    abortController.abort();
+
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
+    expect(workerUnrefCalls).toBeGreaterThanOrEqual(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    if (previous === undefined) {
+      delete process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER;
+    } else {
+      process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER = previous;
+    }
+  });
+
+  test('sendOtlpTraceSpans throws AbortError when signal aborts after encoding but before POSTing', async () => {
+    const previous = process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER;
+    process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER = '1';
+
+    const fetchMock = jest.fn(async () => {
+      throw new Error('fetch should not be called');
+    });
+    (globalThis as any).fetch = fetchMock;
+
+    const abortController = new AbortController();
+
+    class AbortAfterEncodeWorker {
+      private listeners = new Map<string, Set<(...args: any[]) => void>>();
+
+      constructor() {
+        setImmediate(() => this.emit('online'));
+      }
+
+      ref() {}
+      unref() {}
+
+      on(event: string, handler: (...args: any[]) => void) {
+        const set = this.listeners.get(event) ?? new Set();
+        set.add(handler);
+        this.listeners.set(event, set);
+        return this;
+      }
+
+      once(event: string, handler: (...args: any[]) => void) {
+        const wrapped = (...args: any[]) => {
+          this.off(event, wrapped);
+          handler(...args);
+        };
+        return this.on(event, wrapped);
+      }
+
+      off(event: string, handler: (...args: any[]) => void) {
+        const set = this.listeners.get(event);
+        set?.delete(handler);
+        return this;
+      }
+
+      emit(event: string, ...args: any[]) {
+        const set = this.listeners.get(event);
+        if (!set) return;
+        for (const handler of Array.from(set)) {
+          handler(...args);
+        }
+      }
+
+      terminate() {}
+
+      postMessage(message: any) {
+        const { id } = message;
+        setImmediate(() => {
+          this.emit('message', {
+            id,
+            ok: true,
+            chunks: [{ envelopeIds: ['env-1'], body: new Uint8Array([1, 2, 3]), oversize: false }]
+          });
+          // Abort after the encode promise resolves but before the next await continuation runs.
+          abortController.abort();
+        });
+      }
+    }
+
+    unstableMockModule('node:worker_threads', () => ({ Worker: AbortAfterEncodeWorker }));
+
+    const { sendOtlpTraceSpans } = await import('@/modules/observability/internal/otlp/client.ts');
+    await expect(sendOtlpTraceSpans({
+      spans: [makeSpan('env-1')],
+      url: 'http://example.com',
+      headers: {},
+      signal: abortController.signal
+    })).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    if (previous === undefined) {
+      delete process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER;
+    } else {
+      process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER = previous;
+    }
+  });
+
   test('sendOtlpTraceSpans can use an encode worker when enabled', async () => {
     const previous = process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER;
     process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER = '1';
@@ -285,6 +656,8 @@ describe('modules/observability OTLP client', () => {
 
     let workerConstructed = 0;
     let onlineEmitted = false;
+    let workerRefCalls = 0;
+    let workerUnrefCalls = 0;
 
     class MockWorker {
       private listeners = new Map<string, Set<(...args: any[]) => void>>();
@@ -297,7 +670,13 @@ describe('modules/observability OTLP client', () => {
         });
       }
 
-      unref() {}
+      ref() {
+        workerRefCalls += 1;
+      }
+
+      unref() {
+        workerUnrefCalls += 1;
+      }
 
       on(event: string, handler: (...args: any[]) => void) {
         const set = this.listeners.get(event) ?? new Set();
@@ -371,6 +750,139 @@ describe('modules/observability OTLP client', () => {
     expect(result2.success).toBe(true);
     expect(workerConstructed).toBe(1);
     expect(onlineEmitted).toBe(true);
+    // Worker is unref'd when idle, and temporarily ref'd while encode jobs are pending.
+    expect(workerRefCalls).toBeGreaterThanOrEqual(2);
+    expect(workerUnrefCalls).toBeGreaterThanOrEqual(workerRefCalls + 1);
+
+    if (previous === undefined) {
+      delete process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER;
+    } else {
+      process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER = previous;
+    }
+  });
+
+  test('sendOtlpTraceSpans does not unref the worker while encode jobs are still pending', async () => {
+    const previous = process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER;
+    process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER = '1';
+
+    const fetchMock = jest.fn(async () => {
+      return { ok: true, status: 200 } as any;
+    });
+    (globalThis as any).fetch = fetchMock;
+
+    let workerRefCalls = 0;
+    let workerUnrefCalls = 0;
+    let onlineEmitted = false;
+    let activeWorker: any;
+    const postedIds: number[] = [];
+
+    class ControlledWorker {
+      private listeners = new Map<string, Set<(...args: any[]) => void>>();
+
+      constructor() {
+        activeWorker = this;
+        setImmediate(() => {
+          onlineEmitted = true;
+          this.emit('online');
+        });
+      }
+
+      ref() {
+        workerRefCalls += 1;
+      }
+
+      unref() {
+        workerUnrefCalls += 1;
+      }
+
+      on(event: string, handler: (...args: any[]) => void) {
+        const set = this.listeners.get(event) ?? new Set();
+        set.add(handler);
+        this.listeners.set(event, set);
+        return this;
+      }
+
+      once(event: string, handler: (...args: any[]) => void) {
+        const wrapped = (...args: any[]) => {
+          this.off(event, wrapped);
+          handler(...args);
+        };
+        return this.on(event, wrapped);
+      }
+
+      off(event: string, handler: (...args: any[]) => void) {
+        const set = this.listeners.get(event);
+        set?.delete(handler);
+        return this;
+      }
+
+      emit(event: string, ...args: any[]) {
+        const set = this.listeners.get(event);
+        if (!set) return;
+        for (const handler of Array.from(set)) {
+          handler(...args);
+        }
+      }
+
+      terminate() {}
+
+      postMessage(message: any) {
+        postedIds.push(message.id);
+      }
+    }
+
+    unstableMockModule('node:worker_threads', () => ({ Worker: ControlledWorker }));
+
+    const { sendOtlpTraceSpans } = await import('@/modules/observability/internal/otlp/client.ts');
+
+    const p1 = sendOtlpTraceSpans({
+      spans: [makeSpan('env-1')],
+      url: 'http://example.com',
+      headers: {}
+    });
+
+    // Wait for worker to become ready and for both messages to be posted.
+    for (let i = 0; i < 10 && (!onlineEmitted || postedIds.length < 1); i++) {
+      await new Promise(res => setImmediate(res));
+    }
+    expect(onlineEmitted).toBe(true);
+    expect(postedIds.length).toBe(1);
+
+    const p2 = sendOtlpTraceSpans({
+      spans: [makeSpan('env-1')],
+      url: 'http://example.com',
+      headers: {}
+    });
+
+    for (let i = 0; i < 10 && postedIds.length < 2; i++) {
+      await new Promise(res => setImmediate(res));
+    }
+
+    expect(postedIds.length).toBe(2);
+    expect(workerRefCalls).toBeGreaterThanOrEqual(1);
+    const unrefCallsBeforeFirstComplete = workerUnrefCalls;
+
+    // Complete one job while another is still pending: unref should not happen yet.
+    activeWorker.emit('message', {
+      id: postedIds[0],
+      ok: true,
+      chunks: [{ envelopeIds: ['env-1'], body: new Uint8Array([1, 2, 3]), oversize: false }]
+    });
+    expect(workerUnrefCalls).toBe(unrefCallsBeforeFirstComplete);
+
+    // Complete the final job: now the worker can be unref'd again.
+    activeWorker.emit('message', {
+      id: postedIds[1],
+      ok: true,
+      chunks: [{ envelopeIds: ['env-1'], body: new Uint8Array([1, 2, 3]), oversize: false }]
+    });
+
+    await expect(Promise.all([p1, p2])).resolves.toEqual([
+      { success: true, outcomes: [{ envelopeId: 'env-1', success: true, status: 200 }] },
+      { success: true, outcomes: [{ envelopeId: 'env-1', success: true, status: 200 }] }
+    ]);
+    expect(workerUnrefCalls).toBeGreaterThanOrEqual(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
     if (previous === undefined) {
       delete process.env.LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER;

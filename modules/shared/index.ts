@@ -38,6 +38,20 @@ export function normalizeFlag(value: unknown, defaultValue: boolean): boolean {
 }
 
 /**
+ * Read a trimmed, non-empty string property from an unknown record.
+ *
+ * @param record - Any object-like value
+ * @param key - Property name to read
+ * @returns A trimmed string, or `undefined` if missing/blank/not a string
+ */
+export function readTrimmedStringProperty(record: unknown, key: string): string | undefined {
+  const value = (record as any)?.[key];
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+/**
  * A deferred promise with externally accessible resolve/reject handlers.
  */
 export interface Deferred<T = void> {
@@ -72,6 +86,64 @@ export function createDeferred<T = void>(): Deferred<T> {
  */
 export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Sleep for a specified duration, but resolve early if the signal is aborted.
+ *
+ * @param ms - Milliseconds to sleep
+ * @param signal - Optional AbortSignal to cancel the sleep
+ * @returns `true` if the full duration elapsed, `false` if aborted early
+ */
+export function sleepWithSignal(ms: number, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) {
+    return Promise.resolve(false);
+  }
+
+  const durationMs = Number.isFinite(ms) ? Math.max(0, Math.floor(ms)) : 0;
+  if (durationMs === 0) return Promise.resolve(true);
+
+  return new Promise<boolean>((resolve) => {
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      resolve(true);
+    }, durationMs);
+
+    const onAbort = () => {
+      clearTimeout(timeoutId);
+      cleanup();
+      resolve(false);
+    };
+
+    const cleanup = () => {
+      signal?.removeEventListener('abort', onAbort);
+    };
+
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/**
+ * Get a monotonic high-resolution timestamp.
+ *
+ * This is safe for duration deltas and is not affected by wall-clock changes.
+ * Prefer using `Date.now()` for epoch timestamps and `monotonicElapsedMs()` for durations.
+ */
+export function monotonicNowNs(): bigint {
+  return process.hrtime.bigint();
+}
+
+/**
+ * Compute a monotonic elapsed duration (ms) from a monotonic start timestamp.
+ *
+ * @param startNs - Start time from `monotonicNowNs()`
+ * @param endNs - Optional end time; defaults to `monotonicNowNs()`
+ * @returns Elapsed milliseconds (floored), never negative
+ */
+export function monotonicElapsedMs(startNs: bigint, endNs: bigint = monotonicNowNs()): number {
+  const deltaNs = endNs - startNs;
+  if (deltaNs <= 0n) return 0;
+  return Number(deltaNs / 1_000_000n);
 }
 
 /**

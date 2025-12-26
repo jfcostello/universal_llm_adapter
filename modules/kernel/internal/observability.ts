@@ -40,8 +40,14 @@ export interface ObservabilityLLMRequestEvent {
   /** Optional session ID */
   sessionId?: string;
 
-  /** Request timestamp (ISO 8601) */
-  timestamp: string;
+  /** Request timestamp (epoch milliseconds) */
+  timestampMs: number;
+
+  /**
+   * Deprecated: Request timestamp (ISO 8601).
+   * Prefer `timestampMs` to avoid hot-path ISO string allocations.
+   */
+  timestamp?: string;
 
   /** Provider ID */
   provider: string;
@@ -85,8 +91,14 @@ export interface ObservabilityLLMResponseEvent {
   /** Optional session ID */
   sessionId?: string;
 
-  /** Response timestamp (ISO 8601) */
-  timestamp: string;
+  /** Response timestamp (epoch milliseconds) */
+  timestampMs: number;
+
+  /**
+   * Deprecated: Response timestamp (ISO 8601).
+   * Prefer `timestampMs` to avoid hot-path ISO string allocations.
+   */
+  timestamp?: string;
 
   /** Provider ID */
   provider: string;
