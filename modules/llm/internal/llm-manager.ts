@@ -562,10 +562,10 @@ export class LLMManager {
           }
         }
 
-      if (response.status >= 400) {
-        const isRateLimit = this.isRateLimitResponse(provider, response);
+        if (response.status >= 400) {
+          const isRateLimit = this.isRateLimitResponse(provider, response);
 
-        if (logger) {
+          if (logger) {
             logger.error('Provider call failed', {
               provider: provider.id,
               model,
