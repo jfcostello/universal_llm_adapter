@@ -1,8 +1,10 @@
+import { jest } from '@jest/globals';
 import {
   normalizeFlag,
   createDeferred,
   calculateBackoffDelay,
   sleep,
+  sleepWithSignal,
   truncateUtf8Bytes,
   safeJsonStringify,
   flattenPrimitiveStrings,
@@ -199,6 +201,68 @@ describe('modules/shared', () => {
       const elapsed = Date.now() - start;
 
       expect(elapsed).toBeGreaterThanOrEqual(45); // Allow some tolerance
+    });
+  });
+
+  describe('sleepWithSignal', () => {
+    test('returns true immediately for non-positive durations', async () => {
+      const ac = new AbortController();
+      await expect(sleepWithSignal(0, ac.signal)).resolves.toBe(true);
+      await expect(sleepWithSignal(-1, ac.signal)).resolves.toBe(true);
+    });
+
+    test('returns true immediately for non-finite durations', async () => {
+      const ac = new AbortController();
+      await expect(sleepWithSignal(Number.NaN, ac.signal)).resolves.toBe(true);
+      await expect(sleepWithSignal(Number.POSITIVE_INFINITY, ac.signal)).resolves.toBe(true);
+    });
+
+    test('returns false immediately when signal is already aborted', async () => {
+      const ac = new AbortController();
+      ac.abort();
+      await expect(sleepWithSignal(50, ac.signal)).resolves.toBe(false);
+    });
+
+    test('resolves true after duration elapses when not aborted', async () => {
+      jest.useFakeTimers();
+      try {
+        const ac = new AbortController();
+        let resolved: boolean | undefined;
+        const promise = sleepWithSignal(100, ac.signal).then(value => {
+          resolved = value;
+          return value;
+        });
+
+        await Promise.resolve();
+        expect(resolved).toBeUndefined();
+
+        jest.advanceTimersByTime(100);
+        await expect(promise).resolves.toBe(true);
+        expect(resolved).toBe(true);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    test('resolves false when aborted during sleep', async () => {
+      jest.useFakeTimers();
+      try {
+        const ac = new AbortController();
+        let resolved: boolean | undefined;
+        const promise = sleepWithSignal(1000, ac.signal).then(value => {
+          resolved = value;
+          return value;
+        });
+
+        await Promise.resolve();
+        expect(resolved).toBeUndefined();
+
+        ac.abort();
+        await expect(promise).resolves.toBe(false);
+        expect(resolved).toBe(false);
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 

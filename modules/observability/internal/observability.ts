@@ -24,7 +24,7 @@ import {
   getNoopLogger
 } from '../../kernel/index.js';
 import { randomUUID, createHash } from 'crypto';
-import { calculateBackoffDelay, sleep } from '../../shared/index.js';
+import { calculateBackoffDelay, sleepWithSignal } from '../../shared/index.js';
 
 // ============================================================
 // EVENT TYPES
@@ -106,6 +106,7 @@ export class ObservabilityExporter implements IObservabilityExporter {
   private droppedSinceLastWarning = 0;
   private lastDropWarningMs: number | null = null;
   private shutdownSummaryLogged = false;
+  private shutdownSignal: AbortSignal | undefined;
   private metrics = {
     enqueuedTotal: 0,
     droppedTotal: 0,
@@ -128,6 +129,10 @@ export class ObservabilityExporter implements IObservabilityExporter {
 
     this.logger = config.logger ?? getNoopLogger();
     this.startFlushTimer();
+  }
+
+  setShutdownSignal(signal?: AbortSignal): void {
+    this.shutdownSignal = signal;
   }
 
   /**
@@ -320,6 +325,14 @@ export class ObservabilityExporter implements IObservabilityExporter {
   }
 
   private async doFlush(): Promise<void> {
+    const signal = this.shuttingDown ? this.shutdownSignal : undefined;
+    if (signal?.aborted) {
+      // If shutdown has already been aborted/timed out, drop remaining events.
+      this.queue = [];
+      this.queueHead = 0;
+      return;
+    }
+
     const flushStartMs = Date.now();
     this.metrics.flushCount += 1;
 
@@ -331,6 +344,7 @@ export class ObservabilityExporter implements IObservabilityExporter {
     const compatContext: ObservabilityCompatContext = {
       ...(this.config.providerConfig ? { providerConfig: this.config.providerConfig } : {}),
       timeoutMs: this.config.timeoutMs,
+      ...(signal ? { signal } : {}),
       maxAttributeValueBytes: this.config.maxAttributeValueBytes
     };
     const maxBatchBytes = this.manifest.limits?.maxBatchBytes;
@@ -341,6 +355,10 @@ export class ObservabilityExporter implements IObservabilityExporter {
     try {
       while (eventsToRetry.length > 0 && attempt < this.config.maxAttempts) {
         const sendWithSizeLimit = async (batchEvents: QueuedEvent[]): Promise<QueuedEvent[]> => {
+          if (signal?.aborted) {
+            return batchEvents;
+          }
+
           const compatContextForBatch: ObservabilityCompatContext = {
             ...compatContext,
             eventIds: batchEvents.map(e => e.id)
@@ -470,7 +488,10 @@ export class ObservabilityExporter implements IObservabilityExporter {
           this.metrics.retryCount += 1;
           // Wait before retry
           const delay = calculateBackoffDelay(attempt, this.config.baseDelayMs, this.config.maxDelayMs);
-          await sleep(delay);
+          const slept = await sleepWithSignal(delay, signal);
+          if (!slept) {
+            return;
+          }
         }
 
         attempt++;
@@ -664,31 +685,44 @@ async function shutdownAllExporters(): Promise<void> {
     }
 
     if (shutdownTimeoutMs <= 0) {
-      await Promise.all(exporters.map(exp => exp.shutdown().catch(() => {})));
+      for (const exporter of exporters) {
+        exporter.setShutdownSignal(undefined);
+      }
+      await Promise.all(exporters.map(exp => Promise.resolve().then(() => exp.shutdown()).catch(() => {})));
       runtimeRegistries.clear();
       return;
     }
 
-    const shutdownWithTimeout = async (exporter: ObservabilityExporter): Promise<'ok' | 'timeout'> => {
-      const shutdownPromise = exporter.shutdown().catch(() => {});
-      let timeoutId: ReturnType<typeof setTimeout> | undefined;
-      const timeoutPromise = new Promise<'timeout'>(resolve => {
-        timeoutId = setTimeout(() => resolve('timeout'), shutdownTimeoutMs);
-        (timeoutId as any)?.unref?.();
-      });
+    const abortController = new AbortController();
+    for (const exporter of exporters) {
+      exporter.setShutdownSignal(abortController.signal);
+    }
 
-      try {
-        const outcome = await Promise.race([shutdownPromise.then(() => 'ok' as const), timeoutPromise]);
-        if (outcome === 'timeout') {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<'timeout'>(resolve => {
+      timeoutId = setTimeout(() => {
+        for (const exporter of exporters) {
           exporter.logShutdownSummary({ timedOut: true, shutdownTimeoutMs });
         }
-        return outcome;
-      } finally {
-        if (timeoutId) clearTimeout(timeoutId);
-      }
-    };
+        try {
+          abortController.abort();
+        } catch {
+          // ignore
+        }
+        resolve('timeout');
+      }, shutdownTimeoutMs);
+      (timeoutId as any)?.unref?.();
+    });
 
-    await Promise.all(exporters.map(exp => shutdownWithTimeout(exp).catch(() => {})));
+    const shutdownPromise = Promise.all(
+      exporters.map(exp => Promise.resolve().then(() => exp.shutdown()).catch(() => {}))
+    ).then(() => 'ok' as const);
+
+    try {
+      await Promise.race([shutdownPromise, timeoutPromise]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
     runtimeRegistries.clear();
   })().finally(() => {
     shutdownAllPromise = null;

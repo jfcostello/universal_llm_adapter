@@ -418,7 +418,8 @@ export class LangfuseCompat implements IObservabilityCompat {
       url,
       headers,
       timeoutMs: context?.timeoutMs,
-      maxBatchBytes: manifest.limits?.maxBatchBytes
+      maxBatchBytes: manifest.limits?.maxBatchBytes,
+      signal: context?.signal
     });
   }
 }

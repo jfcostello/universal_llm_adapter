@@ -1710,6 +1710,181 @@ describe('modules/observability', () => {
 
       await exporter.shutdown();
     });
+
+    test('drops queued events immediately when shutdown signal is already aborted', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 9999, // prevent auto-flush
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 3,
+          baseDelayMs: 250,
+          maxDelayMs: 30000,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+
+      const abortController = new AbortController();
+      abortController.abort();
+      exporter.setShutdownSignal(abortController.signal);
+
+      await exporter.shutdown();
+
+      expect(mockCompat.buildBatch).not.toHaveBeenCalled();
+      expect(mockCompat.sendBatch).not.toHaveBeenCalled();
+    });
+
+    test('stops retry backoff sleep when shutdown signal aborts', async () => {
+      jest.useFakeTimers();
+      const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0);
+      try {
+        const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+        const mockCompat = {
+          buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map([['env-1', 0]]) })),
+          sendBatch: jest.fn(async () => {
+            throw new Error('export failed');
+          })
+        };
+
+        const mockManifest = {
+          id: 'test',
+          compat: 'test',
+          endpoint: { urlTemplate: 'http://test', method: 'POST' }
+        };
+
+        const exporter = new ObservabilityExporter(
+          {
+            provider: 'test',
+            flushAt: 9999, // prevent auto-flush
+            flushIntervalMs: 60000,
+            maxQueueSize: 1000,
+            maxAttempts: 3,
+            baseDelayMs: 1000,
+            maxDelayMs: 1000,
+            timeoutMs: 10000
+          },
+          mockCompat as any,
+          mockManifest as any
+        );
+
+        exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+
+        const abortController = new AbortController();
+        exporter.setShutdownSignal(abortController.signal);
+
+        const shutdownPromise = exporter.shutdown();
+
+        // Allow the first attempt to run and schedule the retry delay.
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(mockCompat.sendBatch).toHaveBeenCalledTimes(1);
+
+        abortController.abort();
+
+        await expect(shutdownPromise).resolves.toBeUndefined();
+        expect(mockCompat.sendBatch).toHaveBeenCalledTimes(1);
+      } finally {
+        randomSpy.mockRestore();
+        jest.useRealTimers();
+      }
+    });
+
+    test('returns batch events from size-splitting recursion when shutdown signal aborts', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      const abortController = new AbortController();
+      let resolveLeftSend: (() => void) | undefined;
+
+      const mockCompat = {
+        buildBatch: jest.fn((batch: any[]) => {
+          const count = Array.isArray(batch) ? batch.length : 0;
+          if (count > 1) {
+            return {
+              payload: new Uint8Array(20),
+              eventIndexByEnvelopeId: new Map([
+                ['env-1', 0],
+                ['env-2', 1]
+              ])
+            };
+          }
+          return {
+            payload: new Uint8Array(1),
+            eventIndexByEnvelopeId: new Map([['env-1', 0]])
+          };
+        }),
+        sendBatch: jest.fn(async (_payload: any, _manifest: any, context: any) => {
+          await new Promise<void>((resolve) => {
+            resolveLeftSend = resolve;
+            const signal = context?.signal as AbortSignal | undefined;
+            if (signal) {
+              signal.addEventListener('abort', resolve, { once: true });
+            }
+          });
+          return { success: true, outcomes: [] };
+        })
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' },
+        limits: { maxBatchBytes: 10 }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 9999, // prevent auto-flush
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 1,
+          baseDelayMs: 0,
+          maxDelayMs: 0,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      exporter.setShutdownSignal(abortController.signal);
+
+      exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+      exporter.recordLLMRequest({ traceId: 'trace-2', timestampMs: 1, provider: '', model: '', messages: [] });
+
+      const shutdownPromise = exporter.shutdown();
+
+      for (let i = 0; i < 20 && !resolveLeftSend; i++) {
+        await new Promise(res => setImmediate(res));
+      }
+      expect(typeof resolveLeftSend).toBe('function');
+
+      abortController.abort();
+      resolveLeftSend?.();
+
+      await shutdownPromise;
+
+      expect(mockCompat.sendBatch).toHaveBeenCalledTimes(1);
+      expect(mockCompat.buildBatch).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('createObservabilityDeps', () => {

@@ -75,6 +75,41 @@ export function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * Sleep for a specified duration, but resolve early if the signal is aborted.
+ *
+ * @param ms - Milliseconds to sleep
+ * @param signal - Optional AbortSignal to cancel the sleep
+ * @returns `true` if the full duration elapsed, `false` if aborted early
+ */
+export function sleepWithSignal(ms: number, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) {
+    return Promise.resolve(false);
+  }
+
+  const durationMs = Number.isFinite(ms) ? Math.max(0, Math.floor(ms)) : 0;
+  if (durationMs === 0) return Promise.resolve(true);
+
+  return new Promise<boolean>((resolve) => {
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      resolve(true);
+    }, durationMs);
+
+    const onAbort = () => {
+      clearTimeout(timeoutId);
+      cleanup();
+      resolve(false);
+    };
+
+    const cleanup = () => {
+      signal?.removeEventListener('abort', onAbort);
+    };
+
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/**
  * Calculate delay with exponential backoff and jitter.
  *
  * @param attempt - Current attempt number (0-indexed)
