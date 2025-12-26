@@ -38,6 +38,20 @@ export function normalizeFlag(value: unknown, defaultValue: boolean): boolean {
 }
 
 /**
+ * Read a trimmed, non-empty string property from an unknown record.
+ *
+ * @param record - Any object-like value
+ * @param key - Property name to read
+ * @returns A trimmed string, or `undefined` if missing/blank/not a string
+ */
+export function readTrimmedStringProperty(record: unknown, key: string): string | undefined {
+  const value = (record as any)?.[key];
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+/**
  * A deferred promise with externally accessible resolve/reject handlers.
  */
 export interface Deferred<T = void> {

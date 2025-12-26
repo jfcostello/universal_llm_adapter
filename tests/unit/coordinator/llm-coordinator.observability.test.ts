@@ -196,6 +196,41 @@ describe('LLMCoordinator observability', () => {
       }
     });
 
+    test('uses metadata.batchId as sessionId fallback over runtime/env batchId', async () => {
+      const originalBatchId = process.env.LLM_ADAPTER_BATCH_ID;
+      process.env.LLM_ADAPTER_BATCH_ID = 'env-batch-456';
+
+      try {
+        const registry = createMockRegistry();
+        const coordinator = new LLMCoordinator(registry);
+
+        registry.getObservabilityProvider = jest.fn().mockResolvedValue({
+          id: 'langfuse',
+          compat: 'langfuse',
+          endpoint: { host: 'http://test.com' }
+        });
+        registry.getObservabilityCompat = jest.fn().mockResolvedValue({
+          buildBatch: jest.fn().mockReturnValue({ payload: [], eventIndexByEnvelopeId: new Map() }),
+          sendBatch: jest.fn().mockResolvedValue({ success: true, outcomes: [] })
+        });
+
+        const spec = createMockSpec(
+          { enabled: true, provider: 'langfuse' },
+          { correlationId: 'corr-123', batchId: 'meta-batch-999' }
+        );
+        const result = await (coordinator as any).createObservabilityContext(spec, { batchId: 'runtime-batch-123' });
+
+        expect(result).toBeDefined();
+        expect(result.sessionId).toBe('meta-batch-999');
+      } finally {
+        if (originalBatchId === undefined) {
+          delete process.env.LLM_ADAPTER_BATCH_ID;
+        } else {
+          process.env.LLM_ADAPTER_BATCH_ID = originalBatchId;
+        }
+      }
+    });
+
     test('uses LLM_ADAPTER_BATCH_ID env var as sessionId fallback when runtime.batchId is missing', async () => {
       const originalBatchId = process.env.LLM_ADAPTER_BATCH_ID;
       process.env.LLM_ADAPTER_BATCH_ID = 'env-batch-456';

@@ -7,7 +7,7 @@ import type {
   ObservabilityLLMResponseEvent
 } from '../../../../modules/kernel/index.js';
 import { LruMap, substituteEnv } from '../../../../modules/kernel/index.js';
-import { safeJsonStringify, flattenPrimitiveStrings } from '../../../../modules/shared/index.js';
+import { safeJsonStringify, flattenPrimitiveStrings, readTrimmedStringProperty } from '../../../../modules/shared/index.js';
 import type { OtlpSpanSpec } from '../../../../modules/observability/index.js';
 import { deriveOtlpSpanIdHex, deriveOtlpTraceIdHex } from '../../../../modules/observability/index.js';
 
@@ -18,13 +18,6 @@ const BASEURL_OVERRIDE_ALLOWLIST_ENV = 'LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWL
 
 const REQUEST_CACHE_TTL_MS = 10 * 60_000;
 const REQUEST_CACHE_MAX_ENTRIES = 1000;
-
-function getStringMetadata(metadata: unknown, key: string): string | undefined {
-  const value = (metadata as any)?.[key];
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : undefined;
-}
 
 function getStringArrayMetadata(metadata: unknown, key: string): string[] | undefined {
   const value = (metadata as any)?.[key];
@@ -277,8 +270,8 @@ function buildCachedRequestSummary(
     : 16384;
   const metadata = request.metadata;
   const sessionId = request.sessionId ? String(request.sessionId) : undefined;
-  const correlationId = getStringMetadata(metadata, 'correlationId');
-  const batchId = getStringMetadata(metadata, 'batchId') ?? sessionId;
+  const correlationId = readTrimmedStringProperty(metadata, 'correlationId');
+  const batchId = readTrimmedStringProperty(metadata, 'batchId') ?? sessionId;
   const tags = getStringArrayMetadata(metadata, 'tags');
 
   return {
@@ -337,8 +330,8 @@ export class LangfuseCompat implements IObservabilityCompat {
           ? String(event.sessionId)
           : undefined;
       const metadata = event.metadata;
-      const correlationId = cachedSummary?.correlationId ?? getStringMetadata(metadata, 'correlationId');
-      const batchId = cachedSummary?.batchId ?? (getStringMetadata(metadata, 'batchId') ?? sessionId);
+      const correlationId = cachedSummary?.correlationId ?? readTrimmedStringProperty(metadata, 'correlationId');
+      const batchId = cachedSummary?.batchId ?? (readTrimmedStringProperty(metadata, 'batchId') ?? sessionId);
       const tags = cachedSummary?.tags ?? getStringArrayMetadata(metadata, 'tags');
 
       const envelopeId = getEnvelopeId(

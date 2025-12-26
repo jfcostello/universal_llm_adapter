@@ -1,11 +1,12 @@
 import { jest } from '@jest/globals';
 import {
-  normalizeFlag,
-  createDeferred,
-  calculateBackoffDelay,
-  sleep,
-  sleepWithSignal,
-  monotonicNowNs,
+	  normalizeFlag,
+	  readTrimmedStringProperty,
+	  createDeferred,
+	  calculateBackoffDelay,
+	  sleep,
+	  sleepWithSignal,
+	  monotonicNowNs,
   monotonicElapsedMs,
   truncateUtf8Bytes,
   safeJsonStringify,
@@ -14,7 +15,7 @@ import {
 } from '@/modules/shared/index.ts';
 
 describe('modules/shared', () => {
-  describe('normalizeFlag', () => {
+	describe('normalizeFlag', () => {
     test('returns defaultValue for null and undefined', () => {
       expect(normalizeFlag(null, true)).toBe(true);
       expect(normalizeFlag(null, false)).toBe(false);
@@ -80,9 +81,25 @@ describe('modules/shared', () => {
       expect(normalizeFlag([], false)).toBe(true);
       expect(normalizeFlag(() => {}, false)).toBe(true);
     });
-  });
+	});
 
-  describe('createDeferred', () => {
+	describe('readTrimmedStringProperty', () => {
+	  test('returns undefined for missing/invalid values', () => {
+	    expect(readTrimmedStringProperty(null, 'k')).toBeUndefined();
+	    expect(readTrimmedStringProperty(undefined, 'k')).toBeUndefined();
+	    expect(readTrimmedStringProperty('nope', 'k')).toBeUndefined();
+	    expect(readTrimmedStringProperty({}, 'k')).toBeUndefined();
+	    expect(readTrimmedStringProperty({ k: 123 }, 'k')).toBeUndefined();
+	    expect(readTrimmedStringProperty({ k: '   ' }, 'k')).toBeUndefined();
+	  });
+
+	  test('returns trimmed string when present', () => {
+	    expect(readTrimmedStringProperty({ k: '  value  ' }, 'k')).toBe('value');
+	    expect(readTrimmedStringProperty({ k: 'value' }, 'k')).toBe('value');
+	  });
+	});
+
+	describe('createDeferred', () => {
     test('resolve() settles promise with value', async () => {
       const deferred = createDeferred<string>();
       deferred.resolve('hello');

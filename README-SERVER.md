@@ -55,7 +55,7 @@ await server.close();
 | `host` | `--host <host>` | `127.0.0.1` | Host to bind |
 | `port` | `--port <port>` | `0` | Port to bind (0 = ephemeral) |
 | `pluginsPath` | `-p, --plugins <path>` | `./plugins` | Path to plugins directory |
-| `batchId` | `--batch-id <id>` | | Batch identifier for logging |
+| `batchId` | `--batch-id <id>` | | Default batch identifier for logging (requests can override observability grouping via `spec.metadata.batchId`) |
 
 ### Request Handling
 

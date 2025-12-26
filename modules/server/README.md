@@ -29,7 +29,7 @@ Options:
 - `host` (string, default `"127.0.0.1"`)
 - `port` (number, default `0` for ephemeral)
 - `pluginsPath` (string, default `"./plugins"`)
-- `batchId` (string, optional)
+- `batchId` (string, optional) — default batch ID for logging and observability session/grouping when `spec.metadata.batchId` is not provided per-request.
 - `closeLoggerAfterRequest` (boolean, default `false`)
 - `maxRequestBytes` (number, default `26214400` / 25MB) — maximum JSON body size including any embedded base64.
 - `bodyReadTimeoutMs` (number, default `10000`) — timeout while reading the request body.

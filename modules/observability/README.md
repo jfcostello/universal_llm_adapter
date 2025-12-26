@@ -86,7 +86,8 @@ const spec = {
 In addition to `spec.observability.*`, the adapter uses `spec.metadata` for correlation and grouping:
 
 - `spec.metadata.correlationId`: stable per-request identifier (some providers use this as a trace name/display label).
-- `spec.observability.sessionId`: stable per-session identifier to group related traces (in live tests this is typically the run-wide `batchId`).
+- `spec.metadata.batchId`: optional per-request batch identifier; when `spec.observability.sessionId` is not set, this is used as the default session/grouping ID for observability.
+- `spec.observability.sessionId`: stable per-session identifier to group related traces (overrides `spec.metadata.batchId`).
 - `spec.metadata.tags`: optional array of strings forwarded to observability providers that support tagging.
 
 The adapter also forwards token breakdown details (e.g., input/output/total, cached/reasoning/audio tokens) when they are provided by the underlying provider or can be derived from the response.
