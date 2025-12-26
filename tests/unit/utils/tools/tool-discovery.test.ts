@@ -1,7 +1,7 @@
 import { describe, expect, jest, test } from '@jest/globals';
 import { collectTools, shouldCreateVectorSearchTool, createVectorSearchTool } from '@/modules/tools/index.ts';
-import { LLMCallSpec, UnifiedTool, VectorContextConfig } from '@/modules/kernel/index.ts';
-import { PluginRegistry } from '@/modules/kernel/index.ts';
+import { LLMCallSpec, UnifiedTool, VectorContextConfig } from '@/kernel/index.ts';
+import { PluginRegistry } from '@/kernel/index.ts';
 import { MCPManager } from '@/modules/mcp/index.ts';
 
 describe('utils/tools/tool-discovery', () => {

@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
-import type { RealtimeAudioFrame, RealtimeEvent } from '@/modules/kernel/index.ts';
-import { AsyncQueue } from '@/modules/kernel/index.ts';
+import type { RealtimeAudioFrame, RealtimeEvent } from '@/kernel/index.ts';
+import { AsyncQueue } from '@/kernel/index.ts';
 import type { RealtimeSession } from '@/modules/realtime/index.ts';
 
 export class MockRealtimeSession implements RealtimeSession {

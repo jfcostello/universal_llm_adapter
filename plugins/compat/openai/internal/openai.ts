@@ -9,7 +9,7 @@ import type {
   ToolChoice,
   UnifiedTool,
   UsageStats
-} from '../../../../modules/kernel/index.js';
+} from '../../../../kernel/index.js';
 import { applyProviderExtensions } from './extensions.js';
 import { hasPDFDocuments, serializeContent, serializeMessages } from './messages.js';
 import { parseResponse as parseOpenAIResponse } from './response.js';

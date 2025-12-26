@@ -1,5 +1,5 @@
-import type { JsonValue, ProviderManifest, ProviderPayloadExtension } from '../../../kernel/index.js';
-import { ProviderPayloadError } from '../../../kernel/index.js';
+import type { JsonValue, ProviderManifest, ProviderPayloadExtension } from '../../../../kernel/index.js';
+import { ProviderPayloadError } from '../../../../kernel/index.js';
 
 function cloneJsonOrThrow(providerId: string, label: string, value: any): any {
   if (value === undefined) {

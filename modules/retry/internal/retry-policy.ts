@@ -1,4 +1,4 @@
-import { getDefaults } from '../../kernel/index.js';
+import { getDefaults } from '../../../kernel/index.js';
 
 export interface RetryPolicy {
   maxAttempts: number;

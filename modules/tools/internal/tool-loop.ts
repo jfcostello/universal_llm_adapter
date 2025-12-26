@@ -1,11 +1,11 @@
-import type { PluginRegistry } from '../../kernel/index.js';
+import type { PluginRegistry } from '../../../kernel/index.js';
 import {
   Role,
   StreamEventType,
   ToolCallEventType,
   getDefaults,
   safeJsonParse
-} from '../../kernel/index.js';
+} from '../../../kernel/index.js';
 import type {
   LLMResponse,
   LLMStreamEvent,
@@ -18,7 +18,7 @@ import type {
   UsageStats,
   ReasoningData,
   AdapterLogger
-} from '../../kernel/index.js';
+} from '../../../kernel/index.js';
 import type { LLMManager } from '../../llm/index.js';
 import { ToolCallBudget } from './tool-budget.js';
 import { formatCountdown, buildFinalPrompt } from './tool-message.js';

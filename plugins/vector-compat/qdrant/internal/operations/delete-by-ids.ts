@@ -1,6 +1,6 @@
 import type { QdrantClient } from '@qdrant/js-client-rest';
-import type { IVectorOperationLogger } from '../../../../../modules/kernel/index.js';
-import { VectorStoreError } from '../../../../../modules/kernel/index.js';
+import type { IVectorOperationLogger } from '../../../../../kernel/index.js';
+import { VectorStoreError } from '../../../../../kernel/index.js';
 import { normalizePointId } from '../ids/normalize-point-id.js';
 
 export async function deleteByIdsQdrant(options: {

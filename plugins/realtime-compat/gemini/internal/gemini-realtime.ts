@@ -1,4 +1,4 @@
-import type { IRealtimeCompat } from '../../../../modules/kernel/index.js';
+import type { IRealtimeCompat } from '../../../../kernel/index.js';
 import { createGeminiRealtimeCompatSession } from './session.js';
 
 export default class GeminiRealtimeCompat implements IRealtimeCompat {

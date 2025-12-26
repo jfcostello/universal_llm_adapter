@@ -1,5 +1,5 @@
 import { describe, expect, test } from '@jest/globals';
-import { Role } from '@/modules/kernel/index.ts';
+import { Role } from '@/kernel/index.ts';
 import {
   aggregateSystemMessages,
   appendAssistantToolCalls,

@@ -5,7 +5,7 @@ import type {
   RealtimeCompatSession,
   RealtimeSessionSpec,
   UnifiedTool
-} from '../../kernel/index.js';
+} from '../../../kernel/index.js';
 import type { RealtimeSession } from './realtime-session.js';
 import { createRealtimeSessionController } from './realtime-session.js';
 

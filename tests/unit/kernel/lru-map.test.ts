@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { LruMap } from '@/modules/kernel/index.ts';
+import { LruMap } from '@/kernel/index.ts';
 
 describe('kernel/lru-map', () => {
   test('evicts the oldest entry when over maxEntries', () => {

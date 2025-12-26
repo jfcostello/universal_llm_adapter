@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 
-describe('modules/kernel', () => {
+describe('kernel', () => {
   test('imports without eagerly loading feature code', async () => {
     jest.resetModules();
     await jest.isolateModulesAsync(async () => {
@@ -60,7 +60,7 @@ describe('modules/kernel', () => {
         throw new Error('kernel must not import observability module');
       });
 
-      const kernel = await import('@/modules/kernel/index.ts');
+      const kernel = await import('@/kernel/index.ts');
 
       // Spot check a few key exports (full API will evolve).
       expect(kernel.PluginRegistry).toBeDefined();

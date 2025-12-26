@@ -11,7 +11,7 @@ describe('core/defaults', () => {
 
   describe('getDefaults', () => {
     test('returns all default categories', async () => {
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { getDefaults } = await import('@/kernel/index.ts');
       const defaults = getDefaults();
 
       // Verify all categories exist
@@ -28,7 +28,7 @@ describe('core/defaults', () => {
     });
 
     test('returns correct retry defaults', async () => {
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { getDefaults } = await import('@/kernel/index.ts');
       const { retry } = getDefaults();
 
       expect(retry.maxAttempts).toBe(3);
@@ -38,7 +38,7 @@ describe('core/defaults', () => {
     });
 
     test('returns correct tools defaults', async () => {
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { getDefaults } = await import('@/kernel/index.ts');
       const { tools } = getDefaults();
 
       expect(tools.countdownEnabled).toBe(true);
@@ -51,14 +51,14 @@ describe('core/defaults', () => {
     });
 
     test('returns correct usage cost defaults', async () => {
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { getDefaults } = await import('@/kernel/index.ts');
       const defaults = getDefaults();
 
       expect(defaults.usageCost).toBe(false);
     });
 
     test('returns correct vector defaults', async () => {
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { getDefaults } = await import('@/kernel/index.ts');
       const { vector } = getDefaults();
 
       expect(vector.topK).toBe(5);
@@ -71,7 +71,7 @@ describe('core/defaults', () => {
     });
 
     test('returns correct chunking defaults', async () => {
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { getDefaults } = await import('@/kernel/index.ts');
       const { chunking } = getDefaults();
 
       expect(chunking.size).toBe(500);
@@ -79,7 +79,7 @@ describe('core/defaults', () => {
     });
 
     test('returns correct tokenEstimation defaults', async () => {
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { getDefaults } = await import('@/kernel/index.ts');
       const { tokenEstimation } = getDefaults();
 
       expect(tokenEstimation.textDivisor).toBe(4);
@@ -88,7 +88,7 @@ describe('core/defaults', () => {
     });
 
     test('returns correct timeout defaults', async () => {
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { getDefaults } = await import('@/kernel/index.ts');
       const { timeouts } = getDefaults();
 
       expect(timeouts.mcpRequest).toBe(30000);
@@ -98,7 +98,7 @@ describe('core/defaults', () => {
     });
 
       test('returns correct server defaults', async () => {
-        const { getDefaults } = await import('@/modules/kernel/index.ts');
+        const { getDefaults } = await import('@/kernel/index.ts');
         const { server } = getDefaults();
   
         expect(server.maxRequestBytes).toBe(25 * 1024 * 1024);
@@ -125,14 +125,14 @@ describe('core/defaults', () => {
       });
 
     test('returns correct paths defaults', async () => {
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { getDefaults } = await import('@/kernel/index.ts');
       const { paths } = getDefaults();
 
       expect(paths.plugins).toBe('./plugins');
     });
 
       test('returns correct observability defaults', async () => {
-        const { getDefaults } = await import('@/modules/kernel/index.ts');
+        const { getDefaults } = await import('@/kernel/index.ts');
         const { observability } = getDefaults();
 
         expect(observability.enabled).toBe(false);
@@ -158,7 +158,7 @@ describe('core/defaults', () => {
       });
 
     test('caches defaults after first load', async () => {
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { getDefaults } = await import('@/kernel/index.ts');
 
       const first = getDefaults();
       const second = getDefaults();
@@ -169,7 +169,7 @@ describe('core/defaults', () => {
 
   describe('resetDefaultsCache', () => {
     test('clears cached defaults', async () => {
-      const { getDefaults, resetDefaultsCache } = await import('@/modules/kernel/index.ts');
+      const { getDefaults, resetDefaultsCache } = await import('@/kernel/index.ts');
 
       const first = getDefaults();
       resetDefaultsCache();
@@ -186,7 +186,7 @@ describe('core/defaults', () => {
       // This test verifies the real defaults.json is loaded
       // (already verified in the getDefaults tests above, but this confirms the file loading path)
       jest.resetModules();
-      const { getDefaults, resetDefaultsCache } = await import('@/modules/kernel/index.ts');
+      const { getDefaults, resetDefaultsCache } = await import('@/kernel/index.ts');
       resetDefaultsCache();
       const defaults = getDefaults();
 
@@ -223,7 +223,7 @@ describe('core/defaults', () => {
 
       (jest as any).unstable_mockModule('fs', () => fsMock);
 
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { getDefaults } = await import('@/kernel/index.ts');
       const defaults = getDefaults();
 
       // Should use fallback defaults (same values, but via fallback path)
@@ -254,7 +254,7 @@ describe('core/defaults', () => {
 
       (jest as any).unstable_mockModule('fs', () => fsMock);
 
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { getDefaults } = await import('@/kernel/index.ts');
       const defaults = getDefaults();
 
       // Should use fallback defaults due to parse error
@@ -267,7 +267,7 @@ describe('core/defaults', () => {
 
   describe('type safety', () => {
     test('DefaultSettings interface has all required properties', async () => {
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { getDefaults } = await import('@/kernel/index.ts');
       const defaults = getDefaults();
 
       // TypeScript would catch missing properties at compile time,
@@ -280,7 +280,7 @@ describe('core/defaults', () => {
     });
 
     test('retry defaults have correct types', async () => {
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { getDefaults } = await import('@/kernel/index.ts');
       const { retry } = getDefaults();
 
       expect(typeof retry.maxAttempts).toBe('number');
@@ -291,7 +291,7 @@ describe('core/defaults', () => {
     });
 
     test('tools defaults have correct types', async () => {
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { getDefaults } = await import('@/kernel/index.ts');
       const { tools } = getDefaults();
 
       expect(typeof tools.countdownEnabled).toBe('boolean');
@@ -304,7 +304,7 @@ describe('core/defaults', () => {
     });
 
     test('vector defaults have correct types', async () => {
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { getDefaults } = await import('@/kernel/index.ts');
       const { vector } = getDefaults();
 
       expect(typeof vector.topK).toBe('number');
@@ -317,7 +317,7 @@ describe('core/defaults', () => {
     });
 
       test('observability defaults have correct types', async () => {
-        const { getDefaults } = await import('@/modules/kernel/index.ts');
+        const { getDefaults } = await import('@/kernel/index.ts');
         const { observability } = getDefaults();
 
         expect(typeof observability.enabled).toBe('boolean');

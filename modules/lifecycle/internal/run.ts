@@ -1,4 +1,4 @@
-import { PluginRegistry } from '../../kernel/index.js';
+import { PluginRegistry } from '../../../kernel/index.js';
 import type { PluginRegistryLike, RunLifecycleOptions } from './types.js';
 
 const defaultPluginsPath = './plugins';

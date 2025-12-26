@@ -2,8 +2,8 @@ import {
   EmbeddingPriorityItem,
   EmbeddingResult,
   IEmbeddingOperationLogger
-} from '../../kernel/index.js';
-import { EmbeddingError, EmbeddingProviderError } from '../../kernel/index.js';
+} from '../../../kernel/index.js';
+import { EmbeddingError, EmbeddingProviderError } from '../../../kernel/index.js';
 import type { EmbedderFn } from '../../vector/index.js';
 
 /**

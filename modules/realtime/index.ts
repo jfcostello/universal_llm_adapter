@@ -11,4 +11,4 @@ export type {
   RealtimeHistoryItem,
   RealtimeAudioFrame,
   RealtimeEvent
-} from '../kernel/index.js';
+} from '../../kernel/index.js';

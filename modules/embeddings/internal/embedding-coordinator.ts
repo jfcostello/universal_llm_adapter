@@ -3,8 +3,8 @@ import type {
   EmbeddingCallSpec,
   EmbeddingOperationResult,
   LoggingDeps
-} from '../../kernel/index.js';
-import { resolveLoggingDeps } from '../../kernel/index.js';
+} from '../../../kernel/index.js';
+import { resolveLoggingDeps } from '../../../kernel/index.js';
 import { EmbeddingManager } from './embedding-manager.js';
 
 function asErrorMessage(error: unknown): string {

@@ -1,5 +1,5 @@
-import type { EmbeddingProviderConfig, EmbeddingResult } from '../../../../modules/kernel/index.js';
-import { EmbeddingProviderError } from '../../../../modules/kernel/index.js';
+import type { EmbeddingProviderConfig, EmbeddingResult } from '../../../../kernel/index.js';
+import { EmbeddingProviderError } from '../../../../kernel/index.js';
 import { extractEmbeddingVectorsByIndex } from '../../../../modules/embeddings/index.js';
 import type { OpenRouterEmbeddingResponse } from './mappings.js';
 

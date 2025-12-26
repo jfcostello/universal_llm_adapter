@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import { LLMManager } from '@/modules/llm/index.ts';
-import { ProviderExecutionError } from '@/modules/kernel/index.ts';
+import { ProviderExecutionError } from '@/kernel/index.ts';
 import { partitionSettings } from '@/modules/settings/index.ts';
 
 const provider = {

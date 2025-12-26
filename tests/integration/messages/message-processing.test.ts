@@ -1,5 +1,5 @@
 import { prepareMessages, appendAssistantToolCalls, appendToolResult } from '@/modules/messages/index.ts';
-import { Role } from '@/modules/kernel/index.ts';
+import { Role } from '@/kernel/index.ts';
 import { trimConversationToBudget } from '@/modules/context/index.ts';
 
 describe('integration/messages/message-processing', () => {

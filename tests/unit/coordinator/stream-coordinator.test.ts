@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import { StreamCoordinator } from '@/modules/llm/index.ts';
-import { StreamEventType, ToolCallEventType, Role } from '@/modules/kernel/index.ts';
+import { StreamEventType, ToolCallEventType, Role } from '@/kernel/index.ts';
 import { calculateUsageCost } from '@/modules/usage-cost/index.ts';
 
 function createCoordinator(overrides: Partial<any> = {}) {

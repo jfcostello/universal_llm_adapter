@@ -6,8 +6,9 @@ import {
 	  calculateBackoffDelay,
 	  sleep,
 	  sleepWithSignal,
-	  monotonicNowNs,
+  monotonicNowNs,
   monotonicElapsedMs,
+  deriveObservabilityModel,
   truncateUtf8Bytes,
   safeJsonStringify,
   flattenPrimitiveStrings,
@@ -98,6 +99,47 @@ describe('modules/shared', () => {
 	    expect(readTrimmedStringProperty({ k: 'value' }, 'k')).toBe('value');
 	  });
 	});
+
+  describe('deriveObservabilityModel', () => {
+    test('returns the base model when no provider hint is present', () => {
+      expect(deriveObservabilityModel({ provider: 'proxy', model: 'm' })).toBe('m');
+      expect(deriveObservabilityModel({ provider: 'proxy', model: 'm', providerHint: {} })).toBe('m');
+      expect(deriveObservabilityModel({ provider: 'proxy', model: 'm', providerHint: { provider: 123 } })).toBe('m');
+      expect(deriveObservabilityModel({ provider: 'proxy', model: 'm', providerHint: { provider: '   ' } })).toBe('m');
+    });
+
+    test('treats blank providerHint strings as missing', () => {
+      expect(deriveObservabilityModel({ provider: 'proxy', model: 'm', providerHint: '   ' })).toBe('m');
+    });
+
+    test('prefixes the model with the upstream provider when the hint differs from the configured provider', () => {
+      expect(deriveObservabilityModel({ provider: 'proxy', model: 'm', providerHint: { provider: 'upstream' } }))
+        .toBe('upstream/m');
+      expect(deriveObservabilityModel({ provider: 'proxy', model: 'm', providerHint: 'upstream' }))
+        .toBe('upstream/m');
+    });
+
+    test('normalizes non-string provider/model inputs via String()', () => {
+      expect(deriveObservabilityModel({ provider: 123 as any, model: 'm', providerHint: { provider: 'upstream' } }))
+        .toBe('upstream/m');
+      expect(deriveObservabilityModel({ provider: null as any, model: 'm', providerHint: { provider: 'upstream' } }))
+        .toBe('upstream/m');
+      expect(deriveObservabilityModel({ provider: 'proxy', model: 123 as any, providerHint: { provider: 'upstream' } }))
+        .toBe('upstream/123');
+      expect(deriveObservabilityModel({ provider: 'proxy', model: null as any, providerHint: { provider: 'upstream' } }))
+        .toBe('upstream/');
+    });
+
+    test('does not prefix when the upstream provider equals the configured provider', () => {
+      expect(deriveObservabilityModel({ provider: 'proxy', model: 'm', providerHint: { provider: 'proxy' } }))
+        .toBe('m');
+    });
+
+    test('does not double-prefix when model already includes upstream provider', () => {
+      expect(deriveObservabilityModel({ provider: 'proxy', model: 'upstream/m', providerHint: { provider: 'upstream' } }))
+        .toBe('upstream/m');
+    });
+  });
 
 	describe('createDeferred', () => {
     test('resolve() settles promise with value', async () => {

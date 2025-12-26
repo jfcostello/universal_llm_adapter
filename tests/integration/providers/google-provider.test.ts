@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import GoogleCompat from '@/plugins/compat/google/index.ts';
-import { ToolCallEventType, Role } from '@/modules/kernel/index.ts';
+import { ToolCallEventType, Role } from '@/kernel/index.ts';
 import {
   baseMessages,
   baseTools,

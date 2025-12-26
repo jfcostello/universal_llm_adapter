@@ -1,5 +1,5 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
-import type { DocumentContent, Message, Role } from '@/modules/kernel/index.ts';
+import type { DocumentContent, Message, Role } from '@/kernel/index.ts';
 import { processDocumentContent } from '@/modules/documents/index.ts';
 import * as path from 'path';
 import * as fs from 'fs';

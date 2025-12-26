@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { ToolCallEventType, Role } from '@/modules/kernel/index.ts';
+import { ToolCallEventType, Role } from '@/kernel/index.ts';
 
 const unstableMockModule = (jest as unknown as { unstable_mockModule?: typeof jest.unstable_mockModule }).unstable_mockModule;
 if (!unstableMockModule) {

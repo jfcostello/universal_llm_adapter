@@ -1,6 +1,6 @@
 import type { QdrantClient } from '@qdrant/js-client-rest';
-import type { IVectorOperationLogger, VectorPoint } from '../../../../../modules/kernel/index.js';
-import { VectorStoreError } from '../../../../../modules/kernel/index.js';
+import type { IVectorOperationLogger, VectorPoint } from '../../../../../kernel/index.js';
+import { VectorStoreError } from '../../../../../kernel/index.js';
 import { normalizePointId, ORIGINAL_ID_KEY } from '../ids/normalize-point-id.js';
 
 export async function upsertQdrant(options: {

@@ -5,8 +5,8 @@ import type {
   TextContent,
   ToolCall,
   UsageStats
-} from '../../../../modules/kernel/index.js';
-import { Role } from '../../../../modules/kernel/index.js';
+} from '../../../../kernel/index.js';
+import { Role } from '../../../../kernel/index.js';
 import { extractUsageStats, getGlobalUsageSpec, mergeUsageExtractionSpecs } from '../../../../modules/usage/index.js';
 import type { UsageExtractionSpec } from '../../../../modules/usage/index.js';
 

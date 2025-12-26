@@ -1,4 +1,4 @@
-import type { ObservabilityEnvelopeOutcome } from '../../../kernel/index.js';
+import type { ObservabilityEnvelopeOutcome } from '../../../../kernel/index.js';
 import type { OtlpSpanSpec } from './types.js';
 import { sleepWithSignal } from '../../../shared/index.js';
 import { chunkAndEncodeOtlpTraceSpans, type EncodedOtlpChunk } from './chunk-and-encode.js';

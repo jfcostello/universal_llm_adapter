@@ -6,7 +6,7 @@ import { createTwilioMediaStreamsBridge } from '@/plugins/modules/twilio-media-s
 import { MockRealtimeSession } from '@tests/helpers/mock-realtime-session.ts';
 import { MockWebSocket } from '@tests/helpers/mock-ws.ts';
 
-import type { RealtimeCompatSession } from '@/modules/kernel/index.ts';
+import type { RealtimeCompatSession } from '@/kernel/index.ts';
 
 function makeToken(secret: string): string {
   const nowSeconds = Math.floor(Date.now() / 1000);

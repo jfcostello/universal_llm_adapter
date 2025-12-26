@@ -7,7 +7,7 @@ import type { TransformableInfo } from 'logform';
 import { genericRedactHeaders, redactUrl } from '../../security/index.js';
 import { readEnvFloat, readEnvInt } from './retention.js';
 import { applyRetentionOnce } from './retention-manager.js';
-import { getDefaults } from '../../kernel/index.js';
+import { getDefaults } from '../../../kernel/index.js';
 
 export const disableFileLogs = process.env.LLM_ADAPTER_DISABLE_FILE_LOGS === '1';
 export const disableConsoleLogs = process.env.LLM_ADAPTER_DISABLE_CONSOLE_LOGS === '1';

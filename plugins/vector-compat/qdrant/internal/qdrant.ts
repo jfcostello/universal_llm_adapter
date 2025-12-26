@@ -8,7 +8,7 @@ import {
   JsonObject,
   IVectorOperationLogger,
   VectorStoreError
-} from '../../../../modules/kernel/index.js';
+} from '../../../../kernel/index.js';
 import type { QdrantClientFactory } from './client/create-client.js';
 import { connectQdrant } from './operations/connect.js';
 import { queryQdrant } from './operations/query.js';

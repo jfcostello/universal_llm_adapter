@@ -6,8 +6,8 @@ import type {
   RealtimeCompatSession,
   RealtimeEvent,
   RealtimeSessionSpec
-} from '../../../../modules/kernel/index.js';
-import { AsyncQueue, LruMap, resolveRealtimeToolCallTrackingMaxEntries, sanitizeToolName } from '../../../../modules/kernel/index.js';
+} from '../../../../kernel/index.js';
+import { AsyncQueue, LruMap, resolveRealtimeToolCallTrackingMaxEntries, sanitizeToolName } from '../../../../kernel/index.js';
 import { buildGeminiActivityEndMessage, buildGeminiActivityStartMessage, buildGeminiCommitTextTurnMessage, buildGeminiInterruptMessage, buildGeminiRealtimeAudioMessage, buildGeminiRealtimeTextMessage, buildGeminiSendTextMessage, buildGeminiSetupMessage, buildGeminiToolResponseMessage } from './commands.js';
 import { convertSessionAudioToProviderPcm16_16k } from './audio.js';
 import { mapGeminiLiveServerMessage, type GeminiRealtimeMapperState } from './event-mapper.js';

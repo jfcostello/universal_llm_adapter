@@ -52,6 +52,42 @@ export function readTrimmedStringProperty(record: unknown, key: string): string 
 }
 
 /**
+ * Derive a human-meaningful model identifier for observability exports.
+ *
+ * When an upstream provider hint is available (e.g. a proxy returns `{ provider: "upstream" }`),
+ * the observability model is emitted as `${upstreamProvider}/${model}` so downstream observability
+ * providers can disambiguate the true origin of the generation.
+ */
+export function deriveObservabilityModel(options: {
+  /** Configured provider id (the adapter provider) */
+  provider: string;
+  /** Configured model id from the call spec */
+  model: string;
+  /**
+   * Provider hint string, or an object that contains a `provider` string field (e.g. raw response).
+   * Treated as optional and ignored when missing/blank.
+   */
+  providerHint?: unknown;
+}): string {
+  const provider = typeof options.provider === 'string' ? options.provider : String(options.provider ?? '');
+  const model = typeof options.model === 'string' ? options.model : String(options.model ?? '');
+
+  const upstreamProvider = (() => {
+    if (typeof options.providerHint === 'string') {
+      const trimmed = options.providerHint.trim();
+      return trimmed ? trimmed : undefined;
+    }
+    return readTrimmedStringProperty(options.providerHint, 'provider');
+  })();
+
+  if (!upstreamProvider) return model;
+  if (upstreamProvider === provider) return model;
+  if (model.startsWith(`${upstreamProvider}/`)) return model;
+
+  return `${upstreamProvider}/${model}`;
+}
+
+/**
  * A deferred promise with externally accessible resolve/reject handlers.
  */
 export interface Deferred<T = void> {

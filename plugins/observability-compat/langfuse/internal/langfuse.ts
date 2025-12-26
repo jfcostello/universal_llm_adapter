@@ -5,8 +5,8 @@ import type {
   ObservabilityCompatContext,
   ObservabilityLLMRequestEvent,
   ObservabilityLLMResponseEvent
-} from '../../../../modules/kernel/index.js';
-import { LruMap, substituteEnv } from '../../../../modules/kernel/index.js';
+} from '../../../../kernel/index.js';
+import { LruMap, substituteEnv } from '../../../../kernel/index.js';
 import { safeJsonStringify, flattenPrimitiveStrings, readTrimmedStringProperty } from '../../../../modules/shared/index.js';
 import type { OtlpSpanSpec } from '../../../../modules/observability/index.js';
 import { deriveOtlpSpanIdHex, deriveOtlpTraceIdHex } from '../../../../modules/observability/index.js';

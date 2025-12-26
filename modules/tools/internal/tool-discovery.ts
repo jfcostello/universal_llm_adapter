@@ -1,5 +1,5 @@
-import { PluginRegistry } from '../../kernel/index.js';
-import { LLMCallSpec, UnifiedTool, VectorContextConfig, ToolSchemaParamOverride } from '../../kernel/index.js';
+import { PluginRegistry } from '../../../kernel/index.js';
+import { LLMCallSpec, UnifiedTool, VectorContextConfig, ToolSchemaParamOverride } from '../../../kernel/index.js';
 import type { MCPManager } from '../../mcp/index.js';
 import type { VectorStoreManager } from '../../vector/index.js';
 import { sanitizeToolName } from './tool-names.js';

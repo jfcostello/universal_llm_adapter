@@ -4,7 +4,7 @@ import {
   TOOL_REDACTION_PLACEHOLDER,
   TOOL_REDACTION_REASON
 } from '@/modules/context/index.ts';
-import { Message, Role, TextContent, ToolResultContent } from '@/modules/kernel/index.ts';
+import { Message, Role, TextContent, ToolResultContent } from '@/kernel/index.ts';
 
 const isRedactedToolMessage = (message: Message): boolean => {
   if (message.role !== Role.TOOL) {

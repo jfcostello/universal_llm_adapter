@@ -1,5 +1,5 @@
 import { pruneToolResults, pruneReasoning } from '@/modules/context/index.ts';
-import { Message, Role } from '@/modules/kernel/index.ts';
+import { Message, Role } from '@/kernel/index.ts';
 import { estimateMessageTokens, calculateConversationTokens, trimConversationToBudget } from '@/modules/context/index.ts';
 
 describe('integration/context/context-management', () => {

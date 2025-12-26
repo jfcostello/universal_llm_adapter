@@ -1,4 +1,4 @@
-import type { RealtimeAudioFrame, RealtimeEvent } from '../../../../modules/kernel/index.js';
+import type { RealtimeAudioFrame, RealtimeEvent } from '../../../../kernel/index.js';
 import type { RealtimeSession } from '../../../../modules/realtime/index.js';
 import { AudioPacer, base64ToBytes, bytesToBase64, durationMsForBytes } from '../../../../modules/audio/index.js';
 import { verifySignedWsToken } from '../../../../modules/security/index.js';

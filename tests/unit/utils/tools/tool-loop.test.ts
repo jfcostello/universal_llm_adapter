@@ -1,7 +1,7 @@
 import { describe, expect, jest, test } from '@jest/globals';
 import { runToolLoop, __toolLoopTestUtils__ } from '@/modules/tools/index.ts';
 import { ToolCallBudget } from '@/modules/tools/index.ts';
-import { Role, StreamEventType, ToolCallEventType } from '@/modules/kernel/index.ts';
+import { Role, StreamEventType, ToolCallEventType } from '@/kernel/index.ts';
 import { calculateUsageCost } from '@/modules/usage-cost/index.ts';
 
 const providerManifest: any = {

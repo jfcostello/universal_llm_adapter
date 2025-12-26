@@ -1,4 +1,4 @@
-import { AsyncQueue } from '@/modules/kernel/index.ts';
+import { AsyncQueue } from '@/kernel/index.ts';
 
 describe('kernel/async-queue', () => {
   test('push/iterate yields items and close ends iteration', async () => {

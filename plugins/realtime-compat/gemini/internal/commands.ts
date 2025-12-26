@@ -1,4 +1,4 @@
-import type { RealtimeAudioFrame, RealtimeSessionSpec, UnifiedTool } from '../../../../modules/kernel/index.js';
+import type { RealtimeAudioFrame, RealtimeSessionSpec, UnifiedTool } from '../../../../kernel/index.js';
 import { serializeToolsForLiveSDK } from '../../../modules/google-tooling/index.js';
 
 type SessionAudioConfig = {

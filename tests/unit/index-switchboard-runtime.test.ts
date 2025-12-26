@@ -13,7 +13,7 @@ describe('root switchboard', () => {
       let lifecycleImports = 0;
       let realtimeImports = 0;
 
-      jest.unstable_mockModule('../../modules/kernel/index.js', () => {
+      jest.unstable_mockModule('../../kernel/index.js', () => {
         kernelImports += 1;
         return {
           getDefaults: () => ({ defaults: true })

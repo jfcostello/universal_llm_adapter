@@ -1924,7 +1924,7 @@ describe('modules/observability', () => {
       jest.resetModules();
 
       // Mock the kernel module to return defaults with no provider
-      jest.unstable_mockModule('@/modules/kernel/index.ts', () => ({
+      jest.unstable_mockModule('@/kernel/index.ts', () => ({
         getNoopObservabilityDeps: () => ({
           isEnabled: () => false,
           getExporter: () => ({
@@ -2411,7 +2411,7 @@ describe('modules/observability', () => {
         getObservabilityCompat: jest.fn(async () => mockCompat)
       };
 
-      (jest as any).unstable_mockModule('@/modules/kernel/index.ts', () => ({
+      (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
         getNoopObservabilityDeps: () => ({
           isEnabled: () => false,
           getExporter: () => ({

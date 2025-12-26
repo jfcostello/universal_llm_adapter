@@ -4,8 +4,8 @@ import type {
   RealtimeCompatSession,
   RealtimeEvent,
   RealtimeSessionSpec
-} from '../../../../modules/kernel/index.js';
-import { AsyncQueue, LruMap, resolveRealtimeToolCallTrackingMaxEntries } from '../../../../modules/kernel/index.js';
+} from '../../../../kernel/index.js';
+import { AsyncQueue, LruMap, resolveRealtimeToolCallTrackingMaxEntries } from '../../../../kernel/index.js';
 import { createDeferred, type Deferred } from '../../../../modules/shared/index.js';
 
 import {

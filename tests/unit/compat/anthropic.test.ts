@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import AnthropicCompat from '@/plugins/compat/anthropic/index.ts';
-import { Role, ToolCallEventType } from '@/modules/kernel/index.ts';
+import { Role, ToolCallEventType } from '@/kernel/index.ts';
 import { aggregateSystemMessages } from '@/modules/messages/index.ts';
 
 describe('compat/anthropic', () => {

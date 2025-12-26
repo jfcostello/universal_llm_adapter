@@ -1,4 +1,4 @@
-import { getByPath, safeJsonParse } from '@/modules/kernel/index.ts';
+import { getByPath, safeJsonParse } from '@/kernel/index.ts';
 
 describe('core/safe-data', () => {
   describe('getByPath', () => {

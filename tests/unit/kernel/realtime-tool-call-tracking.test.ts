@@ -1,4 +1,4 @@
-import { DEFAULT_REALTIME_TOOL_CALL_TRACKING_MAX_ENTRIES, resolveRealtimeToolCallTrackingMaxEntries } from '@/modules/kernel/index.ts';
+import { DEFAULT_REALTIME_TOOL_CALL_TRACKING_MAX_ENTRIES, resolveRealtimeToolCallTrackingMaxEntries } from '@/kernel/index.ts';
 
 describe('kernel/realtime-tool-call-tracking', () => {
   test('defaults when unset or invalid', () => {

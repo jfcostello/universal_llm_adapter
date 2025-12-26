@@ -4,8 +4,8 @@ import type {
   ReasoningData,
   ToolCall,
   UsageStats
-} from '../../../../modules/kernel/index.js';
-import { Role, safeJsonParse } from '../../../../modules/kernel/index.js';
+} from '../../../../kernel/index.js';
+import { Role, safeJsonParse } from '../../../../kernel/index.js';
 import { extractUsageStats, getGlobalUsageSpec, mergeUsageExtractionSpecs } from '../../../../modules/usage/index.js';
 import { OPENAI_USAGE_SPEC_RESPONSE } from './mappings.js';
 

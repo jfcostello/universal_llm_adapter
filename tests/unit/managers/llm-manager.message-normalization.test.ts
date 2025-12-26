@@ -1,7 +1,7 @@
 import { describe, expect, jest, test } from '@jest/globals';
 import { Readable } from 'stream';
 import { LLMManager } from '@/modules/llm/index.ts';
-import { Role } from '@/modules/kernel/index.ts';
+import { Role } from '@/kernel/index.ts';
 import { aggregateSystemMessages } from '@/modules/messages/index.ts';
 
 describe('LLMManager message normalization', () => {

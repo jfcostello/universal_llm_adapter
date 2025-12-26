@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { jest } from '@jest/globals';
-import { substituteEnv, loadJsonFile } from '@/modules/kernel/index.ts';
+import { substituteEnv, loadJsonFile } from '@/kernel/index.ts';
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
 import { withTempCwd, writeJson } from '@tests/helpers/temp-files.ts';
 
@@ -75,14 +75,14 @@ describe('core/config', () => {
   });
 
   test('loadRootDotenv loads nearest .env file', async () => {
-    const envPath = path.join(ROOT_DIR, 'modules', 'kernel', 'internal', '.env');
+    const envPath = path.join(ROOT_DIR, 'kernel', 'internal', '.env');
 
     fs.writeFileSync(envPath, 'TEST_ENV_FROM_FILE=loaded', 'utf-8');
     delete process.env.TEST_ENV_FROM_FILE;
     jest.resetModules();
 
     try {
-      const configModule = await import('@/modules/kernel/index.ts');
+      const configModule = await import('@/kernel/index.ts');
       expect(configModule.substituteEnv('${TEST_ENV_FROM_FILE}')).toBe('loaded');
     } finally {
       if (fs.existsSync(envPath)) {
@@ -95,7 +95,7 @@ describe('core/config', () => {
   test('loadRootDotenv marks environment loaded when no dotenv present', async () => {
     jest.resetModules();
     const existsSpy = jest.spyOn(fs, 'existsSync').mockReturnValue(false);
-    const configModule = await import('@/modules/kernel/index.ts');
+    const configModule = await import('@/kernel/index.ts');
     expect(configModule.substituteEnv('plain')).toBe('plain');
     expect(existsSpy).toHaveBeenCalled();
     existsSpy.mockRestore();

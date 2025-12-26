@@ -1,4 +1,4 @@
-import type { IRealtimeCompat, RealtimeCompatSession, RealtimeSessionSpec } from '../../../../modules/kernel/index.js';
+import type { IRealtimeCompat, RealtimeCompatSession, RealtimeSessionSpec } from '../../../../kernel/index.js';
 
 import { createOpenAIRealtimeCompatSessionWithTransport, resolveOpenAIWebrtcSdpUrl } from './session-core.js';
 import { createWebrtcTransport } from './transport/webrtc.js';

@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import { LLMCoordinator } from '@/modules/llm/index.ts';
-import { Role } from '@/modules/kernel/index.ts';
+import { Role } from '@/kernel/index.ts';
 
 function createRegistryStub() {
   return {

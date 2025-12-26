@@ -13,12 +13,12 @@ import {
   getNoopLogger,
   getNoopEmbeddingLogger,
   getNoopVectorLogger,
-} from '../../kernel/index.js';
+} from '../../../kernel/index.js';
 import type {
   AdapterLogger,
   IEmbeddingOperationLogger,
   IVectorOperationLogger
-} from '../../kernel/index.js';
+} from '../../../kernel/index.js';
 import { VectorStoreManager } from './vector-store-manager.js';
 import { interpolate } from '../../string/index.js';
 import { resolveEmbeddingPriority } from './embedding-priority.js';

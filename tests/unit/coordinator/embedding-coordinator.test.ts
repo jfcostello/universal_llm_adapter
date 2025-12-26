@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 
 import type { EmbeddingCoordinator } from '@/modules/embeddings/index.ts';
-import type { EmbeddingCallSpec, EmbeddingOperationResult } from '@/modules/kernel/index.ts';
+import type { EmbeddingCallSpec, EmbeddingOperationResult } from '@/kernel/index.ts';
 
 function createMockRegistry(options: {
   embeddingProvider?: any;

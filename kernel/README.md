@@ -1,4 +1,4 @@
-# `modules/kernel`
+# `kernel`
 
 The kernel is the **always-available, provider-agnostic** foundation of the library.
 
@@ -14,7 +14,7 @@ It owns only the “core” primitives that the rest of the system builds on:
 
 ## Layout
 ```text
-modules/kernel/
+kernel/
   index.ts
   README.md
   internal/
@@ -35,7 +35,7 @@ import {
   PluginRegistry,
   getDefaults,
   ManifestError
-} from '@/modules/kernel/index.ts';
+} from '@/kernel/index.ts';
 
 // Lazy by default (manifests + plugin code loaded on demand)
 const registry = new PluginRegistry('./plugins');

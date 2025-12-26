@@ -2,8 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { describe, expect, test, jest } from '@jest/globals';
 import { LLMManager } from '@/modules/llm/index.ts';
-import { ProviderExecutionError, Role } from '@/modules/kernel/index.ts';
-import type { RunContext, Message } from '@/modules/kernel/index.ts';
+import { ProviderExecutionError, Role } from '@/kernel/index.ts';
+import type { RunContext, Message } from '@/kernel/index.ts';
 import { withTempCwd } from '@tests/helpers/temp-files.ts';
 
 describe('LLMManager observability', () => {
@@ -225,6 +225,114 @@ describe('LLMManager observability', () => {
     const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
     const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
     expect(requestArg.generationId).toBe(responseArg.generationId);
+  });
+
+  test('callProvider enriches observability model from upstream provider hint in raw response', async () => {
+    const httpProvider = {
+      id: 'proxy-provider',
+      compat: 'test-http-compat',
+      endpoint: {
+        urlTemplate: 'http://service/{model}',
+        method: 'POST',
+        headers: {}
+      },
+      retryWords: []
+    } as any;
+
+    const httpCompat = {
+      buildPayload: jest.fn(() => ({ ok: true })),
+      parseResponse: jest.fn(() => ({
+        role: Role.ASSISTANT,
+        content: [{ type: 'text', text: 'HTTP response' }],
+        toolCalls: []
+      }))
+    };
+    const registry = { getCompatModule: jest.fn().mockReturnValue(httpCompat) } as any;
+
+    const observability = createMockObservabilityContext();
+    const context: RunContext = { observability };
+
+    const manager = new LLMManager(registry);
+    (manager as any).httpClient = {
+      request: jest.fn().mockResolvedValue({
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        data: { ok: true, provider: 'upstream-a' }
+      })
+    };
+
+    await manager.callProvider(
+      httpProvider,
+      'stub-model',
+      {},
+      mockMessages,
+      [],
+      undefined,
+      {},
+      undefined,
+      context
+    );
+
+    const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
+    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+
+    expect(requestArg.model).toBe('upstream-a/stub-model');
+    expect(responseArg.model).toBe('upstream-a/stub-model');
+  });
+
+  test('callProvider does not double-prefix observability model when model already includes the upstream provider', async () => {
+    const httpProvider = {
+      id: 'proxy-provider',
+      compat: 'test-http-compat',
+      endpoint: {
+        urlTemplate: 'http://service/{model}',
+        method: 'POST',
+        headers: {}
+      },
+      retryWords: []
+    } as any;
+
+    const httpCompat = {
+      buildPayload: jest.fn(() => ({ ok: true })),
+      parseResponse: jest.fn(() => ({
+        role: Role.ASSISTANT,
+        content: [{ type: 'text', text: 'HTTP response' }],
+        toolCalls: []
+      }))
+    };
+    const registry = { getCompatModule: jest.fn().mockReturnValue(httpCompat) } as any;
+
+    const observability = createMockObservabilityContext();
+    const context: RunContext = { observability };
+
+    const manager = new LLMManager(registry);
+    (manager as any).httpClient = {
+      request: jest.fn().mockResolvedValue({
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        data: { ok: true, provider: 'upstream-a' }
+      })
+    };
+
+    await manager.callProvider(
+      httpProvider,
+      'upstream-a/stub-model',
+      {},
+      mockMessages,
+      [],
+      undefined,
+      {},
+      undefined,
+      context
+    );
+
+    const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
+    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+
+    expect(requestArg.model).toBe('upstream-a/stub-model');
+    expect(responseArg.model).toBe('upstream-a/stub-model');
   });
 
   test('records tool call args via args fallback and includes metadata when present', async () => {

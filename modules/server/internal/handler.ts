@@ -25,7 +25,7 @@ import type {
   LLMStreamEvent,
   VectorCallSpec,
   VectorStreamEvent
-} from '../../kernel/index.js';
+} from '../../../kernel/index.js';
 import type { PluginRegistryLike } from '../../lifecycle/index.js';
 import type { ServerDependencies } from '../index.js';
 

@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import TestEmbeddingCompat from '@/plugins/embedding-compat/test/index.ts';
-import type { EmbeddingProviderConfig, IEmbeddingOperationLogger } from '@/modules/kernel/index.ts';
+import type { EmbeddingProviderConfig, IEmbeddingOperationLogger } from '@/kernel/index.ts';
 
 function createConfig(overrides: Partial<EmbeddingProviderConfig> = {}): EmbeddingProviderConfig {
   return {

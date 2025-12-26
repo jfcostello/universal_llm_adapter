@@ -3,7 +3,7 @@ import OpenAICompat from '@/plugins/compat/openai/index.ts';
 import {
   Role,
   ToolCallEventType
-} from '@/modules/kernel/index.ts';
+} from '@/kernel/index.ts';
 
 describe('compat/openai', () => {
   const compat = new OpenAICompat();

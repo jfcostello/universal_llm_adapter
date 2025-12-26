@@ -11,8 +11,8 @@ import {
   getDefaults,
   MCPConnectionError,
   getNoopLogger
-} from '../../kernel/index.js';
-import type { AdapterLogger } from '../../kernel/index.js';
+} from '../../../kernel/index.js';
+import type { AdapterLogger } from '../../../kernel/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

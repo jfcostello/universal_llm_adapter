@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import { EmbeddingManager } from '@/modules/embeddings/index.ts';
-import { EmbeddingError, EmbeddingProviderError } from '@/modules/kernel/index.ts';
+import { EmbeddingError, EmbeddingProviderError } from '@/kernel/index.ts';
 
 function createMockRegistry(options: {
   providerConfig?: any;

@@ -15,14 +15,14 @@ import type {
   RunContext,
   ObservabilityContext,
   ObservabilitySpec
-} from '../../kernel/index.js';
+} from '../../../kernel/index.js';
 import {
   Role,
   sanitizeToolName,
   ProviderExecutionError,
   getDefaults,
   resolveLoggingDeps
-} from '../../kernel/index.js';
+} from '../../../kernel/index.js';
 import { randomUUID } from 'crypto';
 import { LLMManager } from './llm-manager.js';
 import { normalizeFlag, readTrimmedStringProperty } from '../../shared/index.js';

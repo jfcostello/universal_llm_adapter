@@ -6,7 +6,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import { JsonObject, TextChunk, getDefaults } from '../../kernel/index.js';
+import { JsonObject, TextChunk, getDefaults } from '../../../kernel/index.js';
 
 export interface ChunkOptions {
   /**

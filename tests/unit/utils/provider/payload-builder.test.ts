@@ -7,7 +7,7 @@ import {
   ProviderManifest,
   ToolChoice,
   UnifiedTool
-} from '@/modules/kernel/index.ts';
+} from '@/kernel/index.ts';
 
 function createCompat(): ICompatModule {
   return {

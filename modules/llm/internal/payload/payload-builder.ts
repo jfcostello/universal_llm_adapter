@@ -5,7 +5,7 @@ import type {
   ProviderManifest,
   ToolChoice,
   UnifiedTool
-} from '../../../kernel/index.js';
+} from '../../../../kernel/index.js';
 import { applyProviderPayloadExtensions } from './provider-payload-utils.js';
 
 export interface BuildPayloadOptions {

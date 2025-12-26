@@ -1,6 +1,6 @@
 import { jest, describe, test, expect, beforeAll, afterEach } from '@jest/globals';
-import { VectorContextConfig, VectorQueryResult } from '@/modules/kernel/index.ts';
-import { PluginRegistry } from '@/modules/kernel/index.ts';
+import { VectorContextConfig, VectorQueryResult } from '@/kernel/index.ts';
+import { PluginRegistry } from '@/kernel/index.ts';
 
 let ToolCoordinator: typeof import('@/modules/tools/index.ts').ToolCoordinator;
 

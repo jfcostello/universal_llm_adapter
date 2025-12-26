@@ -1,4 +1,4 @@
-import type { JsonObject } from '../../kernel/index.js';
+import type { JsonObject } from '../../../kernel/index.js';
 
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length) {

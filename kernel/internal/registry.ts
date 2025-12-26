@@ -347,7 +347,7 @@ export class PluginRegistry {
   private async loadMCPServersInternal(options: { strict?: boolean } = {}): Promise<void> {
     if (this.mcpServersLoaded) return;
 
-    const { parseMCPManifest } = await import('../../mcp/index.js');
+    const { parseMCPManifest } = await import('../../modules/mcp/index.js');
     const files = glob.sync('mcp/*.json', { cwd: this.rootPath });
     for (const file of files) {
       if (options.strict) {

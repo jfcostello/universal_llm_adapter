@@ -12,7 +12,7 @@ export async function sendOtlpTraceSpans(options: {
   timeoutMs?: number;
   maxBatchBytes?: number;
   signal?: AbortSignal;
-}): Promise<import('../kernel/index.js').ObservabilityBatchResult> {
+}): Promise<import('../../kernel/index.js').ObservabilityBatchResult> {
   const { sendOtlpTraceSpans } = await import('./internal/otlp/client.js');
   const result = await sendOtlpTraceSpans(options);
   return result;

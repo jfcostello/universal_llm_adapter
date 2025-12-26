@@ -1,6 +1,6 @@
 import { jest, describe, test, expect } from '@jest/globals';
 import { LLMCoordinator } from '@/modules/llm/index.ts';
-import { Role } from '@/modules/kernel/index.ts';
+import { Role } from '@/kernel/index.ts';
 
 describe('LLMCoordinator observability lifecycle', () => {
   test('close does not shutdown observability exporter (process lifecycle flushes)', async () => {

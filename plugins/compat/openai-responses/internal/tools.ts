@@ -1,4 +1,4 @@
-import type { ToolChoice, UnifiedTool } from '../../../../modules/kernel/index.js';
+import type { ToolChoice, UnifiedTool } from '../../../../kernel/index.js';
 
 export function serializeToolsForSDK(tools: UnifiedTool[]): any[] | undefined {
   if (!tools || tools.length === 0) {

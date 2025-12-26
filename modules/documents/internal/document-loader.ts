@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { detectMimeType } from './mime-types.js';
-import type { DocumentContent } from '../../kernel/index.js';
+import type { DocumentContent } from '../../../kernel/index.js';
 
 /**
  * Loaded document with all metadata populated.

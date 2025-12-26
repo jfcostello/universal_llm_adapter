@@ -1,10 +1,10 @@
 import { spawn } from 'child_process';
 import axios from 'axios';
 import { minimatch } from 'minimatch';
-import { ProcessRouteManifest, VectorContextConfig, ToolExecutionError, getDefaults } from '../../kernel/index.js';
-import type { PluginRegistry } from '../../kernel/index.js';
+import { ProcessRouteManifest, VectorContextConfig, ToolExecutionError, getDefaults } from '../../../kernel/index.js';
+import type { PluginRegistry } from '../../../kernel/index.js';
 import type { MCPClientPool } from '../../mcp/index.js';
-import type { AdapterLogger } from '../../kernel/index.js';
+import type { AdapterLogger } from '../../../kernel/index.js';
 
 interface ToolContext {
   toolName: string;

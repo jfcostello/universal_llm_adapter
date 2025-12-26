@@ -2,7 +2,7 @@ import { jest } from '@jest/globals';
 
 // Type imports - will exist after implementation
 import type { VectorStoreCoordinator } from '@/modules/vector/index.ts';
-import type { VectorCallSpec, VectorOperationResult } from '@/modules/kernel/index.ts';
+import type { VectorCallSpec, VectorOperationResult } from '@/kernel/index.ts';
 
 // Mock registry helper
 function createMockRegistry(options: {

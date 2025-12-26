@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
-import type { LLMCallSpec, ObservabilitySpec } from '@/modules/kernel/index.ts';
-import { Role } from '@/modules/kernel/index.ts';
+import type { LLMCallSpec, ObservabilitySpec } from '@/kernel/index.ts';
+import { Role } from '@/kernel/index.ts';
 
 describe('observability-spec-types', () => {
   beforeEach(() => {
@@ -9,7 +9,7 @@ describe('observability-spec-types', () => {
 
   describe('ObservabilitySpec', () => {
     test('exports ObservabilitySpec type from kernel', async () => {
-      const kernel = await import('@/modules/kernel/index.ts');
+      const kernel = await import('@/kernel/index.ts');
 
       // Type is exported - we can't test it directly but can verify it doesn't break imports
       expect(kernel).toBeDefined();
@@ -103,7 +103,7 @@ describe('observability-spec-types', () => {
 
   describe('ObservabilityDefaults', () => {
     test('getDefaults returns observability defaults with disabled by default', async () => {
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { getDefaults } = await import('@/kernel/index.ts');
       const defaults = getDefaults();
 
       expect(defaults.observability).toBeDefined();
@@ -130,7 +130,7 @@ describe('observability-spec-types', () => {
 
       (jest as any).unstable_mockModule('fs', () => fsMock);
 
-      const { getDefaults } = await import('@/modules/kernel/index.ts');
+      const { getDefaults } = await import('@/kernel/index.ts');
       const defaults = getDefaults();
 
       // Fallback should have observability disabled
