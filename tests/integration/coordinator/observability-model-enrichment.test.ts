@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { PluginRegistry, Role, type ObservabilityContext } from '@/kernel/index.ts';
+import { PluginRegistry, Role, getDefaults, type ObservabilityContext } from '@/kernel/index.ts';
 import { LLMCoordinator } from '@/modules/llm/index.ts';
 import { ROOT_DIR, resolveFixture } from '@tests/helpers/paths.ts';
 
@@ -103,6 +103,12 @@ describe('coordinator observability model enrichment (integration)', () => {
 
     await coordinator.run(spec);
 
+    expect(exporter.recordLLMRequest).toHaveBeenCalledTimes(1);
+    expect(exporter.recordLLMResponse).toHaveBeenCalledTimes(1);
+    expect(exporter.recordLLMRequest.mock.invocationCallOrder[0]).toBeLessThan(
+      exporter.recordLLMResponse.mock.invocationCallOrder[0]
+    );
+
     const requestArg = exporter.recordLLMRequest.mock.calls[0][0];
     const responseArg = exporter.recordLLMResponse.mock.calls[0][0];
     expect(requestArg.model).toBe('upstream-a/stub-model');
@@ -137,6 +143,12 @@ describe('coordinator observability model enrichment (integration)', () => {
     };
 
     await coordinator.run(spec);
+
+    expect(exporter.recordLLMRequest).toHaveBeenCalledTimes(1);
+    expect(exporter.recordLLMResponse).toHaveBeenCalledTimes(1);
+    expect(exporter.recordLLMRequest.mock.invocationCallOrder[0]).toBeLessThan(
+      exporter.recordLLMResponse.mock.invocationCallOrder[0]
+    );
 
     const requestArg = exporter.recordLLMRequest.mock.calls[0][0];
     const responseArg = exporter.recordLLMResponse.mock.calls[0][0];
@@ -173,10 +185,21 @@ describe('coordinator observability model enrichment (integration)', () => {
 
     await expect(coordinator.run(spec)).rejects.toThrow();
 
-    const requestArg = exporter.recordLLMRequest.mock.calls[0][0];
-    const responseArg = exporter.recordLLMResponse.mock.calls[0][0];
-    expect(requestArg.model).toBe('upstream-a/stub-model');
-    expect(responseArg.model).toBe('upstream-a/stub-model');
+    const expectedAttempts = getDefaults().retry.maxAttempts;
+    expect(exporter.recordLLMRequest).toHaveBeenCalledTimes(expectedAttempts);
+    expect(exporter.recordLLMResponse).toHaveBeenCalledTimes(expectedAttempts);
+    for (let i = 0; i < expectedAttempts; i++) {
+      expect(exporter.recordLLMRequest.mock.invocationCallOrder[i]).toBeLessThan(
+        exporter.recordLLMResponse.mock.invocationCallOrder[i]
+      );
+    }
+
+    for (const [requestArg] of exporter.recordLLMRequest.mock.calls) {
+      expect(requestArg.model).toBe('upstream-a/stub-model');
+    }
+    for (const [responseArg] of exporter.recordLLMResponse.mock.calls) {
+      expect(responseArg.model).toBe('upstream-a/stub-model');
+    }
 
     await coordinator.close();
   });
@@ -206,6 +229,12 @@ describe('coordinator observability model enrichment (integration)', () => {
     for await (const _event of coordinator.runStream(spec)) {
       // consume
     }
+
+    expect(exporter.recordLLMRequest).toHaveBeenCalledTimes(1);
+    expect(exporter.recordLLMResponse).toHaveBeenCalledTimes(1);
+    expect(exporter.recordLLMRequest.mock.invocationCallOrder[0]).toBeLessThan(
+      exporter.recordLLMResponse.mock.invocationCallOrder[0]
+    );
 
     const requestArg = exporter.recordLLMRequest.mock.calls[0][0];
     const responseArg = exporter.recordLLMResponse.mock.calls[0][0];
@@ -241,6 +270,12 @@ describe('coordinator observability model enrichment (integration)', () => {
       // consume
     }
 
+    expect(exporter.recordLLMRequest).toHaveBeenCalledTimes(1);
+    expect(exporter.recordLLMResponse).toHaveBeenCalledTimes(1);
+    expect(exporter.recordLLMRequest.mock.invocationCallOrder[0]).toBeLessThan(
+      exporter.recordLLMResponse.mock.invocationCallOrder[0]
+    );
+
     const requestArg = exporter.recordLLMRequest.mock.calls[0][0];
     const responseArg = exporter.recordLLMResponse.mock.calls[0][0];
     expect(requestArg.model).toBe('stub-model');
@@ -249,4 +284,3 @@ describe('coordinator observability model enrichment (integration)', () => {
     await coordinator.close();
   });
 });
-
