@@ -93,4 +93,4 @@ claude.md
 agents*.md
 jest-summary.json
 .history/
-worktrees/
+.worktrees/
