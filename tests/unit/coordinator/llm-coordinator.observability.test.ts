@@ -428,7 +428,7 @@ describe('LLMCoordinator observability', () => {
       const result = await (coordinator as any).createObservabilityContext(spec, {});
 
       expect(result).toBeDefined();
-      expect((result as any).captureMessages).toBe('all');
+      expect((result as any).captureMessages).toBe('full');
       expect((result as any).captureToolArgs).toBe(true);
       expect((result as any).captureRequestPayload).toBe(true);
       expect((result as any).captureRawResponse).toBe(true);

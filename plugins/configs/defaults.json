@@ -117,7 +117,7 @@
         "timeoutMs": 10000,
         "shutdownTimeoutMs": 5000,
         "maxAttributeValueBytes": 16384,
-        "captureMessages": "all",
+        "captureMessages": "full",
         "captureToolArgs": true,
         "captureRequestPayload": true,
         "captureRawResponse": true,
