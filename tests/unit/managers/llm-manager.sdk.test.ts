@@ -203,7 +203,7 @@ describe('LLMManager SDK paths', () => {
       [{ role: Role.USER, content: [{ type: 'text', text: 'test' }] }],
       [],
       {},
-      { customField: 'customValue' },
+      { customField: 'customValue', nullField: null },
       mockLogger
     );
 
@@ -214,7 +214,15 @@ describe('LLMManager SDK paths', () => {
       expect.objectContaining({
         provider: 'test-sdk-provider',
         field: 'customField',
-        value: 'customValue'
+        value: '***alue'
+      })
+    );
+    expect(mockLogger.info).toHaveBeenCalledWith(
+      expect.stringContaining('Extra field not supported by provider'),
+      expect.objectContaining({
+        provider: 'test-sdk-provider',
+        field: 'nullField',
+        value: null
       })
     );
     expect(mockLogger.logLLMRequest).toHaveBeenCalled();
@@ -267,16 +275,19 @@ describe('LLMManager SDK paths', () => {
 
     // Verify console.error was called for live test logging
     expect(consoleErrorSpy).toHaveBeenCalled();
-    const calls = consoleErrorSpy.mock.calls;
-    const hasExpectedLog = calls.some(call => {
-      try {
-        const parsed = JSON.parse(call[0]);
-        return parsed.level === 'info' && parsed.data?.field === 'extraField';
-      } catch {
-        return false;
-      }
-    });
-    expect(hasExpectedLog).toBe(true);
+    const parsedLogs = consoleErrorSpy.mock.calls
+      .map(([arg]) => {
+        try {
+          return JSON.parse(arg as string);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean) as Array<{ level?: string; data?: { field?: string; value?: unknown } }>;
+
+    const matching = parsedLogs.find(log => log.level === 'info' && log.data?.field === 'extraField');
+    expect(matching).toBeTruthy();
+    expect(matching?.data?.value).toBe('***alue');
 
     consoleErrorSpy.mockRestore();
     process.env.LLM_LIVE = originalEnv;
