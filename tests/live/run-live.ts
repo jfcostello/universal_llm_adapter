@@ -75,7 +75,7 @@ async function main() {
     const idx = jestArgs.findIndex(arg => String(arg).startsWith('--testPathPattern='));
     if (idx !== -1) {
       // Provider-specific runs should not pull in realtime suite by default.
-      jestArgs[idx] = '--testPathPattern=tests[\\\\/]live[\\\\/]test-files-v3(?![\\\\/]\\d+-realtime)';
+      jestArgs[idx] = '--testPathPattern=tests[\\\\/]live[\\\\/]test-files(?![\\\\/]\\d+-realtime)';
     }
   }
 

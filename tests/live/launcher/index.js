@@ -89,7 +89,7 @@ export function buildJestArgs({ maxWorkers, passthrough }) {
   const args = [jestBin];
   if (!hasCustomPattern) {
     // Default to the v3 live suite directory.
-    args.push('--testPathPattern=tests[\\\\/]live[\\\\/]test-files-v3');
+    args.push('--testPathPattern=tests[\\\\/]live[\\\\/]test-files');
   }
 
   // Increase per-test timeout for live suites (default jest config is 120s)
