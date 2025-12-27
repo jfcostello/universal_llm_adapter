@@ -204,22 +204,28 @@ export class MCPConnection {
 
     this.session = new JSONRPCSession(this.process.stdout, this.process.stdin);
 
-    // Initialize with MCP protocol 2025-03-26 spec
-    const initializeResult = await this.session.request(
-      'initialize',
-      {
-        protocolVersion: '2025-03-26',
-        capabilities: this.config.capabilities ?? {},
-        clientInfo: {
-          name: packageInfo.name,
-          version: packageInfo.version
-        }
-      },
-      this.requestTimeoutMs
-    );
+    try {
+      // Initialize with MCP protocol 2025-03-26 spec
+      const initializeResult = await this.session.request(
+        'initialize',
+        {
+          protocolVersion: '2025-03-26',
+          capabilities: this.config.capabilities ?? {},
+          clientInfo: {
+            name: packageInfo.name,
+            version: packageInfo.version
+          }
+        },
+        this.requestTimeoutMs
+      );
 
-    this.serverCapabilities = initializeResult?.capabilities;
-    this.serverInfo = initializeResult?.serverInfo;
+      this.serverCapabilities = initializeResult?.capabilities;
+      this.serverInfo = initializeResult?.serverInfo;
+    } catch (error) {
+      // Ensure we don't leak a child process/session on initialization failures.
+      await this.close();
+      throw error;
+    }
   }
 
   async listTools(): Promise<UnifiedTool[]> {

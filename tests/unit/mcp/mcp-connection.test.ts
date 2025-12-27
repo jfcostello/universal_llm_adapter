@@ -50,6 +50,42 @@ describe('mcp/MCPConnection edge cases', () => {
     );
   });
 
+  test('connect cleans up process when initialize fails', async () => {
+    jest.useFakeTimers();
+
+    try {
+      const { PassThrough } = await import('stream');
+      const kill = jest.fn();
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+
+      (jest as any).unstable_mockModule('child_process', () => ({
+        spawn: jest.fn().mockReturnValue({
+          stdin,
+          stdout,
+          stderr: null,
+          pid: 1234,
+          connected: false,
+          kill
+        })
+      }));
+
+      const { MCPConnection } = await loadClientModule();
+      const connection = new MCPConnection({ id: 'timeout', command: 'node', requestTimeoutMs: 5 } as any);
+
+      const promise = connection.connect();
+      const assertion = expect(promise).rejects.toThrow(/Request timeout: initialize/);
+      await jest.advanceTimersByTimeAsync(10);
+      await assertion;
+
+      expect(kill).toHaveBeenCalled();
+      expect((connection as any).session).toBeUndefined();
+      expect((connection as any).process).toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('listTools prefixes names and handles pagination', async () => {
     const { MCPConnection } = await loadClientModule();
     const connection = new MCPConnection({ id: 'server', command: 'node' } as any);
