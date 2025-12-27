@@ -98,19 +98,12 @@ async function main() {
   console.log('  RUNNING ALL TESTS (Unit + Live)');
   console.log('='.repeat(70) + '\n');
 
-  const jestBin = path.join(rootDir, 'node_modules', 'jest', 'bin', 'jest.js');
-  const nodeArgs = ['--experimental-vm-modules'];
-
   // Run unit tests
   console.log('\n' + '-'.repeat(70));
   console.log('  UNIT TESTS');
   console.log('-'.repeat(70) + '\n');
 
-  const unitResult = await runCommand(
-    process.execPath,
-    [...nodeArgs, jestBin, '--runInBand', '--forceExit'],
-    { ...process.env }
-  );
+  const unitResult = await runCommand('npm', ['test'], { ...process.env });
   const unitParsed = parseJestOutput(unitResult.output);
 
   // Run live tests
@@ -118,19 +111,8 @@ async function main() {
   console.log('  LIVE TESTS');
   console.log('-'.repeat(70) + '\n');
 
-  const liveResult = await runCommand(
-    process.execPath,
-    [
-      ...nodeArgs,
-      jestBin,
-      '--testPathPattern=live',
-      '--maxWorkers=4',
-      '--forceExit',
-      '--coverage=false',
-      '--testTimeout=300000'
-    ],
-    { ...process.env, LLM_LIVE: '1' }
-  );
+  // Live tests must run via the live runner (env checks + transport parity) and must never cap workers.
+  const liveResult = await runCommand('npm', ['run', 'test:live'], { ...process.env });
   const liveParsed = parseJestOutput(liveResult.output);
 
   // Print combined summary

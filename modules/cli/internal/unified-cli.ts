@@ -95,7 +95,7 @@ export function createUnifiedProgram(
 
   const writeStructuredError = async (error: any) => {
     try {
-      const { mapErrorToHttp } = await import('../../server/index.js');
+      const { mapErrorToHttp } = await import('../../transport/index.js');
       const mapped = mapErrorToHttp(error);
       deps.error(JSON.stringify(mapped.body));
       return;
@@ -127,7 +127,7 @@ export function createUnifiedProgram(
         const { loadSpec } = await import('./spec-loader.js');
         const { writeJsonToStdout } = await import('./stdout-writer.js');
         const { runWithCoordinatorLifecycle } = await import('../../lifecycle/index.js');
-        const { assertValidSpec } = await import('../../server/index.js');
+        const { assertValidSpec } = await import('../../transport/index.js');
 
         const spec = await loadSpec<LLMCallSpec>(options);
         assertValidSpec(spec);
@@ -164,7 +164,7 @@ export function createUnifiedProgram(
       try {
         const { loadSpec } = await import('./spec-loader.js');
         const { streamWithCoordinatorLifecycle } = await import('../../lifecycle/index.js');
-        const { assertValidSpec } = await import('../../server/index.js');
+        const { assertValidSpec } = await import('../../transport/index.js');
 
         const spec = await loadSpec<LLMCallSpec>(options);
         assertValidSpec(spec);
@@ -205,7 +205,7 @@ export function createUnifiedProgram(
       const { loadSpec } = await import('./spec-loader.js');
       const { writeJsonToStdout } = await import('./stdout-writer.js');
       const { runWithCoordinatorLifecycle, streamWithCoordinatorLifecycle } = await import('../../lifecycle/index.js');
-      const { assertValidVectorSpec } = await import('../../server/index.js');
+      const { assertValidVectorSpec } = await import('../../transport/index.js');
 
       const spec = await loadSpec<VectorCallSpec>(options);
       assertValidVectorSpec(spec);
@@ -316,7 +316,7 @@ export function createUnifiedProgram(
         const { loadSpec } = await import('./spec-loader.js');
         const { writeJsonToStdout } = await import('./stdout-writer.js');
         const { runWithCoordinatorLifecycle } = await import('../../lifecycle/index.js');
-        const { assertValidEmbeddingSpec } = await import('../../server/index.js');
+        const { assertValidEmbeddingSpec } = await import('../../transport/index.js');
 
         const spec = await loadSpec<EmbeddingCallSpec>(options);
         assertValidEmbeddingSpec(spec);

@@ -31,8 +31,11 @@ if (filteredRealtimeTestRuns.length === 0) {
   for (const runCfg of filteredRealtimeTestRuns) {
     describeLive(`${TEST_FILE} — ${runCfg.name}`, () => {
       test('concurrent sessions are isolated (no cross-talk)', async () => {
-        const tokenA = `TOKEN_A_${runCfg.name}_${Date.now()}_${Math.random().toString(16).slice(2, 6)}`;
-        const tokenB = `TOKEN_B_${runCfg.name}_${Date.now()}_${Math.random().toString(16).slice(2, 6)}`;
+        // Realtime transcript normalization can be aggressive (punctuation/underscores/spaces), so keep tokens
+        // as a single alphanumeric "word" to ensure deterministic matching across providers.
+        const suffix = `${String(runCfg.name).replace(/[^a-zA-Z0-9]/g, '').toUpperCase()}${Date.now().toString().slice(-6)}${Math.random().toString(16).slice(2, 6).toUpperCase()}`;
+        const tokenA = `TOKENA${suffix}`;
+        const tokenB = `TOKENB${suffix}`;
 
         const baseSpec = {
           provider: runCfg.provider,
@@ -102,4 +105,3 @@ if (filteredRealtimeTestRuns.length === 0) {
     });
   }
 }
-

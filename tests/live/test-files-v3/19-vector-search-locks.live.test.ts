@@ -105,7 +105,13 @@ function extractTextFromMessage(msg: any): string {
         'You are a conformance test agent.',
         `Token: ${TOKEN}.`,
         'You MUST call the vector_search tool exactly once.',
-        'After you receive tool results, reply with exactly: 42'
+        'If you receive a user message that begins with "All tool calls have been consumed", you MUST reply with exactly: 42',
+        'Final output rules:',
+        '- Output EXACTLY: 42',
+        '- No extra whitespace',
+        '- No punctuation',
+        '- No code blocks',
+        '- Do NOT call any tools after the tool result'
       ].join('\n'),
       messages: [
         {
@@ -119,7 +125,14 @@ function extractTextFromMessage(msg: any): string {
         }
       ],
       llmPriority: runCfg.llmPriority,
-      settings: mergeSettings(runCfg.settings, { maxTokens: 120 }),
+      settings: mergeSettings(runCfg.settings, {
+        // Some providers/models use a large reasoning budget when tools are enabled; keep enough headroom
+        // so tool call arguments aren't truncated and rejected upstream.
+        maxTokens: 512,
+        maxToolIterations: 1,
+        toolFinalPromptEnabled: true,
+        parallelToolExecution: false
+      }),
       toolChoice: { type: 'single', name: 'vector_search' },
       vectorContext: {
         // Intentionally wrong/unhelpful defaults (locks must override these).

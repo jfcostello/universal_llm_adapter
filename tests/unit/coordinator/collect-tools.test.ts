@@ -69,6 +69,123 @@ describe('coordinator collect tools and messages', () => {
     expect(String(firstPart.text)).toContain('Hello world');
   });
 
+  test('prepareMessages does not inline text-like documents when disabled via env', async () => {
+    const prev = process.env.LLM_ADAPTER_DISABLE_TEXT_DOCUMENT_INLINING;
+    process.env.LLM_ADAPTER_DISABLE_TEXT_DOCUMENT_INLINING = '1';
+
+    try {
+      const registry = createRegistryStub();
+      const coordinator = new LLMCoordinator(registry);
+
+      const base64 = Buffer.from('Hello world', 'utf-8').toString('base64');
+
+      const spec = {
+        messages: [
+          {
+            role: Role.USER,
+            content: [
+              {
+                type: 'document',
+                source: { type: 'base64', data: base64 },
+                mimeType: 'text/plain',
+                filename: 'note.txt'
+              }
+            ]
+          }
+        ],
+        llmPriority: [{ provider: 'p', model: 'm' }],
+        settings: {}
+      } as any;
+
+      const prepared = (coordinator as any).prepareMessages(spec);
+      const firstPart = prepared[0].content[0] as any;
+      expect(firstPart.type).toBe('document');
+      expect(firstPart.source.type).toBe('base64');
+      expect(firstPart.mimeType).toBe('text/plain');
+    } finally {
+      if (prev === undefined) delete process.env.LLM_ADAPTER_DISABLE_TEXT_DOCUMENT_INLINING;
+      else process.env.LLM_ADAPTER_DISABLE_TEXT_DOCUMENT_INLINING = prev;
+    }
+  });
+
+  test('prepareMessages does not inline text-like documents when over inline max bytes', async () => {
+    const prev = process.env.LLM_ADAPTER_TEXT_DOCUMENT_INLINE_MAX_BYTES;
+    process.env.LLM_ADAPTER_TEXT_DOCUMENT_INLINE_MAX_BYTES = '4';
+
+    try {
+      const registry = createRegistryStub();
+      const coordinator = new LLMCoordinator(registry);
+
+      const base64 = Buffer.from('Hello world', 'utf-8').toString('base64'); // > 4 bytes
+
+      const spec = {
+        messages: [
+          {
+            role: Role.USER,
+            content: [
+              {
+                type: 'document',
+                source: { type: 'base64', data: base64 },
+                mimeType: 'text/plain',
+                filename: 'note.txt'
+              }
+            ]
+          }
+        ],
+        llmPriority: [{ provider: 'p', model: 'm' }],
+        settings: {}
+      } as any;
+
+      const prepared = (coordinator as any).prepareMessages(spec);
+      const firstPart = prepared[0].content[0] as any;
+      expect(firstPart.type).toBe('document');
+      expect(firstPart.source.type).toBe('base64');
+      expect(firstPart.mimeType).toBe('text/plain');
+    } finally {
+      if (prev === undefined) delete process.env.LLM_ADAPTER_TEXT_DOCUMENT_INLINE_MAX_BYTES;
+      else process.env.LLM_ADAPTER_TEXT_DOCUMENT_INLINE_MAX_BYTES = prev;
+    }
+  });
+
+  test('prepareMessages does not inline text-like documents when inline max bytes is 0', async () => {
+    const prev = process.env.LLM_ADAPTER_TEXT_DOCUMENT_INLINE_MAX_BYTES;
+    process.env.LLM_ADAPTER_TEXT_DOCUMENT_INLINE_MAX_BYTES = '0';
+
+    try {
+      const registry = createRegistryStub();
+      const coordinator = new LLMCoordinator(registry);
+
+      const base64 = Buffer.from('Hello world', 'utf-8').toString('base64');
+
+      const spec = {
+        messages: [
+          {
+            role: Role.USER,
+            content: [
+              {
+                type: 'document',
+                source: { type: 'base64', data: base64 },
+                mimeType: 'text/plain',
+                filename: 'note.txt'
+              }
+            ]
+          }
+        ],
+        llmPriority: [{ provider: 'p', model: 'm' }],
+        settings: {}
+      } as any;
+
+      const prepared = (coordinator as any).prepareMessages(spec);
+      const firstPart = prepared[0].content[0] as any;
+      expect(firstPart.type).toBe('document');
+      expect(firstPart.source.type).toBe('base64');
+      expect(firstPart.mimeType).toBe('text/plain');
+    } finally {
+      if (prev === undefined) delete process.env.LLM_ADAPTER_TEXT_DOCUMENT_INLINE_MAX_BYTES;
+      else process.env.LLM_ADAPTER_TEXT_DOCUMENT_INLINE_MAX_BYTES = prev;
+    }
+  });
+
   test('prepareMessages preserves non-text documents as document parts', async () => {
     const registry = createRegistryStub();
     const coordinator = new LLMCoordinator(registry);

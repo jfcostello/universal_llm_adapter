@@ -3,5 +3,7 @@ export {
   assertValidSpec,
   assertValidVectorSpec,
   assertValidEmbeddingSpec
-} from '../../../transport/index.js';
+} from './internal/spec-validator.js';
+
+export { mapErrorToHttp } from './internal/error-mapper.js';
 

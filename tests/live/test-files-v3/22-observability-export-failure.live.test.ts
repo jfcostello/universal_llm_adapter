@@ -1,4 +1,4 @@
-import { attachLangfuseObservability, buildLangfuseAuthHeader, createTraceId, getLangfuseBaseUrl } from '@tests/helpers/langfuse.ts';
+import { attachLangfuseObservability, createTraceId, waitForLangfuseTraceToBeMissing } from '@tests/helpers/langfuse.ts';
 import { buildLogPathFor, parseLogBodies, runLlmOnce, mergeSettings } from '@tests/helpers/live-v3.ts';
 import { filteredTestRuns } from '../config.ts';
 
@@ -58,17 +58,7 @@ const TEST_FILE = '22-observability-export-failure';
     expect(matching.length).toBeGreaterThanOrEqual(2);
 
     // Verify the trace is NOT readable from Langfuse public API (export never succeeded).
-    const baseUrl = getLangfuseBaseUrl();
-    const authorization = buildLangfuseAuthHeader();
-    const res = await fetch(`${baseUrl}/api/public/traces/${encodeURIComponent(traceId)}`, {
-      method: 'GET',
-      headers: {
-        Authorization: authorization,
-        Accept: 'application/json'
-      }
-    });
-
-    expect(res.status).toBe(404);
+    // Langfuse public API can intermittently 429; retry/backoff until we can verify.
+    await waitForLangfuseTraceToBeMissing(traceId);
   }, 180_000);
 });
-

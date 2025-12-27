@@ -138,6 +138,9 @@ async function main() {
   // Live suites invoke the built CLI entrypoint under `dist/` (and server mode runs `dist/bin/cli.js`),
   // so ensure `dist/` is up to date for *all* transports (cli/server/both) for deterministic results.
   await buildDistOnce();
+  // Jest global setup also builds TypeScript unless skipped; avoid the redundant build since we just
+  // built `dist/` explicitly for this live run.
+  baseEnv.LLM_SKIP_TS_BUILD = '1';
 
   const runJest = async (extraEnv: NodeJS.ProcessEnv): Promise<number> => {
     return spawnAndWait(process.execPath, [...nodeArgs, ...jestArgs], {

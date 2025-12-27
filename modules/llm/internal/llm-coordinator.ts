@@ -29,7 +29,7 @@ import { normalizeFlag, readTrimmedStringProperty } from '../../shared/index.js'
 import { pruneToolResults, pruneReasoning } from '../../context/index.js';
 import { partitionSettings, mergeProviderSettings } from '../../settings/index.js';
 import { prepareMessages, appendAssistantToolCalls, appendToolResult } from '../../messages/index.js';
-import { processDocumentContent } from '../../documents/index.js';
+import { estimateFileSizeFromBase64, processDocumentContent } from '../../documents/index.js';
 import { withRetries } from '../../retry/index.js';
 
 // Type-only imports for optional modules (must not evaluate at runtime unless needed)
@@ -625,7 +625,26 @@ export class LLMCoordinator {
               mimeType === 'application/xml';
 
             if (isTextLike) {
-              const decoded = Buffer.from(String(processed.source.data), 'base64').toString('utf-8');
+              const disabled =
+                String(process.env.LLM_ADAPTER_DISABLE_TEXT_DOCUMENT_INLINING || '').trim() === '1';
+              const maxBytesEnv = String(process.env.LLM_ADAPTER_TEXT_DOCUMENT_INLINE_MAX_BYTES || '').trim();
+              const parsedMaxBytes = maxBytesEnv ? Number.parseInt(maxBytesEnv, 10) : NaN;
+              const maxBytesDefault = 262_144; // 256 KiB
+              const maxBytes = Number.isFinite(parsedMaxBytes) && parsedMaxBytes >= 0
+                ? parsedMaxBytes
+                : maxBytesDefault;
+
+              if (disabled || maxBytes === 0) {
+                return processed;
+              }
+
+              const base64 = processed.source.data.replace(/\s+/g, '');
+              const estimatedBytes = estimateFileSizeFromBase64(base64);
+              if (estimatedBytes > maxBytes) {
+                return processed;
+              }
+
+              const decoded = Buffer.from(base64, 'base64').toString('utf-8');
               const header = `Document (${processed.filename}; ${processed.mimeType}):\n`;
               return { type: 'text', text: `${header}${decoded}` } as any;
             }

@@ -113,7 +113,7 @@ export interface ToolCall {
   metadata?: Record<string, any>;
 }
 
-export type ToolChoiceAuto = "auto" | "none";
+export type ToolChoiceAuto = "auto" | "none" | "required";
 
 export interface ToolChoiceSingle {
   type: "single";
