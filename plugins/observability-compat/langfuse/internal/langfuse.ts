@@ -81,8 +81,6 @@ function buildLangfuseUsageDetails(usage: unknown): Record<string, number> {
   const audio =
     readUsageNumber(u.audio_tokens) ??
     readUsageNumber(u.audioTokens);
-  const cost =
-    readUsageNumber(u.cost);
 
   const details: Record<string, number> = {};
   if (input !== undefined) details.input = input;
@@ -96,7 +94,29 @@ function buildLangfuseUsageDetails(usage: unknown): Record<string, number> {
   if (cached !== undefined) details.cached_tokens = cached;
   if (reasoning !== undefined) details.reasoning_tokens = reasoning;
   if (audio !== undefined) details.audio_tokens = audio;
-  if (cost !== undefined) details.cost = cost;
+
+  return details;
+}
+
+function buildLangfuseCostDetails(usage: unknown): Record<string, number> | undefined {
+  if (!usage || typeof usage !== 'object') return undefined;
+  const u = usage as any;
+
+  const cost = readUsageNumber(u.cost);
+  if (cost === undefined) return undefined;
+
+  const details: Record<string, number> = { total: cost };
+
+  const rawBreakdown = u.cost_details ?? u.costDetails;
+  if (!rawBreakdown || typeof rawBreakdown !== 'object' || Array.isArray(rawBreakdown)) {
+    return details;
+  }
+
+  for (const [key, value] of Object.entries(rawBreakdown as Record<string, unknown>)) {
+    if (key === 'total') continue;
+    const num = readUsageNumber(value);
+    if (num !== undefined) details[key] = num;
+  }
 
   return details;
 }
@@ -340,6 +360,8 @@ export class LangfuseCompat implements IObservabilityCompat {
         event.generationId ? String(event.generationId) : `response-${i}`
       );
 
+      const costDetails = buildLangfuseCostDetails(event.usage);
+
       spans.push({
         traceIdHex: deriveOtlpTraceIdHex(String(event.traceId)),
         spanIdHex: deriveOtlpSpanIdHex(String(event.generationId || envelopeId)),
@@ -367,7 +389,13 @@ export class LangfuseCompat implements IObservabilityCompat {
           'langfuse.observation.output': safeJsonStringify(buildOutputJson(event), { maxBytes }),
           'langfuse.observation.model.name': String(event.model || cachedSummary?.model || ''),
           'langfuse.observation.model.parameters': cachedSummary?.modelParameters ?? safeJsonStringify({}, { maxBytes }),
-          'langfuse.observation.usage_details': safeJsonStringify(buildLangfuseUsageDetails(event.usage), { maxBytes })
+          'langfuse.observation.usage_details': safeJsonStringify(buildLangfuseUsageDetails(event.usage), { maxBytes }),
+          ...(costDetails
+            ? {
+                'langfuse.observation.cost_details': safeJsonStringify(costDetails, { maxBytes }),
+                'gen_ai.usage.cost': costDetails.total
+              }
+            : {})
         },
         envelopeId
       });

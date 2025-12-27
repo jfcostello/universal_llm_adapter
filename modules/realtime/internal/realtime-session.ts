@@ -210,7 +210,6 @@ class RealtimeSessionController implements RealtimeSession {
 
   private start(): void {
     this.scheduleMaxTimer();
-    this.scheduleIdleTimer();
     void this.pumpCompatEvents();
   }
 
