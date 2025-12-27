@@ -234,6 +234,69 @@ describe('document-loader', () => {
       expect(result.filename).toBe('document');
     });
 
+    it('should reject unsupported mimeType', () => {
+      const content: DocumentContent = {
+        type: 'document',
+        source: { type: 'base64', data: 'dGVzdA==' },
+        mimeType: 'application/x-unknown'
+      };
+
+      try {
+        processDocumentContent(content);
+        throw new Error('Expected processDocumentContent to throw');
+      } catch (err: any) {
+        expect(err.statusCode).toBe(415);
+        expect(err.code).toBe('unsupported_mime_type');
+        expect(String(err.message)).toContain('Unsupported document mimeType');
+      }
+    });
+
+    it('should reject invalid base64 document data', () => {
+      const content: DocumentContent = {
+        type: 'document',
+        source: { type: 'base64', data: 'not base64' as any },
+        mimeType: 'text/plain'
+      };
+
+      try {
+        processDocumentContent(content);
+        throw new Error('Expected processDocumentContent to throw');
+      } catch (err: any) {
+        expect(err.statusCode).toBe(400);
+        expect(err.code).toBe('validation_error');
+        expect(String(err.message)).toContain('Invalid base64 document data');
+      }
+    });
+
+    it('should reject base64 source when data is missing', () => {
+      const content = {
+        type: 'document' as const,
+        source: { type: 'base64' as const } as any,
+        mimeType: 'text/plain'
+      };
+
+      try {
+        processDocumentContent(content as DocumentContent);
+        throw new Error('Expected processDocumentContent to throw');
+      } catch (err: any) {
+        expect(err.statusCode).toBe(400);
+        expect(err.code).toBe('validation_error');
+        expect(String(err.message)).toContain('Invalid base64 document data');
+      }
+    });
+
+    it('should accept base64 with whitespace', () => {
+      const content: DocumentContent = {
+        type: 'document',
+        source: { type: 'base64', data: 'd G V z d A ==', } as any,
+        mimeType: 'text/plain'
+      };
+
+      const result = processDocumentContent(content);
+      expect(result.source.type).toBe('base64');
+      expect(result.filename).toBe('document');
+    });
+
     it('should preserve providerOptions', () => {
       const content: DocumentContent = {
         type: 'document',

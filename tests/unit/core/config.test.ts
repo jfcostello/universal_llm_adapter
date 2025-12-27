@@ -74,6 +74,29 @@ describe('core/config', () => {
     });
   });
 
+  test('loadJsonFile includes non-Error parse failures in invalid_json message', async () => {
+    await withTempCwd('config-json-invalid', async (dir) => {
+      const filePath = path.join(dir, 'config.json');
+      fs.writeFileSync(filePath, '{\"ok\":true}', 'utf-8');
+
+      const parseSpy = jest.spyOn(JSON, 'parse').mockImplementation(() => {
+        throw 'boom';
+      });
+
+      try {
+        expect(() => loadJsonFile(filePath)).toThrow(`Invalid JSON in file '${filePath}': boom`);
+        try {
+          loadJsonFile(filePath);
+        } catch (err: any) {
+          expect(err.code).toBe('invalid_json');
+          expect(err.filePath).toBe(filePath);
+        }
+      } finally {
+        parseSpy.mockRestore();
+      }
+    });
+  });
+
   test('loadRootDotenv loads nearest .env file', async () => {
     const envPath = path.join(ROOT_DIR, 'kernel', 'internal', '.env');
 

@@ -380,6 +380,45 @@ describe('integration/realtime-compat/gemini session', () => {
     }
   });
 
+  test('emits user_speech.started on audio send and user_speech.stopped at turn completion in server_vad mode', async () => {
+    const server = await startWsServer();
+    try {
+      const session = createGeminiRealtimeCompatSession({
+        provider: {
+          id: 'google',
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
+        } as any,
+        spec: { provider: 'google', model: 'm', turnDetection: { mode: 'server_vad' } }
+      } as any);
+
+      await waitForMessage(server.messages, m => m?.setup?.model === 'models/m', 2000);
+      server.sendToClient({ setupComplete: {} });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      await it.next();
+
+      await session.sendAudio({ format: 'pcm16', sampleRateHz: 24000, channels: 1, dataBase64: 'AAA=' });
+      const started = await it.next();
+      expect(started.value).toEqual({ type: 'user_speech.started' });
+
+      server.sendToClient({ serverContent: { turnComplete: true } });
+
+      while (true) {
+        const evt = await Promise.race([
+          it.next(),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timed out waiting for user_speech.stopped')), 2000))
+        ]);
+        if (evt.done) throw new Error('Expected user_speech.stopped event');
+        if (evt.value.type === 'user_speech.stopped') break;
+      }
+
+      await session.close();
+    } finally {
+      await server.close();
+    }
+  });
+
   test('emits user_transcript.final at turn completion after audio activity commit', async () => {
     const server = await startWsServer();
     try {

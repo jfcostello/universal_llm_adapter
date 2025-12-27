@@ -1,13 +1,13 @@
 #!/usr/bin/env tsx
 import { spawn } from 'child_process';
 import crypto from 'crypto';
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { parseLaunchConfig, buildJestArgs } from './launcher/index.js';
 import { maxWorkersDefault, realtimeTestRuns } from './config.ts';
 import { getTestPathPatternsFromJestArgs, getMissingRequiredEnv } from './required-env.ts';
+import { startLiveServerProcess } from '../helpers/live-server.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,117 +57,6 @@ async function buildDistOnce(): Promise<void> {
   }
 }
 
-async function startLiveServer(options: {
-  env: NodeJS.ProcessEnv;
-  batchId: string;
-  enableRealtimeWs?: boolean;
-  enableAuth?: boolean;
-}): Promise<{ url: string; logPath: string; close: () => Promise<void> }> {
-  const script = path.join(rootDir, 'dist', 'bin', 'cli.js');
-  const logsDir = path.join(rootDir, 'tests', 'live', 'logs');
-  fs.mkdirSync(logsDir, { recursive: true });
-
-  const logPath = path.join(logsDir, `${new Date().toISOString().split('T')[0]}-server-process-${Date.now()}.log`);
-  const logStream = fs.createWriteStream(logPath, { flags: 'a' });
-
-  const child = spawn(
-    process.execPath,
-    [
-      script,
-      'serve',
-      '--host',
-      '127.0.0.1',
-      '--port',
-      '0',
-      '--plugins',
-      './plugins',
-      ...(options.enableAuth ? ['--auth-enabled'] : []),
-      ...(options.enableRealtimeWs ? ['--realtime-enabled'] : [])
-    ],
-    {
-      cwd: rootDir,
-      env: {
-        ...options.env,
-        // Ensure server process behaves like a live run
-        LLM_LIVE: '1',
-        LLM_LIVE_TRANSPORT: 'server',
-        // Ensure file logs are enabled for batch logging assertions
-        LLM_ADAPTER_DISABLE_FILE_LOGS: '0',
-        LLM_ADAPTER_BATCH_ID: options.batchId
-      },
-      stdio: ['ignore', 'pipe', 'pipe']
-    }
-  );
-
-  let resolved = false;
-  let stdoutBuf = '';
-
-  const tryParseUrl = (chunk: string): string | null => {
-    stdoutBuf += chunk;
-    const lines = stdoutBuf.split(/\r?\n/);
-    stdoutBuf = lines.pop() ?? '';
-    for (const line of lines) {
-      const trimmed = line.trim();
-      const match = trimmed.match(/^Server listening at (https?:\/\/\S+)$/);
-      if (match) return match[1];
-    }
-    return null;
-  };
-
-  const url: string = await new Promise((resolve, reject) => {
-    const onData = (data: Buffer) => {
-      const text = data.toString();
-      logStream.write(text);
-      const parsed = tryParseUrl(text);
-      if (!resolved && parsed) {
-        resolved = true;
-        resolve(parsed);
-      }
-    };
-
-    child.stdout?.on('data', onData);
-    child.stderr?.on('data', (data: Buffer) => {
-      logStream.write(data.toString());
-    });
-
-    child.on('error', reject);
-    child.on('exit', (code) => {
-      if (!resolved) {
-        reject(new Error(`Server exited before ready (exit ${code ?? 'unknown'})`));
-      }
-    });
-  });
-
-  const close = async () => {
-    if (child.killed) return;
-
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => {
-        try {
-          child.kill('SIGKILL');
-        } catch {}
-        resolve();
-      }, 5000);
-
-      child.once('exit', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-
-      try {
-        child.kill('SIGTERM');
-      } catch {
-        clearTimeout(timeout);
-        resolve();
-      }
-    });
-
-    logStream.end();
-  };
-
-  return { url, logPath, close };
-}
-
 function generateTestApiKey(): string {
   return `live_test_${crypto.randomBytes(24).toString('hex')}`;
 }
@@ -186,7 +75,7 @@ async function main() {
     const idx = jestArgs.findIndex(arg => String(arg).startsWith('--testPathPattern='));
     if (idx !== -1) {
       // Provider-specific runs should not pull in realtime suite by default.
-      jestArgs[idx] = '--testPathPattern=tests[\\\\/]live(?![\\\\/]test-files[\\\\/]20-realtime)';
+      jestArgs[idx] = '--testPathPattern=tests[\\\\/]live[\\\\/]test-files(?![\\\\/]\\d+-realtime)';
     }
   }
 
@@ -216,9 +105,9 @@ async function main() {
   const wantsRealtime = testPathPatterns.some((pattern) => {
     const raw = String(pattern);
     // Provider-specific runs exclude realtime via a negative lookahead, but the literal
-    // string "20-realtime" still appears in the pattern. Treat those as non-realtime.
-    if (/\(\?!.*20-realtime/i.test(raw)) return false;
-    return /\b20-realtime\b/i.test(raw) || /\brealtime\b/i.test(raw);
+    // string "realtime" still appears in the pattern. Treat those as non-realtime.
+    if (/\(\?!.*realtime/i.test(raw)) return false;
+    return /\brealtime\b/i.test(raw);
   });
 
   const expectsLlmSuites = wantsAllLive || (!wantsEmbeddings && !wantsVector && !wantsRealtime);
@@ -249,6 +138,9 @@ async function main() {
   // Live suites invoke the built CLI entrypoint under `dist/` (and server mode runs `dist/bin/cli.js`),
   // so ensure `dist/` is up to date for *all* transports (cli/server/both) for deterministic results.
   await buildDistOnce();
+  // Jest global setup also builds TypeScript unless skipped; avoid the redundant build since we just
+  // built `dist/` explicitly for this live run.
+  baseEnv.LLM_SKIP_TS_BUILD = '1';
 
   const runJest = async (extraEnv: NodeJS.ProcessEnv): Promise<number> => {
     return spawnAndWait(process.execPath, [...nodeArgs, ...jestArgs], {
@@ -288,7 +180,9 @@ async function main() {
   }
 
   const batchId = liveBatchId;
-  const server = await startLiveServer({
+  const server = await startLiveServerProcess({
+    rootDir,
+    pluginsPath: './plugins',
     env: {
       ...process.env,
       LLM_ADAPTER_API_KEYS: serverApiKeys,

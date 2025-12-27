@@ -90,7 +90,8 @@ describe('utils/tools/tool-coordinator success paths', () => {
     };
 
     const pool = {
-      call: jest.fn().mockResolvedValue({ ok: true })
+      call: jest.fn().mockResolvedValue({ ok: true }),
+      getServerIds: jest.fn().mockReturnValue(['local'])
     };
 
     const coordinator = new ToolCoordinator([mcpRoute as any], pool as any);

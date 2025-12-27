@@ -1,0 +1,9 @@
+{
+  "id": "missing-compat-provider",
+  "compat": "compat-does-not-exist",
+  "endpoint": {
+    "urlTemplate": "https://example.invalid",
+    "method": "POST",
+    "headers": {}
+  }
+}

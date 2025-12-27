@@ -251,7 +251,7 @@ describe('integration/realtime-compat/openai session', () => {
     }
   });
 
-  test('commit does not send input_audio_buffer.commit in server_vad mode', async () => {
+  test('commit after audio does not send input_audio_buffer.commit or response.create in server_vad mode', async () => {
     const server = await startWsServer();
     try {
       const session = createOpenAIRealtimeCompatSession({
@@ -275,6 +275,33 @@ describe('integration/realtime-compat/openai session', () => {
 
       await session.sendAudio({ format: 'pcm16', sampleRateHz: 24000, channels: 1, dataBase64: 'AAA=' });
       await session.commit();
+      await new Promise(res => setTimeout(res, 25));
+      expect(server.messages.some(m => m?.type === 'response.create')).toBe(false);
+      expect(server.messages.some(m => m?.type === 'input_audio_buffer.commit')).toBe(false);
+
+      await session.close();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('commit after text sends response.create (but not input_audio_buffer.commit) in server_vad mode', async () => {
+    const server = await startWsServer();
+    try {
+      const session = createOpenAIRealtimeCompatSession({
+        provider: {
+          id: 'openai',
+          compat: 'openai',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
+        } as any,
+        spec: { provider: 'openai', model: 'm', turnDetection: { mode: 'server_vad' } }
+      } as any);
+
+      await waitForReady(session, server);
+
+      await session.sendText({ text: 'hi' });
+      await session.commit();
+
       await waitForMessage(server.messages, m => m?.type === 'response.create', 2000);
       expect(server.messages.some(m => m?.type === 'input_audio_buffer.commit')).toBe(false);
 

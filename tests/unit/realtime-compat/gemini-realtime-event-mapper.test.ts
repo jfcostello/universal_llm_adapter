@@ -5,6 +5,8 @@ function makeState(): GeminiRealtimeMapperState {
   const base: Omit<RealtimeAudioFrame, 'dataBase64' | 'timestampMs'> = { format: 'pcm16', sampleRateHz: 24000, channels: 1 };
   return {
     audio: { input: base, output: base },
+    turnMode: 'manual_commit',
+    userSpeechActive: false,
     unifiedToolNameByProviderName: new Map<string, string>(),
     toolNameByCallId: new Map<string, string>(),
     toolCallSeq: 0,

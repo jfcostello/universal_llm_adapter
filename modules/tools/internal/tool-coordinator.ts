@@ -39,7 +39,7 @@ export class ToolCoordinator {
   ) {
     // Extract MCP server IDs from the pool
     if (mcpPool) {
-      this.mcpServerIds = (mcpPool as any).servers?.map((s: any) => s.id) || [];
+      this.mcpServerIds = mcpPool.getServerIds();
     }
 
     // Store vector context for built-in handling

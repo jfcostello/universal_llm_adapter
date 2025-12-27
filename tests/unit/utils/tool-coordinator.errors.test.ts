@@ -196,7 +196,7 @@ describe('ToolCoordinator edge cases', () => {
   });
 
   test('mcp route validates presence of server when pool provided', async () => {
-    const pool = { call: jest.fn() } as any;
+    const pool = { call: jest.fn(), getServerIds: jest.fn().mockReturnValue([]) } as any;
     const coordinator = new ToolCoordinator(
       [
         {

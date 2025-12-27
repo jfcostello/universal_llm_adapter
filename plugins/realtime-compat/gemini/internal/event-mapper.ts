@@ -5,6 +5,8 @@ type GeminiFunctionCall = { id?: string; name?: string; args?: any };
 
 export interface GeminiRealtimeMapperState {
   audio: { input: Omit<RealtimeAudioFrame, 'dataBase64' | 'timestampMs'>; output: Omit<RealtimeAudioFrame, 'dataBase64' | 'timestampMs'> };
+  turnMode: 'manual_commit' | 'server_vad';
+  userSpeechActive: boolean;
   unifiedToolNameByProviderName: Map<string, string>;
   toolNameByCallId: Map<string, string>;
   toolCallSeq: number;
@@ -173,12 +175,25 @@ export function mapGeminiLiveServerMessage(message: any, state: GeminiRealtimeMa
     }
 
     if (sc.turnComplete === true || sc.generationComplete === true) {
-      if (state.pendingUserTranscriptFinal && state.userTranscript.trim()) {
+      if (state.turnMode === 'server_vad' && state.userSpeechActive) {
+        events.push({ type: 'user_speech.stopped' });
+        state.userSpeechActive = false;
+      }
+
+      const shouldEmitUserFinal =
+        state.userTranscript.trim() && (state.turnMode === 'server_vad' || state.pendingUserTranscriptFinal);
+      if (shouldEmitUserFinal) {
         events.push({ type: 'user_transcript.final', text: state.userTranscript });
         state.userTranscript = '';
         state.userTranscriptRaw = '';
+      }
+
+      // In manual commit mode, we only emit user transcript final after the commit boundary.
+      // Always clear the pending flag at turn completion so it cannot leak into subsequent turns.
+      if (state.turnMode === 'manual_commit') {
         state.pendingUserTranscriptFinal = false;
       }
+
       if (state.assistantTranscript) {
         events.push({ type: 'assistant_transcript.final', text: state.assistantTranscript });
         state.assistantTranscriptRaw = '';

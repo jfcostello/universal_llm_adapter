@@ -72,6 +72,9 @@ describe('managers/llm-manager', () => {
     expect(loggedFields).toContain('fakeField');
     expect(loggedFields).not.toContain('toolCountdownEnabled');
     expect(loggedFields).not.toContain('routing');
+
+    const fakeFieldLog = logger.info.mock.calls.map(call => call[1]).find((data: any) => data?.field === 'fakeField');
+    expect(fakeFieldLog?.value).toBe('***alue');
   });
 
   test('splits providerExtras between manifest and compat extensions', async () => {
@@ -113,7 +116,7 @@ describe('managers/llm-manager', () => {
     );
     expect(logger.info).toHaveBeenCalledWith(
       'Extra field not supported by provider',
-      expect.objectContaining({ field: 'passthrough' })
+      expect.objectContaining({ field: 'passthrough', value: '***' })
     );
   });
   test('callProvider works when compat applyProviderExtensions missing', async () => {
@@ -195,7 +198,8 @@ describe('managers/llm-manager', () => {
       'Extra field not supported by provider',
       expect.objectContaining({
         provider: 'test-openai',
-        field: 'providerOverrides'
+        field: 'providerOverrides',
+        value: '***'
       })
     );
   });

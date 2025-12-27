@@ -18,6 +18,18 @@ import { deriveObservabilityModel, monotonicElapsedMs, monotonicNowNs } from '..
 import { buildFinalPayload } from './payload/payload-builder.js';
 import { filterContentForObservability, filterMessagesForObservability } from './observability-capture.js';
 
+function redactUnsupportedExtraValue(field: string, value: any): unknown {
+  if (value === undefined || value === null) return value;
+
+  try {
+    const wrapped: Record<string, unknown> = { [field]: value };
+    const redacted = redactJsonCredentials(wrapped, [field]) as Record<string, unknown>;
+    return redacted[field];
+  } catch {
+    return '***';
+  }
+}
+
 export class LLMManager {
   private httpClient: AxiosInstance;
   private reasoningUnsupportedByProviderModel = new Set<string>();
@@ -198,12 +210,13 @@ export class LLMManager {
 
         // Log warnings for unconsumed provider extras (SDK methods don't consume them)
         for (const [field, value] of Object.entries(providerExtras)) {
+          const redactedValue = redactUnsupportedExtraValue(field, value);
           // Log to both AdapterLogger and console.error (for live test detection)
           const msg = `Extra field not supported by provider: "${field}" is not supported by ${provider.id} and was not sent to the API`;
           logger.info(msg, {
             provider: provider.id,
             field,
-            value
+            value: redactedValue
           });
           // Log to stderr for live test expectations
           if (shouldLogLive) {
@@ -211,7 +224,7 @@ export class LLMManager {
               timestamp: new Date().toISOString(),
               level: 'info',
               message: msg,
-              data: { provider: provider.id, field, value }
+              data: { provider: provider.id, field, value: redactedValue }
             }));
           }
         }
@@ -233,7 +246,16 @@ export class LLMManager {
             url: `SDK:${provider.id}/${model}`,
             method: 'SDK_CALL',
             headers: {},
-            body: { model, messages: normalizedMessages, tools, toolChoice, settings, providerExtras }
+            body: {
+              __liveType: 'normalized_llm_request',
+              model,
+              provider: provider.id,
+              messages: normalizedMessages,
+              tools,
+              toolChoice,
+              settings,
+              providerExtras
+            }
           }, context.metadata);
         } catch (e) {
           // Live logger not available, skip
@@ -385,10 +407,11 @@ export class LLMManager {
 
     if (logger) {
       for (const [field, value] of Object.entries(unconsumedExtras)) {
+        const redactedValue = redactUnsupportedExtraValue(field, value);
         logger.info('Extra field not supported by provider', {
           provider: provider.id,
           field,
-          value,
+          value: redactedValue,
           message: `Field "${field}" is not supported by ${provider.id} and was not sent to the API. Check provider payloadExtensions or compat module.`
         });
       }
@@ -419,6 +442,24 @@ export class LLMManager {
         if (shouldLogLive) {
           try {
             const { logRequest } = await import('./live-test-logger.js');
+            logRequest(
+              {
+                url: `NORMALIZED:${provider.id}/${model}`,
+                method: 'NORMALIZED_CALL',
+                headers: {},
+                body: {
+                  __liveType: 'normalized_llm_request',
+                  model,
+                  provider: provider.id,
+                  messages: normalizedMessages,
+                  tools,
+                  toolChoice,
+                  settings,
+                  providerExtras
+                }
+              },
+              context.metadata
+            );
             logRequest(
               {
                 url,
@@ -776,7 +817,16 @@ export class LLMManager {
             url: `SDK:${provider.id}/${model}`,
             method: 'SDK_STREAM',
             headers: {},
-            body: { model, messages: normalizedMessages, tools, toolChoice, settings, providerExtras }
+            body: {
+              __liveType: 'normalized_llm_stream_request',
+              model,
+              provider: provider.id,
+              messages: normalizedMessages,
+              tools,
+              toolChoice,
+              settings,
+              providerExtras
+            }
           }, context.metadata);
         } catch (e) {
           // live-test logger not available, skip logging
@@ -833,10 +883,11 @@ export class LLMManager {
 
     if (logger) {
       for (const [field, value] of Object.entries(unconsumedExtras)) {
+        const redactedValue = redactUnsupportedExtraValue(field, value);
         logger.info('Extra field not supported by provider', {
           provider: provider.id,
           field,
-          value,
+          value: redactedValue,
           message: `Field "${field}" is not supported by ${provider.id} and was not sent to the API. Check provider payloadExtensions or compat module.`
         });
       }
@@ -850,6 +901,24 @@ export class LLMManager {
     if (process.env.LLM_LIVE === '1') {
       try {
         const { logRequest } = await import('./live-test-logger.js');
+        logRequest(
+          {
+            url: `NORMALIZED:${provider.id}/${model}`,
+            method: 'NORMALIZED_STREAM',
+            headers: {},
+            body: {
+              __liveType: 'normalized_llm_stream_request',
+              model,
+              provider: provider.id,
+              messages: normalizedMessages,
+              tools,
+              toolChoice,
+              settings,
+              providerExtras
+            }
+          },
+          context.metadata
+        );
         logRequest({
           url,
           method: provider.endpoint.method,

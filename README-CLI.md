@@ -643,6 +643,14 @@ From provider file ID:
 }
 ```
 
+**Text-like document inlining (fallback):**
+
+For text-like documents provided as base64 (`text/*`, `application/json`, `application/xml`), the adapter may inline the decoded document content into the prompt as a plain `text` part so text-only models can still answer doc-grounded questions.
+
+Guardrails:
+- Disable entirely: `LLM_ADAPTER_DISABLE_TEXT_DOCUMENT_INLINING=1`
+- Size cap (decoded bytes): `LLM_ADAPTER_TEXT_DOCUMENT_INLINE_MAX_BYTES=<bytes>` (default `262144`; set to `0` to disable)
+
 **Supported Document Types:**
 
 | Extension | MIME Type |

@@ -80,6 +80,7 @@ describe('mcp/mcp-client', () => {
 
   test('MCPClientPool rejects unknown server id', async () => {
     const pool = new MCPClientPool([]);
+    expect(pool.getServerIds()).toEqual([]);
     await expect(pool.listTools('missing')).rejects.toThrow("Unknown MCP server 'missing'");
   });
 

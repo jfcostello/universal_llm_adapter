@@ -34,9 +34,9 @@ function readDefaultsObservabilityProvider(): string | null {
 
 function isRealtimePattern(raw: string): boolean {
   // Provider-specific runs exclude realtime via a negative lookahead, but the literal
-  // string "20-realtime" still appears in the pattern. Treat those as non-realtime.
-  if (/\(\?!.*20-realtime/i.test(raw)) return false;
-  return /\b20-realtime\b/i.test(raw) || /\brealtime\b/i.test(raw);
+  // string "realtime" still appears in the pattern. Treat those as non-realtime.
+  if (/\(\?!.*realtime/i.test(raw)) return false;
+  return /\brealtime\b/i.test(raw);
 }
 
 export function getTestPathPatternsFromJestArgs(jestArgs: string[]): string[] {

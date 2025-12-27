@@ -37,9 +37,12 @@ export async function resolveEmbeddingPriority(
   }
 
   if (defaults.length === 0) {
-    throw new Error(
+    const error = new Error(
       'No embedding priority configured. Provide vectorContext.embeddingPriority or set defaultEmbeddingPriority on the vector store plugin manifest.'
     );
+    (error as any).statusCode = 400;
+    (error as any).code = 'config_error';
+    throw error;
   }
 
   const unique = new Map<string, { storeId: string; priority: EmbeddingPriorityItem[] }>();
@@ -56,7 +59,10 @@ export async function resolveEmbeddingPriority(
     .sort()
     .join(', ');
 
-  throw new Error(
+  const error = new Error(
     `Multiple vector stores specify different default embedding priorities (${storeList}). Provide vectorContext.embeddingPriority explicitly.`
   );
+  (error as any).statusCode = 400;
+  (error as any).code = 'config_error';
+  throw error;
 }

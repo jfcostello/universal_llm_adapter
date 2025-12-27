@@ -1,139 +1,132 @@
-/**
- * Live test for embedding operations via CLI/server transport.
- *
- * Required environment variables:
- * - OPENROUTER_API_KEY
- *
- * Run with:
- * - CLI: `npm run test:live:openrouter -- --transport=cli --testPathPattern=15-embeddings`
- * - Server: `npm run test:live:openrouter -- --transport=server --testPathPattern=15-embeddings`
- */
-
-import { runEmbeddingCoordinator } from '@tests/helpers/node-cli.ts';
-import { requireEnv } from '@tests/helpers/require-env.ts';
+import fs from 'fs';
+import path from 'path';
+import { runEmbeddingOnce } from '@tests/helpers/live-v3.ts';
+import { invalidPriorityEntry } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
-if (runLive) {
-  requireEnv({ required: ['OPENROUTER_API_KEY'], label: '15-embeddings' });
-}
-const describeLive = runLive ? describe : describe.skip;
-
-const pluginsPath = './plugins';
+const TEST_FILE = '15-embeddings';
 
 function cosineSimilarity(a: number[], b: number[]): number {
-  let dotProduct = 0;
+  let dot = 0;
   let normA = 0;
   let normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dotProduct += a[i] * b[i];
+  const len = Math.min(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    dot += a[i] * b[i];
     normA += a[i] * a[i];
     normB += b[i] * b[i];
   }
-  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  if (normA === 0 || normB === 0) return 0;
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-async function runEmbedding(spec: any): Promise<any> {
-  const result = await runEmbeddingCoordinator({
-    args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath],
-    cwd: process.cwd(),
-    env: process.env
-  });
-
-  expect(result.code).toBe(0);
-  return JSON.parse(result.stdout.trim());
+function readOpenRouterEmbeddingProvider(): { id: string; dimensions?: number } {
+  const raw = fs.readFileSync(path.join(process.cwd(), 'plugins', 'embeddings', 'openrouter.json'), 'utf-8');
+  const parsed = JSON.parse(raw);
+  return { id: String(parsed.id), dimensions: typeof parsed.dimensions === 'number' ? parsed.dimensions : undefined };
 }
 
-describeLive('15-embeddings (transported)', () => {
-  test('embeds single text successfully', async () => {
-    const result = await runEmbedding({
-      operation: 'embed',
-      embeddingPriority: [{ provider: 'openrouter-embeddings' }],
-      input: { text: 'Hello, world! This is a test of the embedding API.' }
-    });
+(runLive ? describe : describe.skip)(TEST_FILE, () => {
+  test('embed single input (fallback) → one vector + dimensions', async () => {
+    const embedding = readOpenRouterEmbeddingProvider();
 
-    expect(result.success).toBe(true);
-    expect(result.vectors).toBeDefined();
-    expect(result.vectors.length).toBe(1);
-    expect(result.vectors[0].length).toBeGreaterThan(100);
-    expect(result.model).toBeDefined();
-    expect(result.dimensions).toBeGreaterThan(0);
-  }, 30000);
-
-  test('embeds batch of texts successfully', async () => {
-    const texts = [
-      'The quick brown fox jumps over the lazy dog.',
-      'Machine learning is a subset of artificial intelligence.',
-      'TypeScript adds static typing to JavaScript.'
-    ];
-
-    const result = await runEmbedding({
-      operation: 'embed',
-      embeddingPriority: [{ provider: 'openrouter-embeddings' }],
-      input: { texts }
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.vectors).toBeDefined();
-    expect(result.vectors.length).toBe(3);
-    const dim = result.vectors[0].length;
-    for (const vec of result.vectors) {
-      expect(vec.length).toBe(dim);
-    }
-  }, 30000);
-
-  test('similar texts have similar embeddings', async () => {
-    const result = await runEmbedding({
-      operation: 'embed',
-      embeddingPriority: [{ provider: 'openrouter-embeddings' }],
-      input: {
-        texts: [
-          'I love programming in TypeScript.',
-          'TypeScript is my favorite programming language.',
-          'The weather is sunny today.'
-        ]
+    const { result, response } = await runEmbeddingOnce({
+      testFileBase: TEST_FILE,
+      testName: 'single_fallback',
+      spec: {
+        operation: 'embed',
+        embeddingPriority: [
+          { provider: invalidPriorityEntry.provider, model: invalidPriorityEntry.model },
+          { provider: embedding.id }
+        ],
+        input: { text: 'Hello, world! This is a conformance test.' }
       }
     });
 
-    const sim01 = cosineSimilarity(result.vectors[0], result.vectors[1]);
-    const sim02 = cosineSimilarity(result.vectors[0], result.vectors[2]);
-    const sim12 = cosineSimilarity(result.vectors[1], result.vectors[2]);
+    expect(result.code).toBe(0);
+    expect(response?.success).toBe(true);
+    expect(response?.operation).toBe('embed');
+    expect(Array.isArray(response?.vectors)).toBe(true);
+    expect(response?.vectors?.length).toBe(1);
+    expect(typeof response?.model).toBe('string');
+    expect(typeof response?.dimensions).toBe('number');
+    expect(response?.dimensions).toBeGreaterThan(0);
+    expect(response?.vectors?.[0]?.length).toBe(response?.dimensions);
+  }, 120_000);
+
+  test('embed batch → similarity(similar) > similarity(dissimilar)', async () => {
+    const embedding = readOpenRouterEmbeddingProvider();
+
+    const { result, response } = await runEmbeddingOnce({
+      testFileBase: TEST_FILE,
+      testName: 'batch_similarity',
+      spec: {
+        operation: 'embed',
+        embeddingPriority: [{ provider: embedding.id }],
+        input: {
+          texts: [
+            'I enjoy writing TypeScript.',
+            'TypeScript is my favorite language to write.',
+            'The weather is sunny today.'
+          ]
+        }
+      }
+    });
+
+    expect(result.code).toBe(0);
+    expect(response?.success).toBe(true);
+    expect(response?.operation).toBe('embed');
+    expect(Array.isArray(response?.vectors)).toBe(true);
+    expect(response?.vectors?.length).toBe(3);
+    expect(response?.vectors?.[0]?.length).toBeGreaterThan(0);
+
+    const [v0, v1, v2] = response!.vectors;
+    const sim01 = cosineSimilarity(v0, v1);
+    const sim02 = cosineSimilarity(v0, v2);
+    const sim12 = cosineSimilarity(v1, v2);
 
     expect(sim01).toBeGreaterThan(sim02);
     expect(sim01).toBeGreaterThan(sim12);
-  }, 30000);
+  }, 120_000);
 
-  test('dimensions operation returns a positive value', async () => {
-    const result = await runEmbedding({
-      operation: 'dimensions',
-      provider: 'openrouter-embeddings'
+  test('dimensions operation returns a positive integer (matches config when available)', async () => {
+    const embedding = readOpenRouterEmbeddingProvider();
+
+    const { result, response } = await runEmbeddingOnce({
+      testFileBase: TEST_FILE,
+      testName: 'dimensions',
+      spec: {
+        operation: 'dimensions',
+        provider: embedding.id
+      }
     });
 
-    expect(result.success).toBe(true);
-    expect(result.dimensions).toBeGreaterThan(0);
-  }, 10000);
+    expect(result.code).toBe(0);
+    expect(response?.success).toBe(true);
+    expect(response?.operation).toBe('dimensions');
+    expect(typeof response?.dimensions).toBe('number');
+    expect(response?.dimensions).toBeGreaterThan(0);
 
-  test('validate operation returns true for configured provider', async () => {
-    const result = await runEmbedding({
-      operation: 'validate',
-      provider: 'openrouter-embeddings'
+    if (embedding.dimensions) {
+      expect(response?.dimensions).toBe(embedding.dimensions);
+    }
+  }, 60_000);
+
+  test('validate operation returns structured validity result', async () => {
+    const embedding = readOpenRouterEmbeddingProvider();
+
+    const { result, response } = await runEmbeddingOnce({
+      testFileBase: TEST_FILE,
+      testName: 'validate',
+      spec: {
+        operation: 'validate',
+        provider: embedding.id
+      }
     });
 
-    expect(result.success).toBe(true);
-    expect(result.valid).toBe(true);
-  }, 30000);
-
-  test('fallback works when first provider is invalid', async () => {
-    const result = await runEmbedding({
-      operation: 'embed',
-      embeddingPriority: [
-        { provider: 'nonexistent-provider' },
-        { provider: 'openrouter-embeddings' }
-      ],
-      input: { text: 'Test fallback behavior' }
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.vectors).toBeDefined();
-    expect(result.vectors.length).toBe(1);
-  }, 30000);
+    expect(result.code).toBe(0);
+    expect(response?.success).toBe(true);
+    expect(response?.operation).toBe('validate');
+    expect(response?.valid).toBe(true);
+  }, 120_000);
 });

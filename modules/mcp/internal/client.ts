@@ -67,11 +67,41 @@ export class JSONRPCSession extends EventEmitter {
     this.setupStreams();
   }
 
+  private failAllPending(error: Error): void {
+    for (const [id, entry] of this.pending.entries()) {
+      if (entry.timer) {
+        clearTimeout(entry.timer);
+      }
+      try {
+        entry.reject(error);
+      } catch {
+        // best-effort
+      }
+      this.pending.delete(id);
+    }
+  }
+
   private setupStreams(): void {
     this.input.on('data', (chunk) => {
       this.buffer += chunk.toString();
       this.processBuffer();
     });
+
+    const onClosed = () => {
+      this.failAllPending(new Error('MCP connection closed'));
+    };
+
+    const onError = (err: any) => {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.failAllPending(error);
+    };
+
+    this.input.on('end', onClosed);
+    this.input.on('close', onClosed);
+    this.input.on('error', onError);
+
+    (this.output as any).on?.('error', onError);
+    (this.output as any).on?.('close', onClosed);
   }
 
   private processBuffer(): void {
@@ -174,22 +204,28 @@ export class MCPConnection {
 
     this.session = new JSONRPCSession(this.process.stdout, this.process.stdin);
 
-    // Initialize with MCP protocol 2025-03-26 spec
-    const initializeResult = await this.session.request(
-      'initialize',
-      {
-        protocolVersion: '2025-03-26',
-        capabilities: this.config.capabilities ?? {},
-        clientInfo: {
-          name: packageInfo.name,
-          version: packageInfo.version
-        }
-      },
-      this.requestTimeoutMs
-    );
+    try {
+      // Initialize with MCP protocol 2025-03-26 spec
+      const initializeResult = await this.session.request(
+        'initialize',
+        {
+          protocolVersion: '2025-03-26',
+          capabilities: this.config.capabilities ?? {},
+          clientInfo: {
+            name: packageInfo.name,
+            version: packageInfo.version
+          }
+        },
+        this.requestTimeoutMs
+      );
 
-    this.serverCapabilities = initializeResult?.capabilities;
-    this.serverInfo = initializeResult?.serverInfo;
+      this.serverCapabilities = initializeResult?.capabilities;
+      this.serverInfo = initializeResult?.serverInfo;
+    } catch (error) {
+      // Ensure we don't leak a child process/session on initialization failures.
+      await this.close();
+      throw error;
+    }
   }
 
   async listTools(): Promise<UnifiedTool[]> {
@@ -309,6 +345,10 @@ export class MCPClientPool {
 
   constructor(private servers: MCPServerConfig[], options?: { logger?: AdapterLogger }) {
     this.logger = options?.logger ?? getNoopLogger();
+  }
+
+  getServerIds(): string[] {
+    return this.servers.map(s => s.id);
   }
 
   async listTools(serverId: string): Promise<UnifiedTool[]> {

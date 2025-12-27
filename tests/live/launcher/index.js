@@ -88,8 +88,8 @@ export function buildJestArgs({ maxWorkers, passthrough }) {
 
   const args = [jestBin];
   if (!hasCustomPattern) {
-    // Match only live test files, independent of repo/worktree folder naming.
-    args.push('--testPathPattern=tests[\\\\/]live');
+    // Default to the v3 live suite directory.
+    args.push('--testPathPattern=tests[\\\\/]live[\\\\/]test-files');
   }
 
   // Increase per-test timeout for live suites (default jest config is 120s)

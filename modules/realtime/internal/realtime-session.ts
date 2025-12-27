@@ -49,6 +49,7 @@ class RealtimeSessionController implements RealtimeSession {
   private bufferOverflowed = false;
   private startedAtMs = Date.now();
   private lastActivityAtMs = Date.now();
+  private ready = false;
   private maxDurationMs: number;
   private idleTimeoutMs: number;
   private onTimeout: NonNullable<RealtimeSessionSpec['timeout']>['onTimeout'];
@@ -209,7 +210,6 @@ class RealtimeSessionController implements RealtimeSession {
   }
 
   private start(): void {
-    this.scheduleMaxTimer();
     void this.pumpCompatEvents();
   }
 
@@ -219,9 +219,20 @@ class RealtimeSessionController implements RealtimeSession {
     }
   }
 
+  private startTimeouts(): void {
+    if (this.closed || this.ready) return;
+    this.ready = true;
+    const now = Date.now();
+    this.startedAtMs = now;
+    this.lastActivityAtMs = now;
+    this.scheduleMaxTimer();
+    this.scheduleIdleTimer();
+  }
+
   private onActivity(): void {
     if (this.closed) return;
     this.lastActivityAtMs = Date.now();
+    if (!this.ready) return;
     this.scheduleIdleTimer();
   }
 
@@ -306,7 +317,7 @@ class RealtimeSessionController implements RealtimeSession {
         }
       }
 
-      this.onActivity();
+      this.startTimeouts();
       this.pushEvent(first.value);
 
       while (true) {

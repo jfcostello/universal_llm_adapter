@@ -14,12 +14,12 @@ At the end, a combined summary shows pass/fail counts for both suites.
 
 ## Live test parallelism
 
-- Default workers: `maxWorkersDefault` in `tests/live/config.ts` (currently 10).
+- Default workers: `maxWorkersDefault` in `tests/live/config.ts` (currently 30).
 - Override per run:
   - Env: `MAX_WORKERS=2 npm run test:live:openrouter`
   - CLI: `npm run test:live:openrouter -- --maxWorkers=2`
 - Provider selection: first positional arg to `test:live` scripts (e.g. `npm run test:live:openrouter` sets `LLM_TEST_PROVIDERS=openrouter`).
-- Custom patterns: pass `--testPathPattern=<pattern>`; defaults to `live` when not provided.
+- Custom patterns: pass `--testPathPattern=<pattern>`; defaults to `tests/live/test-files` when not provided.
 
 ## Live test transport
 
@@ -80,6 +80,7 @@ npm run test:live:realtime
 # Run a single realtime provider
 LLM_TEST_PROVIDERS=openai npm run test:live:realtime
 LLM_TEST_PROVIDERS=google npm run test:live:realtime
+LLM_TEST_PROVIDERS=grok npm run test:live:realtime
 
 # Enforce CLI/server parity (runs twice)
 npm run test:live:realtime -- --transport=both

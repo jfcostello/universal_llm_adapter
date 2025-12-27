@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { buildLogPathFor, parseLogBodies } from './live-v2.ts';
+import { buildLogPathFor, parseLogBodies } from './live-v3.ts';
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -248,17 +248,20 @@ export async function waitForLangfuseTrace(
   const debugTraceWait = String(env.LLM_LIVE_LANGFUSE_TRACE_DEBUG || '').trim() === '1';
   const defaultTimeoutMs = env.LLM_LIVE === '1' ? 300_000 : 90_000;
   const configuredTimeoutMs = readPositiveIntEnv(env, 'LLM_LIVE_LANGFUSE_TRACE_TIMEOUT_MS') ?? defaultTimeoutMs;
-  const timeoutMs = Math.max(100, Math.floor(configuredTimeoutMs), Math.floor(opts.timeoutMs ?? 0));
+  const timeoutMsRaw = opts.timeoutMs ?? configuredTimeoutMs;
+  const timeoutMs = Math.max(100, Math.floor(timeoutMsRaw));
 
   const defaultMinDelayMs = env.LLM_LIVE === '1' ? 2000 : 500;
   const configuredMinDelayMs =
     readPositiveIntEnv(env, 'LLM_LIVE_LANGFUSE_TRACE_MIN_DELAY_MS') ?? defaultMinDelayMs;
-  const minDelayMs = Math.max(1, Math.floor(configuredMinDelayMs), Math.floor(opts.minDelayMs ?? 0));
+  const minDelayMsRaw = opts.minDelayMs ?? configuredMinDelayMs;
+  const minDelayMs = Math.max(1, Math.floor(minDelayMsRaw));
 
   const defaultMaxDelayMs = env.LLM_LIVE === '1' ? 60_000 : 10_000;
   const configuredMaxDelayMs =
     readPositiveIntEnv(env, 'LLM_LIVE_LANGFUSE_TRACE_MAX_DELAY_MS') ?? defaultMaxDelayMs;
-  const maxDelayMs = Math.max(minDelayMs, Math.floor(configuredMaxDelayMs), Math.floor(opts.maxDelayMs ?? 0));
+  const maxDelayMsRaw = opts.maxDelayMs ?? configuredMaxDelayMs;
+  const maxDelayMs = Math.max(minDelayMs, Math.floor(maxDelayMsRaw));
   const concurrency = Math.max(1, Math.floor(opts.concurrency ?? DEFAULT_CONCURRENCY));
   const testFileBase = opts.testFileBase ? String(opts.testFileBase) : '';
   const logTimeoutMs = Math.max(250, Math.floor(opts.logTimeoutMs ?? 30_000));
@@ -266,6 +269,7 @@ export async function waitForLangfuseTrace(
 
   const url = `${baseUrl}/api/public/traces/${encodeURIComponent(String(traceId))}`;
   const start = Date.now();
+  const useGlobalReadSlot = env.LLM_LIVE === '1';
 
   let delay = minDelayMs;
   let lastStatus: number | null = null;
@@ -287,13 +291,21 @@ export async function waitForLangfuseTrace(
     try {
       res = await withConcurrencyLimit(
         () =>
-          fetchWithGlobalReadSlot(url, {
-            method: 'GET',
-            headers: {
-              Authorization: authorization,
-              Accept: 'application/json'
-            }
-          }),
+          useGlobalReadSlot
+            ? fetchWithGlobalReadSlot(url, {
+              method: 'GET',
+              headers: {
+                Authorization: authorization,
+                Accept: 'application/json'
+              }
+            })
+            : fetch(url, {
+              method: 'GET',
+              headers: {
+                Authorization: authorization,
+                Accept: 'application/json'
+              }
+            }),
         concurrency
       );
     } catch {
@@ -373,6 +385,116 @@ export async function waitForLangfuseTrace(
         // No Retry-After header; apply a conservative global backoff.
         delay = Math.max(delay, DEFAULT_LANGFUSE_429_COOLDOWN_MS);
         writeGlobalCooldownFor(DEFAULT_LANGFUSE_429_COOLDOWN_MS);
+      }
+    }
+
+    const jitter = Math.floor(Math.random() * Math.max(1, Math.floor(delay / 2)));
+    await sleep(delay + jitter);
+    delay = Math.min(maxDelayMs, Math.floor(delay * 1.5) + 1);
+  }
+}
+
+export async function waitForLangfuseTraceToBeMissing(
+  traceId: string,
+  opts: {
+    env?: NodeJS.ProcessEnv;
+    baseUrl?: string;
+    timeoutMs?: number;
+    minDelayMs?: number;
+    maxDelayMs?: number;
+    concurrency?: number;
+  } = {}
+): Promise<void> {
+  const env = opts.env ?? process.env;
+  const baseUrl = stripTrailingSlashes(opts.baseUrl ?? getLangfuseBaseUrl(env));
+  const authorization = buildLangfuseAuthHeader(env);
+
+  const defaultTimeoutMs = env.LLM_LIVE === '1' ? 60_000 : 30_000;
+  const timeoutMs = Math.max(100, Math.floor(opts.timeoutMs ?? defaultTimeoutMs));
+
+  const defaultMinDelayMs = env.LLM_LIVE === '1' ? 1000 : 500;
+  const minDelayMs = Math.max(1, Math.floor(opts.minDelayMs ?? defaultMinDelayMs));
+
+  const defaultMaxDelayMs = env.LLM_LIVE === '1' ? 30_000 : 10_000;
+  const maxDelayMs = Math.max(minDelayMs, Math.floor(opts.maxDelayMs ?? defaultMaxDelayMs));
+
+  const concurrency = Math.max(1, Math.floor(opts.concurrency ?? DEFAULT_CONCURRENCY));
+  const useGlobalReadSlot = env.LLM_LIVE === '1';
+
+  const url = `${baseUrl}/api/public/traces/${encodeURIComponent(String(traceId))}`;
+  const start = Date.now();
+  let delay = minDelayMs;
+  let lastStatus: number | null = null;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    if (Date.now() - start > timeoutMs) {
+      const suffix = lastStatus ? ` (last status: ${lastStatus})` : '';
+      throw new Error(`Timed out verifying Langfuse trace is missing: ${traceId}${suffix}`);
+    }
+
+    let res: Response;
+    try {
+      res = await withConcurrencyLimit(
+        () =>
+          useGlobalReadSlot
+            ? fetchWithGlobalReadSlot(url, {
+              method: 'GET',
+              headers: {
+                Authorization: authorization,
+                Accept: 'application/json'
+              }
+            })
+            : fetch(url, {
+              method: 'GET',
+              headers: {
+                Authorization: authorization,
+                Accept: 'application/json'
+              }
+            }),
+        concurrency
+      );
+    } catch {
+      const jitter = Math.floor(Math.random() * Math.max(1, Math.floor(delay / 2)));
+      await sleep(delay + jitter);
+      delay = Math.min(maxDelayMs, Math.floor(delay * 1.5) + 1);
+      continue;
+    }
+
+    lastStatus = typeof res.status === 'number' ? res.status : null;
+
+    // Success case: trace is not readable
+    if (res.status === 404) return;
+
+    // Failure case: trace is readable (export unexpectedly succeeded)
+    if (res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(
+        `Expected Langfuse trace to be missing but it is readable (${res.status}) for ${traceId}: ${text.slice(0, 500)}`
+      );
+    }
+
+    // Retryable statuses:
+    // - 429: Langfuse API rate limiting
+    // - 5xx: transient server errors
+    const status = Number(res.status);
+    const retryable = status === 429 || (status >= 500 && status < 600);
+    if (!retryable) {
+      const text = await res.text().catch(() => '');
+      throw new Error(
+        `Langfuse trace fetch failed (${res.status}) for ${traceId}: ${text.slice(0, 500)}`
+      );
+    }
+
+    // Respect Retry-After when rate limited.
+    if (status === 429) {
+      const retryAfterHeader = res.headers?.get?.('retry-after');
+      const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN;
+      if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+        delay = Math.max(delay, Math.ceil(retryAfterSeconds * 1000));
+        writeGlobalCooldownFor(Math.ceil(retryAfterSeconds * 1000));
+      } else {
+        writeGlobalCooldownFor(20_000);
       }
     }
 

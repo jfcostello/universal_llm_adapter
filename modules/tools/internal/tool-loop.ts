@@ -89,6 +89,9 @@ function resolveFollowUpToolChoice(toolChoice?: ToolChoice): ToolChoice | undefi
   // "required" is intended to ensure *at least one* tool call occurs.
   // After tools have been executed, relax to auto to avoid providers that interpret
   // "required" as "must keep calling tools".
+  if (toolChoice === 'required') {
+    return 'auto';
+  }
   if (toolChoice && typeof toolChoice === 'object' && toolChoice.type === 'required') {
     return 'auto';
   }
@@ -669,7 +672,8 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
             type: ToolCallEventType.TOOL_RESULT,
             callId: toolCall.id,
             name: targetToolName,
-            arguments: JSON.stringify(normalizedPayload)
+            arguments: JSON.stringify(normalizedPayload),
+            resultText: truncatedText
           }
         };
       }

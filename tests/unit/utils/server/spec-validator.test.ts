@@ -20,6 +20,17 @@ describe('utils/server assertValidSpec', () => {
     expect(() => assertValidSpec({ messages: [] } as any)).toThrow(/validation/i);
   });
 
+  test('accepts toolChoice="required" string shorthand', () => {
+    expect(() =>
+      assertValidSpec({
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+        llmPriority: [{ provider: 'p', model: 'm' }],
+        toolChoice: 'required',
+        settings: { temperature: 0 }
+      } as any)
+    ).not.toThrow();
+  });
+
   test('assertValidVectorSpec accepts minimal valid vector spec', () => {
     expect(() =>
       assertValidVectorSpec({

@@ -29,7 +29,7 @@ import { normalizeFlag, readTrimmedStringProperty } from '../../shared/index.js'
 import { pruneToolResults, pruneReasoning } from '../../context/index.js';
 import { partitionSettings, mergeProviderSettings } from '../../settings/index.js';
 import { prepareMessages, appendAssistantToolCalls, appendToolResult } from '../../messages/index.js';
-import { processDocumentContent } from '../../documents/index.js';
+import { estimateFileSizeFromBase64, processDocumentContent } from '../../documents/index.js';
 import { withRetries } from '../../retry/index.js';
 
 // Type-only imports for optional modules (must not evaluate at runtime unless needed)
@@ -406,12 +406,15 @@ export class LLMCoordinator {
       throw new Error('LLMCallSpec.llmPriority must include at least one provider');
     }
 
-    const { runtime, provider, providerExtras } = partitionSettings(spec.settings);
+    // Streaming delegates to StreamCoordinator, which re-partitions settings (runtime vs provider) and
+    // needs access to the *runtime* settings for tool loop behavior (truncation, countdown, budgets, etc).
+    // Keep the original settings on the spec and only extract runtime here for environment overrides.
+    const { runtime } = partitionSettings(spec.settings);
     await this.applyRuntimeEnvironment(runtime);
 
     const executionSpec: LLMCallSpec = {
       ...spec,
-      settings: provider
+      settings: spec.settings
     };
 
     const providerPref = executionSpec.llmPriority[0];
@@ -443,7 +446,7 @@ export class LLMCoordinator {
                       (spec.mcpServers && spec.mcpServers.length > 0) ||
                       (spec.vectorPriority && spec.vectorPriority.length > 0) ||
                       this.shouldCreateVectorTool(spec) ||
-                      typeof spec.toolChoice === 'object';
+                      (spec.toolChoice != null && typeof spec.toolChoice === 'object');
 
     let tools: UnifiedTool[] = [];
     let mcpServers: string[] = [];
@@ -610,7 +613,44 @@ export class LLMCoordinator {
       ...msg,
       content: msg.content.map(part => {
         if (part.type === 'document') {
-          return processDocumentContent(part as DocumentContent);
+          const processed = processDocumentContent(part as DocumentContent);
+
+          // Provider-agnostic fallback: inline text-like documents as plain text so
+          // text-only models/providers can still answer doc-grounded questions.
+          if (processed.source.type === 'base64') {
+            const mimeType = String(processed.mimeType).toLowerCase();
+            const isTextLike =
+              mimeType.startsWith('text/') ||
+              mimeType === 'application/json' ||
+              mimeType === 'application/xml';
+
+            if (isTextLike) {
+              const disabled =
+                String(process.env.LLM_ADAPTER_DISABLE_TEXT_DOCUMENT_INLINING || '').trim() === '1';
+              const maxBytesEnv = String(process.env.LLM_ADAPTER_TEXT_DOCUMENT_INLINE_MAX_BYTES || '').trim();
+              const parsedMaxBytes = maxBytesEnv ? Number.parseInt(maxBytesEnv, 10) : NaN;
+              const maxBytesDefault = 262_144; // 256 KiB
+              const maxBytes = Number.isFinite(parsedMaxBytes) && parsedMaxBytes >= 0
+                ? parsedMaxBytes
+                : maxBytesDefault;
+
+              if (disabled || maxBytes === 0) {
+                return processed;
+              }
+
+              const base64 = processed.source.data.replace(/\s+/g, '');
+              const estimatedBytes = estimateFileSizeFromBase64(base64);
+              if (estimatedBytes > maxBytes) {
+                return processed;
+              }
+
+              const decoded = Buffer.from(base64, 'base64').toString('utf-8');
+              const header = `Document (${processed.filename}; ${processed.mimeType}):\n`;
+              return { type: 'text', text: `${header}${decoded}` } as any;
+            }
+          }
+
+          return processed;
         }
         return part;
       })

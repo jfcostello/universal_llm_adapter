@@ -72,6 +72,7 @@ export function createOpenAIRealtimeCompatSessionWithTransport(
   let readySent = false;
   let closed = false;
   let hasAudioSinceCommit = false;
+  let hasUserTextSinceCommit = false;
   const commitMode = spec.turnDetection?.mode ?? 'manual_commit';
   const forceToolChoiceOnCommit = typeof spec.toolChoice === 'object' && spec.toolChoice?.type === 'single';
   const preReadyEvents: RealtimeEvent[] = [];
@@ -192,6 +193,7 @@ export function createOpenAIRealtimeCompatSessionWithTransport(
   return {
     async sendText({ text, role = 'user' }) {
       ensureOpen();
+      hasUserTextSinceCommit = true;
       send(buildConversationItemCreateEvent({ text, role }));
     },
     async injectContext(items) {
@@ -212,6 +214,14 @@ export function createOpenAIRealtimeCompatSessionWithTransport(
         hasAudioSinceCommit = false;
       }
       await waitForCancelIfNeeded();
+
+      // In server_vad mode, providers are expected to auto-create responses for audio turns.
+      // Only create a response on explicit commit when a text turn was sent.
+      if (commitMode === 'server_vad' && !hasUserTextSinceCommit) {
+        return;
+      }
+
+      hasUserTextSinceCommit = false;
       send(buildResponseCreateEvent(forceToolChoiceOnCommit ? { toolChoice: 'required' } : {}));
     },
     async interrupt() {

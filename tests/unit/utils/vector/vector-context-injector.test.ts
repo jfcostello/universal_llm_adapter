@@ -313,6 +313,50 @@ describe('utils/vector/vector-context-injector', () => {
       expect(result.retrievedResults).toHaveLength(0);
     });
 
+    test('rethrows config_error failures (does not silently degrade)', async () => {
+      const registry = createMockRegistry();
+      const err: any = new Error('bad config');
+      err.code = 'config_error';
+
+      const embeddingManager = {
+        embed: jest.fn().mockRejectedValue(err)
+      } as any;
+
+      const injector = new VectorContextInjector({ registry, embeddingManager, vectorManager: {} as any });
+      const messages = createMessages(['Query']);
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        embeddingPriority: [{ provider: 'test-embeddings' }]
+      };
+
+      await expect(injector.injectContext(messages, config)).rejects.toBe(err);
+    });
+
+    test('degrades gracefully when a non-Error is thrown', async () => {
+      const registry = createMockRegistry();
+
+      const embeddingManager = {
+        embed: jest.fn().mockRejectedValue('boom')
+      } as any;
+
+      const injector = new VectorContextInjector({ registry, embeddingManager, vectorManager: {} as any });
+      const messages = createMessages(['Query']);
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        embeddingPriority: [{ provider: 'test-embeddings' }]
+      };
+
+      const result = await injector.injectContext(messages, config);
+      expect(result.messages).toEqual(messages);
+      expect(result.resultsInjected).toBe(0);
+      expect(result.query).toBe('Query');
+      expect(result.retrievedResults).toEqual([]);
+    });
+
     test('uses custom result format', async () => {
       const vectorCompat = {
         connect: jest.fn(),

@@ -34,6 +34,7 @@ describe('utils/coordinator-lifecycle runWithCoordinatorLifecycle', () => {
   afterEach(() => {
     jest.restoreAllMocks();
     delete process.env.LLM_ADAPTER_BATCH_ID;
+    delete process.env.LLM_ADAPTER_VALIDATE_PLUGINS;
   });
 
   test('creates registry and coordinator per call and cleans up', async () => {
@@ -156,6 +157,57 @@ describe('utils/coordinator-lifecycle runWithCoordinatorLifecycle', () => {
 
     expect(result).toBe('ok');
     expect(createCoordinator).toHaveBeenCalled();
+  });
+
+  test('optionally validates plugins once per registry when LLM_ADAPTER_VALIDATE_PLUGINS=1', async () => {
+    process.env.LLM_ADAPTER_VALIDATE_PLUGINS = '1';
+
+    const validatedRegistry: PluginRegistryLike & { validateAll: jest.Mock } = {
+      loadAll: jest.fn().mockResolvedValue(undefined),
+      validateAll: jest.fn().mockResolvedValue(undefined)
+    } as any;
+
+    const coordinator = { close: jest.fn().mockResolvedValue(undefined) };
+    const deps = {
+      createRegistry: jest.fn().mockResolvedValue(validatedRegistry),
+      createCoordinator: jest.fn().mockResolvedValue(coordinator),
+      closeLogger: jest.fn().mockResolvedValue(undefined)
+    };
+
+    const first = await runWithCoordinatorLifecycle<FakeSpec, any, any, string>({
+      spec: { foo: 'bar' },
+      deps,
+      run: async () => 'ok'
+    });
+    expect(first).toBe('ok');
+    expect(validatedRegistry.validateAll).toHaveBeenCalledTimes(1);
+
+    const second = await runWithCoordinatorLifecycle<FakeSpec, any, any, string>({
+      spec: { foo: 'bar' },
+      deps,
+      run: async () => 'ok'
+    });
+    expect(second).toBe('ok');
+    expect(validatedRegistry.validateAll).toHaveBeenCalledTimes(1);
+  });
+
+  test('skips plugin validation when validateAll is not available', async () => {
+    process.env.LLM_ADAPTER_VALIDATE_PLUGINS = '1';
+
+    const registry = { loadAll: jest.fn().mockResolvedValue(undefined) } as any;
+    const deps = {
+      createRegistry: jest.fn().mockResolvedValue(registry),
+      createCoordinator: jest.fn().mockResolvedValue({ close: jest.fn().mockResolvedValue(undefined) }),
+      closeLogger: jest.fn().mockResolvedValue(undefined)
+    };
+
+    const result = await runWithCoordinatorLifecycle<FakeSpec, any, any, string>({
+      spec: { foo: 'bar' },
+      deps,
+      run: async () => 'ok'
+    });
+
+    expect(result).toBe('ok');
   });
 });
 

@@ -193,12 +193,17 @@ export class VectorContextInjector {
         query,
         retrievedResults: results
       };
-    } catch (error) {
-      // ensureManagers and embeddingManager.embed() throw proper Error instances
-      this.logger.warning('Vector context injection failed', {
-        error: (error as Error).message
-      });
-      // On error, return original messages
+    } catch (error: any) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      this.logger.warning('Vector context injection failed', { error: message });
+
+      // Configuration errors should surface as request failures (do not silently degrade).
+      if (String(error?.code ?? '') === 'config_error') {
+        throw error;
+      }
+
+      // Other errors (e.g., transient store failures) degrade gracefully.
       return {
         messages,
         resultsInjected: 0,

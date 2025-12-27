@@ -1,248 +1,149 @@
-/**
- * Live tests for vector context auto-injection via CLI/server transport.
- *
- * Required environment variables:
- * - QDRANT_CLOUD_URL
- * - QDRANT_API_KEY
- * - OPENROUTER_API_KEY
- *
- * Run with:
- * - CLI: `npm run test:live:openrouter -- --transport=cli --testPathPattern=18-vector-auto-inject`
- * - Server: `npm run test:live:openrouter -- --transport=server --testPathPattern=18-vector-auto-inject`
- */
-
-import { runCoordinator, runEmbeddingCoordinator, runVectorCoordinator } from '@tests/helpers/node-cli.ts';
-import { requireEnv } from '@tests/helpers/require-env.ts';
-import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace, stringifyLangfuseTrace } from '@tests/helpers/langfuse.ts';
-import { liveTestTimeout } from '../config.ts';
+import fs from 'fs';
+import path from 'path';
+import { buildLogPathFor, deleteVectorCollectionAndWaitForMissing, mergeSettings, parseLogBodies, runLlmOnce, runVectorOnce } from '@tests/helpers/live-v3.ts';
+import { filteredTestRuns } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
-if (runLive) {
-  requireEnv({
-    required: ['QDRANT_CLOUD_URL', 'QDRANT_API_KEY', 'OPENROUTER_API_KEY'],
-    label: '18-vector-auto-inject'
-  });
-}
-const describeLive = runLive ? describe : describe.skip;
-
-const pluginsPath = './plugins';
 const TEST_FILE = '18-vector-auto-inject';
-const liveEnv = { ...process.env, TEST_FILE };
-const testCollection = `test-inject-${Date.now()}`;
 
-async function runEmbedding(spec: any): Promise<any> {
-  const result = await runEmbeddingCoordinator({
-    args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath],
-    cwd: process.cwd(),
-    env: liveEnv
-  });
-  expect(result.code).toBe(0);
-  return JSON.parse(result.stdout.trim());
+const STORE_ID = 'qdrant-cloud';
+const TOKEN = `AUTO_INJECT_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+
+function readOpenRouterEmbeddingProviderId(): string {
+  const raw = fs.readFileSync(path.join(process.cwd(), 'plugins', 'embeddings', 'openrouter.json'), 'utf-8');
+  const parsed = JSON.parse(raw);
+  return String(parsed.id);
 }
 
-async function runVector(spec: any): Promise<any> {
-  const result = await runVectorCoordinator({
-    args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath],
-    cwd: process.cwd(),
-    env: liveEnv
-  });
-  expect(result.code).toBe(0);
-  return JSON.parse(result.stdout.trim());
-}
-
-async function runLlm(spec: any): Promise<any> {
-  const result = await runCoordinator({
-    args: ['run', '--spec', JSON.stringify(spec), '--plugins', pluginsPath],
-    cwd: process.cwd(),
-    env: liveEnv
-  });
-  expect(result.code).toBe(0);
-  return JSON.parse(result.stdout.trim());
-}
-
-describeLive('18-vector-auto-inject (transported)', () => {
-  let dimensions = 0;
+(runLive ? describe : describe.skip)(TEST_FILE, () => {
+  const runCfg = filteredTestRuns[0];
+  const embeddingProviderId = readOpenRouterEmbeddingProviderId();
+  const collection = `v3_${TEST_FILE}_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
 
   beforeAll(async () => {
-    const dimsRes = await runEmbedding({
-      operation: 'dimensions',
-      provider: 'openrouter-embeddings'
-    });
-    expect(dimsRes.success).toBe(true);
-    dimensions = Number(dimsRes.dimensions);
-    expect(dimensions).toBeGreaterThan(0);
+    expect(runCfg).toBeTruthy();
 
-    const createRes = await runVector({
-      operation: 'collections',
-      store: 'qdrant-cloud',
-      input: {
-        collectionOp: 'create',
-        collectionName: testCollection,
-        dimensions
+    const { result: createResult, response: createRes } = await runVectorOnce({
+      testFileBase: TEST_FILE,
+      testName: 'collections_create',
+      spec: {
+        operation: 'collections',
+        store: STORE_ID,
+        input: {
+          collectionOp: 'create',
+          collectionName: collection,
+          dimensions: 1536,
+          payloadIndexes: [{ field: 'topic', type: 'keyword' }]
+        }
       }
     });
-    expect(createRes.success).toBe(true);
 
-    // Seed with test documents
-    const seedRes = await runVector({
-      operation: 'embed',
-      store: 'qdrant-cloud',
-      collection: testCollection,
-      embeddingPriority: [{ provider: 'openrouter-embeddings' }],
-      input: {
-        chunks: [
-          {
-            id: 'fact-1',
-            text: 'The capital of France is Paris. Paris is known for the Eiffel Tower.',
-            metadata: { topic: 'geography', country: 'France' }
-          },
-          {
-            id: 'fact-2',
-            text: 'Python was created by Guido van Rossum and released in 1991.',
-            metadata: { topic: 'programming', language: 'Python' }
-          },
-          {
-            id: 'fact-3',
-            text: 'Machine learning is a subset of AI that enables computers to learn from data.',
-            metadata: { topic: 'technology', field: 'AI' }
-          },
-          {
-            id: 'fact-4',
-            text: 'The Great Wall of China is over 13,000 miles long.',
-            metadata: { topic: 'geography', country: 'China' }
-          }
-        ]
+    expect(createResult.code).toBe(0);
+    expect(createRes?.success).toBe(true);
+
+    const { result: seedResult, response: seedRes } = await runVectorOnce({
+      testFileBase: TEST_FILE,
+      testName: 'seed_embed',
+      spec: {
+        operation: 'embed',
+        store: STORE_ID,
+        collection,
+        embeddingPriority: [{ provider: embeddingProviderId }],
+        input: {
+          chunks: [
+            {
+              id: 'fact-meaning-of-life',
+              text: `The meaning of life is 42. Reference token: ${TOKEN}.`,
+              metadata: { topic: 'life' }
+            }
+          ]
+        }
       }
     });
-    expect(seedRes.success).toBe(true);
 
-    await new Promise(resolve => setTimeout(resolve, 2000));
-  }, liveTestTimeout(180000));
+    expect(seedResult.code).toBe(0);
+    expect(seedRes?.success).toBe(true);
+  }, 180_000);
 
   afterAll(async () => {
-    try {
-      await runVector({
-        operation: 'collections',
-        store: 'qdrant-cloud',
-        input: {
-          collectionOp: 'delete',
-          collectionName: testCollection
+    await deleteVectorCollectionAndWaitForMissing({
+      testFileBase: TEST_FILE,
+      store: STORE_ID,
+      collectionName: collection,
+      timeoutMs: 50_000
+    });
+  }, 60_000);
+
+  test('auto-inject (both mode) inserts retrieved context and tool is available', async () => {
+    expect(runCfg).toBeTruthy();
+
+    const spec = {
+      systemPrompt: [
+        'You are a conformance test agent.',
+        `Your test token is: ${TOKEN}.`,
+        'You will receive retrieved context. Use it to answer.',
+        'Reply with exactly: 42'
+      ].join('\n'),
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `Token=${TOKEN}. Question: What is the meaning of life? Reply with exactly 42.`
+            }
+          ]
         }
-      });
+      ],
+      llmPriority: runCfg.llmPriority,
+      settings: mergeSettings(runCfg.settings, { maxTokens: 200 }),
+      vectorContext: {
+        mode: 'both',
+        stores: [STORE_ID],
+        collection,
+        topK: 1,
+        injectAs: 'system',
+        injectTemplate: `Relevant context for ${TOKEN}:\n{{results}}`
+      }
+    };
 
-      const existsRes = await runVector({
-        operation: 'collections',
-        store: 'qdrant-cloud',
-        input: {
-          collectionOp: 'exists',
-          collectionName: testCollection
-        }
-      });
-      expect(existsRes.exists).toBe(false);
-    } catch (error: any) {
-      console.warn('Cleanup warning:', error?.message ?? String(error));
-    }
-  }, 60000);
+    const { result, response } = await runLlmOnce({
+      testFileBase: TEST_FILE,
+      testName: 'run',
+      spec
+    });
 
-  describe('auto mode - context injection', () => {
-    test('injects relevant context before LLM call', async () => {
-      const traceId = createTraceId('18-vector-auto-inject-injects');
-      const spec = {
-        systemPrompt: 'You are a helpful assistant. Answer questions using only the provided context.',
-        messages: [
-          {
-            role: 'user',
-            content: [{ type: 'text', text: 'What is the capital of France?' }]
-          }
-        ],
-        vectorContext: {
-          stores: ['qdrant-cloud'],
-          collection: testCollection,
-          mode: 'auto',
-          topK: 2,
-          injectAs: 'system',
-          injectTemplate: 'Use the following context to answer:\n\n{{results}}'
-        },
-        llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
-        settings: { temperature: 0, maxTokens: 200 }
-      };
+    expect(result.code).toBe(0);
+    const text = (response?.content ?? [])
+      .filter((p: any) => p?.type === 'text')
+      .map((p: any) => String(p.text || ''))
+      .join('')
+      .trim();
+    expect(text).toBe('42');
 
-      const response = await runLlm(attachLangfuseObservability(spec as any, traceId));
+    const logPath = buildLogPathFor(TEST_FILE);
+    const bodies = parseLogBodies(logPath);
+    const normalized = bodies.filter((b: any) => b?.__liveType === 'normalized_llm_request');
 
-      const textParts = (response?.content ?? [])
-        .filter((c: any) => c?.type === 'text')
-        .map((c: any) => String(c.text || '').toLowerCase());
+    const thisRun = normalized.find((b: any) => {
+      const msgs = Array.isArray(b?.messages) ? b.messages : [];
+      return JSON.stringify(msgs).includes(TOKEN);
+    });
 
-      const joined = textParts.join('\n');
-      expect(joined).toContain('paris');
+    expect(thisRun).toBeTruthy();
 
-      const trace = await waitForLangfuseTrace(traceId, { timeoutMs: 90000, testFileBase: TEST_FILE });
-      const traceText = stringifyLangfuseTrace(trace);
-      expect(traceText).toContain('Use the following context to answer:');
-    }, liveTestTimeout(120000));
+    const tools = Array.isArray((thisRun as any)?.tools) ? (thisRun as any).tools : [];
+    expect(tools.some((t: any) => t?.name === 'vector_search')).toBe(true);
 
-    test('filters context by metadata', async () => {
-      const spec = {
-        systemPrompt: 'Answer based only on the provided context. Be specific and mention locations.',
-        messages: [
-          {
-            role: 'user',
-            content: [{ type: 'text', text: 'Tell me about a capital city mentioned in the context.' }]
-          }
-        ],
-        vectorContext: {
-          stores: ['qdrant-cloud'],
-          collection: testCollection,
-          mode: 'auto',
-          topK: 5,
-          filter: { topic: 'geography' },
-          injectAs: 'system'
-        },
-        llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
-        settings: { temperature: 0, maxTokens: 200 }
-      };
+    const msgs = Array.isArray((thisRun as any)?.messages) ? (thisRun as any).messages : [];
+    const systemText = msgs
+      .filter((m: any) => m?.role === 'system')
+      .flatMap((m: any) => (Array.isArray(m?.content) ? m.content : []))
+      .filter((p: any) => p?.type === 'text')
+      .map((p: any) => String(p.text || ''))
+      .join('\n');
 
-      const response = await runLlm(spec);
-      const textParts = (response?.content ?? [])
-        .filter((c: any) => c?.type === 'text')
-        .map((c: any) => String(c.text || '').toLowerCase());
-
-      const joined = textParts.join('\n');
-      expect(
-        joined.includes('paris') ||
-          joined.includes('france') ||
-          joined.includes('china') ||
-          joined.includes('beijing') ||
-          joined.includes('capital')
-      ).toBe(true);
-    }, liveTestTimeout(120000));
-
-    test('uses score threshold to filter low-relevance results', async () => {
-      const spec = {
-        systemPrompt: 'If no relevant context is provided, say "No relevant information found."',
-        messages: [
-          {
-            role: 'user',
-            content: [{ type: 'text', text: 'What is the recipe for chocolate cake?' }]
-          }
-        ],
-        vectorContext: {
-          stores: ['qdrant-cloud'],
-          collection: testCollection,
-          mode: 'auto',
-          topK: 3,
-          scoreThreshold: 0.9,
-          injectAs: 'system'
-        },
-        llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
-        settings: { temperature: 0, maxTokens: 200 }
-      };
-
-      const response = await runLlm(spec);
-      const textParts = (response?.content ?? [])
-        .filter((c: any) => c?.type === 'text')
-        .map((c: any) => String(c.text || '').toLowerCase());
-      expect(textParts.join('\n').length).toBeGreaterThan(0);
-    }, liveTestTimeout(120000));
-  });
+    expect(systemText).toContain(`Relevant context for ${TOKEN}:`);
+    expect(systemText).toContain('meaning of life is 42');
+  }, 180_000);
 });

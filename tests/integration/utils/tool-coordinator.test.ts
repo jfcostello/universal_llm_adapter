@@ -86,7 +86,8 @@ describe('utils/tools/tool-coordinator integration', () => {
     };
 
     const mcpPool = {
-      call: jest.fn().mockResolvedValue('mcp-response')
+      call: jest.fn().mockResolvedValue('mcp-response'),
+      getServerIds: jest.fn().mockReturnValue(['local'])
     } as any;
 
     const coordinator = new ToolCoordinator([httpRoute, globRoute], mcpPool);
@@ -119,7 +120,7 @@ describe('utils/tools/tool-coordinator integration', () => {
   test('auto-routes MCP tools with underscore separator for sanitized names', async () => {
     const mcpPool = {
       call: jest.fn().mockResolvedValue({ sanitized: 'result' }),
-      servers: [{ id: 'testserver' }]
+      getServerIds: jest.fn().mockReturnValue(['testserver'])
     } as any;
 
     // Create coordinator with no explicit routes but MCP pool with server
@@ -138,7 +139,7 @@ describe('utils/tools/tool-coordinator integration', () => {
   test('auto-routes MCP tools with dot separator', async () => {
     const mcpPool = {
       call: jest.fn().mockResolvedValue({ dotted: 'result' }),
-      servers: [{ id: 'myserver' }]
+      getServerIds: jest.fn().mockReturnValue(['myserver'])
     } as any;
 
     // Create coordinator with no explicit routes but MCP pool with server
