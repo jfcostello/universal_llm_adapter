@@ -1,5 +1,5 @@
 import { collectDeltaText, mergeSettings, runLlmOnce, runLlmStreamOnce } from '@tests/helpers/live-v3.ts';
-import type { ContentPart, LLMResponse, Message } from '@/kernel/index.ts';
+import type { ContentPart, LLMResponse, Message } from '@tests/helpers/live-types.ts';
 import { filteredTestRuns } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
@@ -69,4 +69,3 @@ function userMessage(text: string): Message {
     expect(textB).toContain('STREAM_PARITY_OK');
   }, 180_000);
 });
-

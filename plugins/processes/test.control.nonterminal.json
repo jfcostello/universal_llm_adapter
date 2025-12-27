@@ -1,0 +1,13 @@
+{
+  "id": "test-control-nonterminal",
+  "match": {
+    "type": "exact",
+    "pattern": "test.control.nonterminal"
+  },
+  "invoke": {
+    "kind": "module",
+    "module": "./dist/plugins/modules/test-control/index.js",
+    "function": "handle"
+  },
+  "timeoutMs": 5000
+}

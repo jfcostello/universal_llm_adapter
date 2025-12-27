@@ -1,7 +1,7 @@
 import path from 'path';
 import fs from 'fs';
 import { runCoordinator, runEmbeddingCoordinator, runVectorCoordinator, type CliResult } from '@tests/helpers/node-cli.ts';
-import type { ContentPart, LLMResponse, Message } from '@/kernel/index.ts';
+import type { ContentPart, LLMResponse, Message } from './live-types.ts';
 
 export function withLiveEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return { ...process.env, LLM_LIVE: '1', ...overrides };

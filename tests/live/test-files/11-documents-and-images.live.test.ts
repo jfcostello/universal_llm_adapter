@@ -1,6 +1,6 @@
 import { buildLogPathFor, mergeSettings, parseLogBodies, runLlmOnce } from '@tests/helpers/live-v3.ts';
 import { getTmpRoot } from '@tests/helpers/paths.ts';
-import type { LLMResponse, Message } from '@/kernel/index.ts';
+import type { LLMResponse, Message } from '@tests/helpers/live-types.ts';
 import { filteredTestRuns } from '../config.ts';
 import fs from 'fs';
 import path from 'path';
@@ -80,7 +80,7 @@ function findFirstInlinedDocumentText(messages: any[]): string | null {
     const prompt = [
       'From the attached document, find the line that starts with "TOKEN:".',
       'Reply with exactly the token value after "TOKEN:".',
-      `Reply with exactly ${token}.`
+      'Do not guess or invent values. The token is present only in the attached document.'
     ].join('\n');
 
     const spec = {

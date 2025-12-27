@@ -221,4 +221,7 @@ export function liveTestTimeout(minMs: number): number {
 }
 
 // Default Jest worker count for live runs (can be overridden via env/CLI)
-export const maxWorkersDefault = 30;
+// This is the ONLY supported way to control Jest worker concurrency for the live suite.
+// Do not add env/CLI overrides (MAX_WORKERS / --maxWorkers). Live runs must not cap
+// concurrency to hide race conditions.
+export const maxWorkersDefault = '100%';

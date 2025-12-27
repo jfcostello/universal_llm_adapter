@@ -1,0 +1,19 @@
+{
+  "name": "test.control",
+  "description": "Live-test helper tool that can override terminal behavior and introduce deterministic delays for timeout coverage.",
+  "terminal": true,
+  "parametersJsonSchema": {
+    "type": "object",
+    "properties": {
+      "override": {
+        "description": "Value returned as tool_type_response_override_terminal (strict booleans are honored; non-booleans are ignored by the tool loop).",
+        "oneOf": [{ "type": "boolean" }, { "type": "string" }, { "type": "null" }]
+      },
+      "sleepMs": {
+        "type": "number",
+        "description": "Optional delay (ms) before returning, used for deterministic timeout coverage."
+      }
+    },
+    "additionalProperties": false
+  }
+}

@@ -8,6 +8,8 @@ const TEST_FILE = '19-vector-search-locks';
 
 const STORE_ID = 'qdrant-cloud';
 const TOKEN = `VECTOR_LOCKS_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+const SECRET_HIGH = `VECTOR_LOCKS_SECRET_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+const SECRET_LOW = `VECTOR_LOCKS_SECRET_LOW_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
 
 function readOpenRouterEmbeddingProviderId(): string {
   const raw = fs.readFileSync(path.join(process.cwd(), 'plugins', 'embeddings', 'openrouter.json'), 'utf-8');
@@ -61,12 +63,12 @@ function extractTextFromMessage(msg: any): string {
           chunks: [
             {
               id: 'fact-high',
-              text: `Token ${TOKEN}: The meaning of life is 42.`,
+              text: `Token ${TOKEN}: The meaning of life is 42. SecretAnswer: ${SECRET_HIGH}.`,
               metadata: { relevance: 'high' }
             },
             {
               id: 'fact-low',
-              text: `Token ${TOKEN}: The meaning of life is 41.`,
+              text: `Token ${TOKEN}: The meaning of life is 41. SecretAnswer: ${SECRET_LOW}.`,
               metadata: { relevance: 'low' }
             }
           ]
@@ -95,9 +97,10 @@ function extractTextFromMessage(msg: any): string {
         'You are a conformance test agent.',
         `Token: ${TOKEN}.`,
         'You MUST call the vector_search tool exactly once.',
-        'If you receive a user message that begins with "All tool calls have been consumed", you MUST reply with exactly: 42',
+        'After the tool result arrives, extract the SecretAnswer value and remember it for your final output.',
+        'If you receive a user message that begins with "All tool calls have been consumed", reply with ONLY the remembered SecretAnswer token.',
         'Final output rules:',
-        '- Output EXACTLY: 42',
+        '- Output EXACTLY the SecretAnswer token',
         '- No extra whitespace',
         '- No punctuation',
         '- No code blocks',
@@ -109,7 +112,7 @@ function extractTextFromMessage(msg: any): string {
           content: [
             {
               type: 'text',
-              text: `Token=${TOKEN}. Use vector_search to answer: What is the meaning of life? Reply with exactly 42.`
+              text: `Token=${TOKEN}. Use vector_search to answer: What is the meaning of life? Then reply with ONLY the SecretAnswer token from the tool result.`
             }
           ]
         }
@@ -155,7 +158,7 @@ function extractTextFromMessage(msg: any): string {
       .map((p: any) => String(p.text || ''))
       .join('')
       .trim();
-    expect(finalText).toBe('42');
+    expect(finalText).toBe(SECRET_HIGH);
 
     const logPath = buildLogPathFor(TEST_FILE);
     const bodies = parseLogBodies(logPath);
@@ -178,10 +181,14 @@ function extractTextFromMessage(msg: any): string {
     expect(props.collection).toBeUndefined();
     expect(props.scoreThreshold).toBeUndefined();
 
-    const toolMessages = (normalizedRequests.find((b: any) => {
+    const requestWithToolMessage = normalizedRequests.find((b: any) => {
       const msgs = Array.isArray(b?.messages) ? b.messages : [];
+      const json = JSON.stringify(msgs);
+      if (!json.includes(TOKEN)) return false;
       return msgs.some((m: any) => m?.role === 'tool' && JSON.stringify(m?.content ?? []).includes('vector_search'));
-    }) as any)?.messages;
+    });
+
+    const toolMessages = (requestWithToolMessage as any)?.messages;
 
     expect(Array.isArray(toolMessages)).toBe(true);
 
@@ -195,6 +202,8 @@ function extractTextFromMessage(msg: any): string {
     const toolText = extractTextFromMessage(vectorToolMsg);
     expect(toolText).toContain('Found 1 results');
     expect(toolText).toContain('The meaning of life is 42');
+    expect(toolText).toContain(SECRET_HIGH);
     expect(toolText).not.toContain('The meaning of life is 41');
+    expect(toolText).not.toContain(SECRET_LOW);
   }, 240_000);
 });

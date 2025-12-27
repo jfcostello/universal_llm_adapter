@@ -1,6 +1,6 @@
 import { attachLangfuseObservability, createTraceId } from '@tests/helpers/langfuse.ts';
 import { createLiveV3TurnRunner, mergeSettings } from '@tests/helpers/live-v3.ts';
-import type { ContentPart, LLMResponse } from '@/kernel/index.ts';
+import type { ContentPart, LLMResponse } from '@tests/helpers/live-types.ts';
 import { filteredTestRuns, invalidPriorityEntry } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';

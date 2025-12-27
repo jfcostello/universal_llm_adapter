@@ -8,6 +8,7 @@ const TEST_FILE = '18-vector-auto-inject';
 
 const STORE_ID = 'qdrant-cloud';
 const TOKEN = `AUTO_INJECT_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+const SECRET = `AUTO_INJECT_SECRET_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
 
 function readOpenRouterEmbeddingProviderId(): string {
   const raw = fs.readFileSync(path.join(process.cwd(), 'plugins', 'embeddings', 'openrouter.json'), 'utf-8');
@@ -53,7 +54,7 @@ function readOpenRouterEmbeddingProviderId(): string {
           chunks: [
             {
               id: 'fact-meaning-of-life',
-              text: `The meaning of life is 42. Reference token: ${TOKEN}.`,
+              text: `Marker ${TOKEN}. SecretAnswer: ${SECRET}.`,
               metadata: { topic: 'life' }
             }
           ]
@@ -80,9 +81,10 @@ function readOpenRouterEmbeddingProviderId(): string {
     const spec = {
       systemPrompt: [
         'You are a conformance test agent.',
-        `Your test token is: ${TOKEN}.`,
-        'You will receive retrieved context. Use it to answer.',
-        'Reply with exactly: 42'
+        `Marker: ${TOKEN}.`,
+        'You will receive retrieved context.',
+        'From the retrieved context, extract the exact value after "SecretAnswer:" and reply with only that value.',
+        'No extra whitespace. No punctuation. No code blocks.'
       ].join('\n'),
       messages: [
         {
@@ -90,7 +92,7 @@ function readOpenRouterEmbeddingProviderId(): string {
           content: [
             {
               type: 'text',
-              text: `Token=${TOKEN}. Question: What is the meaning of life? Reply with exactly 42.`
+              text: `Marker=${TOKEN}. What is the SecretAnswer from retrieved context? Reply with the secret token only.`
             }
           ]
         }
@@ -119,7 +121,7 @@ function readOpenRouterEmbeddingProviderId(): string {
       .map((p: any) => String(p.text || ''))
       .join('')
       .trim();
-    expect(text).toBe('42');
+    expect(text).toBe(SECRET);
 
     const logPath = buildLogPathFor(TEST_FILE);
     const bodies = parseLogBodies(logPath);
@@ -144,6 +146,6 @@ function readOpenRouterEmbeddingProviderId(): string {
       .join('\n');
 
     expect(systemText).toContain(`Relevant context for ${TOKEN}:`);
-    expect(systemText).toContain('meaning of life is 42');
+    expect(systemText).toContain(`SecretAnswer: ${SECRET}`);
   }, 180_000);
 });

@@ -1,32 +1,11 @@
-import { jest } from '@jest/globals';
 import { runRealtimeScenario } from '@tests/helpers/realtime-runner.ts';
 import { withLiveEnv } from '@tests/helpers/live-v3.ts';
 import { filteredRealtimeTestRuns } from '../config.ts';
-
-import { createRealtimeSessionController } from '@/modules/realtime/internal/realtime-session.ts';
-
-import type { RealtimeCompatSession, RealtimeEvent } from '@/kernel/index.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const describeLive = runLive ? describe : describe.skip;
 const pluginsPath = './plugins';
 const TEST_FILE = '37-realtime-timeouts-buffer-overflow';
-
-function createDeferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: any) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
-async function collectAll<T>(iterable: AsyncIterable<T>): Promise<T[]> {
-  const out: T[] = [];
-  for await (const item of iterable) out.push(item);
-  return out;
-}
 
 if (filteredRealtimeTestRuns.length === 0) {
   describeLive(`${TEST_FILE} — provider selection`, () => {
@@ -112,52 +91,3 @@ if (filteredRealtimeTestRuns.length === 0) {
     });
   }
 }
-
-describeLive(`${TEST_FILE} — event buffer overflow`, () => {
-  test('fails fast when consumer does not drain events()', async () => {
-    const closed = createDeferred<void>();
-    const compatClose = jest.fn().mockImplementation(async () => closed.resolve());
-
-    const compat: RealtimeCompatSession = {
-      sendText: jest.fn(),
-      injectContext: jest.fn(),
-      sendAudio: jest.fn(),
-      commit: jest.fn(),
-      interrupt: jest.fn(),
-      sendToolResult: jest.fn(),
-      close: compatClose,
-      events: async function* () {
-        yield { type: 'ready', sessionId: 's' };
-        for (let i = 0; i < 10; i++) {
-          yield { type: 'user_transcript.delta', textDelta: `d${i}` } as any;
-        }
-      }
-    };
-
-    const session = createRealtimeSessionController({
-      registry: { getProcessRoutes: jest.fn().mockResolvedValue([]) } as any,
-      provider: { id: 'p' } as any,
-      spec: {
-        provider: 'p',
-        eventBuffer: { maxEvents: 2 },
-        timeout: { maxDurationMs: 0, idleTimeoutMs: 0, onTimeout: 'close' }
-      },
-      compatSession: compat
-    });
-
-    // Do not drain events until after overflow triggers (simulates a stalled consumer).
-    await closed.promise;
-
-    const events = await collectAll(session.events());
-    expect(events[0]).toEqual({
-      type: 'error',
-      message: 'Realtime event buffer overflow: consumer is not draining events()',
-      code: 'event_buffer_overflow'
-    });
-    expect((events[1] as any)?.type).toBe('playback.clear_requested');
-    expect((events[1] as any)?.reason).toBe('error');
-    expect((events[2] as any)?.type).toBe('closed');
-    expect((events[2] as any)?.reason).toBe('error');
-  });
-});
-

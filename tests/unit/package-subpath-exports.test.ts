@@ -2,9 +2,6 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-const runLive = process.env.LLM_LIVE === '1';
-const TEST_FILE = '00b-utility-exports';
-
 function hasSurrogateBoundaryBug(value: string): boolean {
   if (!value) return false;
   const first = value.charCodeAt(0);
@@ -14,7 +11,7 @@ function hasSurrogateBoundaryBug(value: string): boolean {
   return startsWithLow || endsWithHigh;
 }
 
-(runLive ? describe : describe.skip)(TEST_FILE, () => {
+describe('package subpath exports (dist)', () => {
   let chunkText: typeof import('llm-adapter/vector').chunkText;
   let chunkFile: typeof import('llm-adapter/vector').chunkFile;
   let bytesToBase64: typeof import('llm-adapter/audio').bytesToBase64;
@@ -26,8 +23,6 @@ function hasSurrogateBoundaryBug(value: string): boolean {
   let resamplePcm16Samples: typeof import('llm-adapter/audio').resamplePcm16Samples;
 
   beforeAll(async () => {
-    // Use dynamic imports so we validate the published package surface (exports)
-    // without relying on Jest's module resolver to support self-references.
     ({ chunkText, chunkFile } = await import('llm-adapter/vector'));
     ({
       bytesToBase64,
@@ -40,7 +35,7 @@ function hasSurrogateBoundaryBug(value: string): boolean {
     } = await import('llm-adapter/audio'));
   });
 
-  test('chunkText produces deterministic chunks (boundaries, overlap, ids)', () => {
+  test('vector: chunkText produces deterministic chunks (boundaries, overlap, ids)', () => {
     const chunks = chunkText('abcdefghijklmnopqrstuvwxyz', { chunkSize: 10, chunkOverlap: 2 });
     expect(chunks.length).toBe(4);
     expect(chunks.map(c => c.text)).toEqual(['abcdefghij', 'ijklmnopqr', 'qrstuvwxyz', 'yz']);
@@ -54,7 +49,7 @@ function hasSurrogateBoundaryBug(value: string): boolean {
     expect(chunks.map(c => c.metadata?.chunkIndex)).toEqual([0, 1, 2, 3]);
   });
 
-  test('chunkText handles empty/whitespace, overlap clamping, separators, sentences, and unicode safely', () => {
+  test('vector: chunkText handles empty/whitespace, overlap clamping, separators, sentences, and unicode safely', () => {
     expect(chunkText('   \n\t  ', { chunkSize: 10, chunkOverlap: 2 })).toEqual([]);
 
     const clamped = chunkText('abcdef', { chunkSize: 5, chunkOverlap: 999 });
@@ -72,8 +67,8 @@ function hasSurrogateBoundaryBug(value: string): boolean {
     }
   });
 
-  test('chunkFile includes file metadata and preserves deterministic chunk boundaries', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-live-v3-'));
+  test('vector: chunkFile includes file metadata and preserves deterministic chunk boundaries', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-exports-'));
     const filePath = path.join(dir, 'sample.txt');
     fs.writeFileSync(filePath, 'abcdefghijklmnopqrstuvwxyz', 'utf-8');
 
@@ -101,7 +96,13 @@ function hasSurrogateBoundaryBug(value: string): boolean {
 
     const frameBytes = bytesForDurationMs({ format: 'pcm16', sampleRateHz: 8000, channels: 1, durationMs: 20 });
     expect(frameBytes).toBe(320);
-    const frames = splitBytesIntoFrames({ bytes: sampleBytes, format: 'pcm16', sampleRateHz: 8000, channels: 1, frameMs: 20 });
+    const frames = splitBytesIntoFrames({
+      bytes: sampleBytes,
+      format: 'pcm16',
+      sampleRateHz: 8000,
+      channels: 1,
+      frameMs: 20
+    });
     expect(frames.length).toBeGreaterThan(0);
     expect(Array.from(frames.flatMap(f => Array.from(f)))).toEqual(Array.from(sampleBytes));
 
@@ -110,3 +111,4 @@ function hasSurrogateBoundaryBug(value: string): boolean {
     expect(Array.from(resampledA)).toEqual(Array.from(resampledB));
   });
 });
+
