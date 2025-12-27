@@ -269,6 +269,7 @@ export async function waitForLangfuseTrace(
 
   const url = `${baseUrl}/api/public/traces/${encodeURIComponent(String(traceId))}`;
   const start = Date.now();
+  const useGlobalReadSlot = env.LLM_LIVE === '1';
 
   let delay = minDelayMs;
   let lastStatus: number | null = null;
@@ -290,13 +291,21 @@ export async function waitForLangfuseTrace(
     try {
       res = await withConcurrencyLimit(
         () =>
-          fetchWithGlobalReadSlot(url, {
-            method: 'GET',
-            headers: {
-              Authorization: authorization,
-              Accept: 'application/json'
-            }
-          }),
+          useGlobalReadSlot
+            ? fetchWithGlobalReadSlot(url, {
+              method: 'GET',
+              headers: {
+                Authorization: authorization,
+                Accept: 'application/json'
+              }
+            })
+            : fetch(url, {
+              method: 'GET',
+              headers: {
+                Authorization: authorization,
+                Accept: 'application/json'
+              }
+            }),
         concurrency
       );
     } catch {
@@ -410,6 +419,7 @@ export async function waitForLangfuseTraceToBeMissing(
   const maxDelayMs = Math.max(minDelayMs, Math.floor(opts.maxDelayMs ?? defaultMaxDelayMs));
 
   const concurrency = Math.max(1, Math.floor(opts.concurrency ?? DEFAULT_CONCURRENCY));
+  const useGlobalReadSlot = env.LLM_LIVE === '1';
 
   const url = `${baseUrl}/api/public/traces/${encodeURIComponent(String(traceId))}`;
   const start = Date.now();
@@ -427,13 +437,21 @@ export async function waitForLangfuseTraceToBeMissing(
     try {
       res = await withConcurrencyLimit(
         () =>
-          fetchWithGlobalReadSlot(url, {
-            method: 'GET',
-            headers: {
-              Authorization: authorization,
-              Accept: 'application/json'
-            }
-          }),
+          useGlobalReadSlot
+            ? fetchWithGlobalReadSlot(url, {
+              method: 'GET',
+              headers: {
+                Authorization: authorization,
+                Accept: 'application/json'
+              }
+            })
+            : fetch(url, {
+              method: 'GET',
+              headers: {
+                Authorization: authorization,
+                Accept: 'application/json'
+              }
+            }),
         concurrency
       );
     } catch {
