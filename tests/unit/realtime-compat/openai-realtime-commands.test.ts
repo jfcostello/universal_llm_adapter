@@ -48,7 +48,7 @@ describe('realtime-compat/openai — commands', () => {
     expect(event.session.audio.input.transcription.model).toBe('whisper-1');
     expect(event.session.audio.input.transcription.language).toBe('en');
     expect(event.session.audio.input.turn_detection.type).toBe('server_vad');
-    expect(event.session.audio.input.turn_detection.create_response).toBe(false);
+    expect(event.session.audio.input.turn_detection.create_response).toBe(true);
     expect(event.session.audio.input.turn_detection.interrupt_response).toBe(false);
     expect(Array.isArray(event.session.tools)).toBe(true);
     expect(event.session.tools).toHaveLength(1);

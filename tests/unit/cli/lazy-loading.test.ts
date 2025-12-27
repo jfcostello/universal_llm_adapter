@@ -94,7 +94,13 @@ describe('unified CLI lazy loading', () => {
         exit: jest.fn()
       });
 
-      await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', '{"messages":[],"llmPriority":[]}']);
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'run',
+        '--spec',
+        '{"messages":[],"llmPriority":[{"provider":"p","model":"m"}],"settings":{}}'
+      ]);
 
       expect(createLlmCoordinator).toHaveBeenCalled();
       expect(createVectorCoordinator).not.toHaveBeenCalled();
@@ -124,7 +130,13 @@ describe('unified CLI lazy loading', () => {
         exit: jest.fn()
       });
 
-      await program.parseAsync(['node', 'llm-adapter', 'stream', '--spec', '{"messages":[],"llmPriority":[]}']);
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'stream',
+        '--spec',
+        '{"messages":[],"llmPriority":[{"provider":"p","model":"m"}],"settings":{}}'
+      ]);
 
       expect(createLlmCoordinator).toHaveBeenCalled();
       expect(createVectorCoordinator).not.toHaveBeenCalled();

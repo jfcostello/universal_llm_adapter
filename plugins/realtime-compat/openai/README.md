@@ -64,9 +64,9 @@ Common events include:
 
 ## Turn detection (`server_vad`)
 
-When `spec.turnDetection.mode === 'server_vad'`, this compat enables provider-side VAD **for speech boundary events** (`user_speech.started` / `user_speech.stopped`) but keeps **provider auto-response disabled** (`create_response: false`).
+When `spec.turnDetection.mode === 'server_vad'`, this compat enables provider-side VAD **for speech boundary events** (`user_speech.started` / `user_speech.stopped`) and enables **provider auto-response** (`create_response: true`) so audio turns produce an assistant response without an explicit `session.commit()`.
 
-This keeps response creation deterministic and owned by the adapter via `session.commit()` (which maps to `response.create`), avoiding double-turns in downstream bridges that also commit on `user_speech.stopped` (for example the Twilio Media Streams bridge).
+In this mode, `session.commit()` is only needed for explicit **text turns** (typed input / DTMF). For audio turns, the provider will begin the response automatically when speech stops.
 
 ## History injection
 

@@ -8,6 +8,13 @@ import type {
 } from '../lifecycle/index.js';
 import { createServerHandler } from './internal/handler.js';
 
+export { mapErrorToHttp } from './internal/transport/error-mapper.js';
+export {
+  assertValidSpec,
+  assertValidVectorSpec,
+  assertValidEmbeddingSpec
+} from './internal/transport/spec-validator.js';
+
 export interface ServerDependencies
   extends CoordinatorLifecycleDeps<PluginRegistryLike, any> {
   getDefaults?: typeof getDefaults;
@@ -186,6 +193,18 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
     options.registry ?? (await deps.createRegistry(pluginsPath));
   if (typeof (registry as any).loadAll === 'function') {
     await (registry as any).loadAll();
+  }
+
+  // Optional: fail-fast plugin validation (opt-in). Useful for long-lived servers and live tests.
+  if (String(process.env.LLM_ADAPTER_VALIDATE_PLUGINS || '').trim() === '1') {
+    const registryAny = registry as any;
+    if (registryAny && typeof registryAny.validateAll === 'function') {
+      const validatedKey = Symbol.for('llm_adapter_plugins_validated');
+      if (registryAny[validatedKey] !== true) {
+        await registryAny.validateAll();
+        registryAny[validatedKey] = true;
+      }
+    }
   }
 
   const handler = createServerHandler({

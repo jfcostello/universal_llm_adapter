@@ -14,6 +14,14 @@ describe('cli/internal/unified-cli', () => {
   let mockRunningServer: any;
   let mockDeps: any;
 
+  const VALID_LLM_SPEC_JSON = JSON.stringify({
+    messages: [],
+    llmPriority: [{ provider: 'p', model: 'm' }],
+    settings: {}
+  });
+  const VALID_VECTOR_SPEC_JSON = JSON.stringify({ operation: 'query', store: 'test' });
+  const VALID_EMBEDDINGS_SPEC_JSON = JSON.stringify({ operation: 'embed' });
+
   beforeEach(async () => {
     jest.resetModules();
     capturedOutputs = [];
@@ -1013,7 +1021,11 @@ describe('cli/internal/unified-cli', () => {
   describe('run command (LLM)', () => {
     test('executes LLM run with spec from --spec option', async () => {
       const program = createUnifiedProgram(mockDeps);
-      const spec = { provider: 'test', messages: [] };
+      const spec = {
+        messages: [],
+        llmPriority: [{ provider: 'test', model: 'm' }],
+        settings: {}
+      };
 
       await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', JSON.stringify(spec), '-p', './test-plugins']);
 
@@ -1027,7 +1039,7 @@ describe('cli/internal/unified-cli', () => {
     test('uses default plugins path when not specified', async () => {
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', VALID_LLM_SPEC_JSON]);
 
       expect(mockDeps.createRegistry).toHaveBeenCalledWith('./plugins');
     });
@@ -1044,7 +1056,7 @@ describe('cli/internal/unified-cli', () => {
         return true;
       });
 
-      await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', VALID_LLM_SPEC_JSON]);
 
       expect(writtenData.some(d => d.includes('"type":"response"'))).toBe(true);
       jest.spyOn(process.stdout, 'write').mockRestore();
@@ -1054,7 +1066,7 @@ describe('cli/internal/unified-cli', () => {
       mockLlmCoordinator.run.mockRejectedValue(new Error('Test error'));
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', VALID_LLM_SPEC_JSON]);
 
       expect(capturedExitCodes).toEqual([1]);
       expect(capturedErrors[capturedErrors.length - 1]).toContain('Test error');
@@ -1065,10 +1077,46 @@ describe('cli/internal/unified-cli', () => {
       mockLlmCoordinator.run.mockRejectedValue('string error');
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', VALID_LLM_SPEC_JSON]);
 
       expect(capturedExitCodes).toEqual([1]);
       expect(capturedErrors[capturedErrors.length - 1]).toContain('string error');
+    });
+
+    test('writeStructuredError falls back when error mapper throws (message + code)', async () => {
+      const err: any = { message: 'fallback-message', code: 'fallback_code' };
+      Object.defineProperty(err, 'statusCode', {
+        get() {
+          throw new Error('boom');
+        }
+      });
+
+      mockLlmCoordinator.run.mockRejectedValue(err);
+      const program = createUnifiedProgram(mockDeps);
+
+      await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', VALID_LLM_SPEC_JSON]);
+
+      expect(capturedExitCodes).toEqual([1]);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('fallback-message');
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('fallback_code');
+    });
+
+    test('writeStructuredError falls back when error mapper throws (stringified error + default code)', async () => {
+      const err: any = { toString: () => 'stringified-error' };
+      Object.defineProperty(err, 'statusCode', {
+        get() {
+          throw new Error('boom');
+        }
+      });
+
+      mockLlmCoordinator.run.mockRejectedValue(err);
+      const program = createUnifiedProgram(mockDeps);
+
+      await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', VALID_LLM_SPEC_JSON]);
+
+      expect(capturedExitCodes).toEqual([1]);
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('stringified-error');
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('internal');
     });
 
     test('supports --pretty option', async () => {
@@ -1081,7 +1129,7 @@ describe('cli/internal/unified-cli', () => {
         return true;
       });
 
-      await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', '{}', '--pretty']);
+      await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', VALID_LLM_SPEC_JSON, '--pretty']);
 
       // Pretty output should have newlines and indentation
       const prettyOutput = writtenData.find(d => d.includes('"type"'));
@@ -1092,7 +1140,7 @@ describe('cli/internal/unified-cli', () => {
     test('supports --batch-id option', async () => {
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', '{}', '--batch-id', 'test-batch']);
+      await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', VALID_LLM_SPEC_JSON, '--batch-id', 'test-batch']);
 
       expect(capturedExitCodes).toEqual([0]);
     });
@@ -1102,7 +1150,7 @@ describe('cli/internal/unified-cli', () => {
     test('executes LLM stream and outputs events', async () => {
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'stream', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'stream', '--spec', VALID_LLM_SPEC_JSON]);
 
       expect(mockDeps.createLlmCoordinator).toHaveBeenCalled();
       expect(mockLlmCoordinator.runStream).toHaveBeenCalled();
@@ -1113,7 +1161,7 @@ describe('cli/internal/unified-cli', () => {
     test('uses default plugins path for stream when not specified', async () => {
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'stream', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'stream', '--spec', VALID_LLM_SPEC_JSON]);
 
       expect(mockDeps.createRegistry).toHaveBeenCalledWith('./plugins');
     });
@@ -1121,7 +1169,7 @@ describe('cli/internal/unified-cli', () => {
     test('uses custom plugins path for stream when specified', async () => {
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'stream', '--spec', '{}', '-p', './custom-plugins']);
+      await program.parseAsync(['node', 'llm-adapter', 'stream', '--spec', VALID_LLM_SPEC_JSON, '-p', './custom-plugins']);
 
       expect(mockDeps.createRegistry).toHaveBeenCalledWith('./custom-plugins');
     });
@@ -1132,7 +1180,7 @@ describe('cli/internal/unified-cli', () => {
       })());
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'stream', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'stream', '--spec', VALID_LLM_SPEC_JSON]);
 
       expect(capturedExitCodes).toEqual([1]);
     });
@@ -1143,7 +1191,7 @@ describe('cli/internal/unified-cli', () => {
       })());
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'stream', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'stream', '--spec', VALID_LLM_SPEC_JSON]);
 
       expect(capturedExitCodes).toEqual([1]);
       expect(capturedErrors[capturedErrors.length - 1]).toContain('string stream error');
@@ -1153,7 +1201,7 @@ describe('cli/internal/unified-cli', () => {
   describe('vector run command', () => {
     test('executes vector run with spec', async () => {
       const program = createUnifiedProgram(mockDeps);
-      const spec = { provider: 'test', operation: 'query' };
+      const spec = { operation: 'query', store: 'test' };
 
       await program.parseAsync(['node', 'llm-adapter', 'vector', 'run', '--spec', JSON.stringify(spec)]);
 
@@ -1165,7 +1213,7 @@ describe('cli/internal/unified-cli', () => {
     test('uses default plugins path for vector run when not specified', async () => {
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'vector', 'run', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'vector', 'run', '--spec', VALID_VECTOR_SPEC_JSON]);
 
       expect(mockDeps.createRegistry).toHaveBeenCalledWith('./plugins');
     });
@@ -1173,7 +1221,7 @@ describe('cli/internal/unified-cli', () => {
     test('uses custom plugins path for vector run when specified', async () => {
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'vector', 'run', '--spec', '{}', '-p', './custom-plugins']);
+      await program.parseAsync(['node', 'llm-adapter', 'vector', 'run', '--spec', VALID_VECTOR_SPEC_JSON, '-p', './custom-plugins']);
 
       expect(mockDeps.createRegistry).toHaveBeenCalledWith('./custom-plugins');
     });
@@ -1182,7 +1230,7 @@ describe('cli/internal/unified-cli', () => {
       mockVectorCoordinator.execute.mockRejectedValue(new Error('Vector error'));
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'vector', 'run', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'vector', 'run', '--spec', VALID_VECTOR_SPEC_JSON]);
 
       expect(capturedExitCodes).toEqual([1]);
     });
@@ -1191,7 +1239,7 @@ describe('cli/internal/unified-cli', () => {
       mockVectorCoordinator.execute.mockRejectedValue('string vector error');
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'vector', 'run', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'vector', 'run', '--spec', VALID_VECTOR_SPEC_JSON]);
 
       expect(capturedExitCodes).toEqual([1]);
       expect(capturedErrors[capturedErrors.length - 1]).toContain('string vector error');
@@ -1202,7 +1250,7 @@ describe('cli/internal/unified-cli', () => {
     test('executes vector stream and outputs events', async () => {
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'vector', 'stream', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'vector', 'stream', '--spec', VALID_VECTOR_SPEC_JSON]);
 
       expect(mockVectorCoordinator.executeStream).toHaveBeenCalled();
       expect(capturedOutputs.filter(o => o.includes('"type"'))).toHaveLength(2);
@@ -1212,7 +1260,7 @@ describe('cli/internal/unified-cli', () => {
     test('uses default plugins path for vector stream when not specified', async () => {
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'vector', 'stream', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'vector', 'stream', '--spec', VALID_VECTOR_SPEC_JSON]);
 
       expect(mockDeps.createRegistry).toHaveBeenCalledWith('./plugins');
     });
@@ -1220,7 +1268,7 @@ describe('cli/internal/unified-cli', () => {
     test('uses custom plugins path for vector stream when specified', async () => {
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'vector', 'stream', '--spec', '{}', '-p', './custom-plugins']);
+      await program.parseAsync(['node', 'llm-adapter', 'vector', 'stream', '--spec', VALID_VECTOR_SPEC_JSON, '-p', './custom-plugins']);
 
       expect(mockDeps.createRegistry).toHaveBeenCalledWith('./custom-plugins');
     });
@@ -1230,7 +1278,7 @@ describe('cli/internal/unified-cli', () => {
     test('query command executes vector run', async () => {
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'vector', 'query', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'vector', 'query', '--spec', VALID_VECTOR_SPEC_JSON]);
 
       expect(mockVectorCoordinator.execute).toHaveBeenCalled();
       expect(capturedExitCodes).toEqual([0]);
@@ -1239,7 +1287,7 @@ describe('cli/internal/unified-cli', () => {
     test('upsert command executes vector run', async () => {
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'vector', 'upsert', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'vector', 'upsert', '--spec', VALID_VECTOR_SPEC_JSON]);
 
       expect(mockVectorCoordinator.execute).toHaveBeenCalled();
     });
@@ -1247,7 +1295,7 @@ describe('cli/internal/unified-cli', () => {
     test('embed command executes vector run', async () => {
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'vector', 'embed', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'vector', 'embed', '--spec', VALID_VECTOR_SPEC_JSON]);
 
       expect(mockVectorCoordinator.execute).toHaveBeenCalled();
     });
@@ -1255,7 +1303,7 @@ describe('cli/internal/unified-cli', () => {
     test('delete command executes vector run', async () => {
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'vector', 'delete', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'vector', 'delete', '--spec', VALID_VECTOR_SPEC_JSON]);
 
       expect(mockVectorCoordinator.execute).toHaveBeenCalled();
     });
@@ -1263,7 +1311,7 @@ describe('cli/internal/unified-cli', () => {
     test('collections command executes vector run', async () => {
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'vector', 'collections', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'vector', 'collections', '--spec', VALID_VECTOR_SPEC_JSON]);
 
       expect(mockVectorCoordinator.execute).toHaveBeenCalled();
     });
@@ -1271,7 +1319,7 @@ describe('cli/internal/unified-cli', () => {
     test('embed command with --stream flag uses streaming', async () => {
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'vector', 'embed', '--spec', '{}', '--stream']);
+      await program.parseAsync(['node', 'llm-adapter', 'vector', 'embed', '--spec', VALID_VECTOR_SPEC_JSON, '--stream']);
 
       expect(mockVectorCoordinator.executeStream).toHaveBeenCalled();
     });
@@ -1280,7 +1328,7 @@ describe('cli/internal/unified-cli', () => {
   describe('embeddings run command', () => {
     test('executes embedding run with spec', async () => {
       const program = createUnifiedProgram(mockDeps);
-      const spec = { provider: 'test', texts: ['hello'] };
+      const spec = { operation: 'embed', input: { texts: ['hello'] } };
 
       await program.parseAsync(['node', 'llm-adapter', 'embeddings', 'run', '--spec', JSON.stringify(spec)]);
 
@@ -1292,7 +1340,7 @@ describe('cli/internal/unified-cli', () => {
     test('uses default plugins path for embeddings run when not specified', async () => {
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'embeddings', 'run', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'embeddings', 'run', '--spec', VALID_EMBEDDINGS_SPEC_JSON]);
 
       expect(mockDeps.createRegistry).toHaveBeenCalledWith('./plugins');
     });
@@ -1300,7 +1348,7 @@ describe('cli/internal/unified-cli', () => {
     test('uses custom plugins path for embeddings run when specified', async () => {
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'embeddings', 'run', '--spec', '{}', '-p', './custom-plugins']);
+      await program.parseAsync(['node', 'llm-adapter', 'embeddings', 'run', '--spec', VALID_EMBEDDINGS_SPEC_JSON, '-p', './custom-plugins']);
 
       expect(mockDeps.createRegistry).toHaveBeenCalledWith('./custom-plugins');
     });
@@ -1309,7 +1357,7 @@ describe('cli/internal/unified-cli', () => {
       mockEmbeddingCoordinator.execute.mockRejectedValue(new Error('Embedding error'));
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'embeddings', 'run', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'embeddings', 'run', '--spec', VALID_EMBEDDINGS_SPEC_JSON]);
 
       expect(capturedExitCodes).toEqual([1]);
     });
@@ -1318,7 +1366,7 @@ describe('cli/internal/unified-cli', () => {
       mockEmbeddingCoordinator.execute.mockRejectedValue('string embedding error');
       const program = createUnifiedProgram(mockDeps);
 
-      await program.parseAsync(['node', 'llm-adapter', 'embeddings', 'run', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'embeddings', 'run', '--spec', VALID_EMBEDDINGS_SPEC_JSON]);
 
       expect(capturedExitCodes).toEqual([1]);
       expect(capturedErrors[capturedErrors.length - 1]).toContain('string embedding error');
@@ -1514,7 +1562,8 @@ describe('cli/internal/unified-cli', () => {
 
       await withTempCwd('unified-cli-spec', async (dir) => {
         const specPath = `${dir}/spec.json`;
-        writeJson(specPath, { from: 'file' });
+        const spec = JSON.parse(VALID_LLM_SPEC_JSON);
+        writeJson(specPath, spec);
 
         jest.resetModules();
         const module = await import('@/modules/cli/internal/unified-cli.ts');
@@ -1522,7 +1571,7 @@ describe('cli/internal/unified-cli', () => {
 
         await program.parseAsync(['node', 'llm-adapter', 'run', '--file', specPath]);
 
-        expect(mockLlmCoordinator.run).toHaveBeenCalledWith({ from: 'file' });
+        expect(mockLlmCoordinator.run).toHaveBeenCalledWith(spec);
       });
     });
 
@@ -1601,7 +1650,7 @@ describe('cli/internal/unified-cli', () => {
         createVectorCoordinator: mockCreateVectorCoordinator
       });
 
-      await program.parseAsync(['node', 'llm-adapter', 'vector', 'run', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'vector', 'run', '--spec', VALID_VECTOR_SPEC_JSON]);
 
       expect(mockCreateVectorCoordinator).toHaveBeenCalled();
     });
@@ -1614,7 +1663,7 @@ describe('cli/internal/unified-cli', () => {
         createEmbeddingCoordinator: mockCreateEmbeddingCoordinator
       });
 
-      await program.parseAsync(['node', 'llm-adapter', 'embeddings', 'run', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'embeddings', 'run', '--spec', VALID_EMBEDDINGS_SPEC_JSON]);
 
       expect(mockCreateEmbeddingCoordinator).toHaveBeenCalled();
     });
@@ -1655,7 +1704,7 @@ describe('cli/internal/unified-cli', () => {
         log: (msg: string) => console.log(msg)
       });
 
-      await program.parseAsync(['node', 'llm-adapter', 'stream', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'stream', '--spec', VALID_LLM_SPEC_JSON]);
 
       expect(consoleLogSpy).toHaveBeenCalled();
 
@@ -1674,7 +1723,7 @@ describe('cli/internal/unified-cli', () => {
         exit: exitSpy
       });
 
-      await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', '{}']);
+      await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', VALID_LLM_SPEC_JSON]);
 
       expect(consoleErrorSpy).toHaveBeenCalled();
       expect(exitSpy).toHaveBeenCalledWith(1);

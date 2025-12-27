@@ -39,7 +39,10 @@ export function mapErrorToHttp(error: any): { status: number; body: any } {
     status = 502;
   }
 
-  const message = error?.message ?? 'Server error';
+  const message =
+    typeof error === 'string' || typeof error === 'number' || typeof error === 'boolean'
+      ? String(error)
+      : error?.message ?? 'Server error';
   const code = normalizeCode(status, error);
   const details = error?.details;
 

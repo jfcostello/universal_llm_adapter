@@ -100,7 +100,10 @@ function hasCorrelationId(correlationId?: string | string[]): boolean {
   return true;
 }
 
-function createAdapterFileFormat(correlationId?: string | string[]): winston.Logform.Format {
+function createAdapterFileFormat(
+  correlationId: string | string[] | undefined,
+  jsonReplacer: ((key: string, value: any) => any) | undefined
+): winston.Logform.Format {
   return winston.format.printf((info: TransformableInfo) => {
     const { level, message, ...data } = info as TransformableInfo & {
       level: unknown;
@@ -115,7 +118,7 @@ function createAdapterFileFormat(correlationId?: string | string[]): winston.Log
     if (Object.keys(data).length > 0) {
       Object.assign(logObj, data);
     }
-    return `[${timestamp}]: ${JSON.stringify(logObj)}`;
+    return `[${timestamp}]: ${JSON.stringify(logObj, jsonReplacer)}`;
   });
 }
 
@@ -156,11 +159,12 @@ export class BaseAdapterLogger {
     this.correlationId = correlationId;
 
     const transports: winston.transport[] = [];
+    const jsonReplacer = (key: string, value: any) => this.jsonReplacer(key, value);
 
     if (!disableFileLogs) {
       this.ensureDir(logDir);
       const { batchId } = getBatchEnv();
-      const fileFormat = createAdapterFileFormat(this.correlationId);
+      const fileFormat = createAdapterFileFormat(this.correlationId, jsonReplacer);
 
       if (batchId) {
         applyRetentionOnce(logDir, {
@@ -184,7 +188,7 @@ export class BaseAdapterLogger {
           const logObj: any = { type: 'log', timestamp, level: lvl, message };
           if (hasCorrelationId(this.correlationId)) logObj.correlationId = this.correlationId;
           if (Object.keys(data).length > 0) logObj.data = data;
-          return JSON.stringify(logObj);
+          return JSON.stringify(logObj, jsonReplacer);
         })
       });
 

@@ -1,6 +1,6 @@
 {
   "name": "test.echo",
-  "description": "Echo back a message exactly as provided. Used for integration testing.",
+  "description": "Return the provided message reversed with a length prefix (format: [R:length]reversed_message). Used for integration testing.",
   "parametersJsonSchema": {
     "type": "object",
     "properties": {

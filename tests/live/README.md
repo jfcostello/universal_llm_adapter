@@ -126,5 +126,5 @@ OPENROUTER_API_KEY=your-openrouter-key  # For embeddings
 npm run test:live:openrouter
 
 # Run specific vector store test
-LLM_LIVE=1 npx jest tests/live/test-files/16-vector-store.live.test.ts
+LLM_LIVE=1 npx jest tests/live/test-files-v3/16-vector-store.live.test.ts
 ```

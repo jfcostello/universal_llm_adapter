@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { detectMimeType } from './mime-types.js';
+import { detectMimeType, MIME_TYPES } from './mime-types.js';
+import { isValidBase64 } from './document-validator.js';
 import type { DocumentContent } from '../../../kernel/index.js';
 
 /**
@@ -105,7 +106,30 @@ export function processDocumentContent(content: DocumentContent): DocumentConten
 
   // For other source types, ensure mimeType and filename are set
   if (!content.mimeType) {
-    throw new Error('mimeType is required for non-filepath document sources');
+    const error = new Error('mimeType is required for non-filepath document sources');
+    (error as any).statusCode = 400;
+    (error as any).code = 'validation_error';
+    throw error;
+  }
+
+  const supported = new Set<string>(Object.values(MIME_TYPES) as string[]);
+  if (!supported.has(content.mimeType)) {
+    const error = new Error(`Unsupported document mimeType: ${content.mimeType}`);
+    (error as any).statusCode = 415;
+    (error as any).code = 'unsupported_mime_type';
+    throw error;
+  }
+
+  // Validate base64 payloads for base64 sources.
+  if (content.source.type === 'base64') {
+    const dataRaw = String(content.source.data ?? '');
+    const data = dataRaw.replace(/\s+/g, '');
+    if (!data || !isValidBase64(data) || data.length % 4 !== 0) {
+      const error = new Error('Invalid base64 document data');
+      (error as any).statusCode = 400;
+      (error as any).code = 'validation_error';
+      throw error;
+    }
   }
 
   return {
@@ -113,4 +137,3 @@ export function processDocumentContent(content: DocumentContent): DocumentConten
     filename: content.filename || 'document'
   };
 }
-

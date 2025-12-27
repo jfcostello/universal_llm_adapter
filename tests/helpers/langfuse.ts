@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { buildLogPathFor, parseLogBodies } from './live-v2.ts';
+import { buildLogPathFor, parseLogBodies } from './live-v3.ts';
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));

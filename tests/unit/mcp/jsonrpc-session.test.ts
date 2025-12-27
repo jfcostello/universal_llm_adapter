@@ -69,4 +69,15 @@ describe('mcp/JSONRPCSession', () => {
 
     jest.useRealTimers();
   });
+
+  test('wraps non-Error stream errors when failing pending requests', async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const session = new JSONRPCSession(input, output);
+
+    const pending = session.request('pending');
+    input.emit('error', 'boom');
+
+    await expect(pending).rejects.toThrow('boom');
+  });
 });

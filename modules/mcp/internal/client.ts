@@ -67,11 +67,41 @@ export class JSONRPCSession extends EventEmitter {
     this.setupStreams();
   }
 
+  private failAllPending(error: Error): void {
+    for (const [id, entry] of this.pending.entries()) {
+      if (entry.timer) {
+        clearTimeout(entry.timer);
+      }
+      try {
+        entry.reject(error);
+      } catch {
+        // best-effort
+      }
+      this.pending.delete(id);
+    }
+  }
+
   private setupStreams(): void {
     this.input.on('data', (chunk) => {
       this.buffer += chunk.toString();
       this.processBuffer();
     });
+
+    const onClosed = () => {
+      this.failAllPending(new Error('MCP connection closed'));
+    };
+
+    const onError = (err: any) => {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.failAllPending(error);
+    };
+
+    this.input.on('end', onClosed);
+    this.input.on('close', onClosed);
+    this.input.on('error', onError);
+
+    (this.output as any).on?.('error', onError);
+    (this.output as any).on?.('close', onClosed);
   }
 
   private processBuffer(): void {

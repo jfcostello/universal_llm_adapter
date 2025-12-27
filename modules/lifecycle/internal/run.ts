@@ -31,6 +31,18 @@ export async function runWithCoordinatorLifecycle<S, R extends PluginRegistryLik
     await lifecycleRegistry.loadAll();
   }
 
+  // Optional: fail-fast plugin validation (opt-in for live runs / long-lived processes).
+  if (String(process.env.LLM_ADAPTER_VALIDATE_PLUGINS || '').trim() === '1') {
+    const registryAny = lifecycleRegistry as any;
+    if (registryAny && typeof registryAny.validateAll === 'function') {
+      const validatedKey = Symbol.for('llm_adapter_plugins_validated');
+      if (registryAny[validatedKey] !== true) {
+        await registryAny.validateAll();
+        registryAny[validatedKey] = true;
+      }
+    }
+  }
+
   let coordinator: any;
   let result: T | undefined;
   let primaryError: unknown;

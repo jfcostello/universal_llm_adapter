@@ -1,0 +1,6 @@
+{
+  "id": "memory",
+  "kind": "memory",
+  "connection": {},
+  "defaultCollection": "test"
+}

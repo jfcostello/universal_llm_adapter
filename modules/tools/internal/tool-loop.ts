@@ -669,7 +669,8 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
             type: ToolCallEventType.TOOL_RESULT,
             callId: toolCall.id,
             name: targetToolName,
-            arguments: JSON.stringify(normalizedPayload)
+            arguments: JSON.stringify(normalizedPayload),
+            resultText: truncatedText
           }
         };
       }

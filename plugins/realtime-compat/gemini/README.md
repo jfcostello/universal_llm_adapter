@@ -69,6 +69,11 @@ Runtime `session.injectContext(items)` is **not supported** and will throw.
   - sends `activityStart` on the first audio frame after a commit boundary
   - sends `activityEnd` on `commit()`
   - emits `user_speech.started` / `user_speech.stopped` locally for faster barge-in flows
+- `turnDetection.mode=server_vad`:
+  - leaves provider automatic activity detection enabled
+  - emits `user_speech.started` locally on the first audio frame in a detected user turn
+  - emits `user_speech.stopped` when the server reports turn completion
+  - emits `user_transcript.final` at turn completion when transcription is enabled
 - `interrupt()` sends an empty `clientContent` message which interrupts any current model generation.
 
 ## Tool calling

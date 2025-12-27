@@ -233,7 +233,16 @@ export class LLMManager {
             url: `SDK:${provider.id}/${model}`,
             method: 'SDK_CALL',
             headers: {},
-            body: { model, messages: normalizedMessages, tools, toolChoice, settings, providerExtras }
+            body: {
+              __liveType: 'normalized_llm_request',
+              model,
+              provider: provider.id,
+              messages: normalizedMessages,
+              tools,
+              toolChoice,
+              settings,
+              providerExtras
+            }
           }, context.metadata);
         } catch (e) {
           // Live logger not available, skip
@@ -419,6 +428,24 @@ export class LLMManager {
         if (shouldLogLive) {
           try {
             const { logRequest } = await import('./live-test-logger.js');
+            logRequest(
+              {
+                url: `NORMALIZED:${provider.id}/${model}`,
+                method: 'NORMALIZED_CALL',
+                headers: {},
+                body: {
+                  __liveType: 'normalized_llm_request',
+                  model,
+                  provider: provider.id,
+                  messages: normalizedMessages,
+                  tools,
+                  toolChoice,
+                  settings,
+                  providerExtras
+                }
+              },
+              context.metadata
+            );
             logRequest(
               {
                 url,
@@ -776,7 +803,16 @@ export class LLMManager {
             url: `SDK:${provider.id}/${model}`,
             method: 'SDK_STREAM',
             headers: {},
-            body: { model, messages: normalizedMessages, tools, toolChoice, settings, providerExtras }
+            body: {
+              __liveType: 'normalized_llm_stream_request',
+              model,
+              provider: provider.id,
+              messages: normalizedMessages,
+              tools,
+              toolChoice,
+              settings,
+              providerExtras
+            }
           }, context.metadata);
         } catch (e) {
           // live-test logger not available, skip logging
@@ -850,6 +886,24 @@ export class LLMManager {
     if (process.env.LLM_LIVE === '1') {
       try {
         const { logRequest } = await import('./live-test-logger.js');
+        logRequest(
+          {
+            url: `NORMALIZED:${provider.id}/${model}`,
+            method: 'NORMALIZED_STREAM',
+            headers: {},
+            body: {
+              __liveType: 'normalized_llm_stream_request',
+              model,
+              provider: provider.id,
+              messages: normalizedMessages,
+              tools,
+              toolChoice,
+              settings,
+              providerExtras
+            }
+          },
+          context.metadata
+        );
         logRequest({
           url,
           method: provider.endpoint.method,

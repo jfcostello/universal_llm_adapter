@@ -1382,6 +1382,54 @@ describe('modules/realtime/internal/realtime-session', () => {
     await expect((session as any).handleTimeout('idle')).resolves.toBeUndefined();
   });
 
+  test('timeout timers start after ready (even if time elapses + client activity happens pre-ready)', async () => {
+    jest.useFakeTimers();
+
+    const readyGate = createDeferred<void>();
+    const closed = createDeferred<void>();
+
+    const compatClose = jest.fn().mockImplementation(() => closed.resolve());
+    const compat: RealtimeCompatSession = {
+      sendText: jest.fn(),
+      injectContext: jest.fn(),
+      sendAudio: jest.fn(),
+      commit: jest.fn(),
+      interrupt: jest.fn(),
+      sendToolResult: jest.fn(),
+      close: compatClose,
+      events: async function* () {
+        await readyGate.promise;
+        yield { type: 'ready', sessionId: 's' };
+        await closed.promise;
+      }
+    };
+
+    const session = createRealtimeSessionController({
+      registry: { getProcessRoutes: jest.fn().mockResolvedValue([]) },
+      provider: { id: 'p' } as any,
+      spec: { provider: 'p', timeout: { maxDurationMs: 0, idleTimeoutMs: 10, onTimeout: 'close' } },
+      compatSession: compat
+    });
+
+    // Covers: onActivity() before ready must not schedule idle timers.
+    await session.sendText({ text: 'hello', role: 'user' });
+
+    const iter = session.events()[Symbol.asyncIterator]();
+
+    // Even if time elapses beyond idleTimeout before ready, the first event must still be ready.
+    await jest.advanceTimersByTimeAsync(50);
+    readyGate.resolve();
+    expect((await iter.next()).value).toMatchObject({ type: 'ready' });
+
+    await jest.advanceTimersByTimeAsync(10);
+    expect((await iter.next()).value).toMatchObject({ type: 'timeout', reason: 'idle' });
+    expect((await iter.next()).value).toMatchObject({ type: 'playback.clear_requested', reason: 'timeout' });
+    expect((await iter.next()).value).toMatchObject({ type: 'closed', reason: 'timeout' });
+    await expect(iter.next()).resolves.toEqual({ value: undefined, done: true });
+
+    expect(compatClose).toHaveBeenCalled();
+  });
+
   test('timeout (max_duration) emits timeout but does not close when onTimeout=warn', async () => {
     jest.useFakeTimers();
 

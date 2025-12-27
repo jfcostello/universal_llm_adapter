@@ -175,6 +175,7 @@ async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealti
   });
 
   const envelopes: RealtimeServerEnvelope[] = [];
+  const seenEventCounts = new Map<string, number>();
   const q = new EnvelopeQueue();
   let stdout = '';
   let stdoutLineBuf = '';
@@ -190,6 +191,12 @@ async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealti
       try {
         const parsed = JSON.parse(line) as RealtimeServerEnvelope;
         if (parsed && (parsed.type === 'event' || parsed.type === 'error')) {
+          if (parsed.type === 'event') {
+            const t = String((parsed as any)?.event?.type ?? '');
+            if (t) {
+              seenEventCounts.set(t, (seenEventCounts.get(t) ?? 0) + 1);
+            }
+          }
           envelopes.push(parsed);
           q.push(parsed);
         }
@@ -221,6 +228,9 @@ async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealti
     if (env.type === 'error') throw new Error(env.error?.message ?? 'Realtime CLI error');
     if (env.type === 'event' && env.event?.type === 'ready') break;
   }
+
+  const baselineEventCounts = new Map(seenEventCounts);
+  const claimedEventCounts = new Map<string, number>();
 
   for (const step of options.steps) {
     switch (step.type) {
@@ -260,10 +270,20 @@ async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealti
         const want = String(step.eventType ?? '').trim();
         if (!want) throw new Error('wait_for_event missing eventType');
         const stepTimeoutMs = Number(step.timeoutMs ?? timeoutMs);
-        while (true) {
+        const baseline = baselineEventCounts.get(want) ?? 0;
+        const alreadyClaimed = claimedEventCounts.get(want) ?? 0;
+        const targetCount = baseline + alreadyClaimed + 1;
+        const deadline = Date.now() + stepTimeoutMs;
+
+        while ((seenEventCounts.get(want) ?? 0) < targetCount) {
+          const remainingMs = deadline - Date.now();
+          if (remainingMs <= 0) {
+            throw new Error(`Timed out waiting for realtime event '${want}' (${stepTimeoutMs}ms)`);
+          }
+
           let env: RealtimeServerEnvelope;
           try {
-            env = await q.next(stepTimeoutMs);
+            env = await q.next(remainingMs);
           } catch (err: any) {
             if (err instanceof Error && err.message.startsWith('Timed out waiting for realtime envelope')) {
               throw new Error(`Timed out waiting for realtime event '${want}' (${stepTimeoutMs}ms)`);
@@ -271,8 +291,9 @@ async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealti
             throw err;
           }
           if (env.type === 'error') throw new Error(env.error?.message ?? 'Realtime CLI error');
-          if (env.type === 'event' && env.event?.type === want) break;
         }
+
+        claimedEventCounts.set(want, alreadyClaimed + 1);
         break;
       }
       case 'sleep_ms':
@@ -325,6 +346,7 @@ async function runViaServer(options: RunRealtimeScenarioOptions): Promise<RunRea
   const wsLib = require('ws');
   const ws = new wsLib.WebSocket(wsUrl, headers ? { headers } : undefined);
   const envelopes: RealtimeServerEnvelope[] = [];
+  const seenEventCounts = new Map<string, number>();
   const q = new EnvelopeQueue();
   let stdout = '';
   let stderr = '';
@@ -350,6 +372,12 @@ async function runViaServer(options: RunRealtimeScenarioOptions): Promise<RunRea
     try {
       const parsed = JSON.parse(text) as RealtimeServerEnvelope;
       if (parsed && (parsed.type === 'event' || parsed.type === 'error')) {
+        if (parsed.type === 'event') {
+          const t = String((parsed as any)?.event?.type ?? '');
+          if (t) {
+            seenEventCounts.set(t, (seenEventCounts.get(t) ?? 0) + 1);
+          }
+        }
         envelopes.push(parsed);
         q.push(parsed);
       }
@@ -371,6 +399,9 @@ async function runViaServer(options: RunRealtimeScenarioOptions): Promise<RunRea
     if (env.type === 'error') throw new Error(env.error?.message ?? 'Realtime WS error');
     if (env.type === 'event' && env.event?.type === 'ready') break;
   }
+
+  const baselineEventCounts = new Map(seenEventCounts);
+  const claimedEventCounts = new Map<string, number>();
 
   for (const step of options.steps) {
     switch (step.type) {
@@ -404,10 +435,20 @@ async function runViaServer(options: RunRealtimeScenarioOptions): Promise<RunRea
         const want = String(step.eventType ?? '').trim();
         if (!want) throw new Error('wait_for_event missing eventType');
         const stepTimeoutMs = Number(step.timeoutMs ?? timeoutMs);
-        while (true) {
+        const baseline = baselineEventCounts.get(want) ?? 0;
+        const alreadyClaimed = claimedEventCounts.get(want) ?? 0;
+        const targetCount = baseline + alreadyClaimed + 1;
+        const deadline = Date.now() + stepTimeoutMs;
+
+        while ((seenEventCounts.get(want) ?? 0) < targetCount) {
+          const remainingMs = deadline - Date.now();
+          if (remainingMs <= 0) {
+            throw new Error(`Timed out waiting for realtime event '${want}' (${stepTimeoutMs}ms)`);
+          }
+
           let env: RealtimeServerEnvelope;
           try {
-            env = await q.next(stepTimeoutMs);
+            env = await q.next(remainingMs);
           } catch (err: any) {
             if (err instanceof Error && err.message.startsWith('Timed out waiting for realtime envelope')) {
               throw new Error(`Timed out waiting for realtime event '${want}' (${stepTimeoutMs}ms)`);
@@ -415,8 +456,9 @@ async function runViaServer(options: RunRealtimeScenarioOptions): Promise<RunRea
             throw err;
           }
           if (env.type === 'error') throw new Error(env.error?.message ?? 'Realtime WS error');
-          if (env.type === 'event' && env.event?.type === want) break;
         }
+
+        claimedEventCounts.set(want, alreadyClaimed + 1);
         break;
       }
       case 'sleep_ms':

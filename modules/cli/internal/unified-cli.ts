@@ -93,6 +93,19 @@ export function createUnifiedProgram(
   const deps: UnifiedCliDependencies = { ...defaultDependencies, ...partialDeps };
   const program = new Command();
 
+  const writeStructuredError = async (error: any) => {
+    try {
+      const { mapErrorToHttp } = await import('../../server/index.js');
+      const mapped = mapErrorToHttp(error);
+      deps.error(JSON.stringify(mapped.body));
+      return;
+    } catch {
+      const message = error?.message ?? String(error);
+      const code = error?.code ? String(error.code) : 'internal';
+      deps.error(JSON.stringify({ type: 'error', error: { message, code } }));
+    }
+  };
+
   program
     .name('llm-adapter')
     .description('LLM Adapter CLI - Unified interface for LLM, Vector, and Embedding operations')
@@ -114,8 +127,10 @@ export function createUnifiedProgram(
         const { loadSpec } = await import('./spec-loader.js');
         const { writeJsonToStdout } = await import('./stdout-writer.js');
         const { runWithCoordinatorLifecycle } = await import('../../lifecycle/index.js');
+        const { assertValidSpec } = await import('../../server/index.js');
 
         const spec = await loadSpec<LLMCallSpec>(options);
+        assertValidSpec(spec);
         const response = await runWithCoordinatorLifecycle<LLMCallSpec, PluginRegistryLike, LLMCoordinatorLike, unknown>({
           spec,
           pluginsPath: options.plugins,
@@ -133,7 +148,7 @@ export function createUnifiedProgram(
         await writeJsonToStdout(wrappedResponse, { pretty: options.pretty });
         deps.exit(0);
       } catch (error: any) {
-        deps.error(JSON.stringify({ error: error?.message ?? String(error) }));
+        await writeStructuredError(error);
         deps.exit(1);
       }
     });
@@ -149,8 +164,10 @@ export function createUnifiedProgram(
       try {
         const { loadSpec } = await import('./spec-loader.js');
         const { streamWithCoordinatorLifecycle } = await import('../../lifecycle/index.js');
+        const { assertValidSpec } = await import('../../server/index.js');
 
         const spec = await loadSpec<LLMCallSpec>(options);
+        assertValidSpec(spec);
         for await (const event of streamWithCoordinatorLifecycle<LLMCallSpec, PluginRegistryLike, LLMCoordinatorLike, LLMStreamEvent>({
           spec,
           pluginsPath: options.plugins,
@@ -167,7 +184,7 @@ export function createUnifiedProgram(
         }
         deps.exit(0);
       } catch (error: any) {
-        deps.error(JSON.stringify({ error: error?.message ?? String(error) }));
+        await writeStructuredError(error);
         deps.exit(1);
       }
     });
@@ -188,8 +205,10 @@ export function createUnifiedProgram(
       const { loadSpec } = await import('./spec-loader.js');
       const { writeJsonToStdout } = await import('./stdout-writer.js');
       const { runWithCoordinatorLifecycle, streamWithCoordinatorLifecycle } = await import('../../lifecycle/index.js');
+      const { assertValidVectorSpec } = await import('../../server/index.js');
 
       const spec = await loadSpec<VectorCallSpec>(options);
+      assertValidVectorSpec(spec);
 
       if (streaming) {
         for await (const event of streamWithCoordinatorLifecycle<VectorCallSpec, PluginRegistryLike, VectorCoordinatorLike, VectorStreamEvent>({
@@ -224,7 +243,7 @@ export function createUnifiedProgram(
       }
       deps.exit(0);
     } catch (error: any) {
-      deps.error(JSON.stringify({ error: error?.message ?? String(error) }));
+      await writeStructuredError(error);
       deps.exit(1);
     }
   };
@@ -297,8 +316,10 @@ export function createUnifiedProgram(
         const { loadSpec } = await import('./spec-loader.js');
         const { writeJsonToStdout } = await import('./stdout-writer.js');
         const { runWithCoordinatorLifecycle } = await import('../../lifecycle/index.js');
+        const { assertValidEmbeddingSpec } = await import('../../server/index.js');
 
         const spec = await loadSpec<EmbeddingCallSpec>(options);
+        assertValidEmbeddingSpec(spec);
         const result = await runWithCoordinatorLifecycle<EmbeddingCallSpec, PluginRegistryLike, EmbeddingCoordinatorLike, unknown>({
           spec,
           pluginsPath: options.plugins,
@@ -316,7 +337,7 @@ export function createUnifiedProgram(
         await writeJsonToStdout(wrappedResponse, { pretty: options.pretty });
         deps.exit(0);
       } catch (error: any) {
-        deps.error(JSON.stringify({ error: error?.message ?? String(error) }));
+        await writeStructuredError(error);
         deps.exit(1);
       }
     });
@@ -483,7 +504,7 @@ export function createUnifiedProgram(
         process.on('SIGINT', shutdown);
         process.on('SIGTERM', shutdown);
       } catch (error: any) {
-        deps.error(JSON.stringify({ error: error?.message ?? String(error) }));
+        await writeStructuredError(error);
         deps.exit(1);
       }
     });
@@ -615,7 +636,7 @@ export function createUnifiedProgram(
 
         deps.exit(0);
       } catch (error: any) {
-        deps.error(JSON.stringify({ error: error?.message ?? String(error) }));
+        await writeStructuredError(error);
         deps.exit(1);
       }
     });

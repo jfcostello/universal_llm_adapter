@@ -9,6 +9,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { redactJsonCredentials } from '../../security/index.js';
 
 export interface LiveTestLogContext {
   correlationId?: string;
@@ -95,7 +96,7 @@ function redactHeaders(headers: Record<string, any>): Record<string, any> {
 
 function stringifyBody(body: any): string {
   try {
-    return JSON.stringify(body, null, 2);
+    return JSON.stringify(redactJsonCredentials(body), null, 2);
   } catch {
     return String(body);
   }

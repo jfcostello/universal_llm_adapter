@@ -7,6 +7,91 @@ export function resolveAjvConstructor(mod: any) {
 const Ajv = resolveAjvConstructor(AjvImport as any);
 const ajv = new Ajv({ allErrors: true, strict: false });
 
+const contentPartSchema: any = {
+  anyOf: [
+    {
+      type: 'object',
+      required: ['type', 'text'],
+      properties: {
+        type: { type: 'string', enum: ['text'] },
+        text: { type: 'string' }
+      },
+      additionalProperties: true
+    },
+    {
+      type: 'object',
+      required: ['type', 'imageUrl'],
+      properties: {
+        type: { type: 'string', enum: ['image'] },
+        imageUrl: { type: 'string' },
+        mimeType: { type: 'string', nullable: true }
+      },
+      additionalProperties: true
+    },
+    {
+      type: 'object',
+      required: ['type', 'toolName', 'result'],
+      properties: {
+        type: { type: 'string', enum: ['tool_result'] },
+        toolName: { type: 'string' },
+        result: {}
+      },
+      additionalProperties: true
+    },
+    {
+      type: 'object',
+      required: ['type', 'source'],
+      properties: {
+        type: { type: 'string', enum: ['document'] },
+        source: {
+          anyOf: [
+            {
+              type: 'object',
+              required: ['type', 'path'],
+              properties: {
+                type: { type: 'string', enum: ['filepath'] },
+                path: { type: 'string' }
+              },
+              additionalProperties: true
+            },
+            {
+              type: 'object',
+              required: ['type', 'data'],
+              properties: {
+                type: { type: 'string', enum: ['base64'] },
+                data: { type: 'string' }
+              },
+              additionalProperties: true
+            },
+            {
+              type: 'object',
+              required: ['type', 'url'],
+              properties: {
+                type: { type: 'string', enum: ['url'] },
+                url: { type: 'string' }
+              },
+              additionalProperties: true
+            },
+            {
+              type: 'object',
+              required: ['type', 'fileId'],
+              properties: {
+                type: { type: 'string', enum: ['file_id'] },
+                fileId: { type: 'string' }
+              },
+              additionalProperties: true
+            }
+          ]
+        },
+        mimeType: { type: 'string', nullable: true },
+        filename: { type: 'string', nullable: true },
+        providerOptions: { type: 'object', nullable: true, additionalProperties: true }
+      },
+      additionalProperties: true
+    }
+  ]
+};
+
 const llmSpecSchema: any = {
   type: 'object',
   required: ['messages', 'llmPriority', 'settings'],
@@ -22,12 +107,7 @@ const llmSpecSchema: any = {
           content: {
             type: 'array',
             items: {
-              type: 'object',
-              required: ['type'],
-              properties: {
-                type: { type: 'string' }
-              },
-              additionalProperties: true
+              ...contentPartSchema
             }
           },
           name: { type: 'string', nullable: true },
@@ -66,6 +146,7 @@ const llmSpecSchema: any = {
     vectorContext: { type: 'object', nullable: true, additionalProperties: true },
     toolChoice: {
       anyOf: [
+        { type: 'string', enum: ['auto', 'none'] },
         { type: 'object', additionalProperties: true },
         { type: 'null' }
       ]

@@ -112,10 +112,9 @@ export function buildSessionUpdateEvent(options: {
     turnMode === 'server_vad'
       ? {
           type: 'server_vad',
-          // Core owns response creation via `session.commit()` (which maps to `response.create`).
-          // Keeping provider-side auto-response on can cause double turns when downstream bridges
-          // also commit on normalized `user_speech.stopped` events.
-          create_response: false,
+          // Provider auto-creates responses when speech stops in server_vad mode so callers do
+          // not need to explicitly invoke `session.commit()` for audio turns.
+          create_response: true,
           // Keep provider-side interruption off; core owns barge-in semantics.
           interrupt_response: false
         }

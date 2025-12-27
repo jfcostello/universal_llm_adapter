@@ -84,8 +84,15 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
     tools: options.tools
   });
 
+  const turnMode = spec.turnDetection?.mode ?? 'manual_commit';
+  const activityDriven = turnMode === 'manual_commit';
+  let activityStarted = false;
+  let pendingTextTurn = false;
+
   const state: GeminiRealtimeMapperState = {
     audio,
+    turnMode,
+    userSpeechActive: false,
     unifiedToolNameByProviderName: new Map(
       (options.tools ?? []).map(t => [sanitizeToolName(t.name), t.name] as const)
     ),
@@ -108,11 +115,6 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
   const expectedHistory = Array.isArray(spec.history) ? spec.history : undefined;
   let startupHistoryCallAccepted = false;
   const pendingSends: any[] = [];
-
-  const turnMode = spec.turnDetection?.mode ?? 'manual_commit';
-  const activityDriven = turnMode === 'manual_commit';
-  let activityStarted = false;
-  let pendingTextTurn = false;
 
   const emitReadyOnce = () => {
     if (readySent) return;
@@ -218,6 +220,9 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
         sendOrBuffer(buildGeminiActivityStartMessage());
         activityStarted = true;
         // Emit local speech-start immediately for barge-in.
+        queue.push({ type: 'user_speech.started' });
+      } else if (!activityDriven && !state.userSpeechActive) {
+        state.userSpeechActive = true;
         queue.push({ type: 'user_speech.started' });
       }
       sendOrBuffer(

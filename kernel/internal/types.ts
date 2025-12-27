@@ -978,6 +978,11 @@ export interface ToolCallEvent {
   argumentsDelta?: string;
   arguments?: string;
   /**
+   * Tool output text as surfaced to the model (may be truncated based on settings/tool budgets).
+   * Present for TOOL_RESULT events emitted by the adapter tool loop.
+   */
+  resultText?: string;
+  /**
    * Provider-specific metadata for this tool call event.
    * Used to preserve encrypted signatures that must be sent back in subsequent
    * requests for multi-turn tool conversations.

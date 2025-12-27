@@ -31,6 +31,10 @@ const DEFAULTS_WITHOUT_SECURITY_HEADERS = {
 } as any;
 
 describe('utils/server index default branches', () => {
+  afterEach(() => {
+    delete process.env.LLM_ADAPTER_VALIDATE_PLUGINS;
+  });
+
   test('createServerHandlerWithDefaults tolerates missing nested defaults', async () => {
     const handler = createServerHandlerWithDefaults({
       registry: { loadAll: jest.fn() } as any,
@@ -112,6 +116,48 @@ describe('utils/server index default branches', () => {
 
   test('createServer uses default options when omitted', async () => {
     const running = await createServer();
+    await running.close();
+  });
+
+  test('createServer optionally validates plugins once per registry when LLM_ADAPTER_VALIDATE_PLUGINS=1', async () => {
+    process.env.LLM_ADAPTER_VALIDATE_PLUGINS = '1';
+
+    const registry: any = {
+      loadAll: jest.fn().mockResolvedValue(undefined),
+      validateAll: jest.fn().mockResolvedValue(undefined)
+    };
+
+    const deps: any = {
+      getDefaults: () => DEFAULTS_WITHOUT_NESTED,
+      createRegistry: jest.fn().mockResolvedValue(registry),
+      createCoordinator: jest.fn(),
+      closeLogger: jest.fn().mockResolvedValue(undefined)
+    };
+
+    const first = await createServer({ deps } as any);
+    await first.close();
+    expect(registry.validateAll).toHaveBeenCalledTimes(1);
+
+    const second = await createServer({ deps } as any);
+    await second.close();
+    expect(registry.validateAll).toHaveBeenCalledTimes(1);
+  });
+
+  test('createServer skips plugin validation when validateAll is not available', async () => {
+    process.env.LLM_ADAPTER_VALIDATE_PLUGINS = '1';
+
+    const registry: any = {
+      loadAll: jest.fn().mockResolvedValue(undefined)
+    };
+
+    const deps: any = {
+      getDefaults: () => DEFAULTS_WITHOUT_NESTED,
+      createRegistry: jest.fn().mockResolvedValue(registry),
+      createCoordinator: jest.fn(),
+      closeLogger: jest.fn().mockResolvedValue(undefined)
+    };
+
+    const running = await createServer({ deps } as any);
     await running.close();
   });
 

@@ -406,12 +406,15 @@ export class LLMCoordinator {
       throw new Error('LLMCallSpec.llmPriority must include at least one provider');
     }
 
-    const { runtime, provider, providerExtras } = partitionSettings(spec.settings);
+    // Streaming delegates to StreamCoordinator, which re-partitions settings (runtime vs provider) and
+    // needs access to the *runtime* settings for tool loop behavior (truncation, countdown, budgets, etc).
+    // Keep the original settings on the spec and only extract runtime here for environment overrides.
+    const { runtime } = partitionSettings(spec.settings);
     await this.applyRuntimeEnvironment(runtime);
 
     const executionSpec: LLMCallSpec = {
       ...spec,
-      settings: provider
+      settings: spec.settings
     };
 
     const providerPref = executionSpec.llmPriority[0];
@@ -610,7 +613,25 @@ export class LLMCoordinator {
       ...msg,
       content: msg.content.map(part => {
         if (part.type === 'document') {
-          return processDocumentContent(part as DocumentContent);
+          const processed = processDocumentContent(part as DocumentContent);
+
+          // Provider-agnostic fallback: inline text-like documents as plain text so
+          // text-only models/providers can still answer doc-grounded questions.
+          if (processed.source.type === 'base64') {
+            const mimeType = String(processed.mimeType).toLowerCase();
+            const isTextLike =
+              mimeType.startsWith('text/') ||
+              mimeType === 'application/json' ||
+              mimeType === 'application/xml';
+
+            if (isTextLike) {
+              const decoded = Buffer.from(String(processed.source.data), 'base64').toString('utf-8');
+              const header = `Document (${processed.filename}; ${processed.mimeType}):\n`;
+              return { type: 'text', text: `${header}${decoded}` } as any;
+            }
+          }
+
+          return processed;
         }
         return part;
       })

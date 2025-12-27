@@ -8,6 +8,7 @@
  * - test_calculate: Add two numbers
  * - test_reverse: Reverse a string
  * - test_timestamp: Get current timestamp
+ * - test_fail: Deterministically fail (for error-path coverage)
  */
 
 import readline from 'readline';
@@ -82,6 +83,20 @@ const tools = [
     inputSchema: {
       type: 'object',
       properties: {},
+      additionalProperties: false
+    }
+  },
+  {
+    name: 'test_fail',
+    description: 'Deterministically fail with a stable error (for error-path coverage)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          description: 'Optional message to include in the failure'
+        }
+      },
       additionalProperties: false
     }
   }
@@ -230,6 +245,14 @@ rl.on('line', (line) => {
             }
           ]
         });
+        return;
+      }
+
+      if (toolName === 'test_fail') {
+        const msg = typeof args.message === 'string' && args.message.trim()
+          ? args.message.trim()
+          : 'forced failure';
+        respondError(message.id, -32000, `test_fail: ${msg}`);
         return;
       }
 

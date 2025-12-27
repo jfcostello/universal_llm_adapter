@@ -95,6 +95,14 @@ export function substituteEnv(value: any): any {
 
 export function loadJsonFile(filePath: string): any {
   const content = fs.readFileSync(filePath, 'utf-8');
-  const data = JSON.parse(content);
-  return substituteEnv(data);
+  try {
+    const data = JSON.parse(content);
+    return substituteEnv(data);
+  } catch (error: any) {
+    const message = error?.message ? String(error.message) : String(error);
+    const err = new Error(`Invalid JSON in file '${filePath}': ${message}`);
+    (err as any).code = 'invalid_json';
+    (err as any).filePath = filePath;
+    throw err;
+  }
 }
