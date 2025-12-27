@@ -341,6 +341,10 @@ export class MCPClientPool {
     this.logger = options?.logger ?? getNoopLogger();
   }
 
+  getServerIds(): string[] {
+    return this.servers.map(s => s.id);
+  }
+
   async listTools(serverId: string): Promise<UnifiedTool[]> {
     const connection = await this.getConnection(serverId);
     return connection.listTools();
