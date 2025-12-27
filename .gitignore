@@ -69,23 +69,29 @@ Thumbs.db
 plugins/mcp/**
 !plugins/mcp/
 !plugins/mcp/test-server.json
+!plugins/mcp/crashmcp.json
 
 # mcp-servers
 plugins/mcp-servers/**
 !plugins/mcp-servers/
 !plugins/mcp-servers/test-server.mjs
+!plugins/mcp-servers/crash-server.mjs
 
 # processes
 plugins/processes/**
 !plugins/processes/
 !plugins/processes/test.echo.json
 !plugins/processes/test.random.json
+!plugins/processes/test.control.json
+!plugins/processes/test.control.nonterminal.json
 
 # tools
 plugins/tools/**
 !plugins/tools/
 !plugins/tools/test.echo.json
 !plugins/tools/test.random.json
+!plugins/tools/test.control.json
+!plugins/tools/test.control.nonterminal.json
 
 .claude
 claude.md

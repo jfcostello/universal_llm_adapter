@@ -1,0 +1,19 @@
+{
+  "name": "test.control.nonterminal",
+  "description": "Live-test helper variant of test.control that is non-terminal by definition.",
+  "terminal": false,
+  "parametersJsonSchema": {
+    "type": "object",
+    "properties": {
+      "override": {
+        "description": "Value returned as tool_type_response_override_terminal (strict booleans are honored; non-booleans are ignored by the tool loop).",
+        "oneOf": [{ "type": "boolean" }, { "type": "string" }, { "type": "null" }]
+      },
+      "sleepMs": {
+        "type": "number",
+        "description": "Optional delay (ms) before returning."
+      }
+    },
+    "additionalProperties": false
+  }
+}

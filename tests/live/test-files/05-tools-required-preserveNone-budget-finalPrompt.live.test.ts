@@ -1,5 +1,5 @@
-import { buildLogPathFor, mergeSettings, parseLogBodies, runLlmOnce } from '@tests/helpers/live-v3.ts';
-import type { LLMResponse, Message } from '@/kernel/index.ts';
+import { buildLogPathFor, mergeSettings, parseLogBodies, runLlmOnce } from '@tests/helpers/live.ts';
+import type { LLMResponse, Message } from '@tests/helpers/live-types.ts';
 import { filteredTestRuns } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';

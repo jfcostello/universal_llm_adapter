@@ -1,7 +1,7 @@
 import path from 'path';
 import fs from 'fs';
 import { runCoordinator, runEmbeddingCoordinator, runVectorCoordinator, type CliResult } from '@tests/helpers/node-cli.ts';
-import type { ContentPart, LLMResponse, Message } from '@/kernel/index.ts';
+import type { ContentPart, LLMResponse, Message } from './live-types.ts';
 
 export function withLiveEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return { ...process.env, LLM_LIVE: '1', ...overrides };
@@ -353,19 +353,19 @@ export async function deleteVectorCollectionAndWaitForMissing(options: {
   }
 }
 
-export interface LiveV3TurnRunner {
+export interface LiveTurnRunner {
   runTurn: (input: string | { content: ContentPart[] } | ContentPart[], name?: string) => Promise<{ result: CliResult; response?: LLMResponse }>;
   getMessages: () => Message[];
   reset: () => void;
 }
 
-export function createLiveV3TurnRunner(options: {
+export function createLiveTurnRunner(options: {
   baseSpec: BaseSpec;
   pluginsPath?: string;
   env?: NodeJS.ProcessEnv;
   cwd?: string;
   testFileBase: string;
-}): LiveV3TurnRunner {
+}): LiveTurnRunner {
   const frozenBase = deepFreeze(cloneJson(options.baseSpec));
   const { messages: baseMessages = [], ...baseConfig } = frozenBase;
 
@@ -377,7 +377,7 @@ export function createLiveV3TurnRunner(options: {
 
   const getMessages = () => cloneJson(messages);
 
-  const runTurn: LiveV3TurnRunner['runTurn'] = async (input, name) => {
+  const runTurn: LiveTurnRunner['runTurn'] = async (input, name) => {
     const userMessage = buildUserMessage(input);
     const nextMessages = [...messages, userMessage];
 

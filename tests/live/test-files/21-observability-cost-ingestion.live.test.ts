@@ -4,7 +4,7 @@ import {
   getLangfuseTraceTotalCost,
   waitForLangfuseTrace
 } from '@tests/helpers/langfuse.ts';
-import { runLlmOnce, mergeSettings } from '@tests/helpers/live-v3.ts';
+import { runLlmOnce, mergeSettings } from '@tests/helpers/live.ts';
 import { filteredTestRuns, liveTestTimeout } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
@@ -62,4 +62,3 @@ const TEST_FILE = '21-observability-cost-ingestion';
     expect(totalCost as number).toBeLessThan((cost as number) * 1.5);
   }, liveTestTimeout(300_000));
 });
-

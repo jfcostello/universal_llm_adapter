@@ -1,6 +1,6 @@
 # test-control (plugin module)
 
-Live-test helper tool used by the v3 suite.
+Live-test helper tool used by the live suite.
 
 ## Tool names
 - `test.control` (terminal by definition)
@@ -13,4 +13,3 @@ Both route to the same module handler.
   - strict booleans (`true`/`false`) are honored by the tool loop
   - non-boolean values are ignored by the tool loop
 - `sleepMs`: optional delay before returning (used to force deterministic timeouts)
-

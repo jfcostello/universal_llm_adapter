@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "crashmcp": {
+      "command": "node",
+      "args": [
+        "./plugins/mcp-servers/crash-server.mjs"
+      ],
+      "env": {},
+      "description": "Crash-on-call MCP server fixture for host failure coverage",
+      "autoStart": false
+    }
+  }
+}

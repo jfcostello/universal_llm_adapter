@@ -1,0 +1,13 @@
+{
+  "id": "test-control",
+  "match": {
+    "type": "exact",
+    "pattern": "test.control"
+  },
+  "invoke": {
+    "kind": "module",
+    "module": "./dist/plugins/modules/test-control/index.js",
+    "function": "handle"
+  },
+  "timeoutMs": 1000
+}

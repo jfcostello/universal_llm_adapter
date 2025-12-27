@@ -1,5 +1,5 @@
-import { collectDeltaText, mergeSettings, runLlmStreamOnce } from '@tests/helpers/live-v3.ts';
-import type { LLMResponse, Message } from '@/kernel/index.ts';
+import { collectDeltaText, mergeSettings, runLlmStreamOnce } from '@tests/helpers/live.ts';
+import type { LLMResponse, Message } from '@tests/helpers/live-types.ts';
 import { filteredTestRuns } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
@@ -55,7 +55,13 @@ function extractAssistantText(response: LLMResponse): string {
     expect(call.result.code).toBe(0);
     expect(call.done).toBeTruthy();
 
+    // toolChoice=auto: tools are available, but no tool calls should occur unless explicitly requested.
+    expect(call.events.some(e => e?.type === 'tool')).toBe(false);
+
     const doneResponse = (call.done as any).response as LLMResponse;
+    expect(Array.isArray(doneResponse?.toolCalls) ? doneResponse.toolCalls.length : 0).toBe(0);
+    expect((doneResponse as any)?.raw?.toolResults).toBeUndefined();
+
     const out = extractAssistantText(doneResponse).trim();
     expect(out).toBe(sentinel);
 

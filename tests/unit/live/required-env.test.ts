@@ -3,8 +3,7 @@ describe('live/required-env', () => {
     const { getTestPathPatternsFromJestArgs } = await import('../../live/required-env.ts');
     const patterns = getTestPathPatternsFromJestArgs([
       'jest.js',
-      '--testPathPattern=live',
-      '--maxWorkers=2'
+      '--testPathPattern=live'
     ]);
     expect(patterns).toEqual(['live']);
   });
