@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { parseLogBodies, buildLogPathFor, runLlmOnce, runVectorOnce, mergeSettings } from '@tests/helpers/live-v3.ts';
+import { buildLogPathFor, deleteVectorCollectionAndWaitForMissing, mergeSettings, parseLogBodies, runLlmOnce, runVectorOnce } from '@tests/helpers/live-v3.ts';
 import { filteredTestRuns } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
@@ -66,22 +66,12 @@ function readOpenRouterEmbeddingProviderId(): string {
   }, 180_000);
 
   afterAll(async () => {
-    try {
-      await runVectorOnce({
-        testFileBase: TEST_FILE,
-        testName: 'cleanup_delete_collection',
-        spec: {
-          operation: 'collections',
-          store: STORE_ID,
-          input: {
-            collectionOp: 'delete',
-            collectionName: collection
-          }
-        }
-      });
-    } catch (error: any) {
-      console.warn('Vector cleanup warning:', error?.message ?? String(error));
-    }
+    await deleteVectorCollectionAndWaitForMissing({
+      testFileBase: TEST_FILE,
+      store: STORE_ID,
+      collectionName: collection,
+      timeoutMs: 50_000
+    });
   }, 60_000);
 
   test('auto-inject (both mode) inserts retrieved context and tool is available', async () => {
@@ -157,4 +147,3 @@ function readOpenRouterEmbeddingProviderId(): string {
     expect(systemText).toContain('meaning of life is 42');
   }, 180_000);
 });
-

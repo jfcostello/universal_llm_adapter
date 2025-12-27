@@ -277,6 +277,82 @@ export async function runVectorOnce(options: {
   return { result, response: payload };
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+export async function deleteVectorCollectionAndWaitForMissing(options: {
+  store: string;
+  collectionName: string;
+  testFileBase: string;
+  pluginsPath?: string;
+  env?: NodeJS.ProcessEnv;
+  cwd?: string;
+  timeoutMs?: number;
+  minDelayMs?: number;
+  maxDelayMs?: number;
+}): Promise<void> {
+  const timeoutMs = Math.max(1000, Math.floor(options.timeoutMs ?? 30_000));
+  const minDelayMs = Math.max(10, Math.floor(options.minDelayMs ?? 500));
+  const maxDelayMs = Math.max(minDelayMs, Math.floor(options.maxDelayMs ?? 5000));
+
+  const { result: deleteResult, response: deleteRes } = await runVectorOnce({
+    testFileBase: options.testFileBase,
+    testName: 'cleanup_delete_collection',
+    pluginsPath: options.pluginsPath,
+    env: options.env,
+    cwd: options.cwd,
+    spec: {
+      operation: 'collections',
+      store: options.store,
+      input: {
+        collectionOp: 'delete',
+        collectionName: options.collectionName
+      }
+    }
+  });
+
+  if (deleteResult.code !== 0) {
+    throw new Error(`Vector cleanup failed: delete collection exited with code ${deleteResult.code}`);
+  }
+  if (deleteRes?.success !== true) {
+    throw new Error('Vector cleanup failed: delete collection did not succeed');
+  }
+
+  const start = Date.now();
+  let delay = minDelayMs;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`Vector cleanup failed: collection still exists after ${timeoutMs}ms`);
+    }
+
+    const { result: existsResult, response: existsRes } = await runVectorOnce({
+      testFileBase: options.testFileBase,
+      testName: 'cleanup_exists_collection',
+      pluginsPath: options.pluginsPath,
+      env: options.env,
+      cwd: options.cwd,
+      spec: {
+        operation: 'collections',
+        store: options.store,
+        input: {
+          collectionOp: 'exists',
+          collectionName: options.collectionName
+        }
+      }
+    });
+
+    if (existsResult.code === 0 && existsRes && typeof existsRes.exists === 'boolean' && existsRes.exists === false) {
+      return;
+    }
+
+    const jitter = Math.floor(Math.random() * Math.max(1, Math.floor(delay / 2)));
+    await sleep(delay + jitter);
+    delay = Math.min(maxDelayMs, Math.floor(delay * 1.5) + 1);
+  }
+}
+
 export interface LiveV3TurnRunner {
   runTurn: (input: string | { content: ContentPart[] } | ContentPart[], name?: string) => Promise<{ result: CliResult; response?: LLMResponse }>;
   getMessages: () => Message[];

@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { runEmbeddingOnce, runVectorOnce } from '@tests/helpers/live-v3.ts';
+import { deleteVectorCollectionAndWaitForMissing, runEmbeddingOnce, runVectorOnce } from '@tests/helpers/live-v3.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const TEST_FILE = '16-vector-store';
@@ -23,40 +23,12 @@ function readOpenRouterEmbeddingProvider(): { id: string; dimensions?: number } 
   const dimensions = embedding.dimensions ?? 1536;
 
   afterAll(async () => {
-    try {
-      await runVectorOnce({
-        testFileBase: TEST_FILE,
-        testName: 'cleanup_delete_collection',
-        spec: {
-          operation: 'collections',
-          store: STORE_ID,
-          input: {
-            collectionOp: 'delete',
-            collectionName: collection
-          }
-        }
-      });
-
-      const { response: existsRes } = await runVectorOnce({
-        testFileBase: TEST_FILE,
-        testName: 'cleanup_exists_collection',
-        spec: {
-          operation: 'collections',
-          store: STORE_ID,
-          input: {
-            collectionOp: 'exists',
-            collectionName: collection
-          }
-        }
-      });
-
-      if (existsRes && typeof existsRes.exists === 'boolean') {
-        expect(existsRes.exists).toBe(false);
-      }
-    } catch (error: any) {
-      // Cleanup should never fail the suite; log for diagnostics.
-      console.warn('Vector cleanup warning:', error?.message ?? String(error));
-    }
+    await deleteVectorCollectionAndWaitForMissing({
+      testFileBase: TEST_FILE,
+      store: STORE_ID,
+      collectionName: collection,
+      timeoutMs: 50_000
+    });
   }, 60_000);
 
   test('collections: create + exists', async () => {
