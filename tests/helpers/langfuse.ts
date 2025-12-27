@@ -14,10 +14,12 @@ function stripTrailingSlashes(url: string): string {
 
 const GLOBAL_LOCK_DIR = path.join(os.tmpdir(), 'universal-llm-adapter-langfuse-read-lock');
 const GLOBAL_LOCK_TTL_MS = 5 * 60_000;
+const DEFAULT_LANGFUSE_429_COOLDOWN_MS = 60_000;
 const GLOBAL_MAX_CONCURRENT_READS = (() => {
   const raw = process.env.LLM_LIVE_LANGFUSE_MAX_CONCURRENT_READS;
   const parsed = raw ? Number.parseInt(String(raw), 10) : NaN;
-  if (!Number.isFinite(parsed) || parsed <= 0) return 3;
+  // Langfuse read-back is heavily polled by live tests; keep concurrency low by default to avoid 429s.
+  if (!Number.isFinite(parsed) || parsed <= 0) return 1;
   return parsed;
 })();
 const GLOBAL_COOLDOWN_FILE = path.join(GLOBAL_LOCK_DIR, 'cooldown.json');
@@ -244,16 +246,16 @@ export async function waitForLangfuseTrace(
   const baseUrl = stripTrailingSlashes(opts.baseUrl ?? getLangfuseBaseUrl(env));
   const authorization = buildLangfuseAuthHeader(env);
   const debugTraceWait = String(env.LLM_LIVE_LANGFUSE_TRACE_DEBUG || '').trim() === '1';
-  const defaultTimeoutMs = env.LLM_LIVE === '1' ? 180_000 : 90_000;
+  const defaultTimeoutMs = env.LLM_LIVE === '1' ? 300_000 : 90_000;
   const configuredTimeoutMs = readPositiveIntEnv(env, 'LLM_LIVE_LANGFUSE_TRACE_TIMEOUT_MS') ?? defaultTimeoutMs;
   const timeoutMs = Math.max(100, Math.floor(configuredTimeoutMs), Math.floor(opts.timeoutMs ?? 0));
 
-  const defaultMinDelayMs = env.LLM_LIVE === '1' ? 1000 : 500;
+  const defaultMinDelayMs = env.LLM_LIVE === '1' ? 2000 : 500;
   const configuredMinDelayMs =
     readPositiveIntEnv(env, 'LLM_LIVE_LANGFUSE_TRACE_MIN_DELAY_MS') ?? defaultMinDelayMs;
   const minDelayMs = Math.max(1, Math.floor(configuredMinDelayMs), Math.floor(opts.minDelayMs ?? 0));
 
-  const defaultMaxDelayMs = env.LLM_LIVE === '1' ? 30_000 : 10_000;
+  const defaultMaxDelayMs = env.LLM_LIVE === '1' ? 60_000 : 10_000;
   const configuredMaxDelayMs =
     readPositiveIntEnv(env, 'LLM_LIVE_LANGFUSE_TRACE_MAX_DELAY_MS') ?? defaultMaxDelayMs;
   const maxDelayMs = Math.max(minDelayMs, Math.floor(configuredMaxDelayMs), Math.floor(opts.maxDelayMs ?? 0));
@@ -369,7 +371,8 @@ export async function waitForLangfuseTrace(
         writeGlobalCooldownFor(Math.ceil(retryAfterSeconds * 1000));
       } else {
         // No Retry-After header; apply a conservative global backoff.
-        writeGlobalCooldownFor(20_000);
+        delay = Math.max(delay, DEFAULT_LANGFUSE_429_COOLDOWN_MS);
+        writeGlobalCooldownFor(DEFAULT_LANGFUSE_429_COOLDOWN_MS);
       }
     }
 
