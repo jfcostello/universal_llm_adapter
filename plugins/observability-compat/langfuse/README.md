@@ -86,6 +86,16 @@ LLM events are mapped onto OTLP spans that Langfuse interprets as observations:
 
 Events with matching `traceId` are grouped into a single trace in Langfuse.
 
+## Cost Ingestion (OTLP)
+
+This compat emits **token usage** and **cost** as separate OTLP attributes:
+
+- Token usage: `langfuse.observation.usage_details` (JSON string of integer usage units)
+- Total + breakdown cost (when available): `langfuse.observation.cost_details` (JSON string; at least `{ "total": <cost> }`)
+- Compatibility mirror: `gen_ai.usage.cost` (float; Langfuse maps this to the `total` cost key)
+
+Cost attributes are only emitted when a finite numeric `usage.cost` is present.
+
 ## Trace IDs
 Langfuse OTLP traces use **OTLP trace IDs** (32 lowercase hex chars). If you provide a non-OTLP `traceId`, the compat derives a valid OTLP trace ID from it; for deterministic trace lookups by ID, pass a 32-char lowercase hex trace ID yourself.
 

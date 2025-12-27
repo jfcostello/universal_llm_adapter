@@ -409,7 +409,7 @@ describe('LLMCoordinator observability', () => {
       }
     });
 
-    test('applies safe/light capture defaults into the observability context', async () => {
+    test('applies capture defaults into the observability context', async () => {
       const registry = createMockRegistry();
       const coordinator = new LLMCoordinator(registry);
 
@@ -428,10 +428,10 @@ describe('LLMCoordinator observability', () => {
       const result = await (coordinator as any).createObservabilityContext(spec, {});
 
       expect(result).toBeDefined();
-      expect((result as any).captureMessages).toBe('none');
-      expect((result as any).captureToolArgs).toBe(false);
-      expect((result as any).captureRequestPayload).toBe(false);
-      expect((result as any).captureRawResponse).toBe(false);
+      expect((result as any).captureMessages).toBe('all');
+      expect((result as any).captureToolArgs).toBe(true);
+      expect((result as any).captureRequestPayload).toBe(true);
+      expect((result as any).captureRawResponse).toBe(true);
       expect((result as any).sampleRate).toBe(1);
       expect((result as any).maxInputTextBytes).toBe(4096);
       expect((result as any).maxOutputTextBytes).toBe(4096);

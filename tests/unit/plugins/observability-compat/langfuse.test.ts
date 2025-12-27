@@ -205,7 +205,7 @@ describe('LangfuseCompat (OTLP)', () => {
       expect(output.includes('\uFFFD')).toBe(false);
     });
 
-    it('sets langfuse tags and maps rich usage_details (snake_case + extras)', () => {
+    it('sets langfuse tags, maps usage_details (tokens only), and emits OTLP cost attributes', () => {
       const ctxReq = { eventIds: ['event-req'] } as any;
       const ctxResp = { eventIds: ['event-resp'] } as any;
 
@@ -225,7 +225,8 @@ describe('LangfuseCompat (OTLP)', () => {
           cached_tokens: 5,
           reasoning_tokens: 2,
           audio_tokens: 0,
-          cost: 0.123
+          cost: 0.123,
+          cost_details: { input: 0.01, output: 0.02, total: 999 }
         } as any
       };
 
@@ -245,9 +246,70 @@ describe('LangfuseCompat (OTLP)', () => {
         total: 30,
         cached_tokens: 5,
         reasoning_tokens: 2,
-        audio_tokens: 0,
-        cost: 0.123
+        audio_tokens: 0
       });
+
+      expect(attrs['gen_ai.usage.cost']).toBe(0.123);
+      const costDetails = JSON.parse(String(attrs['langfuse.observation.cost_details'] || '{}'));
+      expect(costDetails).toEqual({ total: 0.123, input: 0.01, output: 0.02 });
+    });
+
+    it('ignores invalid cost breakdowns and still emits total cost attributes', () => {
+      const ctxReq = { eventIds: ['event-req'] } as any;
+      const ctxResp = { eventIds: ['event-resp'] } as any;
+
+      const resp: ObservabilityLLMResponseEvent = {
+        ...responseEvent,
+        usage: {
+          prompt_tokens: 1,
+          completion_tokens: 2,
+          cost: 0.5,
+          costDetails: []
+        } as any
+      };
+
+      compat.buildBatch([requestEvent], mockManifest, ctxReq);
+      const respBatch = compat.buildBatch([resp], mockManifest, ctxResp);
+
+      const spans = (respBatch.payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+
+      const attrs = spans[0]?.attributes ?? {};
+      expect(attrs['gen_ai.usage.cost']).toBe(0.5);
+      const costDetails = JSON.parse(String(attrs['langfuse.observation.cost_details'] || '{}'));
+      expect(costDetails).toEqual({ total: 0.5 });
+    });
+
+    it('omits OTLP cost attributes when cost is missing', () => {
+      const ctxReq = { eventIds: ['event-req'] } as any;
+      const ctxResp = { eventIds: ['event-resp'] } as any;
+
+      const req: ObservabilityLLMRequestEvent = {
+        ...requestEvent,
+        metadata: {
+          ...requestEvent.metadata,
+          tags: ['transport:cli']
+        }
+      };
+
+      const resp: ObservabilityLLMResponseEvent = {
+        ...responseEvent,
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 20,
+          cached_tokens: 5
+        } as any
+      };
+
+      compat.buildBatch([req], mockManifest, ctxReq);
+      const respBatch = compat.buildBatch([resp], mockManifest, ctxResp);
+
+      const spans = (respBatch.payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+
+      const attrs = spans[0]?.attributes ?? {};
+      expect(attrs['langfuse.observation.cost_details']).toBeUndefined();
+      expect(attrs['gen_ai.usage.cost']).toBeUndefined();
     });
 
     it('keeps request context cached after building a response span (for exporter retries)', () => {
@@ -339,7 +401,7 @@ describe('LangfuseCompat (OTLP)', () => {
 
       const resp: ObservabilityLLMResponseEvent = {
         ...responseEvent,
-        usage: { input: Number.POSITIVE_INFINITY, output: 2 } as any
+        usage: { input: Number.POSITIVE_INFINITY, output: 2, cost: Number.POSITIVE_INFINITY } as any
       };
 
       compat.buildBatch([req], mockManifest, ctxReq);
@@ -349,6 +411,8 @@ describe('LangfuseCompat (OTLP)', () => {
 
       const attrs = spans[0]?.attributes ?? {};
       expect(attrs['langfuse.trace.tags']).toBeUndefined();
+      expect(attrs['langfuse.observation.cost_details']).toBeUndefined();
+      expect(attrs['gen_ai.usage.cost']).toBeUndefined();
 
       const usage = JSON.parse(String(attrs['langfuse.observation.usage_details'] || '{}'));
       expect(usage).toEqual({ output: 2, total: 2 });
