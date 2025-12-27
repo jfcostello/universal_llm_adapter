@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { buildLogPathFor, deleteVectorCollectionAndWaitForMissing, mergeSettings, parseLogBodies, runLlmOnce, runVectorOnce } from '@tests/helpers/live-v3.ts';
+import { buildLogPathFor, deleteVectorCollectionAndWaitForMissing, mergeSettings, parseLogBodies, runLlmOnce, runVectorOnce } from '@tests/helpers/live.ts';
 import { filteredTestRuns } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
@@ -19,7 +19,7 @@ function readOpenRouterEmbeddingProviderId(): string {
 (runLive ? describe : describe.skip)(TEST_FILE, () => {
   const runCfg = filteredTestRuns[0];
   const embeddingProviderId = readOpenRouterEmbeddingProviderId();
-  const collection = `v3_${TEST_FILE}_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+  const collection = `live_${TEST_FILE}_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
 
   beforeAll(async () => {
     expect(runCfg).toBeTruthy();

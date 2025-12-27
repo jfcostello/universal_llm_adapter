@@ -1,5 +1,5 @@
 import { attachLangfuseObservability, createTraceId } from '@tests/helpers/langfuse.ts';
-import { createLiveV3TurnRunner, mergeSettings } from '@tests/helpers/live-v3.ts';
+import { createLiveTurnRunner, mergeSettings } from '@tests/helpers/live.ts';
 import type { ContentPart, LLMResponse } from '@tests/helpers/live-types.ts';
 import { filteredTestRuns, invalidPriorityEntry } from '../config.ts';
 
@@ -59,7 +59,7 @@ function extractText(parts: ContentPart[] | undefined): string {
       traceId
     );
 
-    const runner = createLiveV3TurnRunner({ baseSpec, testFileBase: TEST_FILE });
+    const runner = createLiveTurnRunner({ baseSpec, testFileBase: TEST_FILE });
 
     // Turn 1 (baseline success)
     const t1 = await runner.runTurn('Reply with exactly CORE_OK', 'turn1');

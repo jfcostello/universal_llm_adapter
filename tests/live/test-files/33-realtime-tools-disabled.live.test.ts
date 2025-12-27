@@ -1,5 +1,5 @@
 import { runRealtimeScenario } from '@tests/helpers/realtime-runner.ts';
-import { withLiveEnv } from '@tests/helpers/live-v3.ts';
+import { withLiveEnv } from '@tests/helpers/live.ts';
 import { filteredRealtimeTestRuns } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';

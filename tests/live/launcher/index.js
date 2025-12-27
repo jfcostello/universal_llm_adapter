@@ -103,7 +103,7 @@ export function buildJestArgs({ maxWorkers, passthrough }) {
 
   const args = [jestBin];
   if (!hasCustomPattern) {
-    // Default to the v3 live suite directory.
+    // Default to the live suite directory.
     args.push('--testPathPattern=tests[\\\\/]live[\\\\/]test-files');
   }
 

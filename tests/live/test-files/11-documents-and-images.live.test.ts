@@ -1,4 +1,4 @@
-import { buildLogPathFor, mergeSettings, parseLogBodies, runLlmOnce } from '@tests/helpers/live-v3.ts';
+import { buildLogPathFor, mergeSettings, parseLogBodies, runLlmOnce } from '@tests/helpers/live.ts';
 import { getTmpRoot } from '@tests/helpers/paths.ts';
 import type { LLMResponse, Message } from '@tests/helpers/live-types.ts';
 import { filteredTestRuns } from '../config.ts';

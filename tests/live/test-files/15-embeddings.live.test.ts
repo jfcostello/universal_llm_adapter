@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { runEmbeddingOnce } from '@tests/helpers/live-v3.ts';
+import { runEmbeddingOnce } from '@tests/helpers/live.ts';
 import { invalidPriorityEntry } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';

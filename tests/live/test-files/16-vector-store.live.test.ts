@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { deleteVectorCollectionAndWaitForMissing, runEmbeddingOnce, runVectorOnce } from '@tests/helpers/live-v3.ts';
+import { deleteVectorCollectionAndWaitForMissing, runEmbeddingOnce, runVectorOnce } from '@tests/helpers/live.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const TEST_FILE = '16-vector-store';
@@ -19,7 +19,7 @@ function readOpenRouterEmbeddingProvider(): { id: string; dimensions?: number } 
 
 (runLive ? describe : describe.skip)(TEST_FILE, () => {
   const embedding = readOpenRouterEmbeddingProvider();
-  const collection = `v3_${TEST_FILE}_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+  const collection = `live_${TEST_FILE}_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
   const dimensions = embedding.dimensions ?? 1536;
 
   afterAll(async () => {

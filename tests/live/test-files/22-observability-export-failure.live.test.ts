@@ -1,5 +1,5 @@
 import { attachLangfuseObservability, createTraceId, waitForLangfuseTraceToBeMissing } from '@tests/helpers/langfuse.ts';
-import { buildLogPathFor, parseLogBodies, runLlmOnce, mergeSettings } from '@tests/helpers/live-v3.ts';
+import { buildLogPathFor, parseLogBodies, runLlmOnce, mergeSettings } from '@tests/helpers/live.ts';
 import { filteredTestRuns } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';

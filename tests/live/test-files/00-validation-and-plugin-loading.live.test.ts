@@ -4,7 +4,7 @@ import path from 'path';
 import { runCoordinator, runVectorCoordinator } from '@tests/helpers/node-cli.ts';
 import { startLiveServerProcess } from '@tests/helpers/live-server.ts';
 import { resolveFixture } from '@tests/helpers/paths.ts';
-import { withLiveEnv } from '@tests/helpers/live-v3.ts';
+import { withLiveEnv } from '@tests/helpers/live.ts';
 import { filteredTestRuns } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
@@ -281,7 +281,7 @@ async function runCli(args: string[], env: NodeJS.ProcessEnv): Promise<{ code: n
 
     const transport = String(process.env.LLM_LIVE_TRANSPORT || '').trim().toLowerCase();
     if (transport === 'server') {
-      const batchId = `v3-vector-misconfig-${Date.now()}`;
+      const batchId = `live-vector-misconfig-${Date.now()}`;
       const server = await startLiveServerProcess({
         pluginsPath,
         batchId,
@@ -325,7 +325,7 @@ async function runCli(args: string[], env: NodeJS.ProcessEnv): Promise<{ code: n
     expect(runCfg).toBeTruthy();
 
     const pluginsPath = resolveFixture('plugins', 'vector-misconfig');
-    const batchId = `v3-disable-file-logs-${Date.now()}`;
+    const batchId = `live-disable-file-logs-${Date.now()}`;
     const expectedLogPath = path.join(process.cwd(), 'logs', `adapter-batch-${batchId}.log`);
     try {
       fs.unlinkSync(expectedLogPath);
