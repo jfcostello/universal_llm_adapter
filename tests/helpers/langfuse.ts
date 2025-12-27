@@ -248,17 +248,20 @@ export async function waitForLangfuseTrace(
   const debugTraceWait = String(env.LLM_LIVE_LANGFUSE_TRACE_DEBUG || '').trim() === '1';
   const defaultTimeoutMs = env.LLM_LIVE === '1' ? 300_000 : 90_000;
   const configuredTimeoutMs = readPositiveIntEnv(env, 'LLM_LIVE_LANGFUSE_TRACE_TIMEOUT_MS') ?? defaultTimeoutMs;
-  const timeoutMs = Math.max(100, Math.floor(configuredTimeoutMs), Math.floor(opts.timeoutMs ?? 0));
+  const timeoutMsRaw = opts.timeoutMs ?? configuredTimeoutMs;
+  const timeoutMs = Math.max(100, Math.floor(timeoutMsRaw));
 
   const defaultMinDelayMs = env.LLM_LIVE === '1' ? 2000 : 500;
   const configuredMinDelayMs =
     readPositiveIntEnv(env, 'LLM_LIVE_LANGFUSE_TRACE_MIN_DELAY_MS') ?? defaultMinDelayMs;
-  const minDelayMs = Math.max(1, Math.floor(configuredMinDelayMs), Math.floor(opts.minDelayMs ?? 0));
+  const minDelayMsRaw = opts.minDelayMs ?? configuredMinDelayMs;
+  const minDelayMs = Math.max(1, Math.floor(minDelayMsRaw));
 
   const defaultMaxDelayMs = env.LLM_LIVE === '1' ? 60_000 : 10_000;
   const configuredMaxDelayMs =
     readPositiveIntEnv(env, 'LLM_LIVE_LANGFUSE_TRACE_MAX_DELAY_MS') ?? defaultMaxDelayMs;
-  const maxDelayMs = Math.max(minDelayMs, Math.floor(configuredMaxDelayMs), Math.floor(opts.maxDelayMs ?? 0));
+  const maxDelayMsRaw = opts.maxDelayMs ?? configuredMaxDelayMs;
+  const maxDelayMs = Math.max(minDelayMs, Math.floor(maxDelayMsRaw));
   const concurrency = Math.max(1, Math.floor(opts.concurrency ?? DEFAULT_CONCURRENCY));
   const testFileBase = opts.testFileBase ? String(opts.testFileBase) : '';
   const logTimeoutMs = Math.max(250, Math.floor(opts.logTimeoutMs ?? 30_000));
