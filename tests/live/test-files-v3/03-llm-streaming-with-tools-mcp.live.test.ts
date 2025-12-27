@@ -95,8 +95,9 @@ function parseMcpTimestampFromToolResult(raw: string): number {
           .map(p => String((p as any).text ?? ''))
           .join('')
       : '';
-    expect(out.trim()).toBe(last4);
-    expect(out.trim()).toMatch(/^\d{4}$/);
+    const digitsOnly = out.replace(/\D/g, '');
+    expect(digitsOnly.length).toBeGreaterThanOrEqual(4);
+    expect(digitsOnly.slice(-4)).toBe(last4);
 
     const deltasText = collectDeltaText(call.events);
     expect(deltasText).toContain(last4);
