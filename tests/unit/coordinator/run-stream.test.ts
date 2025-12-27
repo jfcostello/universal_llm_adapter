@@ -73,6 +73,44 @@ describe('LLMCoordinator runStream', () => {
     expect(compatModule.parseStreamChunk).toHaveBeenCalled();
   });
 
+  test('does not initialize tool coordinator when toolChoice is null', async () => {
+    const { coordinator } = createCoordinator({ withDetector: false });
+    const registry = (coordinator as any).registry;
+
+    const events: any[] = [];
+    for await (const event of coordinator.runStream({
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }],
+      llmPriority: [{ provider: 'provider', model: 'model' }],
+      settings: {},
+      toolChoice: null
+    } as any)) {
+      events.push(event);
+    }
+
+    expect(events.some(e => e.type === 'done')).toBe(true);
+    expect(registry.getProcessRoutes).not.toHaveBeenCalled();
+    expect((coordinator as any).collectTools).not.toHaveBeenCalled();
+  });
+
+  test('initializes tool coordinator when toolChoice is an object', async () => {
+    const { coordinator } = createCoordinator({ withDetector: false });
+    const registry = (coordinator as any).registry;
+
+    const events: any[] = [];
+    for await (const event of coordinator.runStream({
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }],
+      llmPriority: [{ provider: 'provider', model: 'model' }],
+      settings: {},
+      toolChoice: { type: 'single', name: 'tool_sanitized' }
+    } as any)) {
+      events.push(event);
+    }
+
+    expect(events.some(e => e.type === 'done')).toBe(true);
+    expect(registry.getProcessRoutes).toHaveBeenCalled();
+    expect((coordinator as any).collectTools).toHaveBeenCalled();
+  });
+
   test('emits tool events when detector present', async () => {
     const { coordinator } = createCoordinator({ withDetector: true });
     handleChunkMock.mockImplementation(chunk => chunk.__events || []);
