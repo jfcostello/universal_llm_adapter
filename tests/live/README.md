@@ -19,7 +19,7 @@ At the end, a combined summary shows pass/fail counts for both suites.
   - Env: `MAX_WORKERS=2 npm run test:live:openrouter`
   - CLI: `npm run test:live:openrouter -- --maxWorkers=2`
 - Provider selection: first positional arg to `test:live` scripts (e.g. `npm run test:live:openrouter` sets `LLM_TEST_PROVIDERS=openrouter`).
-- Custom patterns: pass `--testPathPattern=<pattern>`; defaults to `tests/live/test-files-v3` when not provided.
+- Custom patterns: pass `--testPathPattern=<pattern>`; defaults to `tests/live/test-files` when not provided.
 
 ## Live test transport
 
@@ -127,5 +127,5 @@ OPENROUTER_API_KEY=your-openrouter-key  # For embeddings
 npm run test:live:openrouter
 
 # Run specific vector store test
-LLM_LIVE=1 npx jest tests/live/test-files-v3/16-vector-store.live.test.ts
+LLM_LIVE=1 npx jest tests/live/test-files/16-vector-store.live.test.ts
 ```
