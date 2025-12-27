@@ -16,6 +16,14 @@ export function parseLaunchConfig(argv, env, defaults) {
   let transportFromCli = null;
   const passthrough = [];
 
+  function hardFailOnForbiddenConcurrencyOverride(flag) {
+    throw new Error(
+      `Live tests must not set ${flag}. ` +
+        'Do not cap concurrency to hide race conditions. ' +
+        'Edit tests/live/config.ts (maxWorkersDefault) instead.'
+    );
+  }
+
   // First non-flag token is treated as provider selector
   while (args.length) {
     const token = args.shift();
@@ -30,11 +38,10 @@ export function parseLaunchConfig(argv, env, defaults) {
       continue;
     }
 
-    if (token === '--maxWorkers' || token.startsWith('--maxWorkers=')) {
-      throw new Error(
-        'Live tests must not set --maxWorkers. Edit tests/live/config.ts (maxWorkersDefault) instead.'
-      );
-    }
+    if (token === '--maxWorkers' || token.startsWith('--maxWorkers=')) hardFailOnForbiddenConcurrencyOverride('--maxWorkers');
+    if (token === '-w' || token.startsWith('-w=')) hardFailOnForbiddenConcurrencyOverride('-w');
+    if (token === '--runInBand' || token.startsWith('--runInBand=')) hardFailOnForbiddenConcurrencyOverride('--runInBand');
+    if (token === '-i' || token.startsWith('-i=')) hardFailOnForbiddenConcurrencyOverride('-i');
 
     if (token === '--transport') {
       const next = args.shift();
@@ -61,12 +68,18 @@ export function parseLaunchConfig(argv, env, defaults) {
   const envTransport = env?.LLM_LIVE_TRANSPORT ? String(env.LLM_LIVE_TRANSPORT) : null;
   const transport = sanitizeTransport(transportFromCli ?? envTransport ?? 'cli');
 
-  const passthroughMaxWorkers = passthrough.find(arg => String(arg).startsWith('--maxWorkers'));
-  if (passthroughMaxWorkers) {
-    throw new Error(
-      `Live tests must not set ${passthroughMaxWorkers}. Edit tests/live/config.ts (maxWorkersDefault) instead.`
-    );
-  }
+  const forbiddenPassthrough = (passthrough || []).find((arg, idx, all) => {
+    const t = String(arg);
+    const next = String(all[idx + 1] ?? '');
+    if (t === '--maxWorkers' || t.startsWith('--maxWorkers=')) return true;
+    if (t === '-w' || t.startsWith('-w=')) return true;
+    // handle "-w 2" (value is in the next token)
+    if (next && t === '-w') return true;
+    if (t === '--runInBand' || t.startsWith('--runInBand=')) return true;
+    if (t === '-i' || t.startsWith('-i=')) return true;
+    return false;
+  });
+  if (forbiddenPassthrough) hardFailOnForbiddenConcurrencyOverride(String(forbiddenPassthrough));
 
   const fallback = defaults?.maxWorkersDefault ?? 1;
   const maxWorkers = sanitizeMaxWorkers(fallback);
