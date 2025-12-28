@@ -82,6 +82,9 @@ Media WS guardrails (server-side):
 Shutdown behavior:
 - On server shutdown, the extension enters a **draining** mode and rejects new `WS /voice/media` upgrades with `503`.
 
+Runbook + load exercise:
+- `extensions/voice/RUNBOOK.md`
+
 ## CLI: `llm-adapter voice call`
 
 Creates an outbound voice call by calling the server `POST /voice/calls` endpoint.
