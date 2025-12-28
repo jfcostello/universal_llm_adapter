@@ -570,8 +570,8 @@ describe('extensions/voice: server http handlers', () => {
     expect(createWebhookResponse).toHaveBeenCalled();
   });
 
-  test('/voice/webhook (POST) parses x-www-form-urlencoded body into params for signature validation', async () => {
-    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+	  test('/voice/webhook (POST) parses x-www-form-urlencoded body into params for signature validation', async () => {
+	    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
 
     const store = createInMemoryVoiceCallConfigStore();
     await store.putConfig(
@@ -589,12 +589,15 @@ describe('extensions/voice: server http handlers', () => {
       { ttlSeconds: 60 }
     );
 
-    const validateWebhookRequest = jest.fn(async (options: any) => {
-      expect(options.method).toBe('POST');
-      expect(options.params).toEqual({ CallSid: 'CA123', From: '+1' });
-      expect(options.providerDefaults).toEqual({ foo: 'bar' });
-    });
-    const createWebhookResponse = jest.fn(async () => ({ status: 200, headers: {}, body: 'ok' }));
+	    const validateWebhookRequest = jest.fn(async (options: any) => {
+	      expect(options.method).toBe('POST');
+	      expect(options.params).toEqual({ CallSid: 'CA123', From: '+1' });
+	      expect(options.providerDefaults).toEqual({ foo: 'bar' });
+	    });
+	    const createWebhookResponse = jest.fn(async (options: any) => {
+	      expect(options.params).toEqual({ CallSid: 'CA123', From: '+1' });
+	      return { status: 200, headers: {}, body: 'ok' };
+	    });
     const providerPlugins = {
       getCompat: jest.fn(async () => ({ validateWebhookRequest, createWebhookResponse })),
       getManifest: jest.fn(async () => ({ defaults: { foo: 'bar' } }))
@@ -620,12 +623,60 @@ describe('extensions/voice: server http handlers', () => {
 
     await expect(reg.handleHttp(req, res)).resolves.toBe(true);
     expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
-    expect(validateWebhookRequest).toHaveBeenCalledTimes(1);
-    expect(createWebhookResponse).toHaveBeenCalledTimes(1);
-  });
+	    expect(validateWebhookRequest).toHaveBeenCalledTimes(1);
+	    expect(createWebhookResponse).toHaveBeenCalledTimes(1);
+	  });
 
-  test('/voice/webhook (POST) reads body but does not parse params for non-form content-type', async () => {
-    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+	  test('/voice/webhook (POST) passes x-www-form-urlencoded params into createWebhookResponse even without signature validation', async () => {
+	    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+
+	    const store = createInMemoryVoiceCallConfigStore();
+	    await store.putConfig(
+	      {
+	        version: 1,
+	        callConfigId: 'cfg_1',
+	        createdAtMs: 0,
+	        expiresAtMs: 0,
+	        to: 'to',
+	        from: 'from',
+	        direction: 'inbound',
+	        realtimeSpec: {},
+	        voiceProvider: 'test'
+	      },
+	      { ttlSeconds: 60 }
+	    );
+
+	    const createWebhookResponse = jest.fn(async (options: any) => {
+	      expect(options.params).toEqual({ CallSid: 'CA123', From: '+1' });
+	      return { status: 200, headers: {}, body: 'ok' };
+	    });
+	    const providerPlugins = { getCompat: jest.fn(async () => ({ createWebhookResponse })) };
+
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: { bodyReadTimeoutMs: Number.POSITIVE_INFINITY }
+	    });
+
+	    const res = createMockRes();
+	    const req = Object.assign(Readable.from(['CallSid=CA123&From=%2B1']), {
+	      url: '/voice/webhook?callConfigId=cfg_1',
+	      method: 'POST',
+	      headers: { host: 'localhost', 'content-type': 'application/x-www-form-urlencoded' },
+	      socket: {}
+	    }) as any;
+
+	    await expect(reg.handleHttp(req, res)).resolves.toBe(true);
+	    expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+	    expect(createWebhookResponse).toHaveBeenCalledTimes(1);
+	  });
+
+	  test('/voice/webhook (POST) reads body but does not parse params for non-form content-type', async () => {
+	    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
 
     const store = createInMemoryVoiceCallConfigStore();
     await store.putConfig(
@@ -643,11 +694,14 @@ describe('extensions/voice: server http handlers', () => {
       { ttlSeconds: 60 }
     );
 
-    const validateWebhookRequest = jest.fn(async (options: any) => {
-      expect(options.method).toBe('POST');
-      expect(options.params).toEqual({});
-    });
-    const createWebhookResponse = jest.fn(async () => ({ status: 200, headers: {}, body: 'ok' }));
+	    const validateWebhookRequest = jest.fn(async (options: any) => {
+	      expect(options.method).toBe('POST');
+	      expect(options.params).toEqual({});
+	    });
+	    const createWebhookResponse = jest.fn(async (options: any) => {
+	      expect(options.params).toEqual({});
+	      return { status: 200, headers: {}, body: 'ok' };
+	    });
     const providerPlugins = { getCompat: jest.fn(async () => ({ validateWebhookRequest, createWebhookResponse })) };
 
     const reg = await createVoiceServerRegistration({

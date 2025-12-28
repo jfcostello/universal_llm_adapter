@@ -403,34 +403,34 @@ export async function createVoiceServerRegistration(ctx: {
 
           const requestId = readTrimmedStringProperty((callConfig as any)?.metadata, 'requestId');
 
-          const logger = await resolveLogger(callConfigId);
-          safeLog(logger, 'info', 'voice.webhook.request', { callConfigId, voiceProvider, method, ...(requestId ? { requestId } : {}) });
+	          const logger = await resolveLogger(callConfigId);
+	          safeLog(logger, 'info', 'voice.webhook.request', { callConfigId, voiceProvider, method, ...(requestId ? { requestId } : {}) });
 
-          const compat = await providerPlugins.getCompat(voiceProvider);
+	          const compat = await providerPlugins.getCompat(voiceProvider);
+	          const params: Record<string, string> = {};
+	          if (method === 'POST') {
+	            const contentType = String(req.headers?.['content-type'] ?? '').toLowerCase();
+	            if (contentType.includes('application/x-www-form-urlencoded')) {
+	              const rawBody = await readTextBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
+	              if (rawBody) {
+	                const form = new URLSearchParams(rawBody);
+	                for (const [k, v] of form.entries()) {
+	                  params[String(k)] = String(v);
+	                }
+	              }
+	            }
+	          }
 
-          try {
-            const validateWebhookRequest = (compat as any)?.validateWebhookRequest;
-            if (typeof validateWebhookRequest === 'function') {
-              const httpBaseUrl = getPublicHttpBaseUrl(req);
-              const publicUrl = new URL(req.url ?? '/voice/webhook', httpBaseUrl).toString();
+	          try {
+	            const validateWebhookRequest = (compat as any)?.validateWebhookRequest;
+	            if (typeof validateWebhookRequest === 'function') {
+	              const httpBaseUrl = getPublicHttpBaseUrl(req);
+	              const publicUrl = new URL(req.url ?? '/voice/webhook', httpBaseUrl).toString();
 
-              const params: Record<string, string> = {};
-              if (method === 'POST') {
-                const contentType = String(req.headers?.['content-type'] ?? '').toLowerCase();
-                const rawBody = await readTextBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
-
-                if (rawBody && contentType.includes('application/x-www-form-urlencoded')) {
-                  const form = new URLSearchParams(rawBody);
-                  for (const [k, v] of form.entries()) {
-                    params[String(k)] = String(v);
-                  }
-                }
-              }
-
-              let providerDefaults: any | undefined;
-              try {
-                const manifest = await providerPlugins.getManifest?.(voiceProvider);
-                providerDefaults = (manifest as any)?.defaults;
+	              let providerDefaults: any | undefined;
+	              try {
+	                const manifest = await providerPlugins.getManifest?.(voiceProvider);
+	                providerDefaults = (manifest as any)?.defaults;
               } catch {
                 // ignore and allow compat to decide whether defaults are required
               }
@@ -453,16 +453,16 @@ export async function createVoiceServerRegistration(ctx: {
 
             const httpBaseUrl = getPublicHttpBaseUrl(req);
             const token = mintVoiceMediaToken({ callConfigId, voiceProvider });
-            const mediaWsUrl = toWsUrl(httpBaseUrl, '/voice/media', { token });
+	            const mediaWsUrl = toWsUrl(httpBaseUrl, '/voice/media', { token });
 
-            const response = await (async () => {
-              try {
-                return await compat.createWebhookResponse({ req, callConfigId, callConfig, voiceProvider, mediaWsUrl });
-              } catch (error: any) {
-                metrics.compatError('webhook_response', voiceProvider);
-                throw error;
-              }
-            })();
+	            const response = await (async () => {
+	              try {
+	                return await compat.createWebhookResponse({ req, callConfigId, callConfig, voiceProvider, mediaWsUrl, params });
+	              } catch (error: any) {
+	                metrics.compatError('webhook_response', voiceProvider);
+	                throw error;
+	              }
+	            })();
             const status = Number(response?.status ?? 200);
             const headers = (response?.headers && typeof response.headers === 'object') ? response.headers : {};
             const body = String(response?.body ?? '');
