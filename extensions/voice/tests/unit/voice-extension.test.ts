@@ -33,12 +33,12 @@ describe('extensions/voice', () => {
 
     const resC: any = { writeHead: jest.fn(), end: jest.fn() };
     await expect(reg.handleHttp({ url: '/voice' } as any, resC)).resolves.toBe(true);
-    expect(String(resC.writeHead.mock.calls[0][0])).toBe('501');
+    expect(String(resC.writeHead.mock.calls[0][0])).toBe('200');
     expect(resC.end).toHaveBeenCalled();
 
     const resD: any = { writeHead: jest.fn(), end: jest.fn() };
     await expect(reg.handleHttp({ url: '/voice/webhook' } as any, resD)).resolves.toBe(true);
-    expect(String(resD.writeHead.mock.calls[0][0])).toBe('501');
+    expect(String(resD.writeHead.mock.calls[0][0])).toBe('400');
     expect(resD.end).toHaveBeenCalled();
 
     const resE: any = { writeHead: jest.fn(), end: jest.fn() };

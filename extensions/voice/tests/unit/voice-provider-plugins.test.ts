@@ -215,6 +215,22 @@ describe('extensions/voice: provider plugins loader', () => {
     }
   });
 
+  test('skips non-existent compat roots when resolving', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-provider-plugins-'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await writeJson(path.join(tmp, 'voice-providers', 'missing-root.json'), {
+        id: 'missing-root',
+        kind: 'missing-kind-xyz'
+      });
+
+      await expect(createVoiceProviderPlugins({ pluginsPath: tmp }).getCompat('missing-root')).rejects.toBeInstanceOf(ManifestError);
+    } finally {
+      warn.mockRestore();
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
   test('supports compat modules without default export (first export wins)', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-provider-plugins-'));
     try {
