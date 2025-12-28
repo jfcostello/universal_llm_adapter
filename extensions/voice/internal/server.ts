@@ -5,6 +5,7 @@ import { createRequire } from 'module';
 
 import { mapErrorToHttp } from '../../../modules/transport/index.js';
 import { createSignedWsToken, verifySignedWsToken } from '../../../modules/security/index.js';
+import { normalizeFlag, sleep } from '../../../modules/shared/index.js';
 import {
   applyCors,
   applySecurityHeaders,
@@ -51,11 +52,6 @@ function parseUrl(rawUrl: string | undefined): URL | null {
   }
 }
 
-function normalizeEnvFlag(value: unknown): boolean {
-  const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'y' || raw === 'on';
-}
-
 function getVoicePublicBaseUrlOverride(): string | undefined {
   const raw = String(process.env.LLM_ADAPTER_VOICE_PUBLIC_BASE_URL ?? '').trim();
   if (!raw) return undefined;
@@ -76,7 +72,7 @@ function getPublicHttpBaseUrl(req: http.IncomingMessage): string {
   if (override) return override;
 
   const headers = req.headers ?? {};
-  const trustProxyHeaders = normalizeEnvFlag(process.env.LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS);
+  const trustProxyHeaders = normalizeFlag(process.env.LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS, false);
 
   const forwardedProto = trustProxyHeaders ? headers['x-forwarded-proto'] : undefined;
   const proto = (() => {
@@ -313,8 +309,6 @@ export async function createVoiceServerRegistration(ctx: {
     return authIdentity;
   };
 
-  const sleep = async (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
-
   const require = createRequire(import.meta.url);
   const wsLib = require('ws');
   const mediaWsMaxMessageBytes = getMediaWsMaxMessageBytes();
@@ -326,7 +320,7 @@ export async function createVoiceServerRegistration(ctx: {
   let pendingMediaWs = 0;
 
   const metrics = createVoiceMetrics({
-    enabled: String(process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED ?? '').trim() === '1'
+    enabled: normalizeFlag(process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED, false)
   });
 
   const close = async () => {
