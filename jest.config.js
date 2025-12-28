@@ -20,14 +20,17 @@ export default {
     '^@/(.*)$': '<rootDir>/$1',
     '^@tests/(.*)$': '<rootDir>/tests/$1'
   },
-  globals: {
-    'ts-jest': {
-      useESM: true,
-      tsconfig: path.resolve(__dirname, 'tsconfig.json'),
-      diagnostics: {
-        ignoreCodes: [151002, 2307]
+  transform: {
+    '^.+\\.tsx?$': [
+      'ts-jest',
+      {
+        useESM: true,
+        tsconfig: path.resolve(__dirname, 'tsconfig.json'),
+        diagnostics: {
+          ignoreCodes: [151002, 2307]
+        }
       }
-    }
+    ]
   },
   collectCoverage: true,
   collectCoverageFrom: [
