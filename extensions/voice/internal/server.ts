@@ -499,6 +499,11 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
+          if (!authConfig?.enabled) {
+            writeJson(res, 501, { type: 'error', error: { message: 'Voice metrics endpoint requires server auth to be enabled', code: 'not_implemented' } });
+            return true;
+          }
+
           await assertAuthorizedAndRateLimited(req);
 
           const snapshot = metrics.snapshot();

@@ -199,6 +199,8 @@ Event names + fields:
 When enabled, the voice extension exposes a lightweight JSON metrics snapshot endpoint:
 - `GET /voice/metrics`
 
+This endpoint requires server auth to be enabled.
+
 Enable via:
 - `LLM_ADAPTER_VOICE_METRICS_ENABLED=1`
 

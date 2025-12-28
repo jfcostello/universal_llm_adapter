@@ -59,7 +59,7 @@ async function waitForMessage(messages: any[], predicate: (m: any) => boolean, t
   throw new Error('Timed out waiting for WS message');
 }
 
-async function startHarness(options: { store: any; providerPlugins?: any; logging?: any }) {
+async function startHarness(options: { store: any; providerPlugins?: any; logging?: any; httpConfig?: any }) {
   let handleHttp: any = async () => false;
   const server = http.createServer((req, res) => {
     void (async () => {
@@ -79,7 +79,8 @@ async function startHarness(options: { store: any; providerPlugins?: any; loggin
     upgradeRouter,
     store: options.store,
     ...(options.providerPlugins ? { providerPlugins: options.providerPlugins } : {}),
-    ...(options.logging ? { logging: options.logging } : {})
+    ...(options.logging ? { logging: options.logging } : {}),
+    ...(options.httpConfig ? { httpConfig: options.httpConfig } : {})
   });
 
   handleHttp = reg.handleHttp;
@@ -249,14 +250,14 @@ describe('extensions/voice: webhook + media wiring', () => {
       })
     };
 
-    const harness = await startHarness({ store, providerPlugins });
+    const harness = await startHarness({ store, providerPlugins, httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } } });
     try {
       const res = await fetch(new URL('/voice/webhook?callConfigId=cfg_1', harness.baseUrl));
       const wsUrl = extractStreamUrl(await res.text());
 
       const { ws, closePromise } = await openWs(wsUrl);
 
-      const metrics1 = await (await fetch(new URL('/voice/metrics', harness.baseUrl))).json();
+      const metrics1 = await (await fetch(new URL('/voice/metrics', harness.baseUrl), { headers: { Authorization: 'Bearer k1' } })).json();
       const samples1: any[] = Array.isArray(metrics1.metrics) ? metrics1.metrics : [];
       const active1 = samples1.find(m => m?.name === 'voice.media.ws_active' && m?.labels?.voiceProvider === 'test');
       const opened1 = samples1.find(m => m?.name === 'voice.media.ws_open_total' && m?.labels?.voiceProvider === 'test');
@@ -267,7 +268,7 @@ describe('extensions/voice: webhook + media wiring', () => {
       await closePromise;
       await new Promise(res => setTimeout(res, 10));
 
-      const metrics2 = await (await fetch(new URL('/voice/metrics', harness.baseUrl))).json();
+      const metrics2 = await (await fetch(new URL('/voice/metrics', harness.baseUrl), { headers: { Authorization: 'Bearer k1' } })).json();
       const samples2: any[] = Array.isArray(metrics2.metrics) ? metrics2.metrics : [];
       const active2 = samples2.find(m => m?.name === 'voice.media.ws_active' && m?.labels?.voiceProvider === 'test');
       const closed2 = samples2.find(m => m?.name === 'voice.media.ws_close_total' && m?.labels?.voiceProvider === 'test');
@@ -317,7 +318,7 @@ describe('extensions/voice: webhook + media wiring', () => {
       })
     };
 
-    const harness = await startHarness({ store, providerPlugins, logging: { getLogger: () => logger } });
+    const harness = await startHarness({ store, providerPlugins, logging: { getLogger: () => logger }, httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } } });
     try {
       const res = await fetch(new URL('/voice/webhook?callConfigId=cfg_1', harness.baseUrl));
       const wsUrl = extractStreamUrl(await res.text());
@@ -329,7 +330,7 @@ describe('extensions/voice: webhook + media wiring', () => {
       expect(logged).toContain('voice.media.ws_error');
       expect(logged).not.toContain('token=');
 
-      const metrics = await (await fetch(new URL('/voice/metrics', harness.baseUrl))).json();
+      const metrics = await (await fetch(new URL('/voice/metrics', harness.baseUrl), { headers: { Authorization: 'Bearer k1' } })).json();
       const samples: any[] = Array.isArray(metrics.metrics) ? metrics.metrics : [];
       const wsErr = samples.find(m => m?.name === 'voice.media.ws_error_total' && m?.labels?.voiceProvider === 'p1');
       expect(wsErr?.value).toBeGreaterThanOrEqual(1);

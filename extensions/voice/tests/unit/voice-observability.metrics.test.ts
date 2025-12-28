@@ -44,17 +44,37 @@ describe('extensions/voice: observability metrics', () => {
       pluginsPath: './plugins',
       upgradeRouter: {} as any,
       store,
-      providerPlugins: { getCompat: jest.fn() } as any
+      providerPlugins: { getCompat: jest.fn() } as any,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
     });
 
     const res = createMockRes();
-    await expect(reg.handleHttp({ url: '/voice/metrics', method: 'GET', headers: {}, socket: {} } as any, res)).resolves.toBe(true);
+    await expect(reg.handleHttp({ url: '/voice/metrics', method: 'GET', headers: { authorization: 'Bearer k1' }, socket: {} } as any, res)).resolves.toBe(true);
     expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
 
     const body = JSON.parse(String(res.end.mock.calls[0][0]));
     expect(body.ok).toBe(true);
     expect(body.enabled).toBe(true);
     expect(Array.isArray(body.metrics)).toBe(true);
+  });
+
+  test('/voice/metrics returns 501 when metrics are enabled but server auth is disabled', async () => {
+    process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED = '1';
+
+    const store = createInMemoryVoiceCallConfigStore();
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: { getCompat: jest.fn() } as any,
+      httpConfig: { auth: { enabled: false } }
+    });
+
+    const res = createMockRes();
+    await expect(reg.handleHttp({ url: '/voice/metrics', method: 'GET', headers: {}, socket: {} } as any, res)).resolves.toBe(true);
+    expect(String(res.writeHead.mock.calls[0][0])).toBe('501');
   });
 
   test('/voice/metrics returns 405 for non-GET methods', async () => {
@@ -85,11 +105,12 @@ describe('extensions/voice: observability metrics', () => {
       pluginsPath: './plugins',
       upgradeRouter: {} as any,
       store,
-      providerPlugins: { getCompat: jest.fn() } as any
+      providerPlugins: { getCompat: jest.fn() } as any,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
     });
 
     const res = createMockRes();
-    await expect(reg.handleHttp({ url: '/voice/metrics', headers: {}, socket: {} } as any, res)).resolves.toBe(true);
+    await expect(reg.handleHttp({ url: '/voice/metrics', headers: { authorization: 'Bearer k1' }, socket: {} } as any, res)).resolves.toBe(true);
     expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
   });
 

@@ -54,7 +54,8 @@ describe('extensions/voice: server http handlers', () => {
       pluginsPath: './plugins',
       upgradeRouter: {} as any,
       store,
-      providerPlugins: providerPlugins as any
+      providerPlugins: providerPlugins as any,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
     });
 
     const res = createMockRes();
@@ -67,14 +68,14 @@ describe('extensions/voice: server http handlers', () => {
     const store = createInMemoryVoiceCallConfigStore();
     const providerPlugins = { getCompat: jest.fn() };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: providerPlugins as any
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: providerPlugins as any
+	    });
 
     const resA = createMockRes();
     await expect(reg.handleHttp({ url: '/voice/webhook', method: 'PUT' } as any, resA)).resolves.toBe(true);
@@ -90,14 +91,14 @@ describe('extensions/voice: server http handlers', () => {
     const store = createInMemoryVoiceCallConfigStore();
     const providerPlugins = { getCompat: jest.fn() };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: providerPlugins as any
-    });
+		    const reg = await createVoiceServerRegistration({
+		      server: {} as any,
+		      registry: {},
+		      pluginsPath: './plugins',
+		      upgradeRouter: {} as any,
+		      store,
+		      providerPlugins: providerPlugins as any
+		    });
 
     const res = createMockRes();
     await expect(reg.handleHttp({ url: '/voice/webhook?callConfigId=missing', method: 'POST' } as any, res)).resolves.toBe(true);
@@ -411,9 +412,9 @@ describe('extensions/voice: server http handlers', () => {
     expect(validateWebhookRequest).toHaveBeenCalled();
   });
 
-  test('/voice/webhook metrics: compat validation errors increment counter when enabled', async () => {
-    process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED = '1';
-    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+	  test('/voice/webhook metrics: compat validation errors increment counter when enabled', async () => {
+	    process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED = '1';
+	    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
 
     const store = createInMemoryVoiceCallConfigStore();
     await store.putConfig(
@@ -444,14 +445,15 @@ describe('extensions/voice: server http handlers', () => {
       }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: providerPlugins as any
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+	    });
 
     const resWebhook = createMockRes();
     await expect(
@@ -460,7 +462,7 @@ describe('extensions/voice: server http handlers', () => {
     expect(String(resWebhook.writeHead.mock.calls[0][0])).toBe('401');
 
     const resMetrics = createMockRes();
-    await expect(reg.handleHttp({ url: '/voice/metrics', method: 'GET', headers: {}, socket: {} } as any, resMetrics)).resolves.toBe(true);
+    await expect(reg.handleHttp({ url: '/voice/metrics', method: 'GET', headers: { authorization: 'Bearer k1' }, socket: {} } as any, resMetrics)).resolves.toBe(true);
     expect(String(resMetrics.writeHead.mock.calls[0][0])).toBe('200');
     const metrics = JSON.parse(String(resMetrics.end.mock.calls[0][0]));
     const samples: any[] = Array.isArray(metrics.metrics) ? metrics.metrics : [];
@@ -508,7 +510,8 @@ describe('extensions/voice: server http handlers', () => {
       pluginsPath: './plugins',
       upgradeRouter: {} as any,
       store,
-      providerPlugins: providerPlugins as any
+      providerPlugins: providerPlugins as any,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
     });
 
     const resWebhook = createMockRes();
@@ -518,7 +521,7 @@ describe('extensions/voice: server http handlers', () => {
     expect(String(resWebhook.writeHead.mock.calls[0][0])).toBe('500');
 
     const resMetrics = createMockRes();
-    await expect(reg.handleHttp({ url: '/voice/metrics', method: 'GET', headers: {}, socket: {} } as any, resMetrics)).resolves.toBe(true);
+    await expect(reg.handleHttp({ url: '/voice/metrics', method: 'GET', headers: { authorization: 'Bearer k1' }, socket: {} } as any, resMetrics)).resolves.toBe(true);
     expect(String(resMetrics.writeHead.mock.calls[0][0])).toBe('200');
     const metrics = JSON.parse(String(resMetrics.end.mock.calls[0][0]));
     const samples: any[] = Array.isArray(metrics.metrics) ? metrics.metrics : [];
