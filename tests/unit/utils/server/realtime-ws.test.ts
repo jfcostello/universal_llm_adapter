@@ -424,9 +424,18 @@ describe('server/internal/realtime/ws', () => {
       // too-large message
       {
         const { ws, messages, closePromise } = await openWs(toWsUrl(harness.url, '/realtime/ws'));
-        ws.send('x'.repeat(1024));
+        // maxPayload is configured to maxMessageBytes + 1, so this exceeds maxMessageBytes but is still deliverable.
+        ws.send('x'.repeat(65));
         const err = await waitForMessage(messages, m => m?.type === 'error' && m?.error?.code === 'message_too_large', 2000);
         expect(err.error.message).toContain('too large');
+        await closePromise;
+        try { ws.close(); } catch {}
+      }
+
+      // over maxPayload triggers ws-level close (and should not crash the server)
+      {
+        const { ws, closePromise } = await openWs(toWsUrl(harness.url, '/realtime/ws'));
+        ws.send('x'.repeat(1024));
         await closePromise;
         try { ws.close(); } catch {}
       }

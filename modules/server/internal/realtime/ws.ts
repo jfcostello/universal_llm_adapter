@@ -57,7 +57,11 @@ export async function attachRealtimeWsServer(options: {
 }): Promise<{ close: () => Promise<void> }> {
   const require = createRequire(import.meta.url);
   const ws = require('ws');
-  const wss = new ws.WebSocketServer({ noServer: true });
+  const wss = new ws.WebSocketServer({
+    noServer: true,
+    maxPayload: Math.floor(options.config.maxMessageBytes) + 1,
+    perMessageDeflate: false
+  });
 
   const limiter = createLimiter({
     maxConcurrent: options.config.maxConcurrentSessions,
@@ -183,6 +187,10 @@ export async function attachRealtimeWsServer(options: {
         if (ws.readyState === ws.OPEN) ws.close();
       } catch {}
     };
+
+    ws.on('error', () => {
+      void closeAll();
+    });
 
     ws.on('close', () => {
       void closeAll();
