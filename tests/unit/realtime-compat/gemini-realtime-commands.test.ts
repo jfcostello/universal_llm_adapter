@@ -50,6 +50,132 @@ describe('realtime-compat/gemini — commands', () => {
     expect(message.setup.tools[0].functionDeclarations[0].name).toBe('test_echo');
   });
 
+  test('buildGeminiSetupMessage filters tools based on toolChoice (Live API has no toolConfig)', () => {
+    const tools: UnifiedTool[] = [
+      { name: 'test.echo', description: 'Echo', parametersJsonSchema: { type: 'object', properties: { message: { type: 'string' } } } },
+      { name: 'test.random', description: 'Random', parametersJsonSchema: { type: 'object', properties: {} } }
+    ];
+
+    {
+      const { message } = buildGeminiSetupMessage({
+        model: 'models/m',
+        spec: {
+          provider: 'google',
+          model: 'm',
+          toolChoice: { type: 'single', name: 'test.echo' }
+        } as any,
+        tools
+      });
+
+      const decls = message.setup.tools?.[0]?.functionDeclarations ?? [];
+      expect(decls.map((d: any) => d.name)).toEqual(['test_echo']);
+    }
+
+    {
+      const { message } = buildGeminiSetupMessage({
+        model: 'models/m',
+        spec: {
+          provider: 'google',
+          model: 'm',
+          toolChoice: { type: 'required', allowed: ['test.random'] }
+        } as any,
+        tools
+      });
+
+      const decls = message.setup.tools?.[0]?.functionDeclarations ?? [];
+      expect(decls.map((d: any) => d.name)).toEqual(['test_random']);
+    }
+
+    {
+      const { message } = buildGeminiSetupMessage({
+        model: 'models/m',
+        spec: {
+          provider: 'google',
+          model: 'm',
+          toolChoice: 'none'
+        } as any,
+        tools
+      });
+
+      expect(message.setup.tools).toBeUndefined();
+    }
+
+    {
+      const { message } = buildGeminiSetupMessage({
+        model: 'models/m',
+        spec: {
+          provider: 'google',
+          model: 'm',
+          toolChoice: 'auto'
+        } as any,
+        tools
+      });
+
+      const decls = message.setup.tools?.[0]?.functionDeclarations ?? [];
+      expect(decls.map((d: any) => d.name).sort()).toEqual(['test_echo', 'test_random']);
+    }
+
+    {
+      const { message } = buildGeminiSetupMessage({
+        model: 'models/m',
+        spec: {
+          provider: 'google',
+          model: 'm',
+          toolChoice: { type: 'single', name: 'missing.tool' }
+        } as any,
+        tools
+      });
+
+      const decls = message.setup.tools?.[0]?.functionDeclarations ?? [];
+      expect(decls.map((d: any) => d.name).sort()).toEqual(['test_echo', 'test_random']);
+    }
+
+    {
+      const { message } = buildGeminiSetupMessage({
+        model: 'models/m',
+        spec: {
+          provider: 'google',
+          model: 'm',
+          toolChoice: { type: 'required', allowed: ['missing.tool'] }
+        } as any,
+        tools
+      });
+
+      const decls = message.setup.tools?.[0]?.functionDeclarations ?? [];
+      expect(decls.map((d: any) => d.name).sort()).toEqual(['test_echo', 'test_random']);
+    }
+
+    {
+      const { message } = buildGeminiSetupMessage({
+        model: 'models/m',
+        spec: {
+          provider: 'google',
+          model: 'm',
+          toolChoice: { type: 'required', allowed: [] }
+        } as any,
+        tools
+      });
+
+      const decls = message.setup.tools?.[0]?.functionDeclarations ?? [];
+      expect(decls.map((d: any) => d.name).sort()).toEqual(['test_echo', 'test_random']);
+    }
+
+    {
+      const { message } = buildGeminiSetupMessage({
+        model: 'models/m',
+        spec: {
+          provider: 'google',
+          model: 'm',
+          toolChoice: { type: '__unknown__' }
+        } as any,
+        tools
+      });
+
+      const decls = message.setup.tools?.[0]?.functionDeclarations ?? [];
+      expect(decls.map((d: any) => d.name).sort()).toEqual(['test_echo', 'test_random']);
+    }
+  });
+
   test('buildGeminiSetupMessage renders history into system instruction text (startup seeding)', () => {
     const { message } = buildGeminiSetupMessage({
       model: 'm',

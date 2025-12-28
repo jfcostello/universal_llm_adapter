@@ -11,12 +11,42 @@ function renderHistoryForSystemInstruction(history: NonNullable<RealtimeSessionS
   return ['--- Injected conversation history (for context) ---', ...lines, '--- End injected conversation history ---'].join('\n');
 }
 
+function filterToolsForSpec(spec: RealtimeSessionSpec, tools?: UnifiedTool[]): UnifiedTool[] | undefined {
+  if (!tools || tools.length === 0) return undefined;
+
+  const choice = spec.toolChoice;
+  if (choice === undefined || choice === null) return tools;
+
+  if (typeof choice === 'string') {
+    if (choice === 'none') return undefined;
+    return tools;
+  }
+
+  if (choice.type === 'single') {
+    const selected = tools.filter(t => t.name === choice.name);
+    return selected.length > 0 ? selected : tools;
+  }
+
+  if (choice.type === 'required') {
+    if (choice.allowed && choice.allowed.length > 0) {
+      const allow = new Set(choice.allowed);
+      const selected = tools.filter(t => allow.has(t.name));
+      return selected.length > 0 ? selected : tools;
+    }
+    return tools;
+  }
+
+  return tools;
+}
+
 export function buildGeminiSetupMessage(options: {
   model: string;
   spec: RealtimeSessionSpec;
   tools?: UnifiedTool[];
 }): { message: any; audio: SessionAudioConfig } {
   const audio = normalizeSessionAudio(options.spec.audio);
+
+  const tools = filterToolsForSpec(options.spec, options.tools);
 
   const setup: any = {
     model: normalizeModel(options.model),
@@ -37,9 +67,7 @@ export function buildGeminiSetupMessage(options: {
     };
   }
 
-  if (options.tools && options.tools.length > 0) {
-    setup.tools = serializeToolsForLiveSDK(options.tools);
-  }
+  if (tools && tools.length > 0) setup.tools = serializeToolsForLiveSDK(tools);
 
   const mode = options.spec.turnDetection?.mode ?? 'manual_commit';
   if (mode === 'manual_commit') {
