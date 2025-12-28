@@ -1,5 +1,6 @@
 import { jest } from '@jest/globals';
 import http from 'http';
+import { Readable, Writable } from 'stream';
 
 import voiceExtension from '../../index.ts';
 import { attachUpgradeRouter } from '@/modules/server/internal/transport/upgrade-router.ts';
@@ -8,6 +9,72 @@ describe('extensions/voice', () => {
   test('exports a stable extension object', async () => {
     expect(voiceExtension.name).toBe('voice');
     expect(typeof (voiceExtension as any).registerServer).toBe('function');
+  });
+
+  test('runCli delegates to the voice CLI runner', async () => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Expected server address');
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+
+    let stdout = '';
+    let stderr = '';
+    const exitCodes: number[] = [];
+
+    const stdin = Readable.from([]);
+    (stdin as any).isTTY = true;
+
+    const stdoutStream = new Writable({
+      write(chunk, _enc, cb) {
+        stdout += Buffer.isBuffer(chunk) ? chunk.toString('utf-8') : String(chunk);
+        cb();
+      }
+    });
+
+    const stderrStream = new Writable({
+      write(chunk, _enc, cb) {
+        stderr += Buffer.isBuffer(chunk) ? chunk.toString('utf-8') : String(chunk);
+        cb();
+      }
+    });
+
+    try {
+      await (voiceExtension as any).runCli({
+        argv: [
+          'node',
+          'llm-adapter',
+          'call',
+          '--server-url',
+          baseUrl,
+          '--to',
+          '+15550000000',
+          '--from',
+          '+15551111111',
+          '--voice-provider',
+          'vp',
+          '--realtime-spec',
+          '{"transport":{"type":"ws"}}'
+        ],
+        deps: {
+          error: (msg: string) => { stderr += msg; },
+          exit: (code: number) => exitCodes.push(code)
+        },
+        io: {
+          stdin,
+          stdout: stdoutStream,
+          stderr: stderrStream
+        }
+      });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+
+    expect(exitCodes).toEqual([0]);
+    expect(stdout).toContain('ok');
   });
 
   test('registerServer returns a handler that only intercepts /voice/*', async () => {

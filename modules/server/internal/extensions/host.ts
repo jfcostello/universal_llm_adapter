@@ -1,5 +1,6 @@
 import type http from 'http';
 
+import { assertValidExtensionName } from '../../../shared/index.js';
 import type {
   UpgradeHandler,
   UpgradeRouter
@@ -24,17 +25,6 @@ export interface ServerExtensionModule {
   registerServer?: (
     ctx: ServerExtensionContext
   ) => ServerExtensionRegistration | Promise<ServerExtensionRegistration>;
-}
-
-function assertValidExtensionName(value: unknown): string {
-  const raw = typeof value === 'string' ? value.trim() : '';
-  if (!raw) {
-    throw new Error('Invalid extension name: empty');
-  }
-  if (!/^[a-z][a-z0-9_-]*$/.test(raw)) {
-    throw new Error(`Invalid extension name: '${raw}'`);
-  }
-  return raw;
 }
 
 export async function loadServerExtensions(options: {

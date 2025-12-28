@@ -28,6 +28,14 @@ Example:
 }
 ```
 
+## CLI
+
+Extensions can expose CLI surfaces under:
+
+- `llm-adapter <extensionName> ...`
+
+Extension CLI code is also **lazy-loaded** (only imported when the extension command is invoked).
+
 ## Tests
 
 Extensions own their tests and they are **not** run by `npm test`.
@@ -35,4 +43,3 @@ Extensions own their tests and they are **not** run by `npm test`.
 - Core tests: `npm test`
 - Extension tests: `npm run test:extensions`
 - Voice extension tests: `npm run test:extensions:voice`
-

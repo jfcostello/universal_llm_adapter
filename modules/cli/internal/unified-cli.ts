@@ -7,10 +7,11 @@
  * - Embeddings run (mirrors server /embeddings/run)
  * - Server start (serve command)
  *
- * IMPORTANT: All imports except 'commander' are dynamic to ensure lazy loading.
- * Running `llm-adapter --help` should ONLY load commander, nothing else.
+ * IMPORTANT: All imports except 'commander' and Node built-ins are dynamic to ensure lazy loading.
+ * Running `llm-adapter --help` should ONLY load commander + Node built-ins, nothing else.
  */
 
+import fs from 'fs';
 import { Command } from 'commander';
 import type { ServerOptions, RunningServer } from '../../server/index.js';
 import type { LLMCallSpec, LLMStreamEvent, VectorCallSpec, VectorStreamEvent, EmbeddingCallSpec } from '../../../kernel/index.js';
@@ -32,6 +33,8 @@ export interface UnifiedCliDependencies {
   log: (message: string) => void;
   error: (message: string) => void;
   exit: (code: number) => void;
+  listCliExtensions: () => string[];
+  importCliExtension: (specifier: string) => Promise<any>;
 }
 
 /**
@@ -79,7 +82,18 @@ export const defaultDependencies: UnifiedCliDependencies = {
   // background work (e.g., observability shutdown flush) without hanging.
   exit: (code: number) => {
     process.exitCode = code;
-  }
+  },
+  listCliExtensions: () => {
+    try {
+      const entries = fs.readdirSync(new URL('../../../extensions', import.meta.url), {
+        withFileTypes: true
+      });
+      return entries.filter(e => e.isDirectory()).map(e => e.name);
+    } catch {
+      return [];
+    }
+  },
+  importCliExtension: async (specifier: string) => import(specifier)
 };
 
 /**
@@ -790,6 +804,54 @@ export function createUnifiedProgram(
         deps.exit(1);
       }
     });
+
+  // ==================== Extension Commands ====================
+
+  const registerCliExtensions = () => {
+    const extensionNames = (() => {
+      try {
+        return deps.listCliExtensions().filter(name => /^[a-z][a-z0-9_-]*$/.test(name));
+      } catch {
+        return [];
+      }
+    })();
+
+    for (const name of extensionNames) {
+      program
+        .command(name)
+        .description(`Extension command group: ${name}`)
+        .allowUnknownOption(true)
+        .helpOption(false)
+        .action(async (_options, command) => {
+          try {
+            const mod = await deps.importCliExtension(`../../../extensions/${name}/index.js`);
+            const ext = (mod as any)?.default;
+            if (!ext || typeof ext !== 'object') {
+              throw new Error(`Extension '${name}' did not export a default extension object`);
+            }
+            if (typeof (ext as any).name !== 'string') {
+              throw new Error(`Extension '${name}' missing required name`);
+            }
+            if ((ext as any).name !== name) {
+              throw new Error(`Extension name mismatch: expected '${name}', got '${(ext as any).name}'`);
+            }
+            const runCli = (ext as any).runCli;
+            if (typeof runCli !== 'function') {
+              throw new Error(`Extension '${name}' did not export a runCli function`);
+            }
+
+            const rawArgs = command.parent!.rawArgs;
+            const argv = rawArgs.slice(0, 2).concat(command.args);
+            await runCli({ argv, deps });
+          } catch (error: any) {
+            await writeStructuredError(error);
+            deps.exit(1);
+          }
+        });
+    }
+  };
+
+  registerCliExtensions();
 
   return program;
 }

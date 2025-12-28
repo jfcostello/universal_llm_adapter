@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 import {
 	  normalizeFlag,
+    assertValidExtensionName,
 	  readTrimmedStringProperty,
 	  createDeferred,
 	  calculateBackoffDelay,
@@ -83,6 +84,26 @@ describe('modules/shared', () => {
       expect(normalizeFlag(() => {}, false)).toBe(true);
     });
 	});
+
+  describe('assertValidExtensionName', () => {
+    test('returns trimmed value when valid', () => {
+      expect(assertValidExtensionName('voice')).toBe('voice');
+      expect(assertValidExtensionName(' voice ')).toBe('voice');
+      expect(assertValidExtensionName('a')).toBe('a');
+      expect(assertValidExtensionName('a0')).toBe('a0');
+      expect(assertValidExtensionName('a-b_c')).toBe('a-b_c');
+    });
+
+    test('throws for invalid values', () => {
+      expect(() => assertValidExtensionName('')).toThrow('Invalid extension name: empty');
+      expect(() => assertValidExtensionName('   ')).toThrow('Invalid extension name: empty');
+      expect(() => assertValidExtensionName(null)).toThrow('Invalid extension name: empty');
+      expect(() => assertValidExtensionName(123)).toThrow('Invalid extension name: empty');
+      expect(() => assertValidExtensionName('Voice')).toThrow("Invalid extension name: 'Voice'");
+      expect(() => assertValidExtensionName('1a')).toThrow("Invalid extension name: '1a'");
+      expect(() => assertValidExtensionName('a/b')).toThrow("Invalid extension name: 'a/b'");
+    });
+  });
 
 	describe('readTrimmedStringProperty', () => {
 	  test('returns undefined for missing/invalid values', () => {

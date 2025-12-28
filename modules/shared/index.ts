@@ -38,6 +38,23 @@ export function normalizeFlag(value: unknown, defaultValue: boolean): boolean {
 }
 
 /**
+ * Assert a string is a valid extension identifier.
+ *
+ * Extensions are top-level feature modules (e.g. `extensions/<name>`). This helper is shared
+ * between the server and CLI extension hosts.
+ */
+export function assertValidExtensionName(value: unknown): string {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) {
+    throw new Error('Invalid extension name: empty');
+  }
+  if (!/^[a-z][a-z0-9_-]*$/.test(raw)) {
+    throw new Error(`Invalid extension name: '${raw}'`);
+  }
+  return raw;
+}
+
+/**
  * Read a trimmed, non-empty string property from an unknown record.
  *
  * @param record - Any object-like value

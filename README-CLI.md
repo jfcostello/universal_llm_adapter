@@ -31,6 +31,7 @@ llm-adapter <command> [options]
 | `serve` | Start HTTP/SSE server |
 | `realtime` | Realtime session over stdin/stdout JSON protocol |
 | `realtime client-secret` | Mint a short-lived realtime WebRTC client secret |
+| `voice call` | Create an outbound voice call (server endpoint) |
 
 ---
 
@@ -237,6 +238,37 @@ llm-adapter vector upsert --spec '<json>' [options]
 ```
 
 **Options:** Same as `vector query`.
+
+---
+
+## Voice Extension Commands
+
+### `llm-adapter voice call`
+
+Create an outbound voice call by calling the server `POST /voice/calls` endpoint.
+
+```bash
+llm-adapter voice call --server-url <url> --to <number> --from <number> --voice-provider <id> \\
+  --realtime-spec '<json>' [options]
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--server-url <url>` | Base URL of a running adapter server |
+| `--api-key <key>` | API key for server auth (sent as `x-api-key` by default) |
+| `--api-key-header-name <name>` | Header name for API key (default: `x-api-key`) |
+| `--idempotency-key <key>` | Optional idempotency key (sent as `Idempotency-Key`) |
+| `--ttl-seconds <seconds>` | TTL for stored call config (default: `900`) |
+| `--to <number>` | Destination phone number |
+| `--from <number>` | Caller ID / from number |
+| `--voice-provider <id>` | Voice provider id |
+| `--system-prompt <text>` | System prompt text |
+| `--system-prompt-file <path>` | Path to a system prompt file |
+| `--realtime-spec <json>` | Realtime session spec as JSON string |
+| `--realtime-spec-file <path>` | Path to realtime session spec JSON file |
+| `--pretty` | Pretty print output |
 
 **Example:**
 
