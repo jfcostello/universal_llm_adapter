@@ -220,6 +220,55 @@ describe('extensions/voice: /voice/calls', () => {
     }
   });
 
+  test('idempotency: long keys are hashed for storage', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    const consumeNonceOnce = jest.spyOn(store as any, 'consumeNonceOnce');
+    const putIdempotency = jest.spyOn(store as any, 'putIdempotency');
+
+    const createOutboundCall = jest.fn(async () => ({ providerCallId: 'p1' }));
+    const harness = await startHarness({
+      store,
+      providerPlugins: {
+        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
+        getCompat: jest.fn(async () => ({ createOutboundCall }))
+      },
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+    });
+
+    try {
+      const longKey = 'k'.repeat(2000);
+
+      const makeReq = () =>
+        fetch(new URL('/voice/calls', harness.baseUrl), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer k1', 'Idempotency-Key': longKey },
+          body: JSON.stringify({
+            to: 'to',
+            from: 'from',
+            realtimeSpec: { ok: true },
+            voiceProvider: 'test'
+          })
+        });
+
+      const res1 = await makeReq();
+      expect(res1.status).toBe(200);
+      const body1 = await res1.json();
+
+      const res2 = await makeReq();
+      expect(res2.status).toBe(200);
+      const body2 = await res2.json();
+
+      expect(body2).toEqual(body1);
+      expect(createOutboundCall).toHaveBeenCalledTimes(1);
+
+      const normalizedKey = putIdempotency.mock.calls[0]?.[0];
+      expect(String(normalizedKey)).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(String(consumeNonceOnce.mock.calls[0]?.[0])).toBe(`idem:${normalizedKey}`);
+    } finally {
+      await harness.close();
+    }
+  });
+
   test('idempotency: concurrent requests only initiate once', async () => {
     const store = createInMemoryVoiceCallConfigStore();
     const createOutboundCall = jest.fn(async () => {

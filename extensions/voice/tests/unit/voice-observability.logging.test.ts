@@ -60,7 +60,7 @@ describe('extensions/voice: observability logging', () => {
       pluginsPath: './plugins',
       upgradeRouter: {} as any,
       store,
-      providerPlugins: { getCompat: jest.fn(async () => ({ createWebhookResponse })) } as any,
+      providerPlugins: { getCompat: jest.fn(async () => ({ validateWebhookRequest: jest.fn(async () => {}), createWebhookResponse })) } as any,
       logging: {
         getLogger: () => {
           throw new Error('boom');
@@ -107,7 +107,7 @@ describe('extensions/voice: observability logging', () => {
       pluginsPath: './plugins',
       upgradeRouter: {} as any,
       store,
-      providerPlugins: { getCompat: jest.fn(async () => ({ createWebhookResponse })) } as any
+      providerPlugins: { getCompat: jest.fn(async () => ({ validateWebhookRequest: jest.fn(async () => {}), createWebhookResponse })) } as any
     });
 
     const res = createMockRes();
@@ -404,6 +404,65 @@ describe('extensions/voice: observability logging', () => {
     expect(logged).not.toContain('req_header');
   });
 
+  test('/voice/calls sanitizes and caps metadata.requestId', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+    const logger = createCapturingLogger();
+
+    const { createVoiceServerRegistration } = await import('../../internal/server.js');
+    const { createInMemoryVoiceCallConfigStore } = await import('../../internal/call-config-store/index.js');
+
+    const store = createInMemoryVoiceCallConfigStore();
+    const createOutboundCall = jest.fn(async () => ({ providerCallId: 'p1' }));
+    const providerPlugins = {
+      getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: {} })),
+      getCompat: jest.fn(async () => ({ createOutboundCall }))
+    };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: providerPlugins as any,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+      logging: { getLogger: () => logger }
+    });
+
+    const rawRequestId = `req_${'a'.repeat(200)}\n\t, ignored`;
+    const expected = `req_${'a'.repeat(124)}`;
+
+    const res = createMockRes();
+    const req = Object.assign(
+      Readable.from([
+        JSON.stringify({
+          to: 'to',
+          from: 'from',
+          realtimeSpec: { provider: 'realtime_p1' },
+          voiceProvider: 'test',
+          metadata: { requestId: rawRequestId }
+        })
+      ]),
+      {
+        url: '/voice/calls',
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer k1', 'x-request-id': 'req_header' },
+        socket: {}
+      }
+    ) as any;
+
+    await expect(reg.handleHttp(req, res)).resolves.toBe(true);
+    expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+
+    const payload = JSON.parse(String(res.end.mock.calls[0][0]));
+    const stored = await store.getConfig(payload.callConfigId);
+    expect(stored?.metadata?.requestId).toBe(expected);
+
+    const logged = JSON.stringify({ info: logger.info.mock.calls, warn: logger.warning.mock.calls, err: logger.error.mock.calls });
+    expect(logged).toContain(expected);
+    expect(logged).not.toContain('ignored');
+  });
+
   test('/voice/calls error logs do not leak systemPrompt', async () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const logger = createCapturingLogger();
@@ -492,7 +551,7 @@ describe('extensions/voice: observability logging', () => {
       headers: { 'Content-Type': 'text/xml; charset=utf-8' },
       body: `<x>${options.mediaWsUrl}</x>`
     }));
-    const providerPlugins = { getCompat: jest.fn(async () => ({ createWebhookResponse })) };
+    const providerPlugins = { getCompat: jest.fn(async () => ({ validateWebhookRequest: jest.fn(async () => {}), createWebhookResponse })) };
 
     const reg = await createVoiceServerRegistration({
       server: {} as any,

@@ -36,6 +36,11 @@ Enable the voice extension on the server via:
 
 - `LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS` (default: `300`)
   - TTL for the signed `WS /voice/media` token minted by `/voice/webhook` and `/voice/calls`.
+  - Max: `86400` (tokens above this TTL are rejected to avoid downstream verification mismatches).
+
+- `LLM_ADAPTER_VOICE_WEBHOOK_VALIDATION_REQUIRED` (default: on)
+  - When enabled (default), the active voice compat **must** implement `validateWebhookRequest()` and `/voice/webhook` will reject requests if validation isn’t available.
+  - For local/dev only, set `LLM_ADAPTER_VOICE_WEBHOOK_VALIDATION_REQUIRED=0` to allow missing webhook validation.
 
 - `LLM_ADAPTER_VOICE_CALL_CONFIG_STORE` (default: `memory`)
   - Store implementation for call configs, idempotency keys, and nonce replay protection.
@@ -67,6 +72,10 @@ The voice extension itself is provider-agnostic; provider-specific behavior live
 
 Some compats require signature headers and shared secrets; see the relevant compat README under `plugins/voice-compat/*` for the exact header names and required environment variables.
 
+By default, webhook validation is **required**. If the active compat does not implement `validateWebhookRequest()`, `/voice/webhook` returns `501` with code `webhook_validation_unavailable`.
+
+For local/dev only, set `LLM_ADAPTER_VOICE_WEBHOOK_VALIDATION_REQUIRED=0` to allow missing validation.
+
 ### Public base URL / proxies
 
 `/voice/webhook` needs to generate a public `WS /voice/media` URL for the telephony provider to connect to.
@@ -86,6 +95,9 @@ If you run behind a reverse proxy/load balancer, ensure it forwards those header
 2. Provider places the outbound call and hits `GET|POST /voice/webhook?callConfigId=<id>`.
 3. The webhook response instructs the provider to connect to `WS /voice/media?token=<...>`.
 4. The provider streams audio over the media WS; the compat bridges into the core realtime session APIs.
+
+Notes:
+- `POST /voice/calls` supports idempotency via the `Idempotency-Key` header or `idempotencyKey` JSON body field. Keys are trimmed; extremely large keys are stored via a stable hash to keep store keys bounded.
 
 ### Inbound call
 
@@ -168,7 +180,7 @@ The voice extension emits structured lifecycle logs via the core logging module.
 
 Common fields:
 - `callConfigId`
-- `requestId` (when provided on `POST /voice/calls`)
+- `requestId` (when provided on `POST /voice/calls`; sanitized and capped)
 - `voiceProvider` (ID only)
 - `providerCallId` / `providerStreamId` (when available)
 - `realtimeSessionId` (when available)
