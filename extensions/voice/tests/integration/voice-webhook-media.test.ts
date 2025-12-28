@@ -34,6 +34,21 @@ function openWs(url: string): Promise<{ ws: WebSocket; messages: any[]; closePro
   });
 }
 
+function createCapturingLogger() {
+  const logger: any = {
+    withCorrelation: jest.fn(),
+    debug: jest.fn(),
+    info: jest.fn(),
+    warning: jest.fn(),
+    error: jest.fn(),
+    logLLMRequest: jest.fn(),
+    logLLMResponse: jest.fn(),
+    close: jest.fn(async () => {})
+  };
+  logger.withCorrelation.mockReturnValue(logger);
+  return logger;
+}
+
 async function waitForMessage(messages: any[], predicate: (m: any) => boolean, timeoutMs = 2000): Promise<any> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -44,7 +59,7 @@ async function waitForMessage(messages: any[], predicate: (m: any) => boolean, t
   throw new Error('Timed out waiting for WS message');
 }
 
-async function startHarness(options: { store: any; providerPlugins?: any }) {
+async function startHarness(options: { store: any; providerPlugins?: any; logging?: any }) {
   let handleHttp: any = async () => false;
   const server = http.createServer((req, res) => {
     void (async () => {
@@ -63,7 +78,8 @@ async function startHarness(options: { store: any; providerPlugins?: any }) {
     pluginsPath: path.resolve(process.cwd(), 'plugins'),
     upgradeRouter,
     store: options.store,
-    ...(options.providerPlugins ? { providerPlugins: options.providerPlugins } : {})
+    ...(options.providerPlugins ? { providerPlugins: options.providerPlugins } : {}),
+    ...(options.logging ? { logging: options.logging } : {})
   });
 
   handleHttp = reg.handleHttp;
@@ -141,6 +157,58 @@ describe('extensions/voice: webhook + media wiring', () => {
 
       // Token replay should fail (nonce is consume-once).
       await expect(openWs(wsUrl)).rejects.toBeDefined();
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('logs ws error events without leaking ws token', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'p1'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const logger = createCapturingLogger();
+
+    const providerPlugins = {
+      getCompat: async () => ({
+        createWebhookResponse: async (options: any) => ({
+          status: 200,
+          headers: { 'Content-Type': 'text/xml; charset=utf-8' },
+          body: `<?xml version=\"1.0\"?><Response><Connect><Stream url=\"${options.mediaWsUrl}\" /></Connect></Response>`
+        }),
+        handleMediaConnection: async ({ ws }: any) => {
+          try {
+            ws.emit?.('error', new Error('boom'));
+            ws.emit?.('error', 'boom2');
+          } catch {}
+          try { ws.close(); } catch {}
+        }
+      })
+    };
+
+    const harness = await startHarness({ store, providerPlugins, logging: { getLogger: () => logger } });
+    try {
+      const res = await fetch(new URL('/voice/webhook?callConfigId=cfg_1', harness.baseUrl));
+      const wsUrl = extractStreamUrl(await res.text());
+
+      const { closePromise } = await openWs(wsUrl);
+      await closePromise;
+
+      const logged = JSON.stringify({ info: logger.info.mock.calls, err: logger.error.mock.calls });
+      expect(logged).toContain('voice.media.ws_error');
+      expect(logged).not.toContain('token=');
     } finally {
       await harness.close();
     }
@@ -228,6 +296,54 @@ describe('extensions/voice: webhook + media wiring', () => {
 
       const { closePromise } = await openWs(wsUrl);
       await closePromise;
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('media handler logs error code when compat throws a coded non-Error', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'p1'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const logger = createCapturingLogger();
+
+    const providerPlugins = {
+      getCompat: async () => ({
+        createWebhookResponse: async (options: any) => ({
+          status: 200,
+          headers: { 'Content-Type': 'text/xml; charset=utf-8' },
+          body: `<?xml version=\"1.0\"?><Response><Connect><Stream url=\"${options.mediaWsUrl}\" /></Connect></Response>`
+        }),
+        handleMediaConnection: async () => {
+          throw { code: 'coded_error' };
+        }
+      })
+    };
+
+    const harness = await startHarness({ store, providerPlugins, logging: { getLogger: () => logger } });
+    try {
+      const res = await fetch(new URL('/voice/webhook?callConfigId=cfg_1', harness.baseUrl));
+      const wsUrl = extractStreamUrl(await res.text());
+
+      const { closePromise } = await openWs(wsUrl);
+      await closePromise;
+
+      const logged = JSON.stringify({ err: logger.error.mock.calls });
+      expect(logged).toContain('voice.media.error');
+      expect(logged).toContain('coded_error');
     } finally {
       await harness.close();
     }

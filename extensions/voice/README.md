@@ -23,6 +23,39 @@ Enable the voice extension on the server via:
 - Config: `server.extensions.enabled: ["voice"]`
 - CLI: `llm-adapter serve --extension voice`
 
+## Observability
+
+### Structured logs (redacted)
+
+The voice extension emits structured lifecycle logs via the core logging module. Logs are designed to be correlation-friendly and **never** include prompts or raw media frames.
+
+Common fields:
+- `callConfigId`
+- `voiceProvider` (ID only)
+- `providerCallId` / `providerStreamId` (when available)
+- `realtimeSessionId` (when available)
+
+Event names + fields:
+- `voice.calls.accepted` → `{ callConfigId, voiceProvider, hasIdempotencyKey }`
+- `voice.calls.idempotency_hit` → `{ voiceProvider, callConfigId?, providerCallId? }`
+- `voice.calls.idempotency_in_progress` → `{ voiceProvider }`
+- `voice.calls.queued` → `{ callConfigId, voiceProvider, providerCallId }`
+- `voice.calls.error` → `{ callConfigId?, voiceProvider, statusCode, code? }`
+
+- `voice.webhook.request` → `{ callConfigId, voiceProvider, method }`
+- `voice.webhook.validation_failed` → `{ callConfigId, voiceProvider, statusCode, code? }`
+- `voice.webhook.response` → `{ callConfigId, voiceProvider, status }`
+- `voice.webhook.error` → `{ callConfigId, voiceProvider, statusCode, code? }`
+
+- `voice.media.connected` → `{ callConfigId, voiceProvider }`
+- `voice.media.closed` → `{ callConfigId, voiceProvider, code }`
+- `voice.media.ws_error` → `{ callConfigId, voiceProvider, message }`
+- `voice.media.error` → `{ callConfigId, voiceProvider, code?, message }`
+
+- `voice.media.stream_started` → `{ callConfigId, voiceProvider, providerStreamId, providerCallId }`
+- `voice.realtime.ready` → `{ callConfigId, voiceProvider, providerStreamId, realtimeSessionId }`
+- `voice.media.bridge_error` → `{ callConfigId, voiceProvider, providerStreamId?, providerCallId?, code, message }`
+
 ## CLI: `llm-adapter voice call`
 
 Creates an outbound voice call by calling the server `POST /voice/calls` endpoint.

@@ -39,6 +39,21 @@ function flush(): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, 0));
 }
 
+function createSpyLogger() {
+  const logger: any = {
+    withCorrelation: jest.fn(),
+    debug: jest.fn(),
+    info: jest.fn(),
+    warning: jest.fn(),
+    error: jest.fn(),
+    logLLMRequest: jest.fn(),
+    logLLMResponse: jest.fn(),
+    close: jest.fn(async () => {})
+  };
+  logger.withCorrelation.mockReturnValue(logger);
+  return logger;
+}
+
 function createRegistryHarness() {
   let closeCompat: (() => void) | undefined;
   const compatClosed = new Promise<void>(resolve => {
@@ -134,6 +149,7 @@ describe('plugins/voice-compat/twilio', () => {
     const token = makeToken('secret');
 
     const { registry, createSession } = createRegistryHarness();
+    const logger = createSpyLogger();
 
     const compat = new TwilioVoiceCompat();
     const ws = new MockWebSocket();
@@ -149,7 +165,8 @@ describe('plugins/voice-compat/twilio', () => {
         realtimeSpec: { provider: 'realtime_p1', metadata: { existing: true } }
       },
       voiceProvider: 'twilio',
-      registry
+      registry,
+      logger
     });
 
     ws.emitMessage(startMessage());
@@ -164,6 +181,86 @@ describe('plugins/voice-compat/twilio', () => {
     expect(passed?.spec?.metadata?.callConfigId).toBe('cfg_1');
     expect(passed?.spec?.metadata?.voiceProvider).toBe('twilio');
     expect(passed?.spec?.metadata?.providerCallMetadata?.streamSid).toBe('MZ123');
+
+    const logged = JSON.stringify({ info: logger.info.mock.calls, error: logger.error.mock.calls });
+    expect(logged).toContain('voice.media.stream_started');
+    expect(logged).toContain('voice.realtime.ready');
+    expect(logged).toContain('providerStreamId');
+    expect(logged).toContain('realtimeSessionId');
+    expect(logged).not.toContain('sys');
+  });
+
+  test('handleMediaConnection logs bridge errors without leaking systemPrompt or media payload', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+    const token = makeToken('secret');
+
+    const { registry } = createRegistryHarness();
+    const logger = createSpyLogger();
+
+    const compat = new TwilioVoiceCompat();
+    const ws = new MockWebSocket();
+    const task = compat.handleMediaConnection({
+      ws: ws as any,
+      req: { url: `/voice/media?token=${encodeURIComponent(token)}` } as any,
+      callConfigId: 'cfg_1',
+      callConfig: {
+        systemPrompt: 'TOP_SECRET',
+        realtimeSpec: { provider: 'realtime_p1' }
+      },
+      voiceProvider: 'twilio',
+      registry,
+      logger
+    });
+
+    ws.emitMessage(startMessage());
+    await flush();
+
+    ws.emitMessage(JSON.stringify({ event: 'media', streamSid: 'DIFF', media: { payload: 'QUJD' } }));
+    await task;
+
+    expect(logger.error).toHaveBeenCalled();
+    const errorCalls = logger.error.mock.calls;
+    expect(errorCalls.some(([msg]) => msg === 'voice.media.bridge_error')).toBe(true);
+
+    const serialized = JSON.stringify({ info: logger.info.mock.calls, error: logger.error.mock.calls });
+    expect(serialized).not.toContain('TOP_SECRET');
+    expect(serialized).not.toContain('QUJD');
+  });
+
+  test('handleMediaConnection logs bridge errors when media arrives before start (no provider ids)', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+    const token = makeToken('secret');
+
+    const { registry } = createRegistryHarness();
+    const logger = createSpyLogger();
+
+    const compat = new TwilioVoiceCompat();
+    const ws = new MockWebSocket();
+    const task = compat.handleMediaConnection({
+      ws: ws as any,
+      req: { url: `/voice/media?token=${encodeURIComponent(token)}` } as any,
+      callConfigId: 'cfg_1',
+      callConfig: {
+        systemPrompt: 'TOP_SECRET',
+        realtimeSpec: { provider: 'realtime_p1' }
+      },
+      voiceProvider: 'twilio',
+      registry,
+      logger
+    });
+
+    ws.emitMessage(JSON.stringify({ event: 'media', streamSid: 'MZ123', media: { payload: 'QUJD' } }));
+    await task;
+
+    const errorCalls = logger.error.mock.calls;
+    const bridgeError = errorCalls.find(([msg]) => msg === 'voice.media.bridge_error');
+    expect(bridgeError).toBeTruthy();
+    expect(JSON.stringify(bridgeError?.[1] ?? {})).toContain('media_before_start');
+    expect(JSON.stringify(bridgeError?.[1] ?? {})).not.toContain('providerStreamId');
+
+    const serialized = JSON.stringify({ info: logger.info.mock.calls, error: logger.error.mock.calls });
+    expect(serialized).not.toContain('TOP_SECRET');
+    expect(serialized).not.toContain('QUJD');
   });
 
   test('handleMediaConnection handles missing systemPrompt and non-object metadata', async () => {

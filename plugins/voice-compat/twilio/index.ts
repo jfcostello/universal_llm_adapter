@@ -144,10 +144,23 @@ export default class TwilioVoiceCompat {
     callConfig: any;
     voiceProvider: string;
     registry: any;
+    logger?: any;
   }): Promise<void> {
     const callConfig = options.callConfig ?? {};
     const systemPrompt = callConfig.systemPrompt;
     const realtimeSpec = callConfig.realtimeSpec ?? {};
+
+    const logger = options.logger;
+    const safeLog = (level: 'debug' | 'info' | 'warning' | 'error', message: string, data?: any) => {
+      try {
+        const fn = logger?.[level];
+        if (typeof fn === 'function') fn(message, data);
+      } catch {}
+    };
+    const baseFields = {
+      callConfigId: String(options.callConfigId),
+      voiceProvider: String(options.voiceProvider)
+    };
 
     const bridge = createTwilioMediaStreamsBridge({
       createSession: async ({ metadata }) => {
@@ -172,6 +185,33 @@ export default class TwilioVoiceCompat {
       security: {
         tokenSecret: requireVoiceWsTokenSecret(),
         tokenMaxTtlSeconds: 86400
+      },
+      callbacks: {
+        onCallStart: (metadata) => {
+          safeLog('info', 'voice.media.stream_started', {
+            ...baseFields,
+            providerStreamId: metadata.streamSid,
+            providerCallId: metadata.callSid
+          });
+        },
+        onRealtimeEvent: ({ event, metadata }) => {
+          if (event?.type === 'ready') {
+            safeLog('info', 'voice.realtime.ready', {
+              ...baseFields,
+              providerStreamId: metadata.streamSid,
+              realtimeSessionId: (event as any).sessionId
+            });
+          }
+        },
+        onError: ({ message, code, metadata }) => {
+          safeLog('error', 'voice.media.bridge_error', {
+            ...baseFields,
+            ...(metadata?.streamSid ? { providerStreamId: metadata.streamSid } : {}),
+            ...(metadata?.callSid ? { providerCallId: metadata.callSid } : {}),
+            code: String(code),
+            message: String(message)
+          });
+        }
       }
     });
 

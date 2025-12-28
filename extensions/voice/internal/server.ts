@@ -29,6 +29,18 @@ type VoiceMediaTokenPayload = {
   voiceProvider: string;
 };
 
+type VoiceLogger = {
+  withCorrelation: (correlationId: string | string[]) => VoiceLogger;
+  debug: (message: string, data?: any) => void;
+  info: (message: string, data?: any) => void;
+  warning: (message: string, data?: any) => void;
+  error: (message: string, data?: any) => void;
+};
+
+type VoiceLogging = {
+  getLogger: (correlationId?: string) => VoiceLogger;
+};
+
 function parseUrl(rawUrl: string | undefined): URL | null {
   const raw = rawUrl ?? '/';
   try {
@@ -175,6 +187,7 @@ export async function createVoiceServerRegistration(ctx: {
   upgradeRouter: any;
   store?: VoiceCallConfigStore;
   providerPlugins?: VoiceProviderPlugins;
+  logging?: VoiceLogging;
   httpConfig?: {
     maxRequestBytes?: number;
     bodyReadTimeoutMs?: number;
@@ -209,6 +222,33 @@ export async function createVoiceServerRegistration(ctx: {
   const authorize = httpConfig.authorize;
 
   const rateLimiter = createRateLimiter(rateLimitConfig);
+
+  let cachedLoggingModule: { getLogger: (correlationId?: string) => VoiceLogger } | undefined;
+  const resolveLogger = async (correlationId?: string): Promise<VoiceLogger | undefined> => {
+    if (ctx.logging?.getLogger) {
+      try {
+        return ctx.logging.getLogger(correlationId);
+      } catch {
+        return undefined;
+      }
+    }
+
+    try {
+      if (!cachedLoggingModule) {
+        cachedLoggingModule = await import('../../../modules/logging/index.js');
+      }
+      return cachedLoggingModule.getLogger(correlationId);
+    } catch {
+      return undefined;
+    }
+  };
+
+  const safeLog = (logger: VoiceLogger | undefined, level: 'debug' | 'info' | 'warning' | 'error', message: string, data?: any): void => {
+    try {
+      const fn = logger?.[level];
+      if (typeof fn === 'function') fn(message, data);
+    } catch {}
+  };
 
   const assertAuthorizedAndRateLimited = async (req: http.IncomingMessage): Promise<string | undefined> => {
     const authIdentity = await assertAuthorized(req, authConfig, authorize as any);
@@ -274,49 +314,80 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
+          const logger = await resolveLogger(callConfigId);
+          safeLog(logger, 'info', 'voice.webhook.request', { callConfigId, voiceProvider, method });
+
           const compat = await providerPlugins.getCompat(voiceProvider);
 
-          const validateWebhookRequest = (compat as any)?.validateWebhookRequest;
-          if (typeof validateWebhookRequest === 'function') {
-            const httpBaseUrl = getPublicHttpBaseUrl(req);
-            const publicUrl = new URL(req.url ?? '/voice/webhook', httpBaseUrl).toString();
+          try {
+            const validateWebhookRequest = (compat as any)?.validateWebhookRequest;
+            if (typeof validateWebhookRequest === 'function') {
+              const httpBaseUrl = getPublicHttpBaseUrl(req);
+              const publicUrl = new URL(req.url ?? '/voice/webhook', httpBaseUrl).toString();
 
-            const params: Record<string, string> = {};
-            if (method === 'POST') {
-              const contentType = String(req.headers?.['content-type'] ?? '').toLowerCase();
-              const rawBody = await readTextBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
+              const params: Record<string, string> = {};
+              if (method === 'POST') {
+                const contentType = String(req.headers?.['content-type'] ?? '').toLowerCase();
+                const rawBody = await readTextBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
 
-              if (rawBody && contentType.includes('application/x-www-form-urlencoded')) {
-                const form = new URLSearchParams(rawBody);
-                for (const [k, v] of form.entries()) {
-                  params[String(k)] = String(v);
+                if (rawBody && contentType.includes('application/x-www-form-urlencoded')) {
+                  const form = new URLSearchParams(rawBody);
+                  for (const [k, v] of form.entries()) {
+                    params[String(k)] = String(v);
+                  }
                 }
+              }
+
+              let providerDefaults: any | undefined;
+              try {
+                const manifest = await providerPlugins.getManifest?.(voiceProvider);
+                providerDefaults = (manifest as any)?.defaults;
+              } catch {
+                // ignore and allow compat to decide whether defaults are required
+              }
+
+              try {
+                await validateWebhookRequest({ req, method, url: publicUrl, params, callConfigId, callConfig, voiceProvider, providerDefaults });
+              } catch (error: any) {
+                const statusCode = Number(error?.statusCode ?? 500);
+                const code = error?.code !== undefined ? String(error.code) : undefined;
+                safeLog(
+                  logger,
+                  statusCode >= 500 ? 'error' : 'warning',
+                  'voice.webhook.validation_failed',
+                  { callConfigId, voiceProvider, statusCode, ...(code ? { code } : {}) }
+                );
+                throw error;
               }
             }
 
-            let providerDefaults: any | undefined;
-            try {
-              const manifest = await providerPlugins.getManifest?.(voiceProvider);
-              providerDefaults = (manifest as any)?.defaults;
-            } catch {
-              // ignore and allow compat to decide whether defaults are required
+            const httpBaseUrl = getPublicHttpBaseUrl(req);
+            const token = mintVoiceMediaToken({ callConfigId, voiceProvider });
+            const mediaWsUrl = toWsUrl(httpBaseUrl, '/voice/media', { token });
+
+            const response = await compat.createWebhookResponse({ req, callConfigId, callConfig, voiceProvider, mediaWsUrl });
+            const status = Number(response?.status ?? 200);
+            const headers = (response?.headers && typeof response.headers === 'object') ? response.headers : {};
+            const body = String(response?.body ?? '');
+
+            safeLog(logger, 'info', 'voice.webhook.response', { callConfigId, voiceProvider, status });
+
+            res.writeHead(status, headers);
+            res.end(body);
+            return true;
+          } catch (error: any) {
+            const statusCode = Number(error?.statusCode ?? 500);
+            const code = error?.code !== undefined ? String(error.code) : undefined;
+            if (!(statusCode === 401 && code === 'unauthorized')) {
+              safeLog(
+                logger,
+                statusCode >= 500 ? 'error' : 'warning',
+                'voice.webhook.error',
+                { callConfigId, voiceProvider, statusCode, ...(code ? { code } : {}) }
+              );
             }
-
-            await validateWebhookRequest({ req, method, url: publicUrl, params, callConfigId, callConfig, voiceProvider, providerDefaults });
+            throw error;
           }
-
-          const httpBaseUrl = getPublicHttpBaseUrl(req);
-          const token = mintVoiceMediaToken({ callConfigId, voiceProvider });
-          const mediaWsUrl = toWsUrl(httpBaseUrl, '/voice/media', { token });
-
-          const response = await compat.createWebhookResponse({ req, callConfigId, callConfig, voiceProvider, mediaWsUrl });
-          const status = Number(response?.status ?? 200);
-          const headers = (response?.headers && typeof response.headers === 'object') ? response.headers : {};
-          const body = String(response?.body ?? '');
-
-          res.writeHead(status, headers);
-          res.end(body);
-          return true;
         }
 
         if (pathname === '/voice/calls') {
@@ -359,89 +430,139 @@ export async function createVoiceServerRegistration(ctx: {
             (body?.idempotencyKey !== undefined ? String(body.idempotencyKey) : undefined);
           const idempotencyKeyTrimmed = typeof idempotencyKey === 'string' ? idempotencyKey.trim() : '';
 
-          if (idempotencyKeyTrimmed) {
-            const existing = await store.getIdempotency(idempotencyKeyTrimmed);
-            if (existing) {
-              writeJson(res, 200, existing);
-              return true;
-            }
+          let callConfigId: string | undefined;
+          let logger: VoiceLogger | undefined;
 
-            const lockTtlSeconds = Math.max(1, Math.min(ttlSeconds, idempotencyLockTtlSeconds));
-            const lockOk = await store.consumeNonceOnce(`idem:${idempotencyKeyTrimmed}`, { ttlSeconds: lockTtlSeconds });
-            if (!lockOk) {
-              const start = Date.now();
-              while (Date.now() - start < idempotencyWaitMs) {
-                const ready = await store.getIdempotency(idempotencyKeyTrimmed);
-                if (ready) {
-                  writeJson(res, 200, ready);
-                  return true;
-                }
-                await sleep(25);
+          try {
+            if (idempotencyKeyTrimmed) {
+              const existing = await store.getIdempotency(idempotencyKeyTrimmed);
+              if (existing) {
+                callConfigId = String((existing as any)?.callConfigId ?? '').trim();
+                const providerCallId = String((existing as any)?.providerCallId ?? '').trim();
+                logger = await resolveLogger(callConfigId || undefined);
+                safeLog(logger, 'info', 'voice.calls.idempotency_hit', {
+                  ...(callConfigId ? { callConfigId } : {}),
+                  voiceProvider,
+                  ...(providerCallId ? { providerCallId } : {})
+                });
+                writeJson(res, 200, existing);
+                return true;
               }
 
-              writeJson(res, 409, {
-                type: 'error',
-                error: { message: 'Idempotency key is already in progress', code: 'idempotency_in_progress' }
-              });
+              const lockTtlSeconds = Math.max(1, Math.min(ttlSeconds, idempotencyLockTtlSeconds));
+              const lockOk = await store.consumeNonceOnce(`idem:${idempotencyKeyTrimmed}`, { ttlSeconds: lockTtlSeconds });
+              if (!lockOk) {
+                const start = Date.now();
+                while (Date.now() - start < idempotencyWaitMs) {
+                  const ready = await store.getIdempotency(idempotencyKeyTrimmed);
+                  if (ready) {
+                    callConfigId = String((ready as any)?.callConfigId ?? '').trim();
+                    const providerCallId = String((ready as any)?.providerCallId ?? '').trim();
+                    logger = await resolveLogger(callConfigId || undefined);
+                    safeLog(logger, 'info', 'voice.calls.idempotency_hit', {
+                      ...(callConfigId ? { callConfigId } : {}),
+                      voiceProvider,
+                      ...(providerCallId ? { providerCallId } : {})
+                    });
+                    writeJson(res, 200, ready);
+                    return true;
+                  }
+                  await sleep(25);
+                }
+
+                logger = await resolveLogger();
+                safeLog(logger, 'warning', 'voice.calls.idempotency_in_progress', { voiceProvider });
+                writeJson(res, 409, {
+                  type: 'error',
+                  error: { message: 'Idempotency key is already in progress', code: 'idempotency_in_progress' }
+                });
+                return true;
+              }
+            }
+
+            let providerDefaults: any | undefined;
+            try {
+              const manifest = await providerPlugins.getManifest(voiceProvider);
+              providerDefaults = (manifest as any).defaults;
+            } catch {
+              writeJson(res, 400, { type: 'error', error: { message: 'Unknown voiceProvider', code: 'validation_error' } });
               return true;
             }
-          }
 
-          let providerDefaults: any | undefined;
-          try {
-            const manifest = await providerPlugins.getManifest(voiceProvider);
-            providerDefaults = (manifest as any).defaults;
-          } catch {
-            writeJson(res, 400, { type: 'error', error: { message: 'Unknown voiceProvider', code: 'validation_error' } });
-            return true;
-          }
-
-          const callConfigId = `voice_cfg_${crypto.randomBytes(18).toString('base64url')}`;
-          await store.putConfig(
-            {
-              version: 1,
+            callConfigId = `voice_cfg_${crypto.randomBytes(18).toString('base64url')}`;
+            logger = logger ?? (await resolveLogger(callConfigId));
+            safeLog(logger, 'info', 'voice.calls.accepted', {
               callConfigId,
-              createdAtMs: 0,
-              expiresAtMs: 0,
+              voiceProvider,
+              hasIdempotencyKey: Boolean(idempotencyKeyTrimmed)
+            });
+            await store.putConfig(
+              {
+                version: 1,
+                callConfigId,
+                createdAtMs: 0,
+                expiresAtMs: 0,
+                to,
+                from,
+                direction: 'outbound',
+                systemPrompt,
+                realtimeSpec,
+                voiceProvider,
+                metadata: body?.metadata
+              } as any,
+              { ttlSeconds }
+            );
+
+            const httpBaseUrl = getPublicHttpBaseUrl(req);
+            const token = mintVoiceMediaToken({ callConfigId, voiceProvider });
+            const mediaWsUrl = toWsUrl(httpBaseUrl, '/voice/media', { token });
+
+            const compat = await providerPlugins.getCompat(voiceProvider);
+            const callConfig = await store.getConfig(callConfigId);
+            if (!callConfig) {
+              const error = new Error('Failed to load stored call config');
+              (error as any).statusCode = 500;
+              throw error;
+            }
+
+            const outbound = await compat.createOutboundCall({
               to,
               from,
-              direction: 'outbound',
-              systemPrompt,
-              realtimeSpec,
+              callConfigId,
+              callConfig,
               voiceProvider,
-              metadata: body?.metadata
-            } as any,
-            { ttlSeconds }
-          );
+              mediaWsUrl,
+              providerDefaults
+            });
+            const providerCallId = String(outbound?.providerCallId ?? '').trim();
+            if (!providerCallId) {
+              const error = new Error('Voice provider did not return providerCallId');
+              (error as any).statusCode = 502;
+              (error as any).code = 'provider_error';
+              throw error;
+            }
 
-          const httpBaseUrl = getPublicHttpBaseUrl(req);
-          const token = mintVoiceMediaToken({ callConfigId, voiceProvider });
-          const mediaWsUrl = toWsUrl(httpBaseUrl, '/voice/media', { token });
+            safeLog(logger, 'info', 'voice.calls.queued', { callConfigId, voiceProvider, providerCallId });
 
-          const compat = await providerPlugins.getCompat(voiceProvider);
-          const callConfig = await store.getConfig(callConfigId);
-          if (!callConfig) {
-            const error = new Error('Failed to load stored call config');
-            (error as any).statusCode = 500;
+            const response = { callConfigId, providerCallId, status: 'queued' };
+            if (idempotencyKeyTrimmed) {
+              await store.putIdempotency(idempotencyKeyTrimmed, response, { ttlSeconds });
+            }
+
+            writeJson(res, 200, response);
+            return true;
+          } catch (error: any) {
+            const statusCode = Number(error?.statusCode ?? 500);
+            const code = error?.code !== undefined ? String(error.code) : undefined;
+            const fallbackLogger = logger ?? (await resolveLogger(callConfigId));
+            safeLog(
+              fallbackLogger,
+              statusCode >= 500 ? 'error' : 'warning',
+              'voice.calls.error',
+              { ...(callConfigId ? { callConfigId } : {}), voiceProvider, statusCode, ...(code ? { code } : {}) }
+            );
             throw error;
           }
-
-          const outbound = await compat.createOutboundCall({ to, from, callConfigId, callConfig, voiceProvider, mediaWsUrl, providerDefaults });
-          const providerCallId = String(outbound?.providerCallId ?? '').trim();
-          if (!providerCallId) {
-            const error = new Error('Voice provider did not return providerCallId');
-            (error as any).statusCode = 502;
-            (error as any).code = 'provider_error';
-            throw error;
-          }
-
-          const response = { callConfigId, providerCallId, status: 'queued' };
-          if (idempotencyKeyTrimmed) {
-            await store.putIdempotency(idempotencyKeyTrimmed, response, { ttlSeconds });
-          }
-
-          writeJson(res, 200, response);
-          return true;
         }
 
         if (pathname === '/voice' || pathname === '/voice/') {
@@ -482,6 +603,8 @@ export async function createVoiceServerRegistration(ctx: {
       const ttlSeconds = Math.max(1, Math.ceil(exp - nowSeconds));
       const nonceOk = await store.consumeNonceOnce(nonce, { ttlSeconds });
       if (!nonceOk) {
+        const logger = await resolveLogger(callConfigId);
+        safeLog(logger, 'warning', 'voice.media.rejected', { callConfigId, voiceProvider, reason: 'nonce_replay' });
         writeHttpUpgradeResponse(socket, 401, 'Unauthorized', 'Unauthorized');
         socket.destroy();
         return true;
@@ -489,23 +612,44 @@ export async function createVoiceServerRegistration(ctx: {
 
       const callConfig = await store.getConfig(callConfigId);
       if (!callConfig) {
+        const logger = await resolveLogger(callConfigId);
+        safeLog(logger, 'warning', 'voice.media.rejected', { callConfigId, voiceProvider, reason: 'unknown_call_config' });
         writeHttpUpgradeResponse(socket, 404, 'Not Found', 'Not Found');
         socket.destroy();
         return true;
       }
 
       if (String((callConfig as any).voiceProvider ?? '') !== voiceProvider) {
+        const logger = await resolveLogger(callConfigId);
+        safeLog(logger, 'warning', 'voice.media.rejected', { callConfigId, voiceProvider, reason: 'voice_provider_mismatch' });
         writeHttpUpgradeResponse(socket, 401, 'Unauthorized', 'Unauthorized');
         socket.destroy();
         return true;
       }
 
+      const logger = await resolveLogger(callConfigId);
       const compat = await providerPlugins.getCompat(voiceProvider);
 
       wss.handleUpgrade(req, socket, head, (ws: any) => {
+        safeLog(logger, 'info', 'voice.media.connected', { callConfigId, voiceProvider });
+        try {
+          ws.on?.('close', (code: number) => {
+            safeLog(logger, 'info', 'voice.media.closed', { callConfigId, voiceProvider, code: Number(code) });
+          });
+          ws.on?.('error', (err: any) => {
+            safeLog(logger, 'error', 'voice.media.ws_error', { callConfigId, voiceProvider, message: err?.message ?? String(err) });
+          });
+        } catch {}
+
         void Promise.resolve()
-          .then(() => compat.handleMediaConnection({ ws, req, callConfigId, callConfig, voiceProvider, registry: ctx.registry, store }))
-          .catch(() => {
+          .then(() => compat.handleMediaConnection({ ws, req, callConfigId, callConfig, voiceProvider, registry: ctx.registry, store, logger }))
+          .catch((err) => {
+            safeLog(logger, 'error', 'voice.media.error', {
+              callConfigId,
+              voiceProvider,
+              code: err?.code !== undefined ? String(err.code) : undefined,
+              message: err?.message ?? 'Media handler failed'
+            });
             try { ws.close(); } catch {}
           });
       });
