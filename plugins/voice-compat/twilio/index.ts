@@ -311,7 +311,8 @@ export default class TwilioVoiceCompat {
       if (err?.name === 'AbortError') {
         throw new ProviderExecutionError('twilio', `Outbound call create timed out after ${Math.floor(outboundTimeoutMs)}ms`, 504);
       }
-      throw err;
+      const detail = err?.message ? `: ${String(err.message).slice(0, 200)}` : '';
+      throw new ProviderExecutionError('twilio', `Outbound call create failed${detail}`, 502);
     } finally {
       clearTimeout(timeoutId);
     }

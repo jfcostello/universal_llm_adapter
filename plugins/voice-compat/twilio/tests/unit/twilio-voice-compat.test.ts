@@ -615,6 +615,23 @@ describe('plugins/voice-compat/twilio', () => {
     }
   });
 
+  test('createOutboundCall throws provider_config_error when outbound timeoutMs is invalid', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.createOutboundCall({
+        to: '+1',
+        from: '+2',
+        callConfigId: 'cfg_1',
+        mediaWsUrl: 'wss://example.test/voice/media?token=abc',
+        providerDefaults: {
+          accountSid: 'AC123',
+          authToken: 'token',
+          outbound: { mode: 'twiml', timeoutMs: 0 }
+        }
+      })
+    ).rejects.toMatchObject({ statusCode: 500, code: 'provider_config_error' });
+  });
+
   test('createOutboundCall aborts with ProviderExecutionError on timeout', async () => {
     jest.useFakeTimers();
 
@@ -657,8 +674,62 @@ describe('plugins/voice-compat/twilio', () => {
     }
   }, 2000);
 
-  test('validateWebhookRequest accepts valid signature', async () => {
-    const compat = new TwilioVoiceCompat();
+	  test('createOutboundCall wraps fetch failures in ProviderExecutionError', async () => {
+	    const fetchSpy = jest
+	      .spyOn(globalThis as any, 'fetch')
+	      .mockRejectedValue(new Error('boom'));
+
+	    const compat = new TwilioVoiceCompat();
+	    try {
+	      const promise = compat.createOutboundCall({
+	        to: '+1',
+	        from: '+2',
+	        callConfigId: 'cfg_1',
+	        mediaWsUrl: 'wss://example.test/voice/media?token=abc',
+	        providerDefaults: {
+	          accountSid: 'AC123',
+	          authToken: 'token',
+	          outbound: { mode: 'twiml', timeoutMs: 10 }
+	        }
+	      });
+	      const error = await promise.catch(err => err);
+
+	      expect(error).toBeInstanceOf(ProviderExecutionError);
+	      expect(error).toMatchObject({ statusCode: 502 });
+	    } finally {
+	      fetchSpy.mockRestore();
+	    }
+	  });
+
+	  test('createOutboundCall wraps fetch failures without message in ProviderExecutionError', async () => {
+	    const fetchSpy = jest
+	      .spyOn(globalThis as any, 'fetch')
+	      .mockRejectedValue({});
+
+	    const compat = new TwilioVoiceCompat();
+	    try {
+	      const promise = compat.createOutboundCall({
+	        to: '+1',
+	        from: '+2',
+	        callConfigId: 'cfg_1',
+	        mediaWsUrl: 'wss://example.test/voice/media?token=abc',
+	        providerDefaults: {
+	          accountSid: 'AC123',
+	          authToken: 'token',
+	          outbound: { mode: 'twiml', timeoutMs: 10 }
+	        }
+	      });
+	      const error = await promise.catch(err => err);
+
+	      expect(error).toBeInstanceOf(ProviderExecutionError);
+	      expect(error).toMatchObject({ statusCode: 502 });
+	    } finally {
+	      fetchSpy.mockRestore();
+	    }
+	  });
+
+	  test('validateWebhookRequest accepts valid signature', async () => {
+	    const compat = new TwilioVoiceCompat();
 
     const authToken = 'token';
     const url = 'https://example.test/voice/webhook?callConfigId=cfg_1';
