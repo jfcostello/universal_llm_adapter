@@ -310,8 +310,10 @@ export async function createVoiceServerRegistration(ctx: {
             }
           }
 
+          let providerDefaults: any | undefined;
           try {
-            await providerPlugins.getManifest(voiceProvider);
+            const manifest = await providerPlugins.getManifest(voiceProvider);
+            providerDefaults = (manifest as any).defaults;
           } catch {
             writeJson(res, 400, { type: 'error', error: { message: 'Unknown voiceProvider', code: 'validation_error' } });
             return true;
@@ -347,7 +349,7 @@ export async function createVoiceServerRegistration(ctx: {
             throw error;
           }
 
-          const outbound = await compat.createOutboundCall({ to, from, callConfigId, callConfig, voiceProvider, mediaWsUrl });
+          const outbound = await compat.createOutboundCall({ to, from, callConfigId, callConfig, voiceProvider, mediaWsUrl, providerDefaults });
           const providerCallId = String(outbound?.providerCallId ?? '').trim();
           if (!providerCallId) {
             const error = new Error('Voice provider did not return providerCallId');

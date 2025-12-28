@@ -3,6 +3,7 @@ import http from 'http';
 
 import { createSignedWsToken } from '@/modules/security/index.ts';
 import { MockWebSocket } from '@tests/helpers/mock-ws.ts';
+import { ProviderExecutionError } from '@/kernel/index.ts';
 
 import TwilioVoiceCompat from '../../index.ts';
 
@@ -240,8 +241,271 @@ describe('plugins/voice-compat/twilio', () => {
     ).rejects.toThrow('Missing LLM_ADAPTER_VOICE_WS_TOKEN_SECRET');
   });
 
-  test('createOutboundCall throws not implemented', async () => {
+  test('createOutboundCall validates required fields', async () => {
     const compat = new TwilioVoiceCompat();
-    await expect(compat.createOutboundCall()).rejects.toMatchObject({ statusCode: 501, code: 'not_implemented' });
+    await expect(
+      compat.createOutboundCall({
+        to: '',
+        from: '',
+        callConfigId: '',
+        mediaWsUrl: '',
+        providerDefaults: { accountSid: 'AC123', authToken: 't' }
+      })
+    ).rejects.toMatchObject({ statusCode: 400, code: 'validation_error' });
+  });
+
+  test('createOutboundCall treats undefined fields as empty for validation', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.createOutboundCall({
+        to: undefined as any,
+        from: undefined as any,
+        callConfigId: undefined as any,
+        mediaWsUrl: '',
+        providerDefaults: { accountSid: 'AC123', authToken: 't' }
+      })
+    ).rejects.toMatchObject({ statusCode: 400, code: 'validation_error' });
+  });
+
+  test('createOutboundCall throws provider_config_error when credentials are missing', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.createOutboundCall({
+        to: '+1',
+        from: '+2',
+        callConfigId: 'cfg_1',
+        mediaWsUrl: 'wss://example.test/voice/media?token=abc',
+        providerDefaults: {}
+      })
+    ).rejects.toMatchObject({ statusCode: 500, code: 'provider_config_error' });
+  });
+
+  test('createOutboundCall treats non-object providerDefaults as empty', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.createOutboundCall({
+        to: '+1',
+        from: '+2',
+        callConfigId: 'cfg_1',
+        mediaWsUrl: 'wss://example.test/voice/media?token=abc',
+        providerDefaults: [] as any
+      })
+    ).rejects.toMatchObject({ statusCode: 500, code: 'provider_config_error' });
+  });
+
+  test('createOutboundCall falls back to default apiBaseUrl when empty', async () => {
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ sid: 'CA777' }), { status: 201, headers: { 'Content-Type': 'application/json' } }) as any
+    );
+
+    const compat = new TwilioVoiceCompat();
+    try {
+      const res = await compat.createOutboundCall({
+        to: '+1',
+        from: '+2',
+        callConfigId: 'cfg_1',
+        mediaWsUrl: 'wss://example.test/voice/media?token=abc',
+        providerDefaults: { accountSid: 'AC123', authToken: 'token', apiBaseUrl: '' }
+      });
+
+      expect(res.providerCallId).toBe('CA777');
+      expect(String(fetchSpy.mock.calls[0][0])).toBe('https://api.twilio.com/2010-04-01/Accounts/AC123/Calls.json');
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test('createOutboundCall (twiml mode) posts inline TwiML and returns sid', async () => {
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ sid: 'CA123' }), { status: 201, headers: { 'Content-Type': 'application/json' } }) as any
+    );
+
+    const compat = new TwilioVoiceCompat();
+    try {
+      const res = await compat.createOutboundCall({
+        to: '+15551234567',
+        from: '+15557654321',
+        callConfigId: 'cfg_1',
+        mediaWsUrl: 'wss://example.test/voice/media?token=abc',
+        providerDefaults: {
+          accountSid: 'AC123',
+          authToken: 'token',
+          apiBaseUrl: 'https://api.example.test',
+          outbound: { mode: 'twiml' }
+        }
+      });
+
+      expect(res.providerCallId).toBe('CA123');
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+      const [url, init] = fetchSpy.mock.calls[0];
+      expect(String(url)).toBe('https://api.example.test/2010-04-01/Accounts/AC123/Calls.json');
+      expect(init?.method).toBe('POST');
+      expect(init?.headers?.Authorization).toBe(`Basic ${Buffer.from('AC123:token').toString('base64')}`);
+      expect(init?.headers?.['Content-Type']).toBe('application/x-www-form-urlencoded');
+
+      const body = new URLSearchParams(String(init?.body ?? ''));
+      expect(body.get('To')).toBe('+15551234567');
+      expect(body.get('From')).toBe('+15557654321');
+      expect(body.get('Url')).toBeNull();
+      expect(String(body.get('Twiml'))).toContain('voice/media?token=abc');
+      expect(String(body.get('Twiml'))).toContain('cfg_1');
+      expect(String(body.get('Twiml'))).toContain('outbound');
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test('createOutboundCall (url mode) posts Url and returns sid', async () => {
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ sid: 'CA999' }), { status: 201, headers: { 'Content-Type': 'application/json' } }) as any
+    );
+
+    const compat = new TwilioVoiceCompat();
+    try {
+      const res = await compat.createOutboundCall({
+        to: '+15551234567',
+        from: '+15557654321',
+        callConfigId: 'cfg_1',
+        mediaWsUrl: 'wss://example.test/voice/media?token=abc',
+        providerDefaults: {
+          accountSid: 'AC123',
+          authToken: 'token',
+          apiBaseUrl: 'https://api.example.test',
+          outbound: { mode: 'url', webhookUrl: 'https://example.test/voice/webhook' }
+        }
+      });
+
+      expect(res.providerCallId).toBe('CA999');
+
+      const [_url, init] = fetchSpy.mock.calls[0];
+      const body = new URLSearchParams(String(init?.body ?? ''));
+      expect(body.get('Twiml')).toBeNull();
+      expect(body.get('Url')).toBe('https://example.test/voice/webhook?callConfigId=cfg_1');
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test('createOutboundCall (url mode) throws provider_config_error when webhookUrl is missing', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.createOutboundCall({
+        to: '+15551234567',
+        from: '+15557654321',
+        callConfigId: 'cfg_1',
+        mediaWsUrl: 'wss://example.test/voice/media?token=abc',
+        providerDefaults: {
+          accountSid: 'AC123',
+          authToken: 'token',
+          outbound: { mode: 'url' }
+        }
+      })
+    ).rejects.toMatchObject({ statusCode: 500, code: 'provider_config_error' });
+  });
+
+  test('createOutboundCall throws provider_config_error for unsupported mode', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.createOutboundCall({
+        to: '+1',
+        from: '+2',
+        callConfigId: 'cfg_1',
+        mediaWsUrl: 'wss://example.test/voice/media?token=abc',
+        providerDefaults: {
+          accountSid: 'AC123',
+          authToken: 'token',
+          outbound: { mode: 'weird' }
+        }
+      })
+    ).rejects.toMatchObject({ statusCode: 500, code: 'provider_config_error' });
+  });
+
+  test('createOutboundCall throws ProviderExecutionError on non-2xx', async () => {
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue(
+      new Response('rate limited', { status: 429 }) as any
+    );
+
+    const compat = new TwilioVoiceCompat();
+    try {
+      await expect(
+        compat.createOutboundCall({
+          to: '+1',
+          from: '+2',
+          callConfigId: 'cfg_1',
+          mediaWsUrl: 'wss://example.test/voice/media?token=abc',
+          providerDefaults: { accountSid: 'AC123', authToken: 'token' }
+        })
+      ).rejects.toBeInstanceOf(ProviderExecutionError);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test('createOutboundCall uses empty suffix when response text throws', async () => {
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: async () => {
+        throw new Error('boom');
+      }
+    } as any);
+
+    const compat = new TwilioVoiceCompat();
+    try {
+      await expect(
+        compat.createOutboundCall({
+          to: '+1',
+          from: '+2',
+          callConfigId: 'cfg_1',
+          mediaWsUrl: 'wss://example.test/voice/media?token=abc',
+          providerDefaults: { accountSid: 'AC123', authToken: 'token' }
+        })
+      ).rejects.toBeInstanceOf(ProviderExecutionError);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test('createOutboundCall throws ProviderExecutionError when response JSON is invalid', async () => {
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue(
+      new Response('not-json', { status: 201, headers: { 'Content-Type': 'application/json' } }) as any
+    );
+
+    const compat = new TwilioVoiceCompat();
+    try {
+      await expect(
+        compat.createOutboundCall({
+          to: '+1',
+          from: '+2',
+          callConfigId: 'cfg_1',
+          mediaWsUrl: 'wss://example.test/voice/media?token=abc',
+          providerDefaults: { accountSid: 'AC123', authToken: 'token' }
+        })
+      ).rejects.toBeInstanceOf(ProviderExecutionError);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test('createOutboundCall throws ProviderExecutionError when sid is missing', async () => {
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({}), { status: 201, headers: { 'Content-Type': 'application/json' } }) as any
+    );
+
+    const compat = new TwilioVoiceCompat();
+    try {
+      await expect(
+        compat.createOutboundCall({
+          to: '+1',
+          from: '+2',
+          callConfigId: 'cfg_1',
+          mediaWsUrl: 'wss://example.test/voice/media?token=abc',
+          providerDefaults: { accountSid: 'AC123', authToken: 'token' }
+        })
+      ).rejects.toBeInstanceOf(ProviderExecutionError);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });

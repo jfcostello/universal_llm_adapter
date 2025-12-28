@@ -1,5 +1,12 @@
 {
   "id": "twilio",
-  "kind": "twilio"
+  "kind": "twilio",
+  "defaults": {
+    "accountSid": "${TWILIO_ACCOUNT_SID?}",
+    "authToken": "${TWILIO_AUTH_TOKEN?}",
+    "apiBaseUrl": "https://api.twilio.com",
+    "outbound": {
+      "mode": "twiml"
+    }
+  }
 }
-
