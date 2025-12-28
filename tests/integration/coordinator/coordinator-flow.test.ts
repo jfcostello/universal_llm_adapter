@@ -136,6 +136,82 @@ describe('integration/coordinator/coordinator-flow', () => {
     await coordinator.close();
   });
 
+  test('retries do not leak tool-call artifacts into subsequent attempts', async () => {
+    const coordinator = await createFixtureCoordinator();
+
+    const callRolesSnapshots: string[][] = [];
+    const toolChoiceSnapshots: any[] = [];
+    let callIndex = 0;
+
+    const callProviderMock = jest
+      .spyOn(LLMManager.prototype, 'callProvider')
+      .mockImplementation(async (_provider, _model, _settings, messages, _tools, toolChoice) => {
+        // Snapshot before tool loop mutates the messages array in-place.
+        callRolesSnapshots.push(messages.map(m => m.role));
+        toolChoiceSnapshots.push(toolChoice);
+        callIndex++;
+
+        if (callIndex === 1 || callIndex === 3) {
+          return {
+            provider: 'test-openai',
+            model: 'stub-model',
+            role: Role.ASSISTANT,
+            content: [{ type: 'text', text: 'Calling tool…' }],
+            finishReason: 'tool_calls',
+            toolCalls: [
+              {
+                id: 'call-1',
+                name: 'local_ping',
+                arguments: { payload: 'demo' }
+              }
+            ]
+          } as LLMResponse;
+        }
+
+        if (callIndex === 2) {
+          throw Object.assign(new Error('Bad Gateway'), { statusCode: 502 });
+        }
+
+        if (callIndex === 4) {
+          return {
+            provider: 'test-openai',
+            model: 'stub-model',
+            role: Role.ASSISTANT,
+            content: [{ type: 'text', text: 'Final answer' }],
+            finishReason: 'stop'
+          } as LLMResponse;
+        }
+
+        throw new Error('Unexpected extra provider call');
+      });
+
+    jest
+      .spyOn(ToolCoordinator.prototype, 'routeAndInvoke')
+      .mockImplementation(async (toolName) => ({ result: { toolName } }));
+
+    const spec = createBaseSpec({
+      metadata: { correlationId: 'coord-retry' },
+      toolChoice: 'required'
+    });
+
+    const result = await coordinator.run(spec);
+
+    expect(callProviderMock).toHaveBeenCalledTimes(4);
+
+    // The initial call in a retry attempt must start from the original system+user messages.
+    expect(callRolesSnapshots[0]).toEqual([Role.SYSTEM, Role.USER]);
+    expect(callRolesSnapshots[2]).toEqual([Role.SYSTEM, Role.USER]);
+
+    // Follow-up calls after tool execution must relax toolChoice to auto.
+    expect(toolChoiceSnapshots[1]).toBe('auto');
+    expect(toolChoiceSnapshots[3]).toBe('auto');
+
+    expect(result.content[0].text).toBe('Final answer');
+    expect(result.raw?.toolResults?.length).toBeGreaterThanOrEqual(1);
+
+    await coordinator.close();
+  });
+
   test('prunes tool results and reasoning before follow-up calls', async () => {
     const coordinator = await createFixtureCoordinator();
 

@@ -107,6 +107,22 @@ function parseReasoning(message: any): ReasoningData | undefined {
 
 export function parseResponse(raw: any, model: string): LLMResponse {
   const choice = (raw.choices || [{}])[0];
+  if (choice?.error) {
+    const upstream = choice.error;
+    const message =
+      typeof upstream?.message === 'string'
+        ? upstream.message
+        : JSON.stringify(upstream);
+    const err: any = new Error(message);
+    if (upstream?.code !== undefined) {
+      const statusCode = Number(upstream.code);
+      if (Number.isFinite(statusCode)) err.statusCode = statusCode;
+    }
+    if (upstream?.metadata?.raw?.code !== undefined) {
+      err.code = String(upstream.metadata.raw.code);
+    }
+    throw err;
+  }
   const message = choice.message || {};
 
   const content: ContentPart[] = parseContent(message.content);
