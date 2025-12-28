@@ -134,16 +134,37 @@ describe('extensions/voice: provider plugins loader', () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-provider-plugins-'));
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
+      await writeCompatModule(
+        path.join(tmp, 'voice-compat', 'index.js'),
+        [
+          "globalThis.__voiceCompatPoisoned = (globalThis.__voiceCompatPoisoned || 0) + 1;",
+          'module.exports = class PoisonCompat { kind = "poison"; };'
+        ].join('\n')
+      );
+      await writeCompatModule(
+        path.join(tmp, 'index.js'),
+        [
+          "globalThis.__voiceCompatPoisoned = (globalThis.__voiceCompatPoisoned || 0) + 1;",
+          'module.exports = class PoisonCompat { kind = "poison"; };'
+        ].join('\n')
+      );
+
+      await writeJson(path.join(tmp, 'voice-providers', 'dot.json'), { id: 'dot', kind: '.' });
+      await writeJson(path.join(tmp, 'voice-providers', 'dotdot.json'), { id: 'dotdot', kind: '..' });
       await writeJson(path.join(tmp, 'voice-providers', 'evil.json'), {
         id: 'evil',
         kind: '../evil'
       });
 
       const plugins = createVoiceProviderPlugins({ pluginsPath: tmp });
+      await expect(plugins.getCompat('dot')).rejects.toBeInstanceOf(ManifestError);
+      await expect(plugins.getCompat('dotdot')).rejects.toBeInstanceOf(ManifestError);
       await expect(plugins.getCompat('evil')).rejects.toBeInstanceOf(ManifestError);
+      expect((globalThis as any).__voiceCompatPoisoned).toBeUndefined();
     } finally {
       warn.mockRestore();
       await fs.rm(tmp, { recursive: true, force: true });
+      delete (globalThis as any).__voiceCompatPoisoned;
     }
   });
 

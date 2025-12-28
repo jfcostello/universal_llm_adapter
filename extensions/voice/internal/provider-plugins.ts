@@ -25,6 +25,9 @@ function assertSafeName(label: string, value: unknown): string {
   if (!/^[a-zA-Z0-9._-]+$/.test(raw)) {
     throw new ManifestError(`Invalid voice ${label}: '${raw}'`);
   }
+  if (raw === '.' || raw === '..') {
+    throw new ManifestError(`Invalid voice ${label}: '${raw}'`);
+  }
   return raw;
 }
 
