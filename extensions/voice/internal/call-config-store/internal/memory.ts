@@ -1,10 +1,17 @@
 import type { VoiceCallConfigStore, VoiceCallConfigV1 } from '../index.js';
 import { assertNonEmpty, assertTtlSeconds, computeExpiryMs, normalizeConfigForPut } from './shared.js';
 
-export function createInMemoryVoiceCallConfigStore(options?: { sweepEveryOps?: number }): VoiceCallConfigStore {
+export function createInMemoryVoiceCallConfigStore(options?: { sweepEveryOps?: number; sweepIntervalMs?: number }): VoiceCallConfigStore {
   const sweepEveryOps = (() => {
     const raw = options?.sweepEveryOps;
     if (typeof raw !== 'number' || !Number.isFinite(raw)) return 250;
+    return Math.max(1, Math.floor(raw));
+  })();
+
+  const sweepIntervalMs = (() => {
+    const raw = options?.sweepIntervalMs;
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) return undefined;
+    if (raw <= 0) return undefined;
     return Math.max(1, Math.floor(raw));
   })();
 
@@ -31,6 +38,17 @@ export function createInMemoryVoiceCallConfigStore(options?: { sweepEveryOps?: n
     sweepExpired(Date.now());
   };
 
+  const sweepTimer = (() => {
+    if (!sweepIntervalMs) return undefined;
+    const timer = setInterval(() => {
+      sweepExpired(Date.now());
+    }, sweepIntervalMs);
+    if (typeof (timer as any)?.unref === 'function') {
+      (timer as any).unref();
+    }
+    return timer;
+  })();
+
   const getIfNotExpired = <T>(map: Map<string, { value: T; expiresAtMs: number }>, key: string): T | null => {
     const entry = map.get(key);
     if (!entry) return null;
@@ -41,7 +59,7 @@ export function createInMemoryVoiceCallConfigStore(options?: { sweepEveryOps?: n
     return entry.value;
   };
 
-  return {
+  const store: VoiceCallConfigStore & { close?: () => Promise<void> } = {
     putConfig: async (config: VoiceCallConfigV1, options: { ttlSeconds: number }) => {
       maybeSweep();
       const ttlSeconds = assertTtlSeconds(options?.ttlSeconds);
@@ -92,4 +110,12 @@ export function createInMemoryVoiceCallConfigStore(options?: { sweepEveryOps?: n
       return true;
     }
   };
+
+  if (sweepTimer !== undefined) {
+    store.close = async () => {
+      clearInterval(sweepTimer);
+    };
+  }
+
+  return store;
 }
