@@ -6,7 +6,8 @@
     "authToken": "${TWILIO_AUTH_TOKEN?}",
     "apiBaseUrl": "https://api.twilio.com",
     "outbound": {
-      "mode": "twiml"
+      "mode": "twiml",
+      "timeoutMs": 15000
     }
   }
 }

@@ -615,6 +615,48 @@ describe('plugins/voice-compat/twilio', () => {
     }
   });
 
+  test('createOutboundCall aborts with ProviderExecutionError on timeout', async () => {
+    jest.useFakeTimers();
+
+    const fetchSpy = jest
+      .spyOn(globalThis as any, 'fetch')
+      .mockImplementation((_url: any, init: any) => {
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const err: any = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+      });
+
+    const compat = new TwilioVoiceCompat();
+    try {
+      const promise = compat.createOutboundCall({
+        to: '+1',
+        from: '+2',
+        callConfigId: 'cfg_1',
+        mediaWsUrl: 'wss://example.test/voice/media?token=abc',
+        providerDefaults: {
+          accountSid: 'AC123',
+          authToken: 'token',
+          outbound: { mode: 'twiml', timeoutMs: 10 }
+        }
+      });
+      const caught = promise.catch(err => err);
+
+      await jest.advanceTimersByTimeAsync(20);
+
+      const error = await caught;
+
+      expect(error).toBeInstanceOf(ProviderExecutionError);
+      expect(error).toMatchObject({ statusCode: 504 });
+    } finally {
+      fetchSpy.mockRestore();
+      jest.useRealTimers();
+    }
+  }, 2000);
+
   test('validateWebhookRequest accepts valid signature', async () => {
     const compat = new TwilioVoiceCompat();
 

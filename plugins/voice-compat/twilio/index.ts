@@ -261,6 +261,14 @@ export default class TwilioVoiceCompat {
 
     const outbound = (defaults as any).outbound ?? {};
     const mode = String(outbound?.mode ?? 'twiml').trim().toLowerCase();
+    const outboundTimeoutMsRaw = outbound?.timeoutMs;
+    const outboundTimeoutMs =
+      outboundTimeoutMsRaw === undefined || outboundTimeoutMsRaw === null || outboundTimeoutMsRaw === ''
+        ? 15000
+        : Number(outboundTimeoutMsRaw);
+    if (!Number.isFinite(outboundTimeoutMs) || outboundTimeoutMs <= 0) {
+      throw makeProviderConfigError('Invalid outbound timeoutMs');
+    }
 
     const form = new URLSearchParams();
     form.set('To', to);
@@ -285,14 +293,28 @@ export default class TwilioVoiceCompat {
     }
 
     const url = `${apiBaseUrl}/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Calls.json`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: basicAuthHeader(accountSid, authToken),
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: form.toString()
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), Math.floor(outboundTimeoutMs));
+
+    let res: any;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: basicAuthHeader(accountSid, authToken),
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: form.toString(),
+        signal: controller.signal
+      });
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        throw new ProviderExecutionError('twilio', `Outbound call create timed out after ${Math.floor(outboundTimeoutMs)}ms`, 504);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
