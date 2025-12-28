@@ -817,6 +817,9 @@ export function createUnifiedProgram(
     })();
 
     for (const name of extensionNames) {
+      if (program.commands.some(cmd => cmd.name() === name)) {
+        continue;
+      }
       program
         .command(name)
         .description(`Extension command group: ${name}`)

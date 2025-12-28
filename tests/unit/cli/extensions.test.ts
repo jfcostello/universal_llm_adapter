@@ -202,4 +202,28 @@ describe('cli extension commands', () => {
     const lastError = String((deps.error as any).mock.calls.at(-1)?.[0] ?? '');
     expect(lastError).toContain('did not export a runCli function');
   });
+
+  test('skips registering an extension command when it collides with a built-in command', () => {
+    const deps = {
+      createRegistry: jest.fn(),
+      createLlmCoordinator: jest.fn(),
+      createVectorCoordinator: jest.fn(),
+      createEmbeddingCoordinator: jest.fn(),
+      closeLogger: jest.fn(),
+      log: jest.fn(),
+      error: jest.fn(),
+      exit: jest.fn(),
+      getRealtimeStdio: () => ({
+        stdin: process.stdin,
+        stdout: process.stdout,
+        stderr: process.stderr
+      }),
+      listCliExtensions: () => ['serve', 'voice'],
+      importCliExtension: jest.fn()
+    };
+
+    const program = createUnifiedProgram(deps as any);
+    expect(program.commands.filter(cmd => cmd.name() === 'serve')).toHaveLength(1);
+    expect(program.commands.filter(cmd => cmd.name() === 'voice')).toHaveLength(1);
+  });
 });
