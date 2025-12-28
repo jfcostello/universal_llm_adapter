@@ -13,10 +13,14 @@ function parseNumber(value, fallback) {
 }
 
 function parseArgs(argv) {
-  const args = { calls: 50, concurrency: 25, serverUrl: '' };
+  const args = { calls: 50, concurrency: 25, serverUrl: '', help: false };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const v = argv[i + 1];
+    if (k === '--help' || k === '-h') {
+      args.help = true;
+      continue;
+    }
     if (k === '--calls') {
       args.calls = parseNumber(v, args.calls);
       i++;
@@ -36,6 +40,29 @@ function parseArgs(argv) {
   args.calls = Math.max(0, args.calls);
   args.concurrency = Math.max(1, args.concurrency);
   return args;
+}
+
+function printHelp() {
+  console.log(`
+Voice load exercise (starts calls + webhooks + media WS)
+
+Usage:
+  node extensions/voice/scripts/load-exercise.mjs [options]
+
+Notes:
+  - If you omit --server-url, this script starts a local server from dist output.
+  - Starting a local server requires a build: \`npm run build\`.
+
+Options:
+  --calls <n>         Number of /voice/calls requests (default: 50)
+  --concurrency <n>   Maximum in-flight requests / WS sessions (default: 25)
+  --server-url <url>  Use an already-running server instead of starting one
+  -h, --help          Show this help
+
+Env:
+  LLM_ADAPTER_LOAD_API_KEY           Auth key for /voice/calls (default: dev_key)
+  LLM_ADAPTER_VOICE_WS_TOKEN_SECRET  Secret for /voice/media token minting when starting a local server (default: dev_secret)
+`.trim());
 }
 
 function extractStreamUrl(xml) {
@@ -73,12 +100,13 @@ function readTestVoiceProviderId(pluginsPath) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
-  const distServerPath = path.join(repoRoot, 'dist', 'modules', 'server', 'index.js');
-  if (!fs.existsSync(distServerPath)) {
-    console.error('Missing dist build. Run `npm run build` first.');
-    process.exitCode = 1;
+  if (args.help) {
+    printHelp();
+    process.exitCode = 0;
     return;
   }
+
+  const distServerPath = path.join(repoRoot, 'dist', 'modules', 'server', 'index.js');
 
   // Required for /voice/webhook → /voice/media token minting.
   process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET =
@@ -92,6 +120,12 @@ async function main() {
   let running;
   let serverUrl = String(args.serverUrl ?? '').trim();
   if (!serverUrl) {
+    if (!fs.existsSync(distServerPath)) {
+      console.error('Missing dist build. Run `npm run build` or provide `--server-url`.');
+      process.exitCode = 1;
+      return;
+    }
+
     const mod = await import(pathToFileURL(distServerPath).href);
     const createServer = mod.createServer;
     if (typeof createServer !== 'function') {
@@ -199,4 +233,3 @@ main().catch((err) => {
   console.error(String(err?.stack ?? err));
   process.exitCode = 1;
 });
-
