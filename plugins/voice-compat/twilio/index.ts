@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import type http from 'http';
 
 import { ProviderExecutionError } from '../../../kernel/index.js';
@@ -45,7 +46,67 @@ function makeProviderConfigError(message: string): Error {
   return error;
 }
 
+function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    // keep timing roughly consistent
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+function makeUnauthorizedError(message: string): Error {
+  const error = new Error(message);
+  (error as any).statusCode = 401;
+  (error as any).code = 'unauthorized';
+  return error;
+}
+
+function computeRequestSignature(authToken: string, url: string, params: Record<string, string>): string {
+  const sortedKeys = Object.keys(params).sort();
+  const data = url + sortedKeys.map(k => `${k}${params[k] ?? ''}`).join('');
+  return crypto.createHmac('sha1', authToken).update(data, 'utf8').digest('base64');
+}
+
 export default class TwilioVoiceCompat {
+  async validateWebhookRequest(options: {
+    req: http.IncomingMessage;
+    url: string;
+    params?: Record<string, string>;
+    providerDefaults?: any;
+  }): Promise<void> {
+    const defaultsRaw = options.providerDefaults;
+    const defaults =
+      defaultsRaw && typeof defaultsRaw === 'object' && !Array.isArray(defaultsRaw)
+        ? defaultsRaw
+        : {};
+
+    const authToken = String((defaults as any).authToken ?? '').trim();
+    if (!authToken) {
+      throw makeProviderConfigError('Missing required provider credentials');
+    }
+
+    const signatureHeader = options.req?.headers?.['x-twilio-signature'];
+    const signature =
+      typeof signatureHeader === 'string'
+        ? signatureHeader.trim()
+        : Array.isArray(signatureHeader)
+          ? String(signatureHeader[0] ?? '').trim()
+          : '';
+
+    if (!signature) {
+      throw makeUnauthorizedError('Unauthorized: missing signature');
+    }
+
+    const params = options.params && typeof options.params === 'object' ? options.params : {};
+    const expected = computeRequestSignature(authToken, String(options.url), params);
+    if (!safeEqual(signature, expected)) {
+      throw makeUnauthorizedError('Unauthorized: invalid signature');
+    }
+  }
+
   async createWebhookResponse(options: {
     req: http.IncomingMessage;
     callConfigId: string;

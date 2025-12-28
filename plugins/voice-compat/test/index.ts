@@ -1,6 +1,22 @@
 import type http from 'http';
 
 export default class TestVoiceCompat {
+  async validateWebhookRequest(options: { req: http.IncomingMessage }) {
+    const signature = String(options.req?.headers?.['x-test-signature'] ?? '').trim();
+    if (!signature) {
+      const error = new Error('Unauthorized: missing signature');
+      (error as any).statusCode = 401;
+      (error as any).code = 'unauthorized';
+      throw error;
+    }
+    if (signature !== 'ok') {
+      const error = new Error('Unauthorized: invalid signature');
+      (error as any).statusCode = 401;
+      (error as any).code = 'unauthorized';
+      throw error;
+    }
+  }
+
   async createWebhookResponse(options: { mediaWsUrl: string; callConfigId: string }) {
     const url = String(options.mediaWsUrl);
     const callConfigId = String(options.callConfigId);
@@ -25,4 +41,3 @@ export default class TestVoiceCompat {
     return { providerCallId: 'test_provider_call_id' };
   }
 }
-

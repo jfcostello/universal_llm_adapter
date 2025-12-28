@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals';
+import crypto from 'crypto';
 import http from 'http';
 
 import { createSignedWsToken } from '@/modules/security/index.ts';
@@ -507,5 +508,128 @@ describe('plugins/voice-compat/twilio', () => {
     } finally {
       fetchSpy.mockRestore();
     }
+  });
+
+  test('validateWebhookRequest accepts valid signature', async () => {
+    const compat = new TwilioVoiceCompat();
+
+    const authToken = 'token';
+    const url = 'https://example.test/voice/webhook?callConfigId=cfg_1';
+    const params = { CallSid: 'CA123', From: '+1' };
+
+    const data = url + 'CallSid' + 'CA123' + 'From' + '+1';
+    const signature = crypto.createHmac('sha1', authToken).update(data, 'utf8').digest('base64');
+
+    await expect(
+      (compat as any).validateWebhookRequest({
+        req: { headers: { 'x-twilio-signature': signature } } as any,
+        url,
+        params,
+        providerDefaults: { authToken }
+      })
+    ).resolves.toBeUndefined();
+  });
+
+  test('validateWebhookRequest rejects invalid signature', async () => {
+    const compat = new TwilioVoiceCompat();
+
+    await expect(
+      (compat as any).validateWebhookRequest({
+        req: { headers: { 'x-twilio-signature': 'bad' } } as any,
+        url: 'https://example.test/voice/webhook?callConfigId=cfg_1',
+        params: { CallSid: 'CA123' },
+        providerDefaults: { authToken: 'token' }
+      })
+    ).rejects.toMatchObject({ statusCode: 401, code: 'unauthorized' });
+  });
+
+  test('validateWebhookRequest throws provider_config_error when authToken is missing', async () => {
+    const compat = new TwilioVoiceCompat();
+
+    await expect(
+      (compat as any).validateWebhookRequest({
+        req: { headers: { 'x-twilio-signature': 'sig' } } as any,
+        url: 'https://example.test/voice/webhook?callConfigId=cfg_1',
+        params: { CallSid: 'CA123' },
+        providerDefaults: {}
+      })
+    ).rejects.toMatchObject({ statusCode: 500, code: 'provider_config_error' });
+  });
+
+  test('validateWebhookRequest throws unauthorized when signature header is missing', async () => {
+    const compat = new TwilioVoiceCompat();
+
+    await expect(
+      (compat as any).validateWebhookRequest({
+        req: { headers: {} } as any,
+        url: 'https://example.test/voice/webhook?callConfigId=cfg_1',
+        params: { CallSid: 'CA123' },
+        providerDefaults: { authToken: 'token' }
+      })
+    ).rejects.toMatchObject({ statusCode: 401, code: 'unauthorized' });
+  });
+
+  test('validateWebhookRequest rejects empty signature header arrays', async () => {
+    const compat = new TwilioVoiceCompat();
+
+    await expect(
+      (compat as any).validateWebhookRequest({
+        req: { headers: { 'x-twilio-signature': [] } } as any,
+        url: 'https://example.test/voice/webhook?callConfigId=cfg_1',
+        params: { CallSid: 'CA123' },
+        providerDefaults: { authToken: 'token' }
+      })
+    ).rejects.toMatchObject({ statusCode: 401, code: 'unauthorized' });
+  });
+
+  test('validateWebhookRequest throws provider_config_error when providerDefaults are missing', async () => {
+    const compat = new TwilioVoiceCompat();
+
+    await expect(
+      (compat as any).validateWebhookRequest({
+        req: { headers: { 'x-twilio-signature': 'sig' } } as any,
+        url: 'https://example.test/voice/webhook?callConfigId=cfg_1',
+        params: { CallSid: 'CA123' },
+        providerDefaults: undefined
+      })
+    ).rejects.toMatchObject({ statusCode: 500, code: 'provider_config_error' });
+  });
+
+  test('validateWebhookRequest accepts valid signature with array header and undefined param values', async () => {
+    const compat = new TwilioVoiceCompat();
+
+    const authToken = 'token';
+    const url = 'https://example.test/voice/webhook?callConfigId=cfg_1';
+    const params = { A: undefined as any };
+
+    const data = url + 'A';
+    const signature = crypto.createHmac('sha1', authToken).update(data, 'utf8').digest('base64');
+
+    await expect(
+      (compat as any).validateWebhookRequest({
+        req: { headers: { 'x-twilio-signature': [signature] } } as any,
+        url,
+        params,
+        providerDefaults: { authToken }
+      })
+    ).resolves.toBeUndefined();
+  });
+
+  test('validateWebhookRequest treats non-object params as empty when verifying signature', async () => {
+    const compat = new TwilioVoiceCompat();
+
+    const authToken = 'token';
+    const url = 'https://example.test/voice/webhook?callConfigId=cfg_1';
+
+    const signature = crypto.createHmac('sha1', authToken).update(url, 'utf8').digest('base64');
+
+    await expect(
+      (compat as any).validateWebhookRequest({
+        req: { headers: { 'x-twilio-signature': signature } } as any,
+        url,
+        params: 'bad' as any,
+        providerDefaults: { authToken }
+      })
+    ).resolves.toBeUndefined();
   });
 });

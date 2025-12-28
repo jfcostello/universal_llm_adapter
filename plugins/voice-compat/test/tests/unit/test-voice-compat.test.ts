@@ -3,6 +3,23 @@ import http from 'http';
 import TestVoiceCompat from '../../index.ts';
 
 describe('plugins/voice-compat/test', () => {
+  test('validateWebhookRequest enforces a signature header', async () => {
+    const compat = new TestVoiceCompat();
+
+    await expect(compat.validateWebhookRequest({ req: { headers: {} } as any })).rejects.toMatchObject({
+      statusCode: 401,
+      code: 'unauthorized'
+    });
+
+    await expect(
+      compat.validateWebhookRequest({ req: { headers: { 'x-test-signature': 'bad' } } as any })
+    ).rejects.toMatchObject({ statusCode: 401, code: 'unauthorized' });
+
+    await expect(
+      compat.validateWebhookRequest({ req: { headers: { 'x-test-signature': 'ok' } } as any })
+    ).resolves.toBeUndefined();
+  });
+
   test('createWebhookResponse returns XML + content-type', async () => {
     const compat = new TestVoiceCompat();
     const res = await compat.createWebhookResponse({ mediaWsUrl: 'ws://example.test/voice/media?token=abc', callConfigId: 'cfg_1' });
@@ -31,4 +48,3 @@ describe('plugins/voice-compat/test', () => {
     expect(res.providerCallId).toBe('test_provider_call_id');
   });
 });
-

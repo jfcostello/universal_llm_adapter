@@ -125,7 +125,9 @@ describe('extensions/voice: webhook + media wiring', () => {
 
     const harness = await startHarness({ store });
     try {
-      const res = await fetch(new URL('/voice/webhook?callConfigId=cfg_1', harness.baseUrl));
+      const res = await fetch(new URL('/voice/webhook?callConfigId=cfg_1', harness.baseUrl), {
+        headers: { 'x-test-signature': 'ok' }
+      });
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toContain('text/xml');
       const xml = await res.text();

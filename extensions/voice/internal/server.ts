@@ -124,6 +124,50 @@ function writeJson(res: http.ServerResponse, status: number, payload: any): void
   res.end(JSON.stringify(payload));
 }
 
+async function readTextBody(
+  req: http.IncomingMessage,
+  options: { maxBytes: number; timeoutMs: number }
+): Promise<string> {
+  const maxBytes = Number.isFinite(options.maxBytes) ? options.maxBytes : Number.POSITIVE_INFINITY;
+  const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 0;
+
+  let input = '';
+  let bytes = 0;
+  let timeout: NodeJS.Timeout | undefined;
+
+  const readPromise = (async () => {
+    req.setEncoding('utf-8');
+    for await (const chunk of req) {
+      bytes += Buffer.byteLength(chunk);
+      if (bytes > maxBytes) {
+        const error = new Error('Request body too large');
+        (error as any).statusCode = 413;
+        (error as any).code = 'payload_too_large';
+        throw error;
+      }
+      input += chunk;
+    }
+    return input;
+  })();
+
+  try {
+    if (timeoutMs > 0) {
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          const error = new Error('Request body read timed out');
+          (error as any).statusCode = 408;
+          (error as any).code = 'body_read_timeout';
+          reject(error);
+        }, timeoutMs);
+      });
+      return await Promise.race([readPromise, timeoutPromise]);
+    }
+    return await readPromise;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 export async function createVoiceServerRegistration(ctx: {
   server: http.Server;
   registry: any;
@@ -230,11 +274,41 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
+          const compat = await providerPlugins.getCompat(voiceProvider);
+
+          const validateWebhookRequest = (compat as any)?.validateWebhookRequest;
+          if (typeof validateWebhookRequest === 'function') {
+            const httpBaseUrl = getPublicHttpBaseUrl(req);
+            const publicUrl = new URL(req.url ?? '/voice/webhook', httpBaseUrl).toString();
+
+            const params: Record<string, string> = {};
+            if (method === 'POST') {
+              const contentType = String(req.headers?.['content-type'] ?? '').toLowerCase();
+              const rawBody = await readTextBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
+
+              if (rawBody && contentType.includes('application/x-www-form-urlencoded')) {
+                const form = new URLSearchParams(rawBody);
+                for (const [k, v] of form.entries()) {
+                  params[String(k)] = String(v);
+                }
+              }
+            }
+
+            let providerDefaults: any | undefined;
+            try {
+              const manifest = await providerPlugins.getManifest?.(voiceProvider);
+              providerDefaults = (manifest as any)?.defaults;
+            } catch {
+              // ignore and allow compat to decide whether defaults are required
+            }
+
+            await validateWebhookRequest({ req, method, url: publicUrl, params, callConfigId, callConfig, voiceProvider, providerDefaults });
+          }
+
           const httpBaseUrl = getPublicHttpBaseUrl(req);
           const token = mintVoiceMediaToken({ callConfigId, voiceProvider });
           const mediaWsUrl = toWsUrl(httpBaseUrl, '/voice/media', { token });
 
-          const compat = await providerPlugins.getCompat(voiceProvider);
           const response = await compat.createWebhookResponse({ req, callConfigId, callConfig, voiceProvider, mediaWsUrl });
           const status = Number(response?.status ?? 200);
           const headers = (response?.headers && typeof response.headers === 'object') ? response.headers : {};
