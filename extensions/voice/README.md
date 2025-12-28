@@ -37,6 +37,16 @@ Enable the voice extension on the server via:
 - `LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS` (default: `300`)
   - TTL for the signed `WS /voice/media` token minted by `/voice/webhook` and `/voice/calls`.
 
+- `LLM_ADAPTER_VOICE_CALL_CONFIG_STORE` (default: `memory`)
+  - Store implementation for call configs, idempotency keys, and nonce replay protection.
+  - Use `redis` for horizontal scaling.
+
+- `LLM_ADAPTER_VOICE_CALL_CONFIG_REDIS_URL` (required when store=`redis`)
+  - Redis connection URL for the shared call-config store.
+
+- `LLM_ADAPTER_VOICE_CALL_CONFIG_REDIS_PREFIX` (optional)
+  - Redis key prefix (default: `llm_adapter:voice:v1:`).
+
 - `LLM_ADAPTER_VOICE_PUBLIC_BASE_URL` (optional)
   - Explicit public base URL used to mint `WS /voice/media` URLs (recommended behind proxies).
 
@@ -142,7 +152,7 @@ Ensure `x-forwarded-proto` / `x-forwarded-host` are correct so the server genera
 ## Deployment and scaling (high-level)
 
 - Keep `LLM_ADAPTER_VOICE_WS_TOKEN_SECRET` consistent across instances.
-- For horizontal scaling, use a shared call config + idempotency store; the default store is in-memory (dev-only).
+- For horizontal scaling, configure a shared call config + idempotency store (`LLM_ADAPTER_VOICE_CALL_CONFIG_STORE=redis`).
 - Ensure your proxy/load balancer supports WebSocket and forwards `x-forwarded-*`.
 - Enable server auth + rate limiting when exposing `POST /voice/calls` and `GET /voice/metrics`.
 

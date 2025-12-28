@@ -30,3 +30,4 @@ export interface VoiceCallConfigStore {
 
 export { createInMemoryVoiceCallConfigStore } from './internal/memory.js';
 export { createRedisVoiceCallConfigStore } from './internal/redis.js';
+export { createVoiceCallConfigStoreFromEnv } from './internal/from-env.js';

@@ -18,7 +18,7 @@ import {
 import type { VoiceProviderPlugins } from './provider-plugins.js';
 import { createVoiceProviderPlugins } from './provider-plugins.js';
 import type { VoiceCallConfigStore } from './call-config-store/index.js';
-import { createInMemoryVoiceCallConfigStore } from './call-config-store/index.js';
+import { createVoiceCallConfigStoreFromEnv } from './call-config-store/index.js';
 import { createVoiceMetrics } from './metrics.js';
 
 type VoiceMediaTokenPayload = {
@@ -254,7 +254,8 @@ export async function createVoiceServerRegistration(ctx: {
   handleUpgrade: (ctx: { req: http.IncomingMessage; socket: net.Socket; head: Buffer; pathname: string }) => Promise<boolean>;
   close: () => Promise<void>;
 }> {
-  const store = ctx.store ?? createInMemoryVoiceCallConfigStore();
+  const storeInit = ctx.store ? { store: ctx.store, close: undefined } : await createVoiceCallConfigStoreFromEnv();
+  const store = storeInit.store;
   const providerPlugins = ctx.providerPlugins ?? createVoiceProviderPlugins({ pluginsPath: ctx.pluginsPath });
   const httpConfig = ctx.httpConfig ?? {};
   const maxRequestBytes = httpConfig.maxRequestBytes ?? Number.POSITIVE_INFINITY;
@@ -337,6 +338,9 @@ export async function createVoiceServerRegistration(ctx: {
     await new Promise<void>((resolve) => wss.close(() => resolve()));
     activeMediaWs = 0;
     pendingMediaWs = 0;
+    try {
+      await storeInit.close?.();
+    } catch {}
   };
 
   return {
