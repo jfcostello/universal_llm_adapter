@@ -292,7 +292,8 @@ describe('extensions/voice: webhook + media wiring', () => {
         from: 'from',
         direction: 'inbound',
         realtimeSpec: {},
-        voiceProvider: 'p1'
+        voiceProvider: 'p1',
+        metadata: { requestId: 'req_ws_1' }
       },
       { ttlSeconds: 60 }
     );
@@ -436,7 +437,8 @@ describe('extensions/voice: webhook + media wiring', () => {
         from: 'from',
         direction: 'inbound',
         realtimeSpec: {},
-        voiceProvider: 'p1'
+        voiceProvider: 'p1',
+        metadata: { requestId: 'req_ws_2' }
       },
       { ttlSeconds: 60 }
     );

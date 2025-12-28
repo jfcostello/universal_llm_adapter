@@ -5,7 +5,7 @@ import { createRequire } from 'module';
 
 import { mapErrorToHttp } from '../../../modules/transport/index.js';
 import { createSignedWsToken, verifySignedWsToken } from '../../../modules/security/index.js';
-import { normalizeFlag, sleep } from '../../../modules/shared/index.js';
+import { normalizeFlag, readTrimmedStringProperty, sleep } from '../../../modules/shared/index.js';
 import {
   applyCors,
   applySecurityHeaders,
@@ -50,6 +50,32 @@ function parseUrl(rawUrl: string | undefined): URL | null {
   } catch {
     return null;
   }
+}
+
+function readRequestId(req: http.IncomingMessage): string | undefined {
+  const readHeader = (name: string): string => {
+    const raw = req.headers?.[name];
+    const first =
+      typeof raw === 'string'
+        ? raw
+        : Array.isArray(raw)
+          ? String(raw[0] ?? '')
+          : '';
+    return first.trim();
+  };
+
+  const normalize = (value: string): string | undefined => {
+    if (!value) return undefined;
+    const first = value.split(',')[0]!.trim();
+    const cleaned = first.replace(/[\r\n\t]/g, ' ').trim();
+    if (!cleaned) return undefined;
+    return cleaned.slice(0, 128);
+  };
+
+  return (
+    normalize(readHeader('x-request-id')) ??
+    normalize(readHeader('x-correlation-id'))
+  );
 }
 
 function getVoicePublicBaseUrlOverride(): string | undefined {
@@ -375,8 +401,10 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
+          const requestId = readTrimmedStringProperty((callConfig as any)?.metadata, 'requestId');
+
           const logger = await resolveLogger(callConfigId);
-          safeLog(logger, 'info', 'voice.webhook.request', { callConfigId, voiceProvider, method });
+          safeLog(logger, 'info', 'voice.webhook.request', { callConfigId, voiceProvider, method, ...(requestId ? { requestId } : {}) });
 
           const compat = await providerPlugins.getCompat(voiceProvider);
 
@@ -417,7 +445,7 @@ export async function createVoiceServerRegistration(ctx: {
                   logger,
                   statusCode >= 500 ? 'error' : 'warning',
                   'voice.webhook.validation_failed',
-                  { callConfigId, voiceProvider, statusCode, ...(code ? { code } : {}) }
+                  { callConfigId, voiceProvider, statusCode, ...(code ? { code } : {}), ...(requestId ? { requestId } : {}) }
                 );
                 throw error;
               }
@@ -439,7 +467,7 @@ export async function createVoiceServerRegistration(ctx: {
             const headers = (response?.headers && typeof response.headers === 'object') ? response.headers : {};
             const body = String(response?.body ?? '');
 
-            safeLog(logger, 'info', 'voice.webhook.response', { callConfigId, voiceProvider, status });
+            safeLog(logger, 'info', 'voice.webhook.response', { callConfigId, voiceProvider, status, ...(requestId ? { requestId } : {}) });
 
             res.writeHead(status, headers);
             res.end(body);
@@ -452,7 +480,7 @@ export async function createVoiceServerRegistration(ctx: {
                 logger,
                 statusCode >= 500 ? 'error' : 'warning',
                 'voice.webhook.error',
-                { callConfigId, voiceProvider, statusCode, ...(code ? { code } : {}) }
+                { callConfigId, voiceProvider, statusCode, ...(code ? { code } : {}), ...(requestId ? { requestId } : {}) }
               );
             }
             throw error;
@@ -501,6 +529,10 @@ export async function createVoiceServerRegistration(ctx: {
 
           const ttlSecondsRaw = body?.ttlSeconds;
           const ttlSeconds = ttlSecondsRaw === undefined || ttlSecondsRaw === null ? 900 : Number(ttlSecondsRaw);
+
+          const requestIdFromBody = readTrimmedStringProperty(body?.metadata, 'requestId');
+          const requestIdFromHeader = readRequestId(req);
+          const requestId = requestIdFromBody ?? requestIdFromHeader;
 
           if (!to || !from || !voiceProvider || !realtimeSpec) {
             writeJson(res, 400, { type: 'error', error: { message: 'Missing required fields', code: 'validation_error' } });
@@ -582,8 +614,21 @@ export async function createVoiceServerRegistration(ctx: {
             safeLog(logger, 'info', 'voice.calls.accepted', {
               callConfigId,
               voiceProvider,
-              hasIdempotencyKey: Boolean(idempotencyKeyTrimmed)
+              hasIdempotencyKey: Boolean(idempotencyKeyTrimmed),
+              ...(requestId ? { requestId } : {})
             });
+
+            const metadata = (() => {
+              const raw = body?.metadata;
+              const out = raw && typeof raw === 'object' && !Array.isArray(raw)
+                ? { ...(raw as Record<string, any>) }
+                : undefined;
+              if (!requestId) return out;
+              const existing = readTrimmedStringProperty(out, 'requestId');
+              if (existing) return out;
+              return { ...(out ?? {}), requestId };
+            })();
+
             await store.putConfig(
               {
                 version: 1,
@@ -596,7 +641,7 @@ export async function createVoiceServerRegistration(ctx: {
                 systemPrompt,
                 realtimeSpec,
                 voiceProvider,
-                metadata: body?.metadata
+                ...(metadata ? { metadata } : {})
               } as any,
               { ttlSeconds }
             );
@@ -639,7 +684,7 @@ export async function createVoiceServerRegistration(ctx: {
               throw error;
             }
 
-            safeLog(logger, 'info', 'voice.calls.queued', { callConfigId, voiceProvider, providerCallId });
+            safeLog(logger, 'info', 'voice.calls.queued', { callConfigId, voiceProvider, providerCallId, ...(requestId ? { requestId } : {}) });
 
             const response = { callConfigId, providerCallId, status: 'queued' };
             if (idempotencyKeyTrimmed) {
@@ -656,7 +701,7 @@ export async function createVoiceServerRegistration(ctx: {
               fallbackLogger,
               statusCode >= 500 ? 'error' : 'warning',
               'voice.calls.error',
-              { ...(callConfigId ? { callConfigId } : {}), voiceProvider, statusCode, ...(code ? { code } : {}) }
+              { ...(callConfigId ? { callConfigId } : {}), voiceProvider, statusCode, ...(code ? { code } : {}), ...(requestId ? { requestId } : {}) }
             );
             throw error;
           }
@@ -743,6 +788,8 @@ export async function createVoiceServerRegistration(ctx: {
           return true;
         }
 
+        const requestId = readTrimmedStringProperty((callConfig as any)?.metadata, 'requestId');
+
         if (String((callConfig as any).voiceProvider ?? '') !== voiceProvider) {
           const logger = await resolveLogger(callConfigId);
           safeLog(logger, 'warning', 'voice.media.rejected', { callConfigId, voiceProvider, reason: 'voice_provider_mismatch' });
@@ -764,16 +811,16 @@ export async function createVoiceServerRegistration(ctx: {
           };
 
           metrics.mediaWsConnected(voiceProvider);
-          safeLog(logger, 'info', 'voice.media.connected', { callConfigId, voiceProvider });
+          safeLog(logger, 'info', 'voice.media.connected', { callConfigId, voiceProvider, ...(requestId ? { requestId } : {}) });
           try {
             ws.on?.('close', (code: number) => {
               releaseActive();
               metrics.mediaWsClosed(voiceProvider);
-              safeLog(logger, 'info', 'voice.media.closed', { callConfigId, voiceProvider, code: Number(code) });
+              safeLog(logger, 'info', 'voice.media.closed', { callConfigId, voiceProvider, code: Number(code), ...(requestId ? { requestId } : {}) });
             });
             ws.on?.('error', (err: any) => {
               metrics.mediaWsError(voiceProvider);
-              safeLog(logger, 'error', 'voice.media.ws_error', { callConfigId, voiceProvider, message: err?.message ?? String(err) });
+              safeLog(logger, 'error', 'voice.media.ws_error', { callConfigId, voiceProvider, message: err?.message ?? String(err), ...(requestId ? { requestId } : {}) });
             });
           } catch {}
 
@@ -796,6 +843,7 @@ export async function createVoiceServerRegistration(ctx: {
               safeLog(logger, 'error', 'voice.media.error', {
                 callConfigId,
                 voiceProvider,
+                ...(requestId ? { requestId } : {}),
                 code: err?.code !== undefined ? String(err.code) : undefined,
                 message: err?.message ?? 'Media handler failed'
               });

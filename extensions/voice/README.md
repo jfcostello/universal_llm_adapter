@@ -168,30 +168,31 @@ The voice extension emits structured lifecycle logs via the core logging module.
 
 Common fields:
 - `callConfigId`
+- `requestId` (when provided on `POST /voice/calls`)
 - `voiceProvider` (ID only)
 - `providerCallId` / `providerStreamId` (when available)
 - `realtimeSessionId` (when available)
 
 Event names + fields:
-- `voice.calls.accepted` → `{ callConfigId, voiceProvider, hasIdempotencyKey }`
+- `voice.calls.accepted` → `{ callConfigId, voiceProvider, hasIdempotencyKey, requestId? }`
 - `voice.calls.idempotency_hit` → `{ voiceProvider, callConfigId?, providerCallId? }`
 - `voice.calls.idempotency_in_progress` → `{ voiceProvider }`
-- `voice.calls.queued` → `{ callConfigId, voiceProvider, providerCallId }`
-- `voice.calls.error` → `{ callConfigId?, voiceProvider, statusCode, code? }`
+- `voice.calls.queued` → `{ callConfigId, voiceProvider, providerCallId, requestId? }`
+- `voice.calls.error` → `{ callConfigId?, voiceProvider, statusCode, code?, requestId? }`
 
-- `voice.webhook.request` → `{ callConfigId, voiceProvider, method }`
-- `voice.webhook.validation_failed` → `{ callConfigId, voiceProvider, statusCode, code? }`
-- `voice.webhook.response` → `{ callConfigId, voiceProvider, status }`
-- `voice.webhook.error` → `{ callConfigId, voiceProvider, statusCode, code? }`
+- `voice.webhook.request` → `{ callConfigId, voiceProvider, method, requestId? }`
+- `voice.webhook.validation_failed` → `{ callConfigId, voiceProvider, statusCode, code?, requestId? }`
+- `voice.webhook.response` → `{ callConfigId, voiceProvider, status, requestId? }`
+- `voice.webhook.error` → `{ callConfigId, voiceProvider, statusCode, code?, requestId? }`
 
-- `voice.media.connected` → `{ callConfigId, voiceProvider }`
-- `voice.media.closed` → `{ callConfigId, voiceProvider, code }`
-- `voice.media.ws_error` → `{ callConfigId, voiceProvider, message }`
-- `voice.media.error` → `{ callConfigId, voiceProvider, code?, message }`
+- `voice.media.connected` → `{ callConfigId, voiceProvider, requestId? }`
+- `voice.media.closed` → `{ callConfigId, voiceProvider, code, requestId? }`
+- `voice.media.ws_error` → `{ callConfigId, voiceProvider, message, requestId? }`
+- `voice.media.error` → `{ callConfigId, voiceProvider, code?, message, requestId? }`
 
-- `voice.media.stream_started` → `{ callConfigId, voiceProvider, providerStreamId, providerCallId }`
-- `voice.realtime.ready` → `{ callConfigId, voiceProvider, providerStreamId, realtimeSessionId }`
-- `voice.media.bridge_error` → `{ callConfigId, voiceProvider, providerStreamId?, providerCallId?, code, message }`
+- `voice.media.stream_started` → `{ callConfigId, voiceProvider, providerStreamId, providerCallId, requestId? }`
+- `voice.realtime.ready` → `{ callConfigId, voiceProvider, providerStreamId, realtimeSessionId, requestId? }`
+- `voice.media.bridge_error` → `{ callConfigId, voiceProvider, providerStreamId?, providerCallId?, code, message, requestId? }`
 
 ### Metrics (optional)
 

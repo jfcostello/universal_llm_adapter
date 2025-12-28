@@ -166,7 +166,8 @@ describe('plugins/voice-compat/twilio', () => {
         from: '+15551234567',
         direction: 'inbound',
         systemPrompt: 'sys',
-        realtimeSpec: { provider: 'realtime_p1', metadata: { existing: true } }
+        realtimeSpec: { provider: 'realtime_p1', metadata: { existing: true } },
+        metadata: { requestId: 'req_123' }
       },
       voiceProvider: 'twilio',
       registry,
@@ -191,6 +192,7 @@ describe('plugins/voice-compat/twilio', () => {
     expect(logged).toContain('voice.realtime.ready');
     expect(logged).toContain('providerStreamId');
     expect(logged).toContain('realtimeSessionId');
+    expect(logged).toContain('req_123');
     expect(logged).not.toContain('sys');
   });
 

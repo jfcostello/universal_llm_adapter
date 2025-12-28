@@ -150,6 +150,9 @@ export default class TwilioVoiceCompat {
     const callConfig = options.callConfig ?? {};
     const systemPrompt = callConfig.systemPrompt;
     const realtimeSpec = callConfig.realtimeSpec ?? {};
+    const requestId = typeof callConfig?.metadata?.requestId === 'string'
+      ? String(callConfig.metadata.requestId).trim()
+      : '';
 
     const logger = options.logger;
     const safeLog = (level: 'debug' | 'info' | 'warning' | 'error', message: string, data?: any) => {
@@ -167,7 +170,8 @@ export default class TwilioVoiceCompat {
     };
     const baseFields = {
       callConfigId: String(options.callConfigId),
-      voiceProvider: String(options.voiceProvider)
+      voiceProvider: String(options.voiceProvider),
+      ...(requestId ? { requestId } : {})
     };
 
     const bridge = createTwilioMediaStreamsBridge({
