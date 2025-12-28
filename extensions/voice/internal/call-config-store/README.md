@@ -9,4 +9,4 @@ Why it exists:
 This module provides:
 - `VoiceCallConfigStore` interface
 - in-memory implementation (`createInMemoryVoiceCallConfigStore`)
-
+- Redis implementation (`createRedisVoiceCallConfigStore`, requires a Redis client)

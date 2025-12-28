@@ -1,25 +1,5 @@
 import type { VoiceCallConfigStore, VoiceCallConfigV1 } from '../index.js';
-
-function assertNonEmpty(label: string, value: unknown): string {
-  const raw = typeof value === 'string' ? value.trim() : '';
-  if (!raw) {
-    throw new Error(`${label} must be a non-empty string`);
-  }
-  return raw;
-}
-
-function assertTtlSeconds(value: unknown): number {
-  const n = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(n) || n <= 0) {
-    throw new Error('ttlSeconds must be a positive number');
-  }
-  return n;
-}
-
-function computeExpiryMs(ttlSeconds: number): number {
-  const ttlMs = Math.floor(ttlSeconds * 1000);
-  return Date.now() + Math.max(0, ttlMs);
-}
+import { assertNonEmpty, assertTtlSeconds, computeExpiryMs, normalizeConfigForPut } from './shared.js';
 
 export function createInMemoryVoiceCallConfigStore(): VoiceCallConfigStore {
   const configs = new Map<string, VoiceCallConfigV1>();
@@ -38,16 +18,9 @@ export function createInMemoryVoiceCallConfigStore(): VoiceCallConfigStore {
 
   return {
     putConfig: async (config: VoiceCallConfigV1, options: { ttlSeconds: number }) => {
-      const callConfigId = assertNonEmpty('callConfigId', (config as any)?.callConfigId);
       const ttlSeconds = assertTtlSeconds(options?.ttlSeconds);
-
-      const now = Date.now();
-      const createdAtMs = Number.isFinite((config as any)?.createdAtMs) && (config as any).createdAtMs > 0
-        ? (config as any).createdAtMs
-        : now;
-      const expiresAtMs = computeExpiryMs(ttlSeconds);
-
-      configs.set(callConfigId, { ...(config as any), callConfigId, createdAtMs, expiresAtMs });
+      const normalized = normalizeConfigForPut(config, ttlSeconds);
+      configs.set(normalized.callConfigId, normalized);
     },
 
     getConfig: async (callConfigId: string) => {
@@ -91,4 +64,3 @@ export function createInMemoryVoiceCallConfigStore(): VoiceCallConfigStore {
     }
   };
 }
-
