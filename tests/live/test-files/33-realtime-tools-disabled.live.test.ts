@@ -61,17 +61,17 @@ if (filteredRealtimeTestRuns.length === 0) {
               input: { format: 'pcm16', sampleRateHz: 24000, channels: 1 },
               output: { format: 'pcm16', sampleRateHz: 24000, channels: 1 }
             },
-            timeout: { maxDurationMs: 60000, idleTimeoutMs: 20000, onTimeout: 'close' }
+            timeout: { maxDurationMs: 90000, idleTimeoutMs: 45000, onTimeout: 'close' }
           },
           steps: [
             { type: 'send_text', text: `ECHO:${token}`, role: 'user' },
             { type: 'commit' },
-            { type: 'wait_for_event', eventType: 'tool_call.end', timeoutMs: 30000 },
-            { type: 'wait_for_event', eventType: 'tool_result.sent', timeoutMs: 30000 },
-            { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 30000 },
+            { type: 'wait_for_event', eventType: 'tool_call.end', timeoutMs: 45000 },
+            { type: 'wait_for_event', eventType: 'tool_result.sent', timeoutMs: 45000 },
+            { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 45000 },
             { type: 'close' }
           ],
-          timeoutMs: 30000
+          timeoutMs: 45000
         });
 
         expect(result.code).toBe(0);
@@ -107,15 +107,15 @@ if (filteredRealtimeTestRuns.length === 0) {
               input: { format: 'pcm16', sampleRateHz: 24000, channels: 1 },
               output: { format: 'pcm16', sampleRateHz: 24000, channels: 1 }
             },
-            timeout: { maxDurationMs: 60000, idleTimeoutMs: 20000, onTimeout: 'close' }
+            timeout: { maxDurationMs: 90000, idleTimeoutMs: 45000, onTimeout: 'close' }
           },
           steps: [
             { type: 'send_text', text: `Token=${token}. Please call tool test.random and reply with the randomValue only.`, role: 'user' },
             { type: 'commit' },
-            { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 30000 },
+            { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 45000 },
             { type: 'close' }
           ],
-          timeoutMs: 30000
+          timeoutMs: 45000
         });
 
         expect(result.code).toBe(0);
