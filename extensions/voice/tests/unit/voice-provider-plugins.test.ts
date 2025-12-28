@@ -32,7 +32,7 @@ describe('extensions/voice: provider plugins loader', () => {
 
   test('discovers manifests and loads compat lazily (no eager import)', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-provider-plugins-'));
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const logger = { warning: jest.fn() };
     try {
       await writeJson(path.join(tmp, 'voice-providers', 'provider-a.json'), {
         id: 'provider-a',
@@ -51,7 +51,7 @@ describe('extensions/voice: provider plugins loader', () => {
         ].join('\n')
       );
 
-      const plugins = createVoiceProviderPlugins({ pluginsPath: tmp });
+      const plugins = createVoiceProviderPlugins({ pluginsPath: tmp, logger });
 
       const manifest = await plugins.getManifest('provider-a');
       expect(manifest).toEqual({
@@ -74,8 +74,8 @@ describe('extensions/voice: provider plugins loader', () => {
       // Module import should be cached, but factory returns new instance each time.
       expect((globalThis as any).__voiceProviderCompatImported).toBe(1);
       expect((globalThis as any).__voiceProviderCompatConstructed).toBe(2);
+      expect(logger.warning).not.toHaveBeenCalled();
     } finally {
-      warn.mockRestore();
       await fs.rm(tmp, { recursive: true, force: true });
       delete (globalThis as any).__voiceProviderCompatImported;
       delete (globalThis as any).__voiceProviderCompatConstructed;
@@ -84,7 +84,7 @@ describe('extensions/voice: provider plugins loader', () => {
 
   test('resolves legacy single-file compat modules (.js and .ts)', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-provider-plugins-'));
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const logger = { warning: jest.fn() };
     try {
       await writeJson(path.join(tmp, 'voice-providers', 'file-js.json'), {
         id: 'file-js',
@@ -95,7 +95,7 @@ describe('extensions/voice: provider plugins loader', () => {
         'module.exports = class FileJsCompat { kind = "file-js"; };'
       );
 
-      const jsCompat = await createVoiceProviderPlugins({ pluginsPath: tmp }).getCompat('file-js');
+      const jsCompat = await createVoiceProviderPlugins({ pluginsPath: tmp, logger }).getCompat('file-js');
       expect(jsCompat).toEqual(expect.objectContaining({ kind: 'file-js' }));
 
       await writeJson(path.join(tmp, 'voice-providers', 'file-ts.json'), {
@@ -106,6 +106,7 @@ describe('extensions/voice: provider plugins loader', () => {
 
       const tsCompat = await createVoiceProviderPlugins({
         pluginsPath: tmp,
+        logger,
         importModule: async () => ({
           default: class FileTsCompat {
             kind = 'file-ts';
@@ -113,8 +114,8 @@ describe('extensions/voice: provider plugins loader', () => {
         })
       }).getCompat('file-ts');
       expect(tsCompat).toEqual(expect.objectContaining({ kind: 'file-ts' }));
+      expect(logger.warning).not.toHaveBeenCalled();
     } finally {
-      warn.mockRestore();
       await fs.rm(tmp, { recursive: true, force: true });
     }
   });
@@ -132,7 +133,7 @@ describe('extensions/voice: provider plugins loader', () => {
 
   test('hardens against path traversal in compat kind', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-provider-plugins-'));
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const logger = { warning: jest.fn() };
     try {
       await writeCompatModule(
         path.join(tmp, 'voice-compat', 'index.js'),
@@ -156,13 +157,20 @@ describe('extensions/voice: provider plugins loader', () => {
         kind: '../evil'
       });
 
-      const plugins = createVoiceProviderPlugins({ pluginsPath: tmp });
+      const plugins = createVoiceProviderPlugins({ pluginsPath: tmp, logger });
       await expect(plugins.getCompat('dot')).rejects.toBeInstanceOf(ManifestError);
       await expect(plugins.getCompat('dotdot')).rejects.toBeInstanceOf(ManifestError);
       await expect(plugins.getCompat('evil')).rejects.toBeInstanceOf(ManifestError);
       expect((globalThis as any).__voiceCompatPoisoned).toBeUndefined();
+
+      const warningMessages = logger.warning.mock.calls.map(([msg]) => msg);
+      expect(warningMessages).toEqual(expect.arrayContaining(['voice.provider_plugins.manifest_skipped']));
+
+      const warningPaths = logger.warning.mock.calls.map(([, data]) => (data as any)?.manifestPath);
+      expect(warningPaths).toEqual(
+        expect.arrayContaining(['voice-providers/dot.json', 'voice-providers/dotdot.json', 'voice-providers/evil.json'])
+      );
     } finally {
-      warn.mockRestore();
       await fs.rm(tmp, { recursive: true, force: true });
       delete (globalThis as any).__voiceCompatPoisoned;
     }
@@ -171,16 +179,43 @@ describe('extensions/voice: provider plugins loader', () => {
   test('validates manifests and handles duplicates', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-provider-plugins-'));
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const logger = { warning: jest.fn() };
     try {
       await writeJson(path.join(tmp, 'voice-providers', 'bad-type.json'), 'not-an-object');
       await writeJson(path.join(tmp, 'voice-providers', 'dup-a.json'), { id: 'dup', kind: 'k1', defaults: [] });
       await writeJson(path.join(tmp, 'voice-providers', 'dup-b.json'), { id: 'dup', kind: 'k2', defaults: 123 });
 
-      const plugins = createVoiceProviderPlugins({ pluginsPath: tmp });
+      const plugins = createVoiceProviderPlugins({ pluginsPath: tmp, logger });
       const manifests = await plugins.listManifests();
       expect(manifests).toHaveLength(1);
       expect(manifests[0]?.id).toBe('dup');
       expect(['k1', 'k2']).toContain(manifests[0]?.kind);
+
+      expect(logger.warning).toHaveBeenCalled();
+      expect(warn).not.toHaveBeenCalled();
+      expect(
+        logger.warning.mock.calls.some(
+          ([msg, data]) => msg === 'voice.provider_plugins.manifest_skipped' && (data as any)?.manifestPath === 'voice-providers/bad-type.json'
+        )
+      ).toBe(true);
+    } finally {
+      warn.mockRestore();
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('falls back to console.warn when a logger is not provided', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-provider-plugins-'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await writeJson(path.join(tmp, 'voice-providers', 'bad-type.json'), 'not-an-object');
+
+      const plugins = createVoiceProviderPlugins({ pluginsPath: tmp });
+      expect(await plugins.listManifests()).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(
+        'voice.provider_plugins.manifest_skipped',
+        expect.objectContaining({ manifestPath: 'voice-providers/bad-type.json' })
+      );
     } finally {
       warn.mockRestore();
       await fs.rm(tmp, { recursive: true, force: true });
@@ -202,6 +237,7 @@ describe('extensions/voice: provider plugins loader', () => {
   test('throws when compat module is missing or invalid', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-provider-plugins-'));
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const logger = { warning: jest.fn() };
     try {
       await writeJson(path.join(tmp, 'voice-providers', 'missing-compat.json'), {
         id: 'missing-compat',
@@ -210,7 +246,7 @@ describe('extensions/voice: provider plugins loader', () => {
       await fs.mkdir(path.join(tmp, 'voice-compat'), { recursive: true });
 
       await expect(
-        createVoiceProviderPlugins({ pluginsPath: tmp }).getCompat('missing-compat')
+        createVoiceProviderPlugins({ pluginsPath: tmp, logger }).getCompat('missing-compat')
       ).rejects.toBeInstanceOf(ManifestError);
 
       await writeJson(path.join(tmp, 'voice-providers', 'invalid-compat.json'), {
@@ -219,7 +255,7 @@ describe('extensions/voice: provider plugins loader', () => {
       });
       await writeCompatModule(path.join(tmp, 'voice-compat', 'invalid-kind', 'index.js'), 'module.exports = {};');
       await expect(
-        createVoiceProviderPlugins({ pluginsPath: tmp }).getCompat('invalid-compat')
+        createVoiceProviderPlugins({ pluginsPath: tmp, logger }).getCompat('invalid-compat')
       ).rejects.toBeInstanceOf(ManifestError);
 
       await writeJson(path.join(tmp, 'voice-providers', 'ts-only.json'), {
@@ -228,8 +264,11 @@ describe('extensions/voice: provider plugins loader', () => {
       });
       await writeCompatModule(path.join(tmp, 'voice-compat', 'ts-only', 'index.ts'), 'not valid ts');
       await expect(
-        createVoiceProviderPlugins({ pluginsPath: tmp }).getCompat('ts-only')
+        createVoiceProviderPlugins({ pluginsPath: tmp, logger }).getCompat('ts-only')
       ).rejects.toBeInstanceOf(ManifestError);
+
+      expect(warn).not.toHaveBeenCalled();
+      expect(logger.warning.mock.calls.some(([msg]) => msg === 'voice.provider_plugins.compat_load_failed')).toBe(true);
     } finally {
       warn.mockRestore();
       await fs.rm(tmp, { recursive: true, force: true });
@@ -238,7 +277,6 @@ describe('extensions/voice: provider plugins loader', () => {
 
   test('skips non-existent compat roots when resolving', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-provider-plugins-'));
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       await writeJson(path.join(tmp, 'voice-providers', 'missing-root.json'), {
         id: 'missing-root',
@@ -247,7 +285,6 @@ describe('extensions/voice: provider plugins loader', () => {
 
       await expect(createVoiceProviderPlugins({ pluginsPath: tmp }).getCompat('missing-root')).rejects.toBeInstanceOf(ManifestError);
     } finally {
-      warn.mockRestore();
       await fs.rm(tmp, { recursive: true, force: true });
     }
   });

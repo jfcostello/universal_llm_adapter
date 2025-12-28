@@ -239,6 +239,7 @@ describe('extensions/voice: webhook + media wiring', () => {
 
     const providerPlugins = {
       getCompat: async () => ({
+        validateWebhookRequest: async () => {},
         createWebhookResponse: async (options: any) => ({
           status: 200,
           headers: { 'Content-Type': 'text/xml; charset=utf-8' },
@@ -303,6 +304,7 @@ describe('extensions/voice: webhook + media wiring', () => {
 
     const providerPlugins = {
       getCompat: async () => ({
+        validateWebhookRequest: async () => {},
         createWebhookResponse: async (options: any) => ({
           status: 200,
           headers: { 'Content-Type': 'text/xml; charset=utf-8' },
@@ -358,6 +360,7 @@ describe('extensions/voice: webhook + media wiring', () => {
 
     const providerPlugins = {
       getCompat: async () => ({
+        validateWebhookRequest: async () => {},
         createWebhookResponse: async (options: any) => ({
           status: 200,
           headers: { 'Content-Type': 'text/xml; charset=utf-8' },
@@ -403,6 +406,7 @@ describe('extensions/voice: webhook + media wiring', () => {
 
     const providerPlugins = {
       getCompat: async () => ({
+        validateWebhookRequest: async () => {},
         createWebhookResponse: async (options: any) => ({
           status: 200,
           headers: { 'Content-Type': 'text/xml; charset=utf-8' },
@@ -448,6 +452,7 @@ describe('extensions/voice: webhook + media wiring', () => {
 
     const providerPlugins = {
       getCompat: async () => ({
+        validateWebhookRequest: async () => {},
         createWebhookResponse: async (options: any) => ({
           status: 200,
           headers: { 'Content-Type': 'text/xml; charset=utf-8' },
@@ -496,6 +501,7 @@ describe('extensions/voice: webhook + media wiring', () => {
 
     const providerPlugins = {
       getCompat: async () => ({
+        validateWebhookRequest: async () => {},
         createWebhookResponse: async (options: any) => ({
           status: 200,
           headers: { 'Content-Type': 'text/xml; charset=utf-8' },
@@ -553,6 +559,7 @@ describe('extensions/voice: webhook + media wiring', () => {
 
     const providerPlugins = {
       getCompat: async () => ({
+        validateWebhookRequest: async () => {},
         createWebhookResponse: async (options: any) => ({
           status: 200,
           headers: { 'Content-Type': 'text/xml; charset=utf-8' },

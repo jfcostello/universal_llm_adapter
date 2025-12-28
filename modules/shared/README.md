@@ -9,13 +9,11 @@ This module exists to:
 - Provide a home for utilities too small for their own module
 - Keep kernel lean (kernel is always loaded; shared is lazy-loaded)
 
-## Size Policy
+## Structure Policy
 
-| Utility Size | Location |
-|--------------|----------|
-| Tiny (<30 lines) | Add directly to `index.ts` |
-| Medium (30-100 lines) | Add as `internal/feature.ts` and re-export from `index.ts` |
-| Large (>100 lines or multiple files) | Create dedicated module in `modules/` |
+`modules/shared/index.ts` is **export-only**. All implementations live under `modules/shared/internal/*` and are re-exported from `index.ts`.
+
+If a shared utility grows into a distinct domain concept (types, multiple files, complex behavior), promote it into a dedicated module under `modules/`.
 
 ## When to Use This Module
 

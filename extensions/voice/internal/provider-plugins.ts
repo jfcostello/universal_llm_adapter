@@ -87,12 +87,26 @@ function getDefaultOrFirstExport(imported: Record<string, any>): any {
 export function createVoiceProviderPlugins(options: {
   pluginsPath: string;
   importModule?: (href: string) => Promise<any>;
+  logger?: { warning?: (message: string, data?: any) => void };
 }): VoiceProviderPlugins {
   const pluginsRoot = path.isAbsolute(options.pluginsPath)
     ? options.pluginsPath
     : path.resolve(process.cwd(), options.pluginsPath);
 
   const importModule = options.importModule ?? (async (href: string) => import(href));
+  const safeWarn = (message: string, data?: any) => {
+    try {
+      const fn = options.logger?.warning;
+      if (typeof fn === 'function') {
+        fn(message, data);
+        return;
+      }
+    } catch {}
+
+    try {
+      console.warn(message, data);
+    } catch {}
+  };
 
   let manifestsLoaded = false;
   const manifests = new Map<string, VoiceProviderManifest>();
@@ -114,7 +128,7 @@ export function createVoiceProviderPlugins(options: {
         }
         manifests.set(manifest.id, manifest);
       } catch (err: any) {
-        console.warn(`Skipping voice provider manifest ${rel}: ${String(err)}`);
+        safeWarn('voice.provider_plugins.manifest_skipped', { manifestPath: rel, error: String(err) });
       }
     }
   };
@@ -136,7 +150,7 @@ export function createVoiceProviderPlugins(options: {
       }
       compatFactories.set(safeKind, () => new (CompatClass as any)());
     } catch (err: any) {
-      console.warn(`Failed to load voice compat module ${safeKind}: ${String(err)}`);
+      safeWarn('voice.provider_plugins.compat_load_failed', { kind: safeKind, error: String(err) });
       throw new ManifestError(`No voice compat module found for '${safeKind}'`);
     }
   };
