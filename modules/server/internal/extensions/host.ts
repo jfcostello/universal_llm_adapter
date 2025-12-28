@@ -10,6 +10,7 @@ export interface ServerExtensionContext {
   registry: any;
   pluginsPath: string;
   upgradeRouter: UpgradeRouter;
+  httpConfig?: any;
 }
 
 export interface ServerExtensionRegistration {
@@ -42,6 +43,7 @@ export async function loadServerExtensions(options: {
   registry: any;
   pluginsPath: string;
   upgradeRouter: UpgradeRouter;
+  httpConfig?: any;
   importExtension?: (specifier: string) => Promise<any>;
 }): Promise<{
   handleHttp: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<boolean>;
@@ -76,7 +78,8 @@ export async function loadServerExtensions(options: {
       server: options.server,
       registry: options.registry,
       pluginsPath: options.pluginsPath,
-      upgradeRouter: options.upgradeRouter
+      upgradeRouter: options.upgradeRouter,
+      httpConfig: options.httpConfig
     });
 
     if (registration.handleHttp) {
@@ -113,4 +116,3 @@ export async function loadServerExtensions(options: {
     }
   };
 }
-

@@ -15,6 +15,17 @@ export {
   assertValidEmbeddingSpec
 } from './internal/transport/spec-validator.js';
 
+// Public server helpers intended for use by extensions.
+export { readJsonBody } from './internal/transport/body-parser.js';
+export { writeHttpUpgradeResponse } from './internal/transport/upgrade-router.js';
+export type { AuthConfig, AuthorizeCallback } from './internal/security/auth.js';
+export { assertAuthorized } from './internal/security/auth.js';
+export type { CorsConfig } from './internal/security/cors.js';
+export { applyCors } from './internal/security/cors.js';
+export { applySecurityHeaders } from './internal/security/security-headers.js';
+export type { RateLimitConfig } from './internal/security/rate-limiter.js';
+export { createRateLimiter, getClientIp } from './internal/security/rate-limiter.js';
+
 export interface ServerDependencies
   extends CoordinatorLifecycleDeps<PluginRegistryLike, any> {
   getDefaults?: typeof getDefaults;
@@ -174,7 +185,7 @@ export function createServerHandlerWithDefaults(
       rateLimit: { ...rateLimitDefaults, ...options.rateLimit },
       cors: { ...corsDefaults, ...options.cors },
       securityHeadersEnabled:
-        options.securityHeadersEnabled ?? serverDefaults.securityHeadersEnabled ?? true
+        options.securityHeadersEnabled ?? serverDefaults.securityHeadersEnabled
     }
   });
 }
@@ -244,7 +255,7 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
       rateLimit: rateLimitConfig,
       cors: corsConfig,
       securityHeadersEnabled:
-        options.securityHeadersEnabled ?? serverDefaults.securityHeadersEnabled ?? true
+        options.securityHeadersEnabled ?? serverDefaults.securityHeadersEnabled
     }
   });
 
@@ -311,12 +322,23 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
   let closeExtensions: (() => Promise<void>) | undefined;
   if (enabledExtensions.length > 0) {
     const { loadServerExtensions } = await import('./internal/extensions/host.js');
+    const extensionsHttpConfig = {
+      maxRequestBytes: options.maxRequestBytes ?? serverDefaults.maxRequestBytes,
+      bodyReadTimeoutMs: options.bodyReadTimeoutMs ?? serverDefaults.bodyReadTimeoutMs,
+      auth: authConfig,
+      rateLimit: rateLimitConfig,
+      cors: corsConfig,
+      securityHeadersEnabled:
+        options.securityHeadersEnabled ?? serverDefaults.securityHeadersEnabled,
+      authorize: options.authorize
+    };
     const host = await loadServerExtensions({
       enabled: enabledExtensions,
       server,
       registry,
       pluginsPath,
-      upgradeRouter
+      upgradeRouter,
+      httpConfig: extensionsHttpConfig
     });
     extensionsHandleHttp = host.handleHttp;
     closeExtensions = host.close;

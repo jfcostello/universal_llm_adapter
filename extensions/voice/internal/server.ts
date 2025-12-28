@@ -5,12 +5,15 @@ import { createRequire } from 'module';
 
 import { mapErrorToHttp } from '../../../modules/transport/index.js';
 import { createSignedWsToken, verifySignedWsToken } from '../../../modules/security/index.js';
-import { writeHttpUpgradeResponse } from '../../../modules/server/internal/transport/upgrade-router.js';
-import { readJsonBody } from '../../../modules/server/internal/transport/body-parser.js';
-import { assertAuthorized } from '../../../modules/server/internal/security/auth.js';
-import { applyCors } from '../../../modules/server/internal/security/cors.js';
-import { applySecurityHeaders } from '../../../modules/server/internal/security/security-headers.js';
-import { createRateLimiter, getClientIp } from '../../../modules/server/internal/security/rate-limiter.js';
+import {
+  applyCors,
+  applySecurityHeaders,
+  assertAuthorized,
+  createRateLimiter,
+  getClientIp,
+  readJsonBody,
+  writeHttpUpgradeResponse
+} from '../../../modules/server/index.js';
 
 import type { VoiceProviderPlugins } from './provider-plugins.js';
 import { createVoiceProviderPlugins } from './provider-plugins.js';

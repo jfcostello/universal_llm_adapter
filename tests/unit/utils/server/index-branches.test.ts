@@ -143,10 +143,10 @@ describe('utils/server index default branches', () => {
         .on('error', reject);
     });
 
-    expect(voiceRes.statusCode).toBe(501);
+    expect(voiceRes.statusCode).toBe(404);
     expect(JSON.parse(voiceRes.body)).toEqual({
       type: 'error',
-      error: { message: 'Voice extension not yet implemented', code: 'not_implemented' }
+      error: { message: 'Not found', code: 'not_found' }
     });
 
     const healthRes = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {

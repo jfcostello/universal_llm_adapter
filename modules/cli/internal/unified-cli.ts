@@ -352,6 +352,12 @@ export function createUnifiedProgram(
     return parsed;
   };
 
+  const collectString = (value: string, previous: string[]): string[] => {
+    const next = previous.slice();
+    next.push(String(value));
+    return next;
+  };
+
   program
     .command('serve')
     .description('Start the HTTP/SSE server')
@@ -392,6 +398,7 @@ export function createUnifiedProgram(
     .option('--rate-limit-trust-proxy-headers', 'Trust x-forwarded-for for rate limiting')
     .option('--cors-enabled', 'Enable CORS headers and OPTIONS preflight')
     .option('--no-security-headers-enabled', 'Disable default security headers')
+    .option('--extension <name>', 'Enable a server extension (repeatable)', collectString, [])
     .action(async (options, command) => {
       try {
         const rawArgs = command.parent?.rawArgs as unknown as string[];
@@ -481,6 +488,10 @@ export function createUnifiedProgram(
           rawArgs?.includes('--no-security-headers-enabled')
         ) {
           serverOptions.securityHeadersEnabled = options.securityHeadersEnabled;
+        }
+
+        if (Array.isArray(options.extension) && options.extension.length > 0) {
+          serverOptions.extensions = { enabled: options.extension.map((v: any) => String(v)) };
         }
 
         if (!deps.createServer) {

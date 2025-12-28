@@ -212,4 +212,28 @@ describe('server/internal/extensions/host', () => {
     await expect(host.handleHttp({} as any, {} as any)).resolves.toBe(false);
     expect(importExtension).not.toHaveBeenCalled();
   });
+
+  test('passes httpConfig into extension registerServer context', async () => {
+    const server = http.createServer();
+    const register = jest.fn(() => () => {});
+    const registerServer = jest.fn(() => ({}));
+
+    const importExtension = jest.fn(async () => ({
+      default: { name: 'a', registerServer }
+    }));
+
+    await loadServerExtensions({
+      enabled: ['a'],
+      server,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: { register, close: () => {} },
+      httpConfig: { auth: { enabled: true }, rateLimit: { enabled: false } },
+      importExtension
+    } as any);
+
+    expect(registerServer).toHaveBeenCalledTimes(1);
+    const ctx = registerServer.mock.calls[0][0];
+    expect(ctx.httpConfig).toEqual({ auth: { enabled: true }, rateLimit: { enabled: false } });
+  });
 });
