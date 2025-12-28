@@ -5,6 +5,16 @@ export interface RedisClientLike {
   get: (key: string) => Promise<string | null>;
   set: (key: string, value: string, options?: { EX?: number; NX?: boolean }) => Promise<any>;
   del: (key: string) => Promise<number>;
+
+  /**
+   * Optional Redis methods that are not required by the store itself, but may be
+   * useful for operational debugging tools that share the same client instance.
+   *
+   * The store never calls these directly.
+   */
+  ttl?: (key: string) => Promise<number>;
+  scan?: (...args: any[]) => Promise<any>;
+  keys?: (pattern: string) => Promise<string[]>;
 }
 
 function jsonStringify(value: any): string {
@@ -66,4 +76,3 @@ export function createRedisVoiceCallConfigStore(options: {
     }
   };
 }
-

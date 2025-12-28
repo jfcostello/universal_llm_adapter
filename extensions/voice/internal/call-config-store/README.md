@@ -10,3 +10,8 @@ This module provides:
 - `VoiceCallConfigStore` interface
 - in-memory implementation (`createInMemoryVoiceCallConfigStore`)
 - Redis implementation (`createRedisVoiceCallConfigStore`, requires a Redis client)
+
+## Redis client interface
+`createRedisVoiceCallConfigStore` accepts a minimal `RedisClientLike`:
+- required: `get`, `set`, `del`
+- optional (debug tooling only, never used by the store): `ttl`, `scan`, `keys`
