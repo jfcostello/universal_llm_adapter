@@ -27,6 +27,24 @@ llm-adapter serve --port 3000
 
 See [README-CLI.md](README-CLI.md) for complete CLI documentation and [README-SERVER.md](README-SERVER.md) for server documentation.
 
+## Extensions
+
+Extensions are **large, optional features** that bolt new “services” onto the adapter’s **server** and **CLI** (new endpoints, new commands) without polluting core modules.
+
+- **Default-off**: nothing changes unless enabled.
+- **Strictly lazy-loaded**: extension code is imported only when enabled.
+- **Removable**: you can delete an extension directory without breaking core (assuming nothing enables it).
+
+Enable on the server via:
+- Config: `server.extensions.enabled: ["<extensionName>"]`
+- CLI: `llm-adapter serve --extension <extensionName>`
+
+Tests:
+- Core tests: `npm test`
+- Extension tests: `npm run test:extensions`
+
+See `extensions/README.md`.
+
 ## Architecture
 
 The codebase is intentionally split into **four layers**:

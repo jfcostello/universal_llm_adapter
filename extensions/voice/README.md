@@ -13,6 +13,7 @@ Server endpoints:
 - `POST /voice/calls`
 - `GET|POST /voice/webhook`
 - `WS /voice/media`
+- `GET /voice/metrics` (optional)
 
 CLI:
 - `llm-adapter voice call`
@@ -22,6 +23,125 @@ CLI:
 Enable the voice extension on the server via:
 - Config: `server.extensions.enabled: ["voice"]`
 - CLI: `llm-adapter serve --extension voice`
+
+## Configuration
+
+### Required env vars
+
+- `LLM_ADAPTER_VOICE_WS_TOKEN_SECRET` (required)
+  - Used to mint and verify signed WS tokens for `WS /voice/media`.
+  - Must be stable across instances.
+
+### Optional env vars
+
+- `LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS` (default: `300`)
+  - TTL for the signed `WS /voice/media` token minted by `/voice/webhook` and `/voice/calls`.
+
+### Provider plugins
+
+Voice providers are configured via plugin manifests under:
+- `plugins/voice-providers/*.json` (provider IDs + compat kind + optional defaults)
+- `plugins/voice-compat/*` (compat implementations)
+
+The voice extension itself is provider-agnostic; provider-specific behavior lives in those plugin directories.
+
+### Webhook validation (signatures)
+
+`/voice/webhook` requests are validated by the active provider compat.
+
+Some compats require signature headers and shared secrets; see the relevant compat README under `plugins/voice-compat/*` for the exact header names and required environment variables.
+
+### Public base URL / proxies
+
+`/voice/webhook` needs to generate a public `WS /voice/media` URL for the telephony provider to connect to.
+
+The extension derives the public HTTP base URL from:
+- `x-forwarded-proto` / `x-forwarded-host` (preferred, when present)
+- otherwise `Host` (and whether the socket is encrypted)
+
+If you run behind a reverse proxy/load balancer, ensure it forwards those headers correctly.
+
+## End-to-end flows
+
+### Outbound call
+
+1. Client calls `POST /voice/calls` (server-side) to create a call config and request an outbound call.
+2. Provider places the outbound call and hits `GET|POST /voice/webhook?callConfigId=<id>`.
+3. The webhook response instructs the provider to connect to `WS /voice/media?token=<...>`.
+4. The provider streams audio over the media WS; the compat bridges into the core realtime session APIs.
+
+### Inbound call
+
+Inbound calls require a pre-existing `callConfigId` and stored call config (e.g., created by your own system).
+
+1. Your system stores a call config under a stable `callConfigId`.
+2. Your telephony provider is configured to call `GET|POST /voice/webhook?callConfigId=<id>` for inbound calls.
+3. The provider connects to `WS /voice/media` using the minted token returned in the webhook response.
+
+## Examples
+
+### Local dry run (no external telephony provider)
+
+This repo includes a local test voice compat that exercises `/voice/webhook` → `/voice/media` without calling any external telephony provider.
+
+- Manifest: `plugins/voice-providers/test.json`
+- Compat: `plugins/voice-compat/test`
+
+Start a local server (voice extension enabled) and set a token secret:
+
+```bash
+export LLM_ADAPTER_VOICE_WS_TOKEN_SECRET="dev_secret"
+export LLM_ADAPTER_API_KEYS="dev_key_1"
+llm-adapter serve --auth-enabled --extension voice --port 3000
+```
+
+Create a call config via `POST /voice/calls` (requires server auth to be enabled):
+
+```bash
+curl -sS http://127.0.0.1:3000/voice/calls \\
+  -H "x-api-key: dev_key_1" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "to": "<to>",
+    "from": "<from>",
+    "voiceProvider": "test",
+    "realtimeSpec": {}
+  }'
+```
+
+Fetch the webhook response (some provider compats require signature headers; the local test compat expects `x-test-signature: ok`):
+
+```bash
+curl -sS "http://127.0.0.1:3000/voice/webhook?callConfigId=<callConfigId>" \\
+  -H "x-test-signature: ok"
+```
+
+Open the returned `WS /voice/media` URL with any WebSocket client.
+
+For higher concurrency, run the local load exercise:
+
+```bash
+npm run build
+node extensions/voice/scripts/load-exercise.mjs --calls 200 --concurrency 50
+```
+
+### Public URL (public tunnel)
+
+Expose your local server with a public URL, then configure your telephony provider to call:
+- `GET|POST <publicBaseUrl>/voice/webhook?callConfigId=<id>`
+
+Ensure `x-forwarded-proto` / `x-forwarded-host` are correct so the server generates a working public `WS /voice/media` URL.
+
+## Deployment and scaling (high-level)
+
+- Keep `LLM_ADAPTER_VOICE_WS_TOKEN_SECRET` consistent across instances.
+- For horizontal scaling, use a shared call config + idempotency store; the default store is in-memory (dev-only).
+- Ensure your proxy/load balancer supports WebSocket and forwards `x-forwarded-*`.
+- Enable server auth + rate limiting when exposing `POST /voice/calls` and `GET /voice/metrics`.
+
+## Testing
+
+- Voice extension suite: `npm run test:extensions:voice`
 
 ## Observability
 
@@ -91,6 +211,7 @@ Creates an outbound voice call by calling the server `POST /voice/calls` endpoin
 
 Required:
 - `--server-url <url>`
+- `--api-key <key>`
 - `--to <number>`
 - `--from <number>`
 - `--voice-provider <id>`

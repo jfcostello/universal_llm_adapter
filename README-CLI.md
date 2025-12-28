@@ -247,6 +247,10 @@ llm-adapter vector upsert --spec '<json>' [options]
 
 Create an outbound voice call by calling the server `POST /voice/calls` endpoint.
 
+Requires:
+- A running server with the voice extension enabled (`llm-adapter serve --extension voice`)
+- Server auth enabled (the `/voice/calls` endpoint requires auth)
+
 ```bash
 llm-adapter voice call --server-url <url> --to <number> --from <number> --voice-provider <id> \\
   --realtime-spec '<json>' [options]
@@ -273,16 +277,10 @@ llm-adapter voice call --server-url <url> --to <number> --from <number> --voice-
 **Example:**
 
 ```bash
-llm-adapter vector upsert --spec '{
-  "operation": "upsert",
-  "store": "memory",
-  "input": {
-    "points": [
-      {"id": "doc1", "vector": [0.1, 0.2, 0.3], "payload": {"text": "Hello"}},
-      {"id": "doc2", "vector": [0.4, 0.5, 0.6], "payload": {"text": "World"}}
-    ]
-  }
-}'
+llm-adapter voice call --server-url http://127.0.0.1:3000 \\
+  --api-key <apiKey> \\
+  --to "<to>" --from "<from>" --voice-provider "<voiceProviderId>" \\
+  --realtime-spec '{}'
 ```
 
 ### `llm-adapter vector delete`
@@ -412,6 +410,7 @@ llm-adapter serve [options]
 | `--port <port>` | Port to bind (0 = ephemeral) | `0` |
 | `-p, --plugins <path>` | Path to plugins directory | `./plugins` |
 | `--batch-id <id>` | Batch identifier | |
+| `--extension <name>` | Enable a server extension (repeatable) | `[]` |
 
 **Example:**
 
