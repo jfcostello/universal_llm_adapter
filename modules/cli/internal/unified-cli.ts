@@ -818,6 +818,7 @@ export function createUnifiedProgram(
 
     for (const name of extensionNames) {
       if (program.commands.some(cmd => cmd.name() === name)) {
+        deps.error(`warning: CLI extension '${name}' conflicts with a built-in command and was not registered`);
         continue;
       }
       program

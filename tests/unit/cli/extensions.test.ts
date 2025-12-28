@@ -225,5 +225,7 @@ describe('cli extension commands', () => {
     const program = createUnifiedProgram(deps as any);
     expect(program.commands.filter(cmd => cmd.name() === 'serve')).toHaveLength(1);
     expect(program.commands.filter(cmd => cmd.name() === 'voice')).toHaveLength(1);
+    expect(deps.error).toHaveBeenCalledTimes(1);
+    expect(String((deps.error as any).mock.calls[0]?.[0] ?? '')).toContain("warning: CLI extension 'serve'");
   });
 });
