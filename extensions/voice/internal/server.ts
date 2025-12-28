@@ -51,23 +51,51 @@ function parseUrl(rawUrl: string | undefined): URL | null {
   }
 }
 
-function getPublicHttpBaseUrl(req: http.IncomingMessage): string {
-  const headers = req.headers ?? {};
-  const forwardedProto = headers['x-forwarded-proto'];
-  const proto =
-    typeof forwardedProto === 'string' && forwardedProto.trim()
-      ? forwardedProto.split(',')[0]!.trim()
-      : (req.socket as any)?.encrypted
-        ? 'https'
-        : 'http';
+function normalizeEnvFlag(value: unknown): boolean {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'y' || raw === 'on';
+}
 
-  const forwardedHost = headers['x-forwarded-host'];
-  const host =
-    typeof forwardedHost === 'string' && forwardedHost.trim()
-      ? forwardedHost.split(',')[0]!.trim()
-      : typeof headers.host === 'string' && headers.host.trim()
-        ? headers.host.trim()
-        : 'localhost';
+function getVoicePublicBaseUrlOverride(): string | undefined {
+  const raw = String(process.env.LLM_ADAPTER_VOICE_PUBLIC_BASE_URL ?? '').trim();
+  if (!raw) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error('Invalid LLM_ADAPTER_VOICE_PUBLIC_BASE_URL');
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('Invalid LLM_ADAPTER_VOICE_PUBLIC_BASE_URL');
+  }
+  return parsed.origin;
+}
+
+function getPublicHttpBaseUrl(req: http.IncomingMessage): string {
+  const override = getVoicePublicBaseUrlOverride();
+  if (override) return override;
+
+  const headers = req.headers ?? {};
+  const trustProxyHeaders = normalizeEnvFlag(process.env.LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS);
+
+  const forwardedProto = trustProxyHeaders ? headers['x-forwarded-proto'] : undefined;
+  const proto = (() => {
+    if (typeof forwardedProto === 'string' && forwardedProto.trim()) {
+      return forwardedProto.split(',')[0]!.trim();
+    }
+    return (req.socket as any)?.encrypted ? 'https' : 'http';
+  })();
+
+  const forwardedHost = trustProxyHeaders ? headers['x-forwarded-host'] : undefined;
+  const host = (() => {
+    if (typeof forwardedHost === 'string' && forwardedHost.trim()) {
+      return forwardedHost.split(',')[0]!.trim();
+    }
+    if (typeof headers.host === 'string' && headers.host.trim()) {
+      return headers.host.trim();
+    }
+    return 'localhost';
+  })();
 
   return `${proto}://${host}`;
 }

@@ -37,6 +37,12 @@ Enable the voice extension on the server via:
 - `LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS` (default: `300`)
   - TTL for the signed `WS /voice/media` token minted by `/voice/webhook` and `/voice/calls`.
 
+- `LLM_ADAPTER_VOICE_PUBLIC_BASE_URL` (optional)
+  - Explicit public base URL used to mint `WS /voice/media` URLs (recommended behind proxies).
+
+- `LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS` (default: off)
+  - When enabled, `x-forwarded-proto` / `x-forwarded-host` are trusted for public URL derivation.
+
 ### Provider plugins
 
 Voice providers are configured via plugin manifests under:
@@ -56,7 +62,8 @@ Some compats require signature headers and shared secrets; see the relevant comp
 `/voice/webhook` needs to generate a public `WS /voice/media` URL for the telephony provider to connect to.
 
 The extension derives the public HTTP base URL from:
-- `x-forwarded-proto` / `x-forwarded-host` (preferred, when present)
+- `LLM_ADAPTER_VOICE_PUBLIC_BASE_URL` (recommended; explicit override)
+- otherwise `x-forwarded-proto` / `x-forwarded-host` (only when `LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS=1`)
 - otherwise `Host` (and whether the socket is encrypted)
 
 If you run behind a reverse proxy/load balancer, ensure it forwards those headers correctly.
