@@ -1,10 +1,35 @@
 import type { VoiceCallConfigStore, VoiceCallConfigV1 } from '../index.js';
 import { assertNonEmpty, assertTtlSeconds, computeExpiryMs, normalizeConfigForPut } from './shared.js';
 
-export function createInMemoryVoiceCallConfigStore(): VoiceCallConfigStore {
+export function createInMemoryVoiceCallConfigStore(options?: { sweepEveryOps?: number }): VoiceCallConfigStore {
+  const sweepEveryOps = (() => {
+    const raw = options?.sweepEveryOps;
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) return 250;
+    return Math.max(1, Math.floor(raw));
+  })();
+
   const configs = new Map<string, VoiceCallConfigV1>();
   const idempotency = new Map<string, { value: any; expiresAtMs: number }>();
   const nonces = new Map<string, number>();
+
+  let ops = 0;
+  const sweepExpired = (now: number) => {
+    for (const [key, cfg] of configs.entries()) {
+      if (now > cfg.expiresAtMs) configs.delete(key);
+    }
+    for (const [key, entry] of idempotency.entries()) {
+      if (now > entry.expiresAtMs) idempotency.delete(key);
+    }
+    for (const [key, expiresAtMs] of nonces.entries()) {
+      if (now > expiresAtMs) nonces.delete(key);
+    }
+  };
+
+  const maybeSweep = () => {
+    ops++;
+    if (ops % sweepEveryOps !== 0) return;
+    sweepExpired(Date.now());
+  };
 
   const getIfNotExpired = <T>(map: Map<string, { value: T; expiresAtMs: number }>, key: string): T | null => {
     const entry = map.get(key);
@@ -18,6 +43,7 @@ export function createInMemoryVoiceCallConfigStore(): VoiceCallConfigStore {
 
   return {
     putConfig: async (config: VoiceCallConfigV1, options: { ttlSeconds: number }) => {
+      maybeSweep();
       const ttlSeconds = assertTtlSeconds(options?.ttlSeconds);
       const normalized = normalizeConfigForPut(config, ttlSeconds);
       configs.set(normalized.callConfigId, normalized);
@@ -35,11 +61,13 @@ export function createInMemoryVoiceCallConfigStore(): VoiceCallConfigStore {
     },
 
     deleteConfig: async (callConfigId: string) => {
+      maybeSweep();
       const id = assertNonEmpty('callConfigId', callConfigId);
       configs.delete(id);
     },
 
     putIdempotency: async (key: string, value: any, options: { ttlSeconds: number }) => {
+      maybeSweep();
       const safeKey = assertNonEmpty('idempotency key', key);
       const ttlSeconds = assertTtlSeconds(options?.ttlSeconds);
       idempotency.set(safeKey, { value, expiresAtMs: computeExpiryMs(ttlSeconds) });
@@ -51,6 +79,7 @@ export function createInMemoryVoiceCallConfigStore(): VoiceCallConfigStore {
     },
 
     consumeNonceOnce: async (nonce: string, options: { ttlSeconds: number }) => {
+      maybeSweep();
       const safeNonce = assertNonEmpty('nonce', nonce);
       const ttlSeconds = assertTtlSeconds(options?.ttlSeconds);
 

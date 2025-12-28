@@ -131,6 +131,45 @@ describe('extensions/voice: call-config store (in-memory)', () => {
     }
   });
 
+  test('prunes expired entries without requiring direct reads', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+    const deleteSpy = jest.spyOn(Map.prototype, 'delete');
+    try {
+      const store = createInMemoryVoiceCallConfigStore({ sweepEveryOps: 1 });
+
+      await store.putConfig(
+        {
+          version: 1,
+          callConfigId: 'cfg_expired',
+          createdAtMs: 0,
+          expiresAtMs: 0,
+          to: 'to',
+          from: 'from',
+          direction: 'inbound',
+          realtimeSpec: { ok: true },
+          voiceProvider: 'p1'
+        },
+        { ttlSeconds: 1 }
+      );
+      await store.consumeNonceOnce('nonce_expired', { ttlSeconds: 1 });
+      await store.putIdempotency('k_expired', { ok: true }, { ttlSeconds: 1 });
+
+      jest.advanceTimersByTime(1001);
+
+      // Trigger a sweep without reading the expired keys directly.
+      await store.putIdempotency('k_trigger', { ok: true }, { ttlSeconds: 60 });
+
+      const deletedKeys = deleteSpy.mock.calls.map(c => c[0]);
+      expect(deletedKeys).toContain('cfg_expired');
+      expect(deletedKeys).toContain('nonce_expired');
+      expect(deletedKeys).toContain('k_expired');
+    } finally {
+      deleteSpy.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
   test('supports large payloads', async () => {
     const store = createInMemoryVoiceCallConfigStore();
     const big = 'x'.repeat(1024 * 1024);
