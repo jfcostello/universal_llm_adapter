@@ -21,27 +21,27 @@ describe('extensions/voice', () => {
       upgradeRouter
     });
 
-    const resA: any = { writeHead: jest.fn(), end: jest.fn() };
+    const resA: any = { setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
     await expect(reg.handleHttp({ url: '/health' } as any, resA)).resolves.toBe(false);
     expect(resA.writeHead).not.toHaveBeenCalled();
     expect(resA.end).not.toHaveBeenCalled();
 
-    const resB: any = { writeHead: jest.fn(), end: jest.fn() };
+    const resB: any = { setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
     await expect(reg.handleHttp({ url: undefined } as any, resB)).resolves.toBe(false);
     expect(resB.writeHead).not.toHaveBeenCalled();
     expect(resB.end).not.toHaveBeenCalled();
 
-    const resC: any = { writeHead: jest.fn(), end: jest.fn() };
+    const resC: any = { setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
     await expect(reg.handleHttp({ url: '/voice' } as any, resC)).resolves.toBe(true);
     expect(String(resC.writeHead.mock.calls[0][0])).toBe('200');
     expect(resC.end).toHaveBeenCalled();
 
-    const resD: any = { writeHead: jest.fn(), end: jest.fn() };
+    const resD: any = { setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
     await expect(reg.handleHttp({ url: '/voice/webhook' } as any, resD)).resolves.toBe(true);
     expect(String(resD.writeHead.mock.calls[0][0])).toBe('400');
     expect(resD.end).toHaveBeenCalled();
 
-    const resE: any = { writeHead: jest.fn(), end: jest.fn() };
+    const resE: any = { setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
     await expect(reg.handleHttp({ url: 'http://%' } as any, resE)).resolves.toBe(false);
     expect(resE.writeHead).not.toHaveBeenCalled();
     expect(resE.end).not.toHaveBeenCalled();

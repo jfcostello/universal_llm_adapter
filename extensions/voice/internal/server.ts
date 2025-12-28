@@ -6,6 +6,11 @@ import { createRequire } from 'module';
 import { mapErrorToHttp } from '../../../modules/transport/index.js';
 import { createSignedWsToken, verifySignedWsToken } from '../../../modules/security/index.js';
 import { writeHttpUpgradeResponse } from '../../../modules/server/internal/transport/upgrade-router.js';
+import { readJsonBody } from '../../../modules/server/internal/transport/body-parser.js';
+import { assertAuthorized } from '../../../modules/server/internal/security/auth.js';
+import { applyCors } from '../../../modules/server/internal/security/cors.js';
+import { applySecurityHeaders } from '../../../modules/server/internal/security/security-headers.js';
+import { createRateLimiter, getClientIp } from '../../../modules/server/internal/security/rate-limiter.js';
 
 import type { VoiceProviderPlugins } from './provider-plugins.js';
 import { createVoiceProviderPlugins } from './provider-plugins.js';
@@ -123,6 +128,17 @@ export async function createVoiceServerRegistration(ctx: {
   upgradeRouter: any;
   store?: VoiceCallConfigStore;
   providerPlugins?: VoiceProviderPlugins;
+  httpConfig?: {
+    maxRequestBytes?: number;
+    bodyReadTimeoutMs?: number;
+    auth?: any;
+    rateLimit?: any;
+    cors?: any;
+    securityHeadersEnabled?: boolean;
+    idempotencyWaitMs?: number;
+    idempotencyLockTtlSeconds?: number;
+    authorize?: ((req: http.IncomingMessage) => boolean | Promise<boolean>) | undefined;
+  };
 }): Promise<{
   handleHttp: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<boolean>;
   handleUpgrade: (ctx: { req: http.IncomingMessage; socket: net.Socket; head: Buffer; pathname: string }) => Promise<boolean>;
@@ -130,6 +146,36 @@ export async function createVoiceServerRegistration(ctx: {
 }> {
   const store = ctx.store ?? createInMemoryVoiceCallConfigStore();
   const providerPlugins = ctx.providerPlugins ?? createVoiceProviderPlugins({ pluginsPath: ctx.pluginsPath });
+  const httpConfig = ctx.httpConfig ?? {};
+  const maxRequestBytes = httpConfig.maxRequestBytes ?? Number.POSITIVE_INFINITY;
+  const bodyReadTimeoutMs = httpConfig.bodyReadTimeoutMs ?? 0;
+  const authConfig = httpConfig.auth ?? { enabled: false };
+  const rateLimitConfig = httpConfig.rateLimit ?? { enabled: false };
+  const corsConfig = httpConfig.cors ?? { enabled: false };
+  const securityHeadersEnabled = httpConfig.securityHeadersEnabled ?? true;
+  const idempotencyWaitMs = Number.isFinite(httpConfig.idempotencyWaitMs)
+    ? Math.max(0, Number(httpConfig.idempotencyWaitMs))
+    : 2000;
+  const idempotencyLockTtlSeconds = Number.isFinite(httpConfig.idempotencyLockTtlSeconds)
+    ? Math.max(1, Math.floor(Number(httpConfig.idempotencyLockTtlSeconds)))
+    : 60;
+  const authorize = httpConfig.authorize;
+
+  const rateLimiter = createRateLimiter(rateLimitConfig);
+
+  const assertAuthorizedAndRateLimited = async (req: http.IncomingMessage): Promise<string | undefined> => {
+    const authIdentity = await assertAuthorized(req, authConfig, authorize as any);
+    const clientIp = getClientIp(req, Boolean(rateLimitConfig?.trustProxyHeaders));
+    const key = authIdentity ?? clientIp ?? 'unknown';
+    if (rateLimitConfig?.enabled) {
+      if (authConfig?.enabled) {
+        rateLimiter.check(key);
+      }
+    }
+    return authIdentity;
+  };
+
+  const sleep = async (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
   const require = createRequire(import.meta.url);
   const wsLib = require('ws');
@@ -150,6 +196,10 @@ export async function createVoiceServerRegistration(ctx: {
 
       const pathname = url.pathname;
       if (pathname !== '/voice' && !pathname.startsWith('/voice/')) return false;
+
+      applySecurityHeaders(res, Boolean(securityHeadersEnabled));
+      const corsHandled = applyCors(req, res, corsConfig);
+      if (corsHandled) return true;
 
       try {
         if (pathname === '/voice/webhook') {
@@ -189,6 +239,129 @@ export async function createVoiceServerRegistration(ctx: {
 
           res.writeHead(status, headers);
           res.end(body);
+          return true;
+        }
+
+        if (pathname === '/voice/calls') {
+          const method = (req.method ?? 'GET').toUpperCase();
+          if (method !== 'POST') {
+            writeJson(res, 405, { type: 'error', error: { message: 'Method not allowed', code: 'method_not_allowed' } });
+            return true;
+          }
+
+          await assertAuthorizedAndRateLimited(req);
+
+          if (!authConfig?.enabled) {
+            writeJson(res, 501, { type: 'error', error: { message: 'Voice calls endpoint requires server auth to be enabled', code: 'not_implemented' } });
+            return true;
+          }
+
+          const body = await readJsonBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
+          const to = String(body?.to ?? '').trim();
+          const from = String(body?.from ?? '').trim();
+          const systemPrompt = body?.systemPrompt !== undefined ? String(body.systemPrompt) : undefined;
+          const realtimeSpec = body?.realtimeSpec;
+          const voiceProvider = String(body?.voiceProvider ?? '').trim();
+
+          const ttlSecondsRaw = body?.ttlSeconds;
+          const ttlSeconds = ttlSecondsRaw === undefined || ttlSecondsRaw === null ? 900 : Number(ttlSecondsRaw);
+
+          if (!to || !from || !voiceProvider || !realtimeSpec) {
+            writeJson(res, 400, { type: 'error', error: { message: 'Missing required fields', code: 'validation_error' } });
+            return true;
+          }
+
+          if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) {
+            writeJson(res, 400, { type: 'error', error: { message: 'Invalid ttlSeconds', code: 'validation_error' } });
+            return true;
+          }
+
+          const idempotencyKeyHeader = req.headers?.['idempotency-key'];
+          const idempotencyKey =
+            (typeof idempotencyKeyHeader === 'string' ? idempotencyKeyHeader : undefined) ??
+            (body?.idempotencyKey !== undefined ? String(body.idempotencyKey) : undefined);
+          const idempotencyKeyTrimmed = typeof idempotencyKey === 'string' ? idempotencyKey.trim() : '';
+
+          if (idempotencyKeyTrimmed) {
+            const existing = await store.getIdempotency(idempotencyKeyTrimmed);
+            if (existing) {
+              writeJson(res, 200, existing);
+              return true;
+            }
+
+            const lockTtlSeconds = Math.max(1, Math.min(ttlSeconds, idempotencyLockTtlSeconds));
+            const lockOk = await store.consumeNonceOnce(`idem:${idempotencyKeyTrimmed}`, { ttlSeconds: lockTtlSeconds });
+            if (!lockOk) {
+              const start = Date.now();
+              while (Date.now() - start < idempotencyWaitMs) {
+                const ready = await store.getIdempotency(idempotencyKeyTrimmed);
+                if (ready) {
+                  writeJson(res, 200, ready);
+                  return true;
+                }
+                await sleep(25);
+              }
+
+              writeJson(res, 409, {
+                type: 'error',
+                error: { message: 'Idempotency key is already in progress', code: 'idempotency_in_progress' }
+              });
+              return true;
+            }
+          }
+
+          try {
+            await providerPlugins.getManifest(voiceProvider);
+          } catch {
+            writeJson(res, 400, { type: 'error', error: { message: 'Unknown voiceProvider', code: 'validation_error' } });
+            return true;
+          }
+
+          const callConfigId = `voice_cfg_${crypto.randomBytes(18).toString('base64url')}`;
+          await store.putConfig(
+            {
+              version: 1,
+              callConfigId,
+              createdAtMs: 0,
+              expiresAtMs: 0,
+              to,
+              from,
+              direction: 'outbound',
+              systemPrompt,
+              realtimeSpec,
+              voiceProvider,
+              metadata: body?.metadata
+            } as any,
+            { ttlSeconds }
+          );
+
+          const httpBaseUrl = getPublicHttpBaseUrl(req);
+          const token = mintVoiceMediaToken({ callConfigId, voiceProvider });
+          const mediaWsUrl = toWsUrl(httpBaseUrl, '/voice/media', { token });
+
+          const compat = await providerPlugins.getCompat(voiceProvider);
+          const callConfig = await store.getConfig(callConfigId);
+          if (!callConfig) {
+            const error = new Error('Failed to load stored call config');
+            (error as any).statusCode = 500;
+            throw error;
+          }
+
+          const outbound = await compat.createOutboundCall({ to, from, callConfigId, callConfig, voiceProvider, mediaWsUrl });
+          const providerCallId = String(outbound?.providerCallId ?? '').trim();
+          if (!providerCallId) {
+            const error = new Error('Voice provider did not return providerCallId');
+            (error as any).statusCode = 502;
+            (error as any).code = 'provider_error';
+            throw error;
+          }
+
+          const response = { callConfigId, providerCallId, status: 'queued' };
+          if (idempotencyKeyTrimmed) {
+            await store.putIdempotency(idempotencyKeyTrimmed, response, { ttlSeconds });
+          }
+
+          writeJson(res, 200, response);
           return true;
         }
 

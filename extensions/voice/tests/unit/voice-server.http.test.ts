@@ -5,7 +5,7 @@ import { createVoiceServerRegistration } from '../../internal/server.js';
 import { createInMemoryVoiceCallConfigStore } from '../../internal/call-config-store/index.js';
 
 function createMockRes() {
-  return { writeHead: jest.fn(), end: jest.fn() } as any;
+  return { setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() } as any;
 }
 
 describe('extensions/voice: server http handlers', () => {
@@ -400,6 +400,65 @@ describe('extensions/voice: server http handlers', () => {
     await expect(reg.handleHttp(req, res)).resolves.toBe(true);
     const mediaWsUrl = createWebhookResponse.mock.calls[0][0].mediaWsUrl;
     expect(String(mediaWsUrl)).toContain('wss://localhost/voice/media?token=');
+  });
+
+  test('/voice/calls defaults missing method to GET and returns 405', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    const providerPlugins = { getCompat: jest.fn(), getManifest: jest.fn() };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: providerPlugins as any
+    });
+
+    const res = createMockRes();
+    await expect(reg.handleHttp({ url: '/voice/calls' } as any, res)).resolves.toBe(true);
+    expect(String(res.writeHead.mock.calls[0][0])).toBe('405');
+  });
+
+  test('/voice/calls can compute rate limit key as unknown when no auth and no client ip', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    const providerPlugins = { getCompat: jest.fn(), getManifest: jest.fn() };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: providerPlugins as any,
+      httpConfig: { auth: { enabled: false }, rateLimit: { enabled: true, requestsPerMinute: 1, burst: 1 } }
+    });
+
+    const res = createMockRes();
+    await expect(reg.handleHttp({ url: '/voice/calls', method: 'POST', headers: {}, socket: {} } as any, res)).resolves.toBe(true);
+    expect(String(res.writeHead.mock.calls[0][0])).toBe('501');
+  });
+
+  test('CORS preflight OPTIONS is handled before route logic', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    const providerPlugins = { getCompat: jest.fn(), getManifest: jest.fn() };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: providerPlugins as any,
+      httpConfig: {
+        cors: { enabled: true, allowedOrigins: '*', allowedHeaders: ['content-type'], allowCredentials: false }
+      }
+    });
+
+    const res = createMockRes();
+    const req = { url: '/voice/calls', method: 'OPTIONS', headers: { origin: 'https://example.com' }, socket: {} } as any;
+    await expect(reg.handleHttp(req, res)).resolves.toBe(true);
+    expect(String(res.writeHead.mock.calls[0][0])).toBe('204');
   });
 
   test('close terminates without throwing', async () => {
