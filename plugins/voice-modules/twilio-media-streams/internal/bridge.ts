@@ -56,6 +56,7 @@ export interface TwilioMediaStreamsBridgeSecurity {
   tokenMaxTtlSeconds?: number;
   tokenClockSkewSeconds?: number;
   allowedAccountSids?: string[];
+  expectedTokenPayload?: Record<string, unknown>;
 }
 
 export interface TwilioMediaStreamsBridgeCallbacks {
@@ -245,7 +246,8 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
         token,
         secret: tokenSecret,
         maxTtlSeconds: maxTtlSeconds,
-        clockSkewSeconds: clockSkewSeconds
+        clockSkewSeconds: clockSkewSeconds,
+        expected: options.security.expectedTokenPayload
       });
       if (!verified.ok) {
         safeClose(ws, 1008, 'Unauthorized');

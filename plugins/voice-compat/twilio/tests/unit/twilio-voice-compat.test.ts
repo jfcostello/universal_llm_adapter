@@ -8,9 +8,9 @@ import { ProviderExecutionError } from '@/kernel/index.ts';
 
 import TwilioVoiceCompat from '../../index.ts';
 
-function makeToken(secret: string): string {
+function makeToken(secret: string, payload: Record<string, unknown> = {}): string {
   const nowSeconds = Math.floor(Date.now() / 1000);
-  return createSignedWsToken({ secret, payload: { iat: nowSeconds, exp: nowSeconds + 60, nonce: 'n1' } });
+  return createSignedWsToken({ secret, payload: { iat: nowSeconds, exp: nowSeconds + 60, nonce: 'n1', ...payload } });
 }
 
 function startMessage() {
@@ -150,7 +150,7 @@ describe('plugins/voice-compat/twilio', () => {
 
   test('handleMediaConnection merges systemPrompt + metadata and bridges start/stop', async () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
-    const token = makeToken('secret');
+    const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
 
     const { registry, createSession } = createRegistryHarness();
     const logger = createSpyLogger();
@@ -198,7 +198,7 @@ describe('plugins/voice-compat/twilio', () => {
 
   test('handleMediaConnection logs bridge errors without leaking systemPrompt or media payload', async () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
-    const token = makeToken('secret');
+    const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
 
     const { registry } = createRegistryHarness();
     const logger = createSpyLogger();
@@ -239,7 +239,7 @@ describe('plugins/voice-compat/twilio', () => {
 
   test('handleMediaConnection logs bridge errors when media arrives before start (no provider ids)', async () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
-    const token = makeToken('secret');
+    const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
 
     const { registry } = createRegistryHarness();
     const logger = createSpyLogger();
@@ -275,7 +275,7 @@ describe('plugins/voice-compat/twilio', () => {
 
   test('handleMediaConnection handles missing systemPrompt and non-object metadata', async () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
-    const token = makeToken('secret');
+    const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_2', voiceProvider: 'twilio' });
 
     const { registry, createSession } = createRegistryHarness();
 
@@ -306,7 +306,7 @@ describe('plugins/voice-compat/twilio', () => {
 
   test('handleMediaConnection tolerates missing callConfig', async () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
-    const token = makeToken('secret');
+    const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_3', voiceProvider: 'twilio' });
 
     const { registry, createSession } = createRegistryHarness();
 

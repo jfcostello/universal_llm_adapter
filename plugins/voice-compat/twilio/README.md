@@ -8,6 +8,7 @@ This directory is provider-specific by design and may reference provider convent
 
 - Build webhook responses (TwiML) that instruct Twilio to connect a Media Stream to the adapter’s Voice extension WS endpoint.
 - Bridge the provider WebSocket connection to a core realtime session using the shared `plugins/voice-modules/twilio-media-streams` module.
+- Enforce media WS token binding (purpose + identifiers) before bridging.
 - Initiate outbound calls.
 
 ## Configuration

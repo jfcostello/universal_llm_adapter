@@ -196,7 +196,12 @@ export default class TwilioVoiceCompat {
       },
       security: {
         tokenSecret: requireVoiceWsTokenSecret(),
-        tokenMaxTtlSeconds: 86400
+        tokenMaxTtlSeconds: 86400,
+        expectedTokenPayload: {
+          purpose: 'voice_media',
+          callConfigId: String(options.callConfigId),
+          voiceProvider: String(options.voiceProvider)
+        }
       },
       callbacks: {
         onCallStart: (metadata) => {

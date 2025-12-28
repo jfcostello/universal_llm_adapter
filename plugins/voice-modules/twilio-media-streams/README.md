@@ -38,7 +38,8 @@ const bridge = createTwilioMediaStreamsBridge({
     tokenParam: 'token',
     tokenMaxTtlSeconds: 300,
     tokenClockSkewSeconds: 5,
-    allowedAccountSids: []
+    allowedAccountSids: [],
+    expectedTokenPayload: { purpose: 'voice_media' } // optional token binding
   },
   limits: {
     maxWsMessageBytes: 262144,
@@ -96,6 +97,7 @@ The bridge uses the library’s signed-token verifier (`verifySignedWsToken`) wh
 
 - Use a short TTL (e.g. 60–300s)
 - Rotate `tokenSecret`
+- Optionally set `expectedTokenPayload` to bind the token to a specific purpose or identifiers
 - Optionally set `allowedAccountSids` to reject unexpected calls after the Twilio `start` event
 - Set conservative limits/timeouts (see defaults above)
 - Do not log raw audio payloads or secrets

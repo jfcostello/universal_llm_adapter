@@ -5,11 +5,11 @@ import { createTwilioMediaStreamsBridge } from '@/plugins/voice-modules/twilio-m
 import { MockRealtimeSession } from '@tests/helpers/mock-realtime-session.ts';
 import { MockWebSocket } from '@tests/helpers/mock-ws.ts';
 
-function makeToken(secret: string): string {
+function makeToken(secret: string, payload: Record<string, unknown> = {}): string {
   const nowSeconds = Math.floor(Date.now() / 1000);
   return createSignedWsToken({
     secret,
-    payload: { iat: nowSeconds, exp: nowSeconds + 60, nonce: 'n1' }
+    payload: { iat: nowSeconds, exp: nowSeconds + 60, nonce: 'n1', ...payload }
   });
 }
 
@@ -128,6 +128,44 @@ describe('plugins/voice-modules/twilio-media-streams — bridge coverage cases',
 
     const ws = new MockWebSocket();
     const task = bridge.handleConnection(ws as any, { url: `/ws?t=${encodeURIComponent(token)}` });
+    ws.emitMessage(stopMessage({}));
+    await task;
+    jest.useRealTimers();
+  });
+
+  test('rejects when expectedTokenPayload binding mismatches', async () => {
+    const secret = 'secret';
+    const token = makeToken(secret, { purpose: 'other' });
+
+    const createSession = jest.fn(async () => new MockRealtimeSession());
+    const bridge = createTwilioMediaStreamsBridge({
+      createSession,
+      security: { tokenSecret: secret, expectedTokenPayload: { purpose: 'voice_media' } }
+    });
+
+    const ws = new MockWebSocket();
+    await bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+    expect(ws.closed[0]?.code).toBe(1008);
+    expect(createSession).not.toHaveBeenCalled();
+  });
+
+  test('accepts when expectedTokenPayload binding matches', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+    const secret = 'secret';
+    const token = makeToken(secret, { purpose: 'voice_media' });
+
+    const session = new MockRealtimeSession();
+    session.push({ type: 'ready', sessionId: 's1' });
+
+    const bridge = createTwilioMediaStreamsBridge({
+      createSession: async () => session,
+      security: { tokenSecret: secret, expectedTokenPayload: { purpose: 'voice_media' } },
+      limits: { startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0 }
+    });
+
+    const ws = new MockWebSocket();
+    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+    ws.emitMessage(startMessage({ customParameters: { from: 'x', to: 'y', direction: 'inbound' } }));
     ws.emitMessage(stopMessage({}));
     await task;
     jest.useRealTimers();
