@@ -180,6 +180,43 @@ describe('extensions/voice: webhook + media wiring', () => {
     }
   });
 
+  test('end-to-end: supports WS token TTL > 300s when configured', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS = '600';
+
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const harness = await startHarness({ store });
+    try {
+      const res = await fetch(new URL('/voice/webhook?callConfigId=cfg_1', harness.baseUrl), {
+        headers: { 'x-test-signature': 'ok' }
+      });
+      expect(res.status).toBe(200);
+      const xml = await res.text();
+      const wsUrl = extractStreamUrl(xml);
+
+      const { closePromise, messages } = await openWs(wsUrl);
+      const ready = await waitForMessage(messages, m => m?.type === 'ready');
+      expect(ready.callConfigId).toBe('cfg_1');
+      await closePromise;
+    } finally {
+      await harness.close();
+    }
+  });
+
   test('metrics: media WS open/close updates gauges/counters when enabled', async () => {
     process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED = '1';
 

@@ -139,6 +139,7 @@ function verifyVoiceMediaToken(token: string): { ok: true; payload: VoiceMediaTo
   const res = verifySignedWsToken<VoiceMediaTokenPayload>({
     token,
     secret: getWsTokenSecret(),
+    maxTtlSeconds: getWsTokenTtlSeconds(),
     expected: { purpose: 'voice_media' }
   });
   if (!res.ok) return res;
