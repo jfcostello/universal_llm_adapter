@@ -84,7 +84,8 @@ function readOpenRouterEmbeddingProviderId(): string {
         `Marker: ${TOKEN}.`,
         'You will receive retrieved context.',
         'From the retrieved context, extract the exact value after "SecretAnswer:" and reply with only that value.',
-        'No extra whitespace. No punctuation. No code blocks.'
+        'No extra whitespace. No punctuation. No code blocks.',
+        'Do not include any reasoning or explanation. Reply with the secret token immediately.'
       ].join('\n'),
       messages: [
         {
@@ -98,7 +99,7 @@ function readOpenRouterEmbeddingProviderId(): string {
         }
       ],
       llmPriority: runCfg.llmPriority,
-      settings: mergeSettings(runCfg.settings, { maxTokens: 200 }),
+      settings: mergeSettings(runCfg.settings, { maxTokens: 512 }),
       vectorContext: {
         mode: 'both',
         stores: [STORE_ID],

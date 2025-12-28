@@ -23,5 +23,14 @@
     "sourceMap": true
   },
   "include": ["**/*.ts"],
-  "exclude": ["node_modules", "dist", "tests", "__tests__"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests",
+    "__tests__",
+    "**/tests",
+    "**/tests/**",
+    "**/__tests__",
+    "**/__tests__/**"
+  ]
 }

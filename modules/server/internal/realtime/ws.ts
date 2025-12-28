@@ -4,6 +4,8 @@ import { createRequire } from 'module';
 
 import { createAudioRateLimiter } from '../transport/audio-rate-limiter.js';
 import { createLimiter } from '../transport/limiter.js';
+import type { UpgradeRouter } from '../transport/upgrade-router.js';
+import { writeHttpUpgradeResponse } from '../transport/upgrade-router.js';
 
 export interface RealtimeWsConfig {
   path: string;
@@ -42,31 +44,12 @@ type RealtimeServerEnvelope =
   | { type: 'error'; error: { message: string; code?: string } };
 
 function writeHttpResponse(socket: net.Socket, statusCode: number, statusText: string, body: string): void {
-  const payload = String(body);
-  const buf = Buffer.from(payload, 'utf-8');
-  socket.write(
-    [
-      `HTTP/1.1 ${statusCode} ${statusText}`,
-      'Connection: close',
-      'Content-Type: text/plain; charset=utf-8',
-      `Content-Length: ${buf.length}`,
-      '',
-      payload
-    ].join('\r\n')
-  );
-}
-
-function parseWsPath(req: http.IncomingMessage): string {
-  const raw = req.url ?? '/';
-  try {
-    return new URL(raw, 'http://localhost').pathname;
-  } catch {
-    return raw.split('?')[0];
-  }
+  writeHttpUpgradeResponse(socket, statusCode, statusText, body);
 }
 
 export async function attachRealtimeWsServer(options: {
   server: http.Server;
+  upgradeRouter: UpgradeRouter;
   registry: any;
   createSession: RealtimeWsCreateSession;
   authorizeUpgrade: (req: http.IncomingMessage) => Promise<void> | void;
@@ -74,7 +57,11 @@ export async function attachRealtimeWsServer(options: {
 }): Promise<{ close: () => Promise<void> }> {
   const require = createRequire(import.meta.url);
   const ws = require('ws');
-  const wss = new ws.WebSocketServer({ noServer: true });
+  const wss = new ws.WebSocketServer({
+    noServer: true,
+    maxPayload: Math.floor(options.config.maxMessageBytes) + 1,
+    perMessageDeflate: false
+  });
 
   const limiter = createLimiter({
     maxConcurrent: options.config.maxConcurrentSessions,
@@ -96,41 +83,36 @@ export async function attachRealtimeWsServer(options: {
     return map[statusCode] ?? 'Error';
   };
 
-  const onUpgrade = (req: http.IncomingMessage, socket: net.Socket, head: Buffer) => {
-    void (async () => {
-      const pathname = parseWsPath(req);
-      if (pathname !== options.config.path) {
-        writeHttpResponse(socket, 404, 'Not Found', 'Not Found');
-        socket.destroy();
-        return;
-      }
+  const onUpgrade = async (ctx: { req: http.IncomingMessage; socket: net.Socket; head: Buffer; pathname: string }) => {
+    const { req, socket, head, pathname } = ctx;
+    if (pathname !== options.config.path) return false;
 
-      try {
-        await options.authorizeUpgrade(req);
-      } catch (err: any) {
-        const statusCode = Number(err?.statusCode ?? 401);
-        writeHttpResponse(socket, statusCode, statusTextFor(statusCode), err?.message ?? 'Unauthorized');
-        socket.destroy();
-        return;
-      }
+    try {
+      await options.authorizeUpgrade(req);
+    } catch (err: any) {
+      const statusCode = Number(err?.statusCode ?? 401);
+      writeHttpResponse(socket, statusCode, statusTextFor(statusCode), err?.message ?? 'Unauthorized');
+      socket.destroy();
+      return true;
+    }
 
-      let release: (() => void) | undefined;
-      try {
-        release = await limiter.acquire();
-      } catch {
-        writeHttpResponse(socket, 503, statusTextFor(503), 'Server busy');
-        socket.destroy();
-        return;
-      }
+    let release: (() => void) | undefined;
+    try {
+      release = await limiter.acquire();
+    } catch {
+      writeHttpResponse(socket, 503, statusTextFor(503), 'Server busy');
+      socket.destroy();
+      return true;
+    }
 
-      wss.handleUpgrade(req, socket, head, (ws: any) => {
-        (ws as any).__realtimeRelease = release;
-        wss.emit('connection', ws, req);
-      });
-    })();
+    wss.handleUpgrade(req, socket, head, (ws: any) => {
+      (ws as any).__realtimeRelease = release;
+      wss.emit('connection', ws, req);
+    });
+    return true;
   };
 
-  options.server.on('upgrade', onUpgrade);
+  const unregisterUpgrade = options.upgradeRouter.register(onUpgrade);
 
   wss.on('connection', (ws: any) => {
     const release: (() => void) = (ws as any).__realtimeRelease as () => void;
@@ -205,6 +187,10 @@ export async function attachRealtimeWsServer(options: {
         if (ws.readyState === ws.OPEN) ws.close();
       } catch {}
     };
+
+    ws.on('error', () => {
+      void closeAll();
+    });
 
     ws.on('close', () => {
       void closeAll();
@@ -299,7 +285,7 @@ export async function attachRealtimeWsServer(options: {
   });
 
   const close = async () => {
-    options.server.off('upgrade', onUpgrade);
+    unregisterUpgrade();
 
     // Ensure connections are terminated so the parent HTTP server can close promptly.
     const clients: any[] = Array.from(wss.clients);

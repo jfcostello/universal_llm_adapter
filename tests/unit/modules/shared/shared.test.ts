@@ -1,7 +1,9 @@
 import { jest } from '@jest/globals';
 import {
 	  normalizeFlag,
+    assertValidExtensionName,
 	  readTrimmedStringProperty,
+    makeHttpError,
 	  createDeferred,
 	  calculateBackoffDelay,
 	  sleep,
@@ -84,6 +86,26 @@ describe('modules/shared', () => {
     });
 	});
 
+  describe('assertValidExtensionName', () => {
+    test('returns trimmed value when valid', () => {
+      expect(assertValidExtensionName('voice')).toBe('voice');
+      expect(assertValidExtensionName(' voice ')).toBe('voice');
+      expect(assertValidExtensionName('a')).toBe('a');
+      expect(assertValidExtensionName('a0')).toBe('a0');
+      expect(assertValidExtensionName('a-b_c')).toBe('a-b_c');
+    });
+
+    test('throws for invalid values', () => {
+      expect(() => assertValidExtensionName('')).toThrow('Invalid extension name: empty');
+      expect(() => assertValidExtensionName('   ')).toThrow('Invalid extension name: empty');
+      expect(() => assertValidExtensionName(null)).toThrow('Invalid extension name: empty');
+      expect(() => assertValidExtensionName(123)).toThrow('Invalid extension name: empty');
+      expect(() => assertValidExtensionName('Voice')).toThrow("Invalid extension name: 'Voice'");
+      expect(() => assertValidExtensionName('1a')).toThrow("Invalid extension name: '1a'");
+      expect(() => assertValidExtensionName('a/b')).toThrow("Invalid extension name: 'a/b'");
+    });
+  });
+
 	describe('readTrimmedStringProperty', () => {
 	  test('returns undefined for missing/invalid values', () => {
 	    expect(readTrimmedStringProperty(null, 'k')).toBeUndefined();
@@ -99,6 +121,29 @@ describe('modules/shared', () => {
 	    expect(readTrimmedStringProperty({ k: 'value' }, 'k')).toBe('value');
 	  });
 	});
+
+  describe('makeHttpError', () => {
+    test('sets statusCode and code when provided', () => {
+      const err: any = makeHttpError({ message: 'nope', statusCode: 401, code: 'unauthorized' });
+      expect(err).toBeInstanceOf(Error);
+      expect(err.message).toBe('nope');
+      expect(err.statusCode).toBe(401);
+      expect(err.code).toBe('unauthorized');
+    });
+
+    test('sets statusCode without forcing code', () => {
+      const err: any = makeHttpError({ message: 'bad', statusCode: 500 });
+      expect(err.statusCode).toBe(500);
+      expect(err.code).toBeUndefined();
+    });
+
+    test('normalizes nullish message inputs', () => {
+      const err: any = makeHttpError({ message: undefined as any, statusCode: 400, code: 'x' });
+      expect(err.message).toBe('');
+      expect(err.statusCode).toBe(400);
+      expect(err.code).toBe('x');
+    });
+  });
 
   describe('deriveObservabilityModel', () => {
     test('returns the base model when no provider hint is present', () => {

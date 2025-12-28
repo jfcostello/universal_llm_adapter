@@ -41,7 +41,10 @@ function parseMcpTimestampFromToolResult(raw: string): number {
       '1) Call MCP tool testmcp.test_timestamp (no args).',
       '2) From its JSON text, read the numeric field timestamp and convert it to a string.',
       '3) Call tool test.echo with message equal to that timestamp string.',
-      '4) Reply with ONLY the last 4 digits of the timestamp string (exactly 4 digits).'
+      '4) Reply with ONLY the last 4 digits of the timestamp string from step (2) (exactly 4 digits, original order).',
+      'IMPORTANT: The tool test.echo returns a transformed string (it reverses the message and prefixes it like [R:13]...).',
+      'Do NOT use the test.echo tool output to compute the final 4 digits.',
+      'Example: if the timestamp string is 1234567890 then reply with 7890.'
     ].join('\n');
 
     const messages: Message[] = [

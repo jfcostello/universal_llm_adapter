@@ -38,6 +38,23 @@ export function normalizeFlag(value: unknown, defaultValue: boolean): boolean {
 }
 
 /**
+ * Assert a string is a valid extension identifier.
+ *
+ * Extensions are top-level feature modules (e.g. `extensions/<name>`). This helper is shared
+ * between the server and CLI extension hosts.
+ */
+export function assertValidExtensionName(value: unknown): string {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) {
+    throw new Error('Invalid extension name: empty');
+  }
+  if (!/^[a-z][a-z0-9_-]*$/.test(raw)) {
+    throw new Error(`Invalid extension name: '${raw}'`);
+  }
+  return raw;
+}
+
+/**
  * Read a trimmed, non-empty string property from an unknown record.
  *
  * @param record - Any object-like value
@@ -49,6 +66,21 @@ export function readTrimmedStringProperty(record: unknown, key: string): string 
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
+}
+
+/**
+ * Create an Error annotated with HTTP-ish metadata (`statusCode` + optional `code`).
+ *
+ * This is a lightweight convention used across the codebase so error mapping can be predictable
+ * without introducing heavyweight custom error classes in every module.
+ */
+export function makeHttpError(options: { message: string; statusCode: number; code?: string }): Error {
+  const error = new Error(String(options.message ?? ''));
+  (error as any).statusCode = Number(options.statusCode);
+  if (options.code !== undefined) {
+    (error as any).code = String(options.code);
+  }
+  return error;
 }
 
 /**

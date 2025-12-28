@@ -1453,6 +1453,23 @@ describe('cli/internal/unified-cli', () => {
       expect(serverOptions.cors).toEqual({ enabled: true });
     });
 
+    test('passes enabled extensions via --extension (repeatable)', async () => {
+      const program = createUnifiedProgram(mockDeps);
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'serve',
+        '--extension',
+        'voice',
+        '--extension',
+        'other'
+      ]);
+
+      const serverOptions = mockDeps.createServer.mock.calls[0][0];
+      expect(serverOptions.extensions).toEqual({ enabled: ['voice', 'other'] });
+    });
+
     test('passes realtime options', async () => {
       const program = createUnifiedProgram(mockDeps);
 

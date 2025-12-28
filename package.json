@@ -58,6 +58,8 @@
     "build": "tsc",
     "dev": "tsx watch bin/cli.ts serve",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config jest.unit.config.js",
+    "test:extensions": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config jest.extensions.config.js",
+    "test:extensions:voice": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config jest.extensions.voice.config.js",
     "test:all": "tsx tests/live/run-all.ts",
     "test:live": "tsx tests/live/run-live.ts",
     "test:live:realtime": "tsx tests/live/run-live.ts --testPathPattern=realtime",
@@ -85,9 +87,10 @@
     "glob": "^10.3.10",
     "minimatch": "^9.0.3",
     "openai": "^6.7.0",
-    "ws": "^8.18.3",
+    "redis": "^5.10.0",
     "winston": "^3.11.0",
     "winston-daily-rotate-file": "^4.7.1",
+    "ws": "^8.18.3",
     "yaml": "^2.8.2"
   },
   "devDependencies": {

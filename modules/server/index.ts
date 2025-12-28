@@ -15,6 +15,17 @@ export {
   assertValidEmbeddingSpec
 } from './internal/transport/spec-validator.js';
 
+// Public server helpers intended for use by extensions.
+export { readJsonBody } from './internal/transport/body-parser.js';
+export { writeHttpUpgradeResponse } from './internal/transport/upgrade-router.js';
+export type { AuthConfig, AuthorizeCallback } from './internal/security/auth.js';
+export { assertAuthorized } from './internal/security/auth.js';
+export type { CorsConfig } from './internal/security/cors.js';
+export { applyCors } from './internal/security/cors.js';
+export { applySecurityHeaders } from './internal/security/security-headers.js';
+export type { RateLimitConfig } from './internal/security/rate-limiter.js';
+export { createRateLimiter, getClientIp } from './internal/security/rate-limiter.js';
+
 export interface ServerDependencies
   extends CoordinatorLifecycleDeps<PluginRegistryLike, any> {
   getDefaults?: typeof getDefaults;
@@ -55,6 +66,9 @@ export interface ServerOptions {
   pluginsPath?: string;
   batchId?: string;
   closeLoggerAfterRequest?: boolean;
+  extensions?: {
+    enabled?: string[];
+  };
   realtime?: {
     enabled?: boolean;
     wsPath?: string;
@@ -171,7 +185,7 @@ export function createServerHandlerWithDefaults(
       rateLimit: { ...rateLimitDefaults, ...options.rateLimit },
       cors: { ...corsDefaults, ...options.cors },
       securityHeadersEnabled:
-        options.securityHeadersEnabled ?? serverDefaults.securityHeadersEnabled ?? true
+        options.securityHeadersEnabled ?? serverDefaults.securityHeadersEnabled
     }
   });
 }
@@ -188,6 +202,7 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
   const host = options.host ?? '127.0.0.1';
   const port = options.port ?? 0;
   const pluginsPath = options.pluginsPath ?? './plugins';
+  const enabledExtensions = options.extensions?.enabled ?? serverDefaults.extensions?.enabled ?? [];
 
   const registry =
     options.registry ?? (await deps.createRegistry(pluginsPath));
@@ -207,7 +222,7 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
     }
   }
 
-  const handler = createServerHandler({
+  const coreHandler = createServerHandler({
     registry,
     pluginsPath,
     batchId: options.batchId,
@@ -240,11 +255,22 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
       rateLimit: rateLimitConfig,
       cors: corsConfig,
       securityHeadersEnabled:
-        options.securityHeadersEnabled ?? serverDefaults.securityHeadersEnabled ?? true
+        options.securityHeadersEnabled ?? serverDefaults.securityHeadersEnabled
     }
   });
 
+  let extensionsHandleHttp: ((req: http.IncomingMessage, res: http.ServerResponse) => Promise<boolean>) | undefined;
+  const handler: http.RequestListener = async (req, res) => {
+    if (extensionsHandleHttp) {
+      const handled = await extensionsHandleHttp(req, res);
+      if (handled) return;
+    }
+    await coreHandler(req, res);
+  };
+
   const server = http.createServer(handler);
+  const { attachUpgradeRouter } = await import('./internal/transport/upgrade-router.js');
+  const upgradeRouter = attachUpgradeRouter(server);
 
   const realtimeEnabled = options.realtime?.enabled === true;
   const realtimeWsPath = options.realtime?.wsPath ?? '/realtime/ws';
@@ -267,6 +293,7 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
     const { attachRealtimeWsServer } = await import('./internal/realtime/ws.js');
     const realtime = await attachRealtimeWsServer({
       server,
+      upgradeRouter,
       registry,
       authorizeUpgrade: async (req) => {
         const authIdentity = await assertAuthorized(req, authConfig as any, options.authorize as any) as string;
@@ -292,6 +319,31 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
     closeRealtimeWs = realtime.close;
   }
 
+  let closeExtensions: (() => Promise<void>) | undefined;
+  if (enabledExtensions.length > 0) {
+    const { loadServerExtensions } = await import('./internal/extensions/host.js');
+    const extensionsHttpConfig = {
+      maxRequestBytes: options.maxRequestBytes ?? serverDefaults.maxRequestBytes,
+      bodyReadTimeoutMs: options.bodyReadTimeoutMs ?? serverDefaults.bodyReadTimeoutMs,
+      auth: authConfig,
+      rateLimit: rateLimitConfig,
+      cors: corsConfig,
+      securityHeadersEnabled:
+        options.securityHeadersEnabled ?? serverDefaults.securityHeadersEnabled,
+      authorize: options.authorize
+    };
+    const host = await loadServerExtensions({
+      enabled: enabledExtensions,
+      server,
+      registry,
+      pluginsPath,
+      upgradeRouter,
+      httpConfig: extensionsHttpConfig
+    });
+    extensionsHandleHttp = host.handleHttp;
+    closeExtensions = host.close;
+  }
+
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, resolve);
@@ -307,7 +359,13 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
       new Promise<void>((resolve, reject) => {
         (async () => {
           try {
+            await closeExtensions?.();
+          } catch {}
+          try {
             await closeRealtimeWs?.();
+          } catch {}
+          try {
+            upgradeRouter.close();
           } catch {}
           server.close(async (error) => {
             if (error) reject(error);

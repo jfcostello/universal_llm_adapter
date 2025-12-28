@@ -242,6 +242,54 @@ describe('compat/openai', () => {
     expect(parsed.usage).toEqual({ promptTokens: 10, completionTokens: 5, totalTokens: 15 });
   });
 
+  test('parseResponse throws when the provider returns a choice error payload', () => {
+    const raw = {
+      choices: [
+        {
+          error: {
+            message: 'Upstream error',
+            code: 502,
+            metadata: {
+              raw: { code: 'tool_use_failed' }
+            }
+          },
+          message: { content: 'ignored' }
+        }
+      ]
+    };
+
+    try {
+      compat.parseResponse(raw, 'gpt-test');
+      throw new Error('Expected parseResponse to throw');
+    } catch (err: any) {
+      expect(String(err?.message || '')).toContain('Upstream error');
+      expect(err?.statusCode).toBe(502);
+      expect(err?.code).toBe('tool_use_failed');
+    }
+  });
+
+  test('parseResponse formats non-string choice errors without attaching invalid status codes', () => {
+    const raw = {
+      choices: [
+        {
+          error: {
+            message: { nested: true },
+            code: 'not-a-number'
+          }
+        }
+      ]
+    };
+
+    try {
+      compat.parseResponse(raw, 'gpt-test');
+      throw new Error('Expected parseResponse to throw');
+    } catch (err: any) {
+      expect(String(err?.message || '')).toContain('nested');
+      expect(err?.statusCode).toBeUndefined();
+      expect(err?.code).toBeUndefined();
+    }
+  });
+
   test('parseResponse omits reasoning when details lack summary', () => {
     const raw = {
       choices: [

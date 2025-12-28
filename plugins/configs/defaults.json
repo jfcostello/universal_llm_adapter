@@ -100,7 +100,10 @@
             ],
             "allowCredentials": false
         },
-        "securityHeadersEnabled": true
+        "securityHeadersEnabled": true,
+        "extensions": {
+            "enabled": []
+        }
     },
     "paths": {
         "plugins": "./plugins"

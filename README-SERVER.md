@@ -56,6 +56,18 @@ await server.close();
 | `port` | `--port <port>` | `0` | Port to bind (0 = ephemeral) |
 | `pluginsPath` | `-p, --plugins <path>` | `./plugins` | Path to plugins directory |
 | `batchId` | `--batch-id <id>` | | Default batch identifier for logging (requests can override observability grouping via `spec.metadata.batchId`) |
+| `extensions.enabled` | `--extension <name>` (repeatable) | `[]` | Enable server extensions by name (adds new endpoints/commands) |
+
+### Extensions
+
+Extensions are optional feature packs that bolt new “services” onto the adapter (new endpoints, new CLI command groups) without polluting core modules.
+
+Enable via:
+- Config: `server.extensions.enabled: ["<extensionName>"]`
+- CLI: `llm-adapter serve --extension <extensionName>` (repeatable)
+- Programmatically: `createServer({ extensions: { enabled: ["<extensionName>"] } })`
+
+See `extensions/README.md`.
 
 ### Request Handling
 
@@ -116,6 +128,9 @@ await server.close();
 | `auth.apiKeys` | (config only) | | Array of valid API keys |
 | `auth.hashedKeys` | (config only) | | Array of SHA-256 hashed keys |
 
+Notes:
+- With the default config (`plugins/configs/defaults.json`), raw API keys can be supplied via `LLM_ADAPTER_API_KEYS` (comma-separated).
+
 ### Security: Rate Limiting
 
 | Option | CLI Flag | Default | Description |
@@ -138,6 +153,8 @@ await server.close();
 ---
 
 ## Endpoints
+
+Core endpoints below are always available. Extensions can register additional endpoints when enabled; see the relevant extension README under `extensions/`.
 
 ### Health Check
 

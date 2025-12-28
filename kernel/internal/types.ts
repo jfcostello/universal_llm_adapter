@@ -1174,6 +1174,14 @@ export interface ServerCorsDefaults {
   allowCredentials: boolean;
 }
 
+export interface ServerExtensionsDefaults {
+  /**
+   * Enabled extension names.
+   * Extensions are optional features that bolt new services onto the server/CLI.
+   */
+  enabled: string[];
+}
+
 export interface ServerDefaults {
   maxRequestBytes: number;
   bodyReadTimeoutMs: number;
@@ -1194,6 +1202,7 @@ export interface ServerDefaults {
   rateLimit: ServerRateLimitDefaults;
   cors: ServerCorsDefaults;
   securityHeadersEnabled: boolean;
+  extensions?: ServerExtensionsDefaults;
 }
 
 /**

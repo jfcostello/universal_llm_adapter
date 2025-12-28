@@ -6,6 +6,7 @@ const runLive = process.env.LLM_LIVE === '1';
 const describeLive = runLive ? describe : describe.skip;
 const pluginsPath = './plugins';
 const TEST_FILE = '33-realtime-tools-disabled';
+const STEP_TIMEOUT_MS = 90_000;
 
 function getFinalAssistantText(events: any[]): string {
   for (let i = events.length - 1; i >= 0; i--) {
@@ -51,8 +52,18 @@ if (filteredRealtimeTestRuns.length === 0) {
           spec: {
             provider: runCfg.provider,
             model: runCfg.model,
-            systemPrompt:
-              'When the user says `ECHO:<token>`, you MUST call tool `test.echo` with {message:<token>} and then speak ONLY the tool result.',
+            systemPrompt: [
+              'You are a conformance test agent.',
+              'You MUST follow the rules exactly.',
+              '',
+              'Rules:',
+              '1) When the user says `ECHO:<token>`, you MUST call tool `test.echo` exactly once.',
+              '2) Tool arguments MUST be exactly: {"message":"<token>"} where <token> is the string after `ECHO:`.',
+              '3) Do NOT output any assistant text before the tool call completes.',
+              '4) After you receive the tool result, speak ONLY the tool result string.',
+              '',
+              'If you do not call the tool, the test fails.'
+            ].join('\n'),
             functionToolNames: ['test.echo'],
             toolChoice: { type: 'single', name: 'test.echo' },
             transcription: { enabled: true },
@@ -61,17 +72,25 @@ if (filteredRealtimeTestRuns.length === 0) {
               input: { format: 'pcm16', sampleRateHz: 24000, channels: 1 },
               output: { format: 'pcm16', sampleRateHz: 24000, channels: 1 }
             },
-            timeout: { maxDurationMs: 60000, idleTimeoutMs: 20000, onTimeout: 'close' }
+            timeout: { maxDurationMs: 120000, idleTimeoutMs: STEP_TIMEOUT_MS, onTimeout: 'close' }
           },
           steps: [
-            { type: 'send_text', text: `ECHO:${token}`, role: 'user' },
+            {
+              type: 'send_text',
+              text: [
+                `ECHO:${token}`,
+                '',
+                'Reminder: Call tool `test.echo` now. Do not answer directly.'
+              ].join('\n'),
+              role: 'user'
+            },
             { type: 'commit' },
-            { type: 'wait_for_event', eventType: 'tool_call.end', timeoutMs: 30000 },
-            { type: 'wait_for_event', eventType: 'tool_result.sent', timeoutMs: 30000 },
-            { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 30000 },
+            { type: 'wait_for_event', eventType: 'tool_call.end', timeoutMs: STEP_TIMEOUT_MS },
+            { type: 'wait_for_event', eventType: 'tool_result.sent', timeoutMs: STEP_TIMEOUT_MS },
+            { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: STEP_TIMEOUT_MS },
             { type: 'close' }
           ],
-          timeoutMs: 30000
+          timeoutMs: STEP_TIMEOUT_MS
         });
 
         expect(result.code).toBe(0);
@@ -107,15 +126,15 @@ if (filteredRealtimeTestRuns.length === 0) {
               input: { format: 'pcm16', sampleRateHz: 24000, channels: 1 },
               output: { format: 'pcm16', sampleRateHz: 24000, channels: 1 }
             },
-            timeout: { maxDurationMs: 60000, idleTimeoutMs: 20000, onTimeout: 'close' }
+            timeout: { maxDurationMs: 120000, idleTimeoutMs: STEP_TIMEOUT_MS, onTimeout: 'close' }
           },
           steps: [
             { type: 'send_text', text: `Token=${token}. Please call tool test.random and reply with the randomValue only.`, role: 'user' },
             { type: 'commit' },
-            { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 30000 },
+            { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: STEP_TIMEOUT_MS },
             { type: 'close' }
           ],
-          timeoutMs: 30000
+          timeoutMs: STEP_TIMEOUT_MS
         });
 
         expect(result.code).toBe(0);

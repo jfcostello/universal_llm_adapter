@@ -316,6 +316,9 @@ export class LLMCoordinator {
         provider: item.provider,
         model: item.model,
         fn: async () => {
+          // Keep retry attempts isolated: tool loops mutate the messages array, so each attempt must
+          // start from a fresh copy to avoid leaking tool-call artifacts into subsequent retries.
+          const attemptMessages = messages.slice();
           const providerManifest = await this.registry.getProvider(item.provider);
 
           runLogger.info('Calling provider endpoint', {
@@ -330,7 +333,7 @@ export class LLMCoordinator {
             providerManifest,
             item.model,
             mergedSettings,
-            messages,
+            attemptMessages,
             tools,
             executionSpec.toolChoice,
             providerExtras,
@@ -368,7 +371,7 @@ export class LLMCoordinator {
             providerExtras,
             providerManifest,
             item.model,
-            messages,
+            attemptMessages,
             tools,
             response,
             runLogger,

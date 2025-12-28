@@ -2,6 +2,7 @@ import { jest } from '@jest/globals';
 import http from 'http';
 
 import { attachRealtimeWsServer } from '@/modules/server/internal/realtime/ws.ts';
+import { attachUpgradeRouter } from '@/modules/server/internal/transport/upgrade-router.ts';
 
 function toWsUrl(httpUrl: string, pathname: string): string {
   const url = new URL(httpUrl);
@@ -24,9 +25,11 @@ async function startHarness(options: {
   authorizeUpgrade?: (req: any) => Promise<void> | void;
 }) {
   const server = http.createServer((_req, res) => res.end('ok'));
+  const upgradeRouter = attachUpgradeRouter(server);
   const registry = { marker: true };
   const ws = await attachRealtimeWsServer({
     server,
+    upgradeRouter,
     registry,
     authorizeUpgrade: options.authorizeUpgrade ?? (() => {}),
     createSession: options.createSession,
@@ -42,6 +45,7 @@ async function startHarness(options: {
 
   const close = async () => {
     await ws.close();
+    upgradeRouter.close();
     await new Promise<void>((resolve, reject) => server.close(err => (err ? reject(err) : resolve())));
   };
 
@@ -81,48 +85,25 @@ async function waitForMessage(messages: any[], predicate: (m: any) => boolean, t
 }
 
 describe('server/internal/realtime/ws', () => {
-  test('rejects upgrade when path does not match (and exercises parseWsPath branches)', async () => {
+  test('ignores upgrade events for non-matching paths', async () => {
+    const authorizeUpgrade = jest.fn();
+    const createSession = jest.fn();
+
     const harness = await startHarness({
       config: { path: '/realtime/ws', maxMessageBytes: 1024 * 1024, idleTimeoutMs: 0, maxConcurrentSessions: 20, maxAudioBytesPerSecond: 256000, maxSessionDurationMs: 0 },
-      createSession: jest.fn()
+      authorizeUpgrade,
+      createSession
     });
 
     try {
-      const fakeSocket: any = {
-        write: jest.fn(),
-        destroy: jest.fn()
-      };
-
-      // parseWsPath: req.url defined + valid URL
+      const fakeSocket: any = { write: jest.fn(), destroy: jest.fn() };
       harness.server.emit('upgrade', { url: '/wrong' } as any, fakeSocket as any, Buffer.alloc(0));
       await new Promise(res => setTimeout(res, 0));
-      expect(fakeSocket.write).toHaveBeenCalled();
+
       expect(String(fakeSocket.write.mock.calls[0][0])).toContain('404 Not Found');
       expect(fakeSocket.destroy).toHaveBeenCalled();
-
-      // parseWsPath: req.url undefined (raw falls back to '/')
-      const fakeSocket2: any = { write: jest.fn(), destroy: jest.fn() };
-      harness.server.emit('upgrade', { url: undefined } as any, fakeSocket2 as any, Buffer.alloc(0));
-      await new Promise(res => setTimeout(res, 0));
-      expect(fakeSocket2.write).toHaveBeenCalled();
-      expect(String(fakeSocket2.write.mock.calls[0][0])).toContain('404 Not Found');
-      expect(fakeSocket2.destroy).toHaveBeenCalled();
-
-      // parseWsPath: req.url empty string (still produces a pathname)
-      const fakeSocket2b: any = { write: jest.fn(), destroy: jest.fn() };
-      harness.server.emit('upgrade', { url: '' } as any, fakeSocket2b as any, Buffer.alloc(0));
-      await new Promise(res => setTimeout(res, 0));
-      expect(fakeSocket2b.write).toHaveBeenCalled();
-      expect(String(fakeSocket2b.write.mock.calls[0][0])).toContain('404 Not Found');
-      expect(fakeSocket2b.destroy).toHaveBeenCalled();
-
-      // parseWsPath: URL parse throws (catch branch)
-      const fakeSocket3: any = { write: jest.fn(), destroy: jest.fn() };
-      harness.server.emit('upgrade', { url: 'http://%' } as any, fakeSocket3 as any, Buffer.alloc(0));
-      await new Promise(res => setTimeout(res, 0));
-      expect(fakeSocket3.write).toHaveBeenCalled();
-      expect(String(fakeSocket3.write.mock.calls[0][0])).toContain('404 Not Found');
-      expect(fakeSocket3.destroy).toHaveBeenCalled();
+      expect(authorizeUpgrade).not.toHaveBeenCalled();
+      expect(createSession).not.toHaveBeenCalled();
     } finally {
       await harness.close();
     }
@@ -443,9 +424,18 @@ describe('server/internal/realtime/ws', () => {
       // too-large message
       {
         const { ws, messages, closePromise } = await openWs(toWsUrl(harness.url, '/realtime/ws'));
-        ws.send('x'.repeat(1024));
+        // maxPayload is configured to maxMessageBytes + 1, so this exceeds maxMessageBytes but is still deliverable.
+        ws.send('x'.repeat(65));
         const err = await waitForMessage(messages, m => m?.type === 'error' && m?.error?.code === 'message_too_large', 2000);
         expect(err.error.message).toContain('too large');
+        await closePromise;
+        try { ws.close(); } catch {}
+      }
+
+      // over maxPayload triggers ws-level close (and should not crash the server)
+      {
+        const { ws, closePromise } = await openWs(toWsUrl(harness.url, '/realtime/ws'));
+        ws.send('x'.repeat(1024));
         await closePromise;
         try { ws.close(); } catch {}
       }
