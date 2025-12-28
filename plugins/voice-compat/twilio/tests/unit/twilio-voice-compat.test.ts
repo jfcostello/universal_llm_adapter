@@ -54,6 +54,10 @@ function createSpyLogger() {
   return logger;
 }
 
+function createSpyMetrics() {
+  return { compatError: jest.fn() } as any;
+}
+
 function createRegistryHarness() {
   let closeCompat: (() => void) | undefined;
   const compatClosed = new Promise<void>(resolve => {
@@ -196,6 +200,7 @@ describe('plugins/voice-compat/twilio', () => {
 
     const { registry } = createRegistryHarness();
     const logger = createSpyLogger();
+    const metrics = createSpyMetrics();
 
     const compat = new TwilioVoiceCompat();
     const ws = new MockWebSocket();
@@ -209,7 +214,8 @@ describe('plugins/voice-compat/twilio', () => {
       },
       voiceProvider: 'twilio',
       registry,
-      logger
+      logger,
+      metrics
     });
 
     ws.emitMessage(startMessage());
@@ -225,6 +231,8 @@ describe('plugins/voice-compat/twilio', () => {
     const serialized = JSON.stringify({ info: logger.info.mock.calls, error: logger.error.mock.calls });
     expect(serialized).not.toContain('TOP_SECRET');
     expect(serialized).not.toContain('QUJD');
+
+    expect(metrics.compatError).toHaveBeenCalledWith('media_bridge', 'twilio');
   });
 
   test('handleMediaConnection logs bridge errors when media arrives before start (no provider ids)', async () => {

@@ -19,6 +19,7 @@ import type { VoiceProviderPlugins } from './provider-plugins.js';
 import { createVoiceProviderPlugins } from './provider-plugins.js';
 import type { VoiceCallConfigStore } from './call-config-store/index.js';
 import { createInMemoryVoiceCallConfigStore } from './call-config-store/index.js';
+import { createVoiceMetrics } from './metrics.js';
 
 type VoiceMediaTokenPayload = {
   iat: number;
@@ -268,6 +269,10 @@ export async function createVoiceServerRegistration(ctx: {
   const wsLib = require('ws');
   const wss = new wsLib.WebSocketServer({ noServer: true });
 
+  const metrics = createVoiceMetrics({
+    enabled: String(process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED ?? '').trim() === '1'
+  });
+
   const close = async () => {
     const clients: any[] = Array.from(wss.clients);
     for (const client of clients) {
@@ -349,6 +354,7 @@ export async function createVoiceServerRegistration(ctx: {
               try {
                 await validateWebhookRequest({ req, method, url: publicUrl, params, callConfigId, callConfig, voiceProvider, providerDefaults });
               } catch (error: any) {
+                metrics.compatError('webhook_validate', voiceProvider);
                 const statusCode = Number(error?.statusCode ?? 500);
                 const code = error?.code !== undefined ? String(error.code) : undefined;
                 safeLog(
@@ -365,7 +371,14 @@ export async function createVoiceServerRegistration(ctx: {
             const token = mintVoiceMediaToken({ callConfigId, voiceProvider });
             const mediaWsUrl = toWsUrl(httpBaseUrl, '/voice/media', { token });
 
-            const response = await compat.createWebhookResponse({ req, callConfigId, callConfig, voiceProvider, mediaWsUrl });
+            const response = await (async () => {
+              try {
+                return await compat.createWebhookResponse({ req, callConfigId, callConfig, voiceProvider, mediaWsUrl });
+              } catch (error: any) {
+                metrics.compatError('webhook_response', voiceProvider);
+                throw error;
+              }
+            })();
             const status = Number(response?.status ?? 200);
             const headers = (response?.headers && typeof response.headers === 'object') ? response.headers : {};
             const body = String(response?.body ?? '');
@@ -388,6 +401,25 @@ export async function createVoiceServerRegistration(ctx: {
             }
             throw error;
           }
+        }
+
+        if (pathname === '/voice/metrics') {
+          const method = (req.method ?? 'GET').toUpperCase();
+          if (method !== 'GET') {
+            writeJson(res, 405, { type: 'error', error: { message: 'Method not allowed', code: 'method_not_allowed' } });
+            return true;
+          }
+
+          if (!metrics.enabled) {
+            writeJson(res, 404, { type: 'error', error: { message: 'Not found', code: 'not_found' } });
+            return true;
+          }
+
+          await assertAuthorizedAndRateLimited(req);
+
+          const snapshot = metrics.snapshot();
+          writeJson(res, 200, { ok: true, enabled: snapshot.enabled, metrics: snapshot.metrics });
+          return true;
         }
 
         if (pathname === '/voice/calls') {
@@ -525,15 +557,24 @@ export async function createVoiceServerRegistration(ctx: {
               throw error;
             }
 
-            const outbound = await compat.createOutboundCall({
-              to,
-              from,
-              callConfigId,
-              callConfig,
-              voiceProvider,
-              mediaWsUrl,
-              providerDefaults
-            });
+            metrics.outboundCallAttempt(voiceProvider);
+
+            const outbound = await (async () => {
+              try {
+                return await compat.createOutboundCall({
+                  to,
+                  from,
+                  callConfigId,
+                  callConfig,
+                  voiceProvider,
+                  mediaWsUrl,
+                  providerDefaults
+                });
+              } catch (error: any) {
+                metrics.compatError('outbound_call', voiceProvider);
+                throw error;
+              }
+            })();
             const providerCallId = String(outbound?.providerCallId ?? '').trim();
             if (!providerCallId) {
               const error = new Error('Voice provider did not return providerCallId');
@@ -631,19 +672,35 @@ export async function createVoiceServerRegistration(ctx: {
       const compat = await providerPlugins.getCompat(voiceProvider);
 
       wss.handleUpgrade(req, socket, head, (ws: any) => {
+        metrics.mediaWsConnected(voiceProvider);
         safeLog(logger, 'info', 'voice.media.connected', { callConfigId, voiceProvider });
         try {
           ws.on?.('close', (code: number) => {
+            metrics.mediaWsClosed(voiceProvider);
             safeLog(logger, 'info', 'voice.media.closed', { callConfigId, voiceProvider, code: Number(code) });
           });
           ws.on?.('error', (err: any) => {
+            metrics.mediaWsError(voiceProvider);
             safeLog(logger, 'error', 'voice.media.ws_error', { callConfigId, voiceProvider, message: err?.message ?? String(err) });
           });
         } catch {}
 
         void Promise.resolve()
-          .then(() => compat.handleMediaConnection({ ws, req, callConfigId, callConfig, voiceProvider, registry: ctx.registry, store, logger }))
+          .then(() =>
+            compat.handleMediaConnection({
+              ws,
+              req,
+              callConfigId,
+              callConfig,
+              voiceProvider,
+              registry: ctx.registry,
+              store,
+              logger,
+              metrics
+            })
+          )
           .catch((err) => {
+            metrics.compatError('media_connection', voiceProvider);
             safeLog(logger, 'error', 'voice.media.error', {
               callConfigId,
               voiceProvider,

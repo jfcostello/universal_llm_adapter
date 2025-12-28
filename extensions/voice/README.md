@@ -56,6 +56,23 @@ Event names + fields:
 - `voice.realtime.ready` → `{ callConfigId, voiceProvider, providerStreamId, realtimeSessionId }`
 - `voice.media.bridge_error` → `{ callConfigId, voiceProvider, providerStreamId?, providerCallId?, code, message }`
 
+### Metrics (optional)
+
+When enabled, the voice extension exposes a lightweight JSON metrics snapshot endpoint:
+- `GET /voice/metrics`
+
+Enable via:
+- `LLM_ADAPTER_VOICE_METRICS_ENABLED=1`
+
+Metric samples:
+- `voice.calls.outbound_attempt_total` (counter) → labels: `{ voiceProvider }`
+- `voice.compat.error_total` (counter) → labels: `{ voiceProvider, stage }`
+  - `stage` values: `webhook_validate`, `webhook_response`, `outbound_call`, `media_connection`, `media_bridge`
+- `voice.media.ws_active` (gauge) → labels: `{ voiceProvider }`
+- `voice.media.ws_open_total` (counter) → labels: `{ voiceProvider }`
+- `voice.media.ws_close_total` (counter) → labels: `{ voiceProvider }`
+- `voice.media.ws_error_total` (counter) → labels: `{ voiceProvider }`
+
 ## CLI: `llm-adapter voice call`
 
 Creates an outbound voice call by calling the server `POST /voice/calls` endpoint.

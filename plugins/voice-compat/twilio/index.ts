@@ -145,6 +145,7 @@ export default class TwilioVoiceCompat {
     voiceProvider: string;
     registry: any;
     logger?: any;
+    metrics?: any;
   }): Promise<void> {
     const callConfig = options.callConfig ?? {};
     const systemPrompt = callConfig.systemPrompt;
@@ -155,6 +156,13 @@ export default class TwilioVoiceCompat {
       try {
         const fn = logger?.[level];
         if (typeof fn === 'function') fn(message, data);
+      } catch {}
+    };
+    const metrics = options.metrics;
+    const safeMetric = (name: string, ...args: any[]) => {
+      try {
+        const fn = metrics?.[name];
+        if (typeof fn === 'function') fn(...args);
       } catch {}
     };
     const baseFields = {
@@ -211,6 +219,7 @@ export default class TwilioVoiceCompat {
             code: String(code),
             message: String(message)
           });
+          safeMetric('compatError', 'media_bridge', baseFields.voiceProvider);
         }
       }
     });

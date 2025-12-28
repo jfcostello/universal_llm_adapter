@@ -440,4 +440,59 @@ describe('extensions/voice: /voice/calls', () => {
       await harness.close();
     }
   });
+
+  test('metrics: outbound call attempts and compat errors are tracked when enabled', async () => {
+    const prevMetricsEnabled = process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED;
+    process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED = '1';
+
+    const store = createInMemoryVoiceCallConfigStore();
+    const createOutboundCall = jest.fn(async () => {
+      const err = new Error('boom');
+      (err as any).statusCode = 500;
+      (err as any).code = 'provider_error';
+      throw err;
+    });
+
+    const harness = await startHarness({
+      store,
+      providerPlugins: {
+        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
+        getCompat: jest.fn(async () => ({ createOutboundCall }))
+      },
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+    });
+
+    try {
+      const res = await fetch(new URL('/voice/calls', harness.baseUrl), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer k1' },
+        body: JSON.stringify({ to: 'to', from: 'from', realtimeSpec: {}, voiceProvider: 'test' })
+      });
+      expect(res.status).toBe(500);
+
+      const metricsRes = await fetch(new URL('/voice/metrics', harness.baseUrl), {
+        headers: { Authorization: 'Bearer k1' }
+      });
+      expect(metricsRes.status).toBe(200);
+      const metricsBody = await metricsRes.json();
+
+      const metrics: any[] = Array.isArray(metricsBody.metrics) ? metricsBody.metrics : [];
+      const outboundAttempt = metrics.find(
+        (m) => m?.name === 'voice.calls.outbound_attempt_total' && m?.labels?.voiceProvider === 'test'
+      );
+      expect(outboundAttempt?.value).toBe(1);
+
+      const compatError = metrics.find(
+        (m) =>
+          m?.name === 'voice.compat.error_total' &&
+          m?.labels?.voiceProvider === 'test' &&
+          m?.labels?.stage === 'outbound_call'
+      );
+      expect(compatError?.value).toBe(1);
+    } finally {
+      await harness.close();
+      if (prevMetricsEnabled === undefined) delete process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED;
+      else process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED = prevMetricsEnabled;
+    }
+  });
 });

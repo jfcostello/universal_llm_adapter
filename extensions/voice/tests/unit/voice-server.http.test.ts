@@ -12,6 +12,7 @@ function createMockRes() {
 describe('extensions/voice: server http handlers', () => {
   const prevSecret = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
   const prevTtl = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS;
+  const prevMetricsEnabled = process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED;
 
   afterEach(() => {
     if (prevSecret === undefined) {
@@ -23,6 +24,11 @@ describe('extensions/voice: server http handlers', () => {
       delete process.env.LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS;
     } else {
       process.env.LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS = prevTtl;
+    }
+    if (prevMetricsEnabled === undefined) {
+      delete process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED;
+    } else {
+      process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED = prevMetricsEnabled;
     }
   });
 
@@ -212,6 +218,123 @@ describe('extensions/voice: server http handlers', () => {
     expect(String(res.writeHead.mock.calls[0][0])).toBe('401');
     expect(createWebhookResponse).not.toHaveBeenCalled();
     expect(validateWebhookRequest).toHaveBeenCalled();
+  });
+
+  test('/voice/webhook metrics: compat validation errors increment counter when enabled', async () => {
+    process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED = '1';
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const validateWebhookRequest = jest.fn(async () => {
+      const err = new Error('Unauthorized');
+      (err as any).statusCode = 401;
+      (err as any).code = 'unauthorized';
+      throw err;
+    });
+    const providerPlugins = {
+      getCompat: jest.fn(async () => ({
+        validateWebhookRequest,
+        createWebhookResponse: jest.fn()
+      }))
+    };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: providerPlugins as any
+    });
+
+    const resWebhook = createMockRes();
+    await expect(
+      reg.handleHttp({ url: '/voice/webhook?callConfigId=cfg_1', method: 'GET', headers: { host: 'localhost' }, socket: {} } as any, resWebhook)
+    ).resolves.toBe(true);
+    expect(String(resWebhook.writeHead.mock.calls[0][0])).toBe('401');
+
+    const resMetrics = createMockRes();
+    await expect(reg.handleHttp({ url: '/voice/metrics', method: 'GET', headers: {}, socket: {} } as any, resMetrics)).resolves.toBe(true);
+    expect(String(resMetrics.writeHead.mock.calls[0][0])).toBe('200');
+    const metrics = JSON.parse(String(resMetrics.end.mock.calls[0][0]));
+    const samples: any[] = Array.isArray(metrics.metrics) ? metrics.metrics : [];
+    const sample = samples.find(
+      (m) => m?.name === 'voice.compat.error_total' && m?.labels?.voiceProvider === 'test' && m?.labels?.stage === 'webhook_validate'
+    );
+    expect(sample?.value).toBe(1);
+  });
+
+  test('/voice/webhook metrics: compat response errors increment counter when enabled', async () => {
+    process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED = '1';
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const createWebhookResponse = jest.fn(async () => {
+      const err = new Error('boom');
+      (err as any).statusCode = 500;
+      (err as any).code = 'provider_error';
+      throw err;
+    });
+    const providerPlugins = {
+      getCompat: jest.fn(async () => ({
+        createWebhookResponse
+      }))
+    };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: providerPlugins as any
+    });
+
+    const resWebhook = createMockRes();
+    await expect(
+      reg.handleHttp({ url: '/voice/webhook?callConfigId=cfg_1', method: 'GET', headers: { host: 'localhost' }, socket: {} } as any, resWebhook)
+    ).resolves.toBe(true);
+    expect(String(resWebhook.writeHead.mock.calls[0][0])).toBe('500');
+
+    const resMetrics = createMockRes();
+    await expect(reg.handleHttp({ url: '/voice/metrics', method: 'GET', headers: {}, socket: {} } as any, resMetrics)).resolves.toBe(true);
+    expect(String(resMetrics.writeHead.mock.calls[0][0])).toBe('200');
+    const metrics = JSON.parse(String(resMetrics.end.mock.calls[0][0]));
+    const samples: any[] = Array.isArray(metrics.metrics) ? metrics.metrics : [];
+    const sample = samples.find(
+      (m) => m?.name === 'voice.compat.error_total' && m?.labels?.voiceProvider === 'test' && m?.labels?.stage === 'webhook_response'
+    );
+    expect(sample?.value).toBe(1);
   });
 
   test('/voice/webhook invokes compat signature validation when provided (success continues)', async () => {

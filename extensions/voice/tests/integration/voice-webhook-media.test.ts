@@ -103,6 +103,7 @@ async function startHarness(options: { store: any; providerPlugins?: any; loggin
 describe('extensions/voice: webhook + media wiring', () => {
   const prevSecret = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
   const prevTtl = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS;
+  const prevMetricsEnabled = process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED;
 
   beforeEach(() => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
@@ -119,6 +120,11 @@ describe('extensions/voice: webhook + media wiring', () => {
       delete process.env.LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS;
     } else {
       process.env.LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS = prevTtl;
+    }
+    if (prevMetricsEnabled === undefined) {
+      delete process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED;
+    } else {
+      process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED = prevMetricsEnabled;
     }
   });
 
@@ -162,7 +168,70 @@ describe('extensions/voice: webhook + media wiring', () => {
     }
   });
 
+  test('metrics: media WS open/close updates gauges/counters when enabled', async () => {
+    process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED = '1';
+
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const providerPlugins = {
+      getCompat: async () => ({
+        createWebhookResponse: async (options: any) => ({
+          status: 200,
+          headers: { 'Content-Type': 'text/xml; charset=utf-8' },
+          body: `<?xml version=\"1.0\"?><Response><Connect><Stream url=\"${options.mediaWsUrl}\" /></Connect></Response>`
+        }),
+        handleMediaConnection: async () => {
+          // keep connection open until the client closes
+        }
+      })
+    };
+
+    const harness = await startHarness({ store, providerPlugins });
+    try {
+      const res = await fetch(new URL('/voice/webhook?callConfigId=cfg_1', harness.baseUrl));
+      const wsUrl = extractStreamUrl(await res.text());
+
+      const { ws, closePromise } = await openWs(wsUrl);
+
+      const metrics1 = await (await fetch(new URL('/voice/metrics', harness.baseUrl))).json();
+      const samples1: any[] = Array.isArray(metrics1.metrics) ? metrics1.metrics : [];
+      const active1 = samples1.find(m => m?.name === 'voice.media.ws_active' && m?.labels?.voiceProvider === 'test');
+      const opened1 = samples1.find(m => m?.name === 'voice.media.ws_open_total' && m?.labels?.voiceProvider === 'test');
+      expect(active1?.value).toBe(1);
+      expect(opened1?.value).toBe(1);
+
+      ws.close();
+      await closePromise;
+      await new Promise(res => setTimeout(res, 10));
+
+      const metrics2 = await (await fetch(new URL('/voice/metrics', harness.baseUrl))).json();
+      const samples2: any[] = Array.isArray(metrics2.metrics) ? metrics2.metrics : [];
+      const active2 = samples2.find(m => m?.name === 'voice.media.ws_active' && m?.labels?.voiceProvider === 'test');
+      const closed2 = samples2.find(m => m?.name === 'voice.media.ws_close_total' && m?.labels?.voiceProvider === 'test');
+      expect(active2?.value).toBe(0);
+      expect(closed2?.value).toBe(1);
+    } finally {
+      await harness.close();
+    }
+  });
+
   test('logs ws error events without leaking ws token', async () => {
+    process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED = '1';
+
     const store = createInMemoryVoiceCallConfigStore();
     await store.putConfig(
       {
@@ -209,6 +278,11 @@ describe('extensions/voice: webhook + media wiring', () => {
       const logged = JSON.stringify({ info: logger.info.mock.calls, err: logger.error.mock.calls });
       expect(logged).toContain('voice.media.ws_error');
       expect(logged).not.toContain('token=');
+
+      const metrics = await (await fetch(new URL('/voice/metrics', harness.baseUrl))).json();
+      const samples: any[] = Array.isArray(metrics.metrics) ? metrics.metrics : [];
+      const wsErr = samples.find(m => m?.name === 'voice.media.ws_error_total' && m?.labels?.voiceProvider === 'p1');
+      expect(wsErr?.value).toBeGreaterThanOrEqual(1);
     } finally {
       await harness.close();
     }
