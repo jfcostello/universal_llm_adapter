@@ -5,7 +5,7 @@ import { createRequire } from 'module';
 
 import { mapErrorToHttp } from '../../../modules/transport/index.js';
 import { createSignedWsToken, verifySignedWsToken } from '../../../modules/security/index.js';
-import { normalizeFlag, readTrimmedStringProperty, sleep } from '../../../modules/shared/index.js';
+import { makeHttpError, normalizeFlag, readTrimmedStringProperty, sleep } from '../../../modules/shared/index.js';
 import {
   applyCors,
   applySecurityHeaders,
@@ -234,10 +234,7 @@ async function readTextBody(
     for await (const chunk of req) {
       bytes += Buffer.byteLength(chunk);
       if (bytes > maxBytes) {
-        const error = new Error('Request body too large');
-        (error as any).statusCode = 413;
-        (error as any).code = 'payload_too_large';
-        throw error;
+        throw makeHttpError({ message: 'Request body too large', statusCode: 413, code: 'payload_too_large' });
       }
       input += chunk;
     }
@@ -248,10 +245,7 @@ async function readTextBody(
     if (timeoutMs > 0) {
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeout = setTimeout(() => {
-          const error = new Error('Request body read timed out');
-          (error as any).statusCode = 408;
-          (error as any).code = 'body_read_timeout';
-          reject(error);
+          reject(makeHttpError({ message: 'Request body read timed out', statusCode: 408, code: 'body_read_timeout' }));
         }, timeoutMs);
       });
       return await Promise.race([readPromise, timeoutPromise]);
@@ -668,9 +662,7 @@ export async function createVoiceServerRegistration(ctx: {
             const compat = await providerPlugins.getCompat(voiceProvider);
             const callConfig = await store.getConfig(callConfigId);
             if (!callConfig) {
-              const error = new Error('Failed to load stored call config');
-              (error as any).statusCode = 500;
-              throw error;
+              throw makeHttpError({ message: 'Failed to load stored call config', statusCode: 500 });
             }
 
             metrics.outboundCallAttempt(voiceProvider);
@@ -693,10 +685,7 @@ export async function createVoiceServerRegistration(ctx: {
             })();
             const providerCallId = String(outbound?.providerCallId ?? '').trim();
             if (!providerCallId) {
-              const error = new Error('Voice provider did not return providerCallId');
-              (error as any).statusCode = 502;
-              (error as any).code = 'provider_error';
-              throw error;
+              throw makeHttpError({ message: 'Voice provider did not return providerCallId', statusCode: 502, code: 'provider_error' });
             }
 
             safeLog(logger, 'info', 'voice.calls.queued', { callConfigId, voiceProvider, providerCallId, ...(requestId ? { requestId } : {}) });

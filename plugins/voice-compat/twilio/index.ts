@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import type http from 'http';
 
 import { ProviderExecutionError } from '../../../kernel/index.js';
+import { makeHttpError } from '../../../modules/shared/index.js';
 import { createRealtimeSession } from '../../../modules/realtime/index.js';
 import { createTwilioMediaStreamsBridge } from '../../voice-modules/twilio-media-streams/index.js';
 
@@ -40,10 +41,7 @@ function basicAuthHeader(username: string, password: string): string {
 }
 
 function makeProviderConfigError(message: string): Error {
-  const error = new Error(message);
-  (error as any).statusCode = 500;
-  (error as any).code = 'provider_config_error';
-  return error;
+  return makeHttpError({ message, statusCode: 500, code: 'provider_config_error' });
 }
 
 function safeEqual(a: string, b: string): boolean {
@@ -58,10 +56,7 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 function makeUnauthorizedError(message: string): Error {
-  const error = new Error(message);
-  (error as any).statusCode = 401;
-  (error as any).code = 'unauthorized';
-  return error;
+  return makeHttpError({ message, statusCode: 401, code: 'unauthorized' });
 }
 
 function computeRequestSignature(authToken: string, url: string, params: Record<string, string>): string {
@@ -247,10 +242,7 @@ export default class TwilioVoiceCompat {
     const from = String(options.from ?? '').trim();
     const callConfigId = String(options.callConfigId ?? '').trim();
     if (!to || !from || !callConfigId) {
-      const error = new Error('Missing required fields for outbound call');
-      (error as any).statusCode = 400;
-      (error as any).code = 'validation_error';
-      throw error;
+      throw makeHttpError({ message: 'Missing required fields for outbound call', statusCode: 400, code: 'validation_error' });
     }
 
     const defaultsRaw = options.providerDefaults;

@@ -1,19 +1,15 @@
 import type http from 'http';
 
+import { makeHttpError } from '../../../modules/shared/index.js';
+
 export default class TestVoiceCompat {
   async validateWebhookRequest(options: { req: http.IncomingMessage }) {
     const signature = String(options.req?.headers?.['x-test-signature'] ?? '').trim();
     if (!signature) {
-      const error = new Error('Unauthorized: missing signature');
-      (error as any).statusCode = 401;
-      (error as any).code = 'unauthorized';
-      throw error;
+      throw makeHttpError({ message: 'Unauthorized: missing signature', statusCode: 401, code: 'unauthorized' });
     }
     if (signature !== 'ok') {
-      const error = new Error('Unauthorized: invalid signature');
-      (error as any).statusCode = 401;
-      (error as any).code = 'unauthorized';
-      throw error;
+      throw makeHttpError({ message: 'Unauthorized: invalid signature', statusCode: 401, code: 'unauthorized' });
     }
   }
 

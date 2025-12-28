@@ -3,6 +3,7 @@ import {
 	  normalizeFlag,
     assertValidExtensionName,
 	  readTrimmedStringProperty,
+    makeHttpError,
 	  createDeferred,
 	  calculateBackoffDelay,
 	  sleep,
@@ -120,6 +121,29 @@ describe('modules/shared', () => {
 	    expect(readTrimmedStringProperty({ k: 'value' }, 'k')).toBe('value');
 	  });
 	});
+
+  describe('makeHttpError', () => {
+    test('sets statusCode and code when provided', () => {
+      const err: any = makeHttpError({ message: 'nope', statusCode: 401, code: 'unauthorized' });
+      expect(err).toBeInstanceOf(Error);
+      expect(err.message).toBe('nope');
+      expect(err.statusCode).toBe(401);
+      expect(err.code).toBe('unauthorized');
+    });
+
+    test('sets statusCode without forcing code', () => {
+      const err: any = makeHttpError({ message: 'bad', statusCode: 500 });
+      expect(err.statusCode).toBe(500);
+      expect(err.code).toBeUndefined();
+    });
+
+    test('normalizes nullish message inputs', () => {
+      const err: any = makeHttpError({ message: undefined as any, statusCode: 400, code: 'x' });
+      expect(err.message).toBe('');
+      expect(err.statusCode).toBe(400);
+      expect(err.code).toBe('x');
+    });
+  });
 
   describe('deriveObservabilityModel', () => {
     test('returns the base model when no provider hint is present', () => {

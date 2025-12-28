@@ -69,6 +69,21 @@ export function readTrimmedStringProperty(record: unknown, key: string): string 
 }
 
 /**
+ * Create an Error annotated with HTTP-ish metadata (`statusCode` + optional `code`).
+ *
+ * This is a lightweight convention used across the codebase so error mapping can be predictable
+ * without introducing heavyweight custom error classes in every module.
+ */
+export function makeHttpError(options: { message: string; statusCode: number; code?: string }): Error {
+  const error = new Error(String(options.message ?? ''));
+  (error as any).statusCode = Number(options.statusCode);
+  if (options.code !== undefined) {
+    (error as any).code = String(options.code);
+  }
+  return error;
+}
+
+/**
  * Derive a human-meaningful model identifier for observability exports.
  *
  * When an upstream provider hint is available (e.g. a proxy returns `{ provider: "upstream" }`),

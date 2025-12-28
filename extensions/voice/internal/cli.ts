@@ -2,6 +2,7 @@ import fs from 'fs';
 
 import { Command } from 'commander';
 
+import { makeHttpError } from '../../../modules/shared/index.js';
 import { mapErrorToHttp } from '../../../modules/transport/index.js';
 
 type VoiceCliDeps = {
@@ -19,10 +20,7 @@ function parseJsonOrThrow(raw: string, context: string): any {
   try {
     return JSON.parse(raw);
   } catch {
-    const error = new Error(`Invalid JSON ${context}`);
-    (error as any).statusCode = 400;
-    (error as any).code = 'invalid_json';
-    throw error;
+    throw makeHttpError({ message: `Invalid JSON ${context}`, statusCode: 400, code: 'invalid_json' });
   }
 }
 
@@ -61,10 +59,7 @@ async function readOptionalSystemPrompt(options: {
 function readRequiredTrimmed(value: unknown, field: string): string {
   const s = String(value ?? '').trim();
   if (!s) {
-    const err = new Error(`Missing ${field}`);
-    (err as any).statusCode = 400;
-    (err as any).code = 'validation_error';
-    throw err;
+    throw makeHttpError({ message: `Missing ${field}`, statusCode: 400, code: 'validation_error' });
   }
   return s;
 }
