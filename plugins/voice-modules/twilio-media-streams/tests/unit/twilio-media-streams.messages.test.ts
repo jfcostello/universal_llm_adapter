@@ -3,9 +3,9 @@ import {
   buildTwilioMarkMessage,
   buildTwilioMediaMessage,
   parseTwilioInboundMessage
-} from '@/plugins/modules/twilio-media-streams/internal/messages.ts';
+} from '@/plugins/voice-modules/twilio-media-streams/internal/messages.ts';
 
-describe('plugins/modules/twilio-media-streams — message parsing/building', () => {
+describe('plugins/voice-modules/twilio-media-streams — message parsing/building', () => {
   test('parses connected', () => {
     const msg = parseTwilioInboundMessage(JSON.stringify({ event: 'connected' }));
     expect(msg.event).toBe('connected');
@@ -82,4 +82,3 @@ describe('plugins/modules/twilio-media-streams — message parsing/building', ()
     expect(buildTwilioClearMessage({ streamSid: 'MZ1' })).toEqual({ event: 'clear', streamSid: 'MZ1' });
   });
 });
-

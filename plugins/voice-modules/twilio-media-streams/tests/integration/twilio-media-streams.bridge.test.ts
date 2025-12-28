@@ -2,7 +2,7 @@ import { jest } from '@jest/globals';
 import { bytesToBase64, base64ToBytes } from '@/modules/audio/index.ts';
 import { createRealtimeSessionController } from '@/modules/realtime/internal/realtime-session.ts';
 import { createSignedWsToken } from '@/modules/security/index.ts';
-import { createTwilioMediaStreamsBridge } from '@/plugins/modules/twilio-media-streams/index.ts';
+import { createTwilioMediaStreamsBridge } from '@/plugins/voice-modules/twilio-media-streams/index.ts';
 import { MockRealtimeSession } from '@tests/helpers/mock-realtime-session.ts';
 import { MockWebSocket } from '@tests/helpers/mock-ws.ts';
 
@@ -69,7 +69,7 @@ function flush(): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, 0));
 }
 
-describe('plugins/modules/twilio-media-streams (bridge integration)', () => {
+describe('plugins/voice-modules/twilio-media-streams (bridge integration)', () => {
   test('forwards DTMF to session (sequence mode) as a model-visible turn', async () => {
     const secret = 'secret';
     const token = makeToken(secret);

@@ -8,7 +8,7 @@ export default {
   rootDir: path.resolve(__dirname),
   preset: 'ts-jest/presets/default-esm',
   testEnvironment: 'node',
-  testMatch: ['**/tests/**/*.test.ts'],
+  testMatch: ['<rootDir>/tests/**/*.test.ts'],
   testPathIgnorePatterns: [
     '/node_modules/',
     '<rootDir>/tests/live/_v1_legacy/'
@@ -34,7 +34,10 @@ export default {
     '<rootDir>/**/*.ts',
     '!<rootDir>/dist/**',
     '!<rootDir>/node_modules/**',
-    '!<rootDir>/tests/**',
+    '!<rootDir>/**/tests/**',
+    '!<rootDir>/**/__tests__/**',
+    '!<rootDir>/extensions/**',
+    '!<rootDir>/plugins/voice-*/**',
     '!<rootDir>/jest.config.js',
     '!<rootDir>/examples/**',
     '!<rootDir>/**/.history/**'

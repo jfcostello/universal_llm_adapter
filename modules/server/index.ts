@@ -55,6 +55,9 @@ export interface ServerOptions {
   pluginsPath?: string;
   batchId?: string;
   closeLoggerAfterRequest?: boolean;
+  extensions?: {
+    enabled?: string[];
+  };
   realtime?: {
     enabled?: boolean;
     wsPath?: string;
@@ -188,6 +191,7 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
   const host = options.host ?? '127.0.0.1';
   const port = options.port ?? 0;
   const pluginsPath = options.pluginsPath ?? './plugins';
+  const enabledExtensions = options.extensions?.enabled ?? serverDefaults.extensions?.enabled ?? [];
 
   const registry =
     options.registry ?? (await deps.createRegistry(pluginsPath));
@@ -207,7 +211,7 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
     }
   }
 
-  const handler = createServerHandler({
+  const coreHandler = createServerHandler({
     registry,
     pluginsPath,
     batchId: options.batchId,
@@ -244,7 +248,18 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
     }
   });
 
+  let extensionsHandleHttp: ((req: http.IncomingMessage, res: http.ServerResponse) => Promise<boolean>) | undefined;
+  const handler: http.RequestListener = async (req, res) => {
+    if (extensionsHandleHttp) {
+      const handled = await extensionsHandleHttp(req, res);
+      if (handled) return;
+    }
+    await coreHandler(req, res);
+  };
+
   const server = http.createServer(handler);
+  const { attachUpgradeRouter } = await import('./internal/transport/upgrade-router.js');
+  const upgradeRouter = attachUpgradeRouter(server);
 
   const realtimeEnabled = options.realtime?.enabled === true;
   const realtimeWsPath = options.realtime?.wsPath ?? '/realtime/ws';
@@ -267,6 +282,7 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
     const { attachRealtimeWsServer } = await import('./internal/realtime/ws.js');
     const realtime = await attachRealtimeWsServer({
       server,
+      upgradeRouter,
       registry,
       authorizeUpgrade: async (req) => {
         const authIdentity = await assertAuthorized(req, authConfig as any, options.authorize as any) as string;
@@ -292,6 +308,20 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
     closeRealtimeWs = realtime.close;
   }
 
+  let closeExtensions: (() => Promise<void>) | undefined;
+  if (enabledExtensions.length > 0) {
+    const { loadServerExtensions } = await import('./internal/extensions/host.js');
+    const host = await loadServerExtensions({
+      enabled: enabledExtensions,
+      server,
+      registry,
+      pluginsPath,
+      upgradeRouter
+    });
+    extensionsHandleHttp = host.handleHttp;
+    closeExtensions = host.close;
+  }
+
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, resolve);
@@ -307,7 +337,13 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
       new Promise<void>((resolve, reject) => {
         (async () => {
           try {
+            await closeExtensions?.();
+          } catch {}
+          try {
             await closeRealtimeWs?.();
+          } catch {}
+          try {
+            upgradeRouter.close();
           } catch {}
           server.close(async (error) => {
             if (error) reject(error);

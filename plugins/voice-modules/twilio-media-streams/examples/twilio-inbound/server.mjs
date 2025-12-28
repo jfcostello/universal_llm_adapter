@@ -15,7 +15,7 @@ const rootDir = path.resolve(__dirname, '../../../../../');
 const { PluginRegistry } = await import(path.join(rootDir, 'dist', 'modules', 'kernel', 'index.js'));
 const { createRealtimeSession } = await import(path.join(rootDir, 'dist', 'modules', 'realtime', 'index.js'));
 const { createTwilioMediaStreamsBridge } = await import(
-  path.join(rootDir, 'dist', 'plugins', 'modules', 'twilio-media-streams', 'index.js')
+  path.join(rootDir, 'dist', 'plugins', 'voice-modules', 'twilio-media-streams', 'index.js')
 );
 
 const host = process.env.HOST || '127.0.0.1';
@@ -163,4 +163,3 @@ server.listen(port, host, () => {
   console.log('[server] health:', `http://${host}:${addr.port}/health`);
   console.log('[server] twiml:', `http://${host}:${addr.port}/twiml`);
 });
-

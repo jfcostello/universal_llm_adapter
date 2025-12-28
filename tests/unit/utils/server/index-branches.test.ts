@@ -1,5 +1,6 @@
 import { jest } from '@jest/globals';
 import { createRequire } from 'module';
+import http from 'http';
 
 import { createServer, createServerHandlerWithDefaults } from '@/modules/server/index.ts';
 
@@ -116,6 +117,53 @@ describe('utils/server index default branches', () => {
 
   test('createServer uses default options when omitted', async () => {
     const running = await createServer();
+    await running.close();
+  });
+
+  test('createServer loads enabled extensions and allows them to intercept /voice/*', async () => {
+    const running = await createServer({
+      extensions: { enabled: ['voice'] },
+      deps: {
+        getDefaults: () => DEFAULTS_WITHOUT_NESTED,
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    const voiceRes = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
+      http
+        .get(`${running.url}/voice/test`, (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c) => chunks.push(Buffer.from(c)));
+          res.on('end', () => {
+            resolve({ statusCode: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf-8') });
+          });
+        })
+        .on('error', reject);
+    });
+
+    expect(voiceRes.statusCode).toBe(501);
+    expect(JSON.parse(voiceRes.body)).toEqual({
+      type: 'error',
+      error: { message: 'Voice extension not yet implemented', code: 'not_implemented' }
+    });
+
+    const healthRes = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
+      http
+        .get(`${running.url}/health`, (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c) => chunks.push(Buffer.from(c)));
+          res.on('end', () => {
+            resolve({ statusCode: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf-8') });
+          });
+        })
+        .on('error', reject);
+    });
+
+    expect(healthRes.statusCode).toBe(200);
+    expect(JSON.parse(healthRes.body)).toEqual({ ok: true });
+
     await running.close();
   });
 

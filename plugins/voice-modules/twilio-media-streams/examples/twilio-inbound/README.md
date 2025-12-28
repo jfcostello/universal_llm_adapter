@@ -4,7 +4,7 @@ This is a runnable example server that:
 
 - serves a TwiML endpoint (`/twiml`) that instructs Twilio to open a Media Stream
 - accepts the Media Streams WebSocket connection (`/twilio/media`)
-- bridges the call to a realtime session using `plugins/modules/twilio-media-streams`
+- bridges the call to a realtime session using `plugins/voice-modules/twilio-media-streams`
 
 ## Requirements
 
@@ -29,7 +29,7 @@ npm run build
 3) Run the server:
 
 ```bash
-node plugins/modules/twilio-media-streams/examples/twilio-inbound/server.mjs
+node plugins/voice-modules/twilio-media-streams/examples/twilio-inbound/server.mjs
 ```
 
 You should see the server URL printed.

@@ -306,6 +306,17 @@ Observability enables export of LLM call telemetry to platforms like Langfuse. I
 
 Observability is non-blocking: if export fails, LLM calls still succeed. See `modules/observability/README.md` for full documentation.
 
+## Extensions
+
+Extensions are **large, optional features** that bolt new “services” onto the adapter’s server and CLI.
+
+Key properties:
+- **Default-off**: core behavior is unchanged unless enabled
+- **Strictly lazy-loaded**: extension code is loaded via `import()` only when enabled
+- **Removable**: delete an extension directory without breaking core (assuming nothing enables it)
+
+See `extensions/README.md` for the full concept, enablement, and testing workflow.
+
 ## Core Types
 
 ### LLMCallSpec
@@ -505,7 +516,7 @@ For production deployments, be aware of per-process resource limits enforced by 
 
 - **Server**: `maxConcurrentRequests`, `maxConcurrentStreams`, `maxQueueSize` (see `plugins/configs/defaults.json`)
 - **Realtime WS**: `maxConcurrentSessions`, `maxMessageBytes`, `maxAudioBytesPerSecond`, `idleTimeoutMs`, `maxSessionDurationMs`
-- **Twilio Bridge**: `maxPendingInboundFrames`, `maxPendingOutboundAudioMs`, `maxWsMessageBytes`
+- **Extensions**: extension-specific limits are documented per-extension under `extensions/`
 
 These limits protect against resource exhaustion. Tune them based on your expected concurrency and available memory.
 
@@ -638,6 +649,12 @@ npm test
 
 # Run with coverage
 npm test -- --coverage
+
+# Run extension tests (kept separate from core)
+npm run test:extensions
+
+# Run voice extension tests
+npm run test:extensions:voice
 
 # Run live tests (require API keys)
 npm run test:live

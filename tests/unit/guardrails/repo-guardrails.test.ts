@@ -38,6 +38,18 @@ function isUnder(dirName: string, filePath: string): boolean {
   return rel === dirName || rel.startsWith(`${dirName}/`);
 }
 
+function isInAnyTestsDir(filePath: string): boolean {
+  const rel = toRepoRelative(filePath);
+  return (
+    rel === 'tests' ||
+    rel.startsWith('tests/') ||
+    rel.includes('/tests/') ||
+    rel === '__tests__' ||
+    rel.startsWith('__tests__/') ||
+    rel.includes('/__tests__/')
+  );
+}
+
 function extractImportSpecifiers(sourceText: string): string[] {
   const specifiers: string[] = [];
 
@@ -70,7 +82,7 @@ describe('guardrails/repo', () => {
   test("production code does not import another module's internal/** paths", () => {
     const files = walk(ROOT_DIR)
       .filter(f => f.endsWith('.ts'))
-      .filter(f => !isUnder('tests', f));
+      .filter(f => !isInAnyTestsDir(f));
 
     const offenders: Array<{ file: string; specifier: string }> = [];
 
@@ -110,7 +122,7 @@ describe('guardrails/repo', () => {
 
     const files = walk(ROOT_DIR)
       .filter(f => f.endsWith('.ts'))
-      .filter(f => !isUnder('tests', f))
+      .filter(f => !isInAnyTestsDir(f))
       .filter(f => !isUnder('plugins', f));
 
     const offenders: Array<{ file: string; token: string }> = [];

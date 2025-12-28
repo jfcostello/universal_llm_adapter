@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import { createSignedWsToken } from '@/modules/security/index.ts';
-import { createTwilioMediaStreamsBridge } from '@/plugins/modules/twilio-media-streams/index.ts';
+import { createTwilioMediaStreamsBridge } from '@/plugins/voice-modules/twilio-media-streams/index.ts';
 import { MockRealtimeSession } from '@tests/helpers/mock-realtime-session.ts';
 import { MockWebSocket } from '@tests/helpers/mock-ws.ts';
 
@@ -37,7 +37,7 @@ function mediaMessage(options: { streamSid?: string; payloadBase64?: string }) {
   });
 }
 
-describe('plugins/modules/twilio-media-streams (limits + security)', () => {
+describe('plugins/voice-modules/twilio-media-streams (limits + security)', () => {
   test('rejects missing token', async () => {
     const bridge = createTwilioMediaStreamsBridge({
       createSession: async () => new MockRealtimeSession(),

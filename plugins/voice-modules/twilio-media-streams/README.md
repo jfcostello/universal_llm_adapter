@@ -1,4 +1,4 @@
-# `plugins/modules/twilio-media-streams`
+# `plugins/voice-modules/twilio-media-streams`
 
 Bridge a Twilio Media Streams WebSocket connection to a `llm-adapter/realtime` session.
 
@@ -17,7 +17,7 @@ This code is Twilio-specific, so it lives under `/plugins` by design.
 
 ## Public API
 
-Exported from `plugins/modules/twilio-media-streams/index.ts`:
+Exported from `plugins/voice-modules/twilio-media-streams/index.ts`:
 
 - `createTwilioMediaStreamsBridge(options)`
 - Types:
@@ -236,7 +236,7 @@ Pseudo-code (illustrative only):
 import http from 'http';
 import { WebSocketServer } from 'ws';
 import { createRealtimeSession } from 'llm-adapter/realtime';
-import { createTwilioMediaStreamsBridge } from './plugins/modules/twilio-media-streams/index.js';
+import { createTwilioMediaStreamsBridge } from './plugins/voice-modules/twilio-media-streams/index.js';
 
 const bridge = createTwilioMediaStreamsBridge({
   createSession: async ({ metadata }) => {
@@ -267,7 +267,7 @@ If you see `1008 Unauthorized` immediately, the signed-token check is failing (m
 
 ## Runnable example
 
-See `plugins/modules/twilio-media-streams/examples/twilio-inbound/` for a runnable inbound-call bridge example (TwiML endpoint + WebSocket server).
+See `plugins/voice-modules/twilio-media-streams/examples/twilio-inbound/` for a runnable inbound-call bridge example (TwiML endpoint + WebSocket server).
 
 ---
 

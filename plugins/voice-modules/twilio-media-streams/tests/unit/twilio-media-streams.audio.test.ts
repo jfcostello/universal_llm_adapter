@@ -1,5 +1,5 @@
 import { base64ToBytes, bytesToBase64 } from '@/modules/audio/index.ts';
-import { convertAudioBytes, frameAudioBytes, type AudioSpec } from '@/plugins/modules/twilio-media-streams/internal/audio.ts';
+import { convertAudioBytes, frameAudioBytes, type AudioSpec } from '@/plugins/voice-modules/twilio-media-streams/internal/audio.ts';
 
 function pcm16leBytes(values: number[]): Uint8Array {
   const out = new Uint8Array(values.length * 2);
@@ -8,7 +8,7 @@ function pcm16leBytes(values: number[]): Uint8Array {
   return out;
 }
 
-describe('plugins/modules/twilio-media-streams — audio bridging', () => {
+describe('plugins/voice-modules/twilio-media-streams — audio bridging', () => {
   test('returns input unchanged when specs match', () => {
     const bytes = new Uint8Array([1, 2, 3]);
     const spec: AudioSpec = { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1 };
@@ -138,4 +138,3 @@ describe('plugins/modules/twilio-media-streams — audio bridging', () => {
     expect(base64ToBytes(bytesToBase64(bytes))).toEqual(bytes);
   });
 });
-

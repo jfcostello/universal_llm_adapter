@@ -91,7 +91,10 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
       allowedHeaders: ['content-type', 'authorization', 'x-api-key'],
       allowCredentials: false
     },
-    securityHeadersEnabled: true
+    securityHeadersEnabled: true,
+    extensions: {
+      enabled: []
+    }
   },
   paths: {
     plugins: './plugins'

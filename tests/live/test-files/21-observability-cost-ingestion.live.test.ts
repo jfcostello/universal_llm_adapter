@@ -54,8 +54,16 @@ const TEST_FILE = '21-observability-cost-ingestion';
     expect(Number.isFinite(cost as number)).toBe(true);
     expect(cost as number).toBeGreaterThan(0);
 
-    const trace = await waitForLangfuseTrace(traceId);
-    const totalCost = getLangfuseTraceTotalCost(trace);
+    // Langfuse may expose the trace before cost aggregation settles; poll until totalCost reflects usage.cost.
+    const deadlineMs = Date.now() + 120_000;
+    let trace = await waitForLangfuseTrace(traceId);
+    let totalCost = getLangfuseTraceTotalCost(trace);
+    while ((totalCost ?? 0) <= 0 && Date.now() < deadlineMs) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      trace = await waitForLangfuseTrace(traceId, { assertLoggedContent: false, timeoutMs: 30_000 });
+      totalCost = getLangfuseTraceTotalCost(trace);
+    }
+
     expect(typeof totalCost).toBe('number');
     expect(totalCost as number).toBeGreaterThan(0);
     expect(totalCost as number).toBeGreaterThan((cost as number) * 0.5);

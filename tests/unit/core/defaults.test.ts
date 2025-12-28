@@ -122,6 +122,7 @@ describe('core/defaults', () => {
         expect(server.rateLimit.enabled).toBe(false);
         expect(server.cors.enabled).toBe(false);
         expect(server.securityHeadersEnabled).toBe(true);
+        expect(server.extensions?.enabled).toEqual([]);
       });
 
     test('returns correct paths defaults', async () => {
