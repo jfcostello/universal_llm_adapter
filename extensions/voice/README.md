@@ -51,7 +51,7 @@ Enable the voice extension on the server via:
   - Explicit public base URL used to mint `WS /voice/media` URLs (recommended behind proxies).
 
 - `LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS` (default: off)
-  - When enabled, `x-forwarded-proto` / `x-forwarded-host` are trusted for public URL derivation.
+  - When enabled, `x-forwarded-proto` / `x-forwarded-host` are used for public URL derivation (invalid values are ignored and the server falls back to the socket/`Host`).
 
 ### Provider plugins
 

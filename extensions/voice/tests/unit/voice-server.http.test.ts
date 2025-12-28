@@ -190,6 +190,321 @@ describe('extensions/voice: server http handlers', () => {
     expect(String(mediaWsUrl)).toContain('wss://example.com/voice/media?token=');
   });
 
+  test('/voice/webhook ignores invalid x-forwarded-proto (falls back to socket encryption)', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+    process.env.LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS = '1';
+
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const createWebhookResponse = jest.fn(async (options: any) => ({ status: 200, headers: { 'Content-Type': 'text/xml' }, body: `<x>${options.mediaWsUrl}</x>` }));
+    const providerPlugins = { getCompat: jest.fn(async () => ({ createWebhookResponse })) };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: providerPlugins as any
+    });
+
+    const res = createMockRes();
+    const req = {
+      url: '/voice/webhook?callConfigId=cfg_1',
+      method: 'GET',
+      headers: { 'x-forwarded-proto': 'ftp', 'x-forwarded-host': 'example.com' },
+      socket: { encrypted: true }
+    } as any;
+
+    await expect(reg.handleHttp(req, res)).resolves.toBe(true);
+    const mediaWsUrl = createWebhookResponse.mock.calls[0][0].mediaWsUrl;
+    expect(String(mediaWsUrl)).toContain('wss://example.com/voice/media?token=');
+  });
+
+  test('/voice/webhook ignores invalid x-forwarded-host (falls back to Host header)', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+    process.env.LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS = '1';
+
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const createWebhookResponse = jest.fn(async (options: any) => ({ status: 200, headers: { 'Content-Type': 'text/xml' }, body: `<x>${options.mediaWsUrl}</x>` }));
+    const providerPlugins = { getCompat: jest.fn(async () => ({ createWebhookResponse })) };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: providerPlugins as any
+    });
+
+    const res = createMockRes();
+    const req = {
+      url: '/voice/webhook?callConfigId=cfg_1',
+      method: 'GET',
+      headers: { host: 'local.test:123', 'x-forwarded-proto': 'https', 'x-forwarded-host': 'evil.example/path' },
+      socket: {}
+    } as any;
+
+    await expect(reg.handleHttp(req, res)).resolves.toBe(true);
+    const mediaWsUrl = createWebhookResponse.mock.calls[0][0].mediaWsUrl;
+    expect(String(mediaWsUrl)).toContain('wss://local.test:123/voice/media?token=');
+  });
+
+  test('/voice/webhook ignores x-forwarded-host with invalid port (falls back safely)', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+    process.env.LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS = '1';
+
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const createWebhookResponse = jest.fn(async (options: any) => ({ status: 200, headers: { 'Content-Type': 'text/xml' }, body: `<x>${options.mediaWsUrl}</x>` }));
+    const providerPlugins = { getCompat: jest.fn(async () => ({ createWebhookResponse })) };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: providerPlugins as any
+    });
+
+    const res = createMockRes();
+    const req = {
+      url: '/voice/webhook?callConfigId=cfg_1',
+      method: 'GET',
+      headers: { host: 'local.test', 'x-forwarded-proto': 'https', 'x-forwarded-host': 'example.com:99999' },
+      socket: {}
+    } as any;
+
+    await expect(reg.handleHttp(req, res)).resolves.toBe(true);
+    const mediaWsUrl = createWebhookResponse.mock.calls[0][0].mediaWsUrl;
+    expect(String(mediaWsUrl)).toContain('wss://local.test/voice/media?token=');
+  });
+
+  test('/voice/webhook ignores non-string x-forwarded-proto values', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+    process.env.LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS = '1';
+
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const createWebhookResponse = jest.fn(async (options: any) => ({ status: 200, headers: { 'Content-Type': 'text/xml' }, body: `<x>${options.mediaWsUrl}</x>` }));
+    const providerPlugins = { getCompat: jest.fn(async () => ({ createWebhookResponse })) };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: providerPlugins as any
+    });
+
+    const res = createMockRes();
+    const req = {
+      url: '/voice/webhook?callConfigId=cfg_1',
+      method: 'GET',
+      headers: { 'x-forwarded-proto': ['https'] as any, 'x-forwarded-host': 'example.com' },
+      socket: {}
+    } as any;
+
+    await expect(reg.handleHttp(req, res)).resolves.toBe(true);
+    const mediaWsUrl = createWebhookResponse.mock.calls[0][0].mediaWsUrl;
+    expect(String(mediaWsUrl)).toContain('ws://example.com/voice/media?token=');
+  });
+
+  test('/voice/webhook ignores non-string x-forwarded-host values', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+    process.env.LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS = '1';
+
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const createWebhookResponse = jest.fn(async (options: any) => ({ status: 200, headers: { 'Content-Type': 'text/xml' }, body: `<x>${options.mediaWsUrl}</x>` }));
+    const providerPlugins = { getCompat: jest.fn(async () => ({ createWebhookResponse })) };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: providerPlugins as any
+    });
+
+    const res = createMockRes();
+    const req = {
+      url: '/voice/webhook?callConfigId=cfg_1',
+      method: 'GET',
+      headers: { host: 'local.test', 'x-forwarded-proto': 'https', 'x-forwarded-host': ['example.com'] as any },
+      socket: {}
+    } as any;
+
+    await expect(reg.handleHttp(req, res)).resolves.toBe(true);
+    const mediaWsUrl = createWebhookResponse.mock.calls[0][0].mediaWsUrl;
+    expect(String(mediaWsUrl)).toContain('wss://local.test/voice/media?token=');
+  });
+
+  test('/voice/webhook ignores x-forwarded-host with CRLF/whitespace injection', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+    process.env.LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS = '1';
+
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const createWebhookResponse = jest.fn(async (options: any) => ({ status: 200, headers: { 'Content-Type': 'text/xml' }, body: `<x>${options.mediaWsUrl}</x>` }));
+    const providerPlugins = { getCompat: jest.fn(async () => ({ createWebhookResponse })) };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: providerPlugins as any
+    });
+
+    const res = createMockRes();
+    const req = {
+      url: '/voice/webhook?callConfigId=cfg_1',
+      method: 'GET',
+      headers: { host: 'local.test', 'x-forwarded-proto': 'https', 'x-forwarded-host': 'example.com\r\nX-Evil: 1' },
+      socket: {}
+    } as any;
+
+    await expect(reg.handleHttp(req, res)).resolves.toBe(true);
+    const mediaWsUrl = createWebhookResponse.mock.calls[0][0].mediaWsUrl;
+    expect(String(mediaWsUrl)).toContain('wss://local.test/voice/media?token=');
+  });
+
+  test('/voice/webhook ignores x-forwarded-host containing URL components', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+    process.env.LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS = '1';
+
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const createWebhookResponse = jest.fn(async (options: any) => ({ status: 200, headers: { 'Content-Type': 'text/xml' }, body: `<x>${options.mediaWsUrl}</x>` }));
+    const providerPlugins = { getCompat: jest.fn(async () => ({ createWebhookResponse })) };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: providerPlugins as any
+    });
+
+    const res = createMockRes();
+    const req = {
+      url: '/voice/webhook?callConfigId=cfg_1',
+      method: 'GET',
+      headers: { host: 'local.test', 'x-forwarded-proto': 'https', 'x-forwarded-host': 'example.com?x=1' },
+      socket: {}
+    } as any;
+
+    await expect(reg.handleHttp(req, res)).resolves.toBe(true);
+    const mediaWsUrl = createWebhookResponse.mock.calls[0][0].mediaWsUrl;
+    expect(String(mediaWsUrl)).toContain('wss://local.test/voice/media?token=');
+  });
+
   test('/voice/webhook ignores x-forwarded-* when trust proxy headers is disabled', async () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     delete process.env.LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS;
@@ -237,6 +552,51 @@ describe('extensions/voice: server http handlers', () => {
     await expect(reg.handleHttp(req, res)).resolves.toBe(true);
     const mediaWsUrl = createWebhookResponse.mock.calls[0][0].mediaWsUrl;
     expect(String(mediaWsUrl)).toContain('ws://local.test:123/voice/media?token=');
+  });
+
+  test('/voice/webhook falls back to localhost when Host is blank/invalid', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+    delete process.env.LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS;
+
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const createWebhookResponse = jest.fn(async (options: any) => ({ status: 200, headers: { 'Content-Type': 'text/xml' }, body: `<x>${options.mediaWsUrl}</x>` }));
+    const providerPlugins = { getCompat: jest.fn(async () => ({ createWebhookResponse })) };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: providerPlugins as any
+    });
+
+    const res = createMockRes();
+    const req = {
+      url: '/voice/webhook?callConfigId=cfg_1',
+      method: 'GET',
+      headers: { host: '   ' },
+      socket: {}
+    } as any;
+
+    await expect(reg.handleHttp(req, res)).resolves.toBe(true);
+    const mediaWsUrl = createWebhookResponse.mock.calls[0][0].mediaWsUrl;
+    expect(String(mediaWsUrl)).toContain('ws://localhost/voice/media?token=');
   });
 
   test('/voice/webhook prefers explicit public base URL over headers', async () => {

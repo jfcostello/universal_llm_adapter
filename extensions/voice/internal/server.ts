@@ -93,6 +93,29 @@ function getVoicePublicBaseUrlOverride(): string | undefined {
   return parsed.origin;
 }
 
+function sanitizeForwardedProto(raw: unknown): 'http' | 'https' | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const first = raw.split(',')[0]!.trim().toLowerCase();
+  if (first === 'http' || first === 'https') return first;
+  return undefined;
+}
+
+function sanitizeHostHeader(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const first = raw.split(',')[0]!.trim();
+  if (!first) return undefined;
+  if (/[\r\n\t ]/.test(first)) return undefined;
+  if (first.includes('/') || first.includes('\\') || first.includes('@') || first.includes('://')) return undefined;
+
+	  try {
+	    const parsed = new URL(`http://${first}`);
+	    if (parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) return undefined;
+	    return parsed.host;
+	  } catch {
+	    return undefined;
+	  }
+}
+
 function getPublicHttpBaseUrl(req: http.IncomingMessage): string {
   const override = getVoicePublicBaseUrlOverride();
   if (override) return override;
@@ -100,24 +123,11 @@ function getPublicHttpBaseUrl(req: http.IncomingMessage): string {
   const headers = req.headers ?? {};
   const trustProxyHeaders = normalizeFlag(process.env.LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS, false);
 
-  const forwardedProto = trustProxyHeaders ? headers['x-forwarded-proto'] : undefined;
-  const proto = (() => {
-    if (typeof forwardedProto === 'string' && forwardedProto.trim()) {
-      return forwardedProto.split(',')[0]!.trim();
-    }
-    return (req.socket as any)?.encrypted ? 'https' : 'http';
-  })();
+  const fallbackProto = (req.socket as any)?.encrypted ? 'https' : 'http';
+  const proto = (trustProxyHeaders ? sanitizeForwardedProto(headers['x-forwarded-proto']) : undefined) ?? fallbackProto;
 
-  const forwardedHost = trustProxyHeaders ? headers['x-forwarded-host'] : undefined;
-  const host = (() => {
-    if (typeof forwardedHost === 'string' && forwardedHost.trim()) {
-      return forwardedHost.split(',')[0]!.trim();
-    }
-    if (typeof headers.host === 'string' && headers.host.trim()) {
-      return headers.host.trim();
-    }
-    return 'localhost';
-  })();
+  const forwardedHost = trustProxyHeaders ? sanitizeHostHeader(headers['x-forwarded-host']) : undefined;
+  const host = forwardedHost ?? sanitizeHostHeader(headers.host) ?? 'localhost';
 
   return `${proto}://${host}`;
 }
