@@ -104,6 +104,8 @@ describe('extensions/voice: webhook + media wiring', () => {
   const prevSecret = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
   const prevTtl = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS;
   const prevMetricsEnabled = process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED;
+  const prevMaxConcurrent = process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_CONCURRENT_SESSIONS;
+  const prevMaxMessageBytes = process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_MESSAGE_BYTES;
 
   beforeEach(() => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
@@ -125,6 +127,16 @@ describe('extensions/voice: webhook + media wiring', () => {
       delete process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED;
     } else {
       process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED = prevMetricsEnabled;
+    }
+    if (prevMaxConcurrent === undefined) {
+      delete process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_CONCURRENT_SESSIONS;
+    } else {
+      process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_CONCURRENT_SESSIONS = prevMaxConcurrent;
+    }
+    if (prevMaxMessageBytes === undefined) {
+      delete process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_MESSAGE_BYTES;
+    } else {
+      process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_MESSAGE_BYTES = prevMaxMessageBytes;
     }
   });
 
@@ -418,6 +430,117 @@ describe('extensions/voice: webhook + media wiring', () => {
       const logged = JSON.stringify({ err: logger.error.mock.calls });
       expect(logged).toContain('voice.media.error');
       expect(logged).toContain('coded_error');
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('reliability: limits concurrent media WS sessions when configured', async () => {
+    process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_CONCURRENT_SESSIONS = '1';
+
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const providerPlugins = {
+      getCompat: async () => ({
+        createWebhookResponse: async (options: any) => ({
+          status: 200,
+          headers: { 'Content-Type': 'text/xml; charset=utf-8' },
+          body: `<?xml version=\"1.0\"?><Response><Connect><Stream url=\"${options.mediaWsUrl}\" /></Connect></Response>`
+        }),
+        handleMediaConnection: async () => {
+          // keep connection open
+        }
+      })
+    };
+
+    const harness = await startHarness({ store, providerPlugins });
+    try {
+      const res1 = await fetch(new URL('/voice/webhook?callConfigId=cfg_1', harness.baseUrl));
+      const wsUrl1 = extractStreamUrl(await res1.text());
+
+      const res2 = await fetch(new URL('/voice/webhook?callConfigId=cfg_1', harness.baseUrl));
+      const wsUrl2 = extractStreamUrl(await res2.text());
+
+      const { ws: ws1, closePromise: close1 } = await openWs(wsUrl1);
+      await expect(openWs(wsUrl2)).rejects.toBeDefined();
+
+      ws1.close();
+      await close1;
+      await new Promise(res => setTimeout(res, 10));
+
+      const res3 = await fetch(new URL('/voice/webhook?callConfigId=cfg_1', harness.baseUrl));
+      const wsUrl3 = extractStreamUrl(await res3.text());
+      const { ws: ws3, closePromise: close3 } = await openWs(wsUrl3);
+      ws3.close();
+      await close3;
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('reliability: closes connection when max message bytes exceeded', async () => {
+    process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_MESSAGE_BYTES = '32';
+
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const providerPlugins = {
+      getCompat: async () => ({
+        createWebhookResponse: async (options: any) => ({
+          status: 200,
+          headers: { 'Content-Type': 'text/xml; charset=utf-8' },
+          body: `<?xml version=\"1.0\"?><Response><Connect><Stream url=\"${options.mediaWsUrl}\" /></Connect></Response>`
+        }),
+        handleMediaConnection: async () => {
+          // keep connection open
+        }
+      })
+    };
+
+    const harness = await startHarness({ store, providerPlugins });
+    try {
+      const res = await fetch(new URL('/voice/webhook?callConfigId=cfg_1', harness.baseUrl));
+      const wsUrl = extractStreamUrl(await res.text());
+
+      const ws = new WebSocket(wsUrl);
+      const close = new Promise<any>((resolve) => {
+        ws.onclose = (evt: any) => resolve(evt);
+      });
+      await new Promise<void>((resolve, reject) => {
+        ws.onerror = err => reject(err);
+        ws.onopen = () => resolve();
+      });
+
+      ws.send('x'.repeat(200));
+      const evt = await close;
+      expect(Number(evt?.code)).toBe(1009);
     } finally {
       await harness.close();
     }

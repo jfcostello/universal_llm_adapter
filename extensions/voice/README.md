@@ -73,6 +73,15 @@ Metric samples:
 - `voice.media.ws_close_total` (counter) → labels: `{ voiceProvider }`
 - `voice.media.ws_error_total` (counter) → labels: `{ voiceProvider }`
 
+### Reliability (WS guardrails)
+
+Media WS guardrails (server-side):
+- `LLM_ADAPTER_VOICE_MEDIA_WS_MAX_CONCURRENT_SESSIONS` (default: `1000`)
+- `LLM_ADAPTER_VOICE_MEDIA_WS_MAX_MESSAGE_BYTES` (default: `1048576`)
+
+Shutdown behavior:
+- On server shutdown, the extension enters a **draining** mode and rejects new `WS /voice/media` upgrades with `503`.
+
 ## CLI: `llm-adapter voice call`
 
 Creates an outbound voice call by calling the server `POST /voice/calls` endpoint.

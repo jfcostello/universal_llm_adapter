@@ -101,6 +101,26 @@ function getWsTokenTtlSeconds(): number {
   return Math.floor(n);
 }
 
+function getMediaWsMaxMessageBytes(): number {
+  const raw = String(process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_MESSAGE_BYTES ?? '').trim();
+  if (!raw) return 1024 * 1024;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error('Invalid LLM_ADAPTER_VOICE_MEDIA_WS_MAX_MESSAGE_BYTES');
+  }
+  return Math.floor(n);
+}
+
+function getMediaWsMaxConcurrentSessions(): number {
+  const raw = String(process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_CONCURRENT_SESSIONS ?? '').trim();
+  if (!raw) return 1000;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error('Invalid LLM_ADAPTER_VOICE_MEDIA_WS_MAX_CONCURRENT_SESSIONS');
+  }
+  return Math.floor(n);
+}
+
 function mintVoiceMediaToken(options: { callConfigId: string; voiceProvider: string }): string {
   const nowSeconds = Math.floor(Date.now() / 1000);
   const ttlSeconds = getWsTokenTtlSeconds();
@@ -267,18 +287,27 @@ export async function createVoiceServerRegistration(ctx: {
 
   const require = createRequire(import.meta.url);
   const wsLib = require('ws');
-  const wss = new wsLib.WebSocketServer({ noServer: true });
+  const mediaWsMaxMessageBytes = getMediaWsMaxMessageBytes();
+  const mediaWsMaxConcurrentSessions = getMediaWsMaxConcurrentSessions();
+  const wss = new wsLib.WebSocketServer({ noServer: true, maxPayload: mediaWsMaxMessageBytes, perMessageDeflate: false });
+
+  let draining = false;
+  let activeMediaWs = 0;
+  let pendingMediaWs = 0;
 
   const metrics = createVoiceMetrics({
     enabled: String(process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED ?? '').trim() === '1'
   });
 
   const close = async () => {
+    draining = true;
     const clients: any[] = Array.from(wss.clients);
     for (const client of clients) {
       try { client.terminate(); } catch {}
     }
     await new Promise<void>((resolve) => wss.close(() => resolve()));
+    activeMediaWs = 0;
+    pendingMediaWs = 0;
   };
 
   return {
@@ -623,94 +652,137 @@ export async function createVoiceServerRegistration(ctx: {
     handleUpgrade: async ({ req, socket, head, pathname }) => {
       if (pathname !== '/voice/media') return false;
 
-      const url = parseUrl(req.url);
-      if (!url) {
-        writeHttpUpgradeResponse(socket, 400, 'Bad Request', 'Bad Request');
+      if (draining) {
+        writeHttpUpgradeResponse(socket, 503, 'Service Unavailable', 'Service Unavailable');
         socket.destroy();
         return true;
       }
 
-      const token = String(url.searchParams.get('token') ?? '').trim();
-      const verified = verifyVoiceMediaToken(token);
-      if (!verified.ok) {
-        writeHttpUpgradeResponse(socket, 401, 'Unauthorized', 'Unauthorized');
-        socket.destroy();
-        return true;
-      }
+      let pendingReserved = false;
+      const releasePending = () => {
+        if (!pendingReserved) return;
+        pendingReserved = false;
+        pendingMediaWs = Math.max(0, pendingMediaWs - 1);
+      };
 
-      const { callConfigId, voiceProvider, nonce, exp } = verified.payload;
+      try {
+        const url = parseUrl(req.url);
+        if (!url) {
+          writeHttpUpgradeResponse(socket, 400, 'Bad Request', 'Bad Request');
+          socket.destroy();
+          return true;
+        }
 
-      const nowSeconds = Math.floor(Date.now() / 1000);
-      const ttlSeconds = Math.max(1, Math.ceil(exp - nowSeconds));
-      const nonceOk = await store.consumeNonceOnce(nonce, { ttlSeconds });
-      if (!nonceOk) {
+        const token = String(url.searchParams.get('token') ?? '').trim();
+        const verified = verifyVoiceMediaToken(token);
+        if (!verified.ok) {
+          writeHttpUpgradeResponse(socket, 401, 'Unauthorized', 'Unauthorized');
+          socket.destroy();
+          return true;
+        }
+
+        const { callConfigId, voiceProvider, nonce, exp } = verified.payload;
+
+        if (activeMediaWs + pendingMediaWs >= mediaWsMaxConcurrentSessions) {
+          const logger = await resolveLogger(callConfigId);
+          safeLog(logger, 'warning', 'voice.media.rejected', { callConfigId, voiceProvider, reason: 'server_busy' });
+          writeHttpUpgradeResponse(socket, 503, 'Service Unavailable', 'Service Unavailable');
+          socket.destroy();
+          return true;
+        }
+
+        pendingMediaWs += 1;
+        pendingReserved = true;
+
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        const ttlSeconds = Math.max(1, Math.ceil(exp - nowSeconds));
+        const nonceOk = await store.consumeNonceOnce(nonce, { ttlSeconds });
+        if (!nonceOk) {
+          const logger = await resolveLogger(callConfigId);
+          safeLog(logger, 'warning', 'voice.media.rejected', { callConfigId, voiceProvider, reason: 'nonce_replay' });
+          writeHttpUpgradeResponse(socket, 401, 'Unauthorized', 'Unauthorized');
+          socket.destroy();
+          releasePending();
+          return true;
+        }
+
+        const callConfig = await store.getConfig(callConfigId);
+        if (!callConfig) {
+          const logger = await resolveLogger(callConfigId);
+          safeLog(logger, 'warning', 'voice.media.rejected', { callConfigId, voiceProvider, reason: 'unknown_call_config' });
+          writeHttpUpgradeResponse(socket, 404, 'Not Found', 'Not Found');
+          socket.destroy();
+          releasePending();
+          return true;
+        }
+
+        if (String((callConfig as any).voiceProvider ?? '') !== voiceProvider) {
+          const logger = await resolveLogger(callConfigId);
+          safeLog(logger, 'warning', 'voice.media.rejected', { callConfigId, voiceProvider, reason: 'voice_provider_mismatch' });
+          writeHttpUpgradeResponse(socket, 401, 'Unauthorized', 'Unauthorized');
+          socket.destroy();
+          releasePending();
+          return true;
+        }
+
         const logger = await resolveLogger(callConfigId);
-        safeLog(logger, 'warning', 'voice.media.rejected', { callConfigId, voiceProvider, reason: 'nonce_replay' });
-        writeHttpUpgradeResponse(socket, 401, 'Unauthorized', 'Unauthorized');
-        socket.destroy();
-        return true;
-      }
+        const compat = await providerPlugins.getCompat(voiceProvider);
 
-      const callConfig = await store.getConfig(callConfigId);
-      if (!callConfig) {
-        const logger = await resolveLogger(callConfigId);
-        safeLog(logger, 'warning', 'voice.media.rejected', { callConfigId, voiceProvider, reason: 'unknown_call_config' });
-        writeHttpUpgradeResponse(socket, 404, 'Not Found', 'Not Found');
-        socket.destroy();
-        return true;
-      }
+        wss.handleUpgrade(req, socket, head, (ws: any) => {
+          releasePending();
+          activeMediaWs += 1;
 
-      if (String((callConfig as any).voiceProvider ?? '') !== voiceProvider) {
-        const logger = await resolveLogger(callConfigId);
-        safeLog(logger, 'warning', 'voice.media.rejected', { callConfigId, voiceProvider, reason: 'voice_provider_mismatch' });
-        writeHttpUpgradeResponse(socket, 401, 'Unauthorized', 'Unauthorized');
-        socket.destroy();
-        return true;
-      }
+          const releaseActive = () => {
+            activeMediaWs = Math.max(0, activeMediaWs - 1);
+          };
 
-      const logger = await resolveLogger(callConfigId);
-      const compat = await providerPlugins.getCompat(voiceProvider);
-
-      wss.handleUpgrade(req, socket, head, (ws: any) => {
-        metrics.mediaWsConnected(voiceProvider);
-        safeLog(logger, 'info', 'voice.media.connected', { callConfigId, voiceProvider });
-        try {
-          ws.on?.('close', (code: number) => {
-            metrics.mediaWsClosed(voiceProvider);
-            safeLog(logger, 'info', 'voice.media.closed', { callConfigId, voiceProvider, code: Number(code) });
-          });
-          ws.on?.('error', (err: any) => {
-            metrics.mediaWsError(voiceProvider);
-            safeLog(logger, 'error', 'voice.media.ws_error', { callConfigId, voiceProvider, message: err?.message ?? String(err) });
-          });
-        } catch {}
-
-        void Promise.resolve()
-          .then(() =>
-            compat.handleMediaConnection({
-              ws,
-              req,
-              callConfigId,
-              callConfig,
-              voiceProvider,
-              registry: ctx.registry,
-              store,
-              logger,
-              metrics
-            })
-          )
-          .catch((err) => {
-            metrics.compatError('media_connection', voiceProvider);
-            safeLog(logger, 'error', 'voice.media.error', {
-              callConfigId,
-              voiceProvider,
-              code: err?.code !== undefined ? String(err.code) : undefined,
-              message: err?.message ?? 'Media handler failed'
+          metrics.mediaWsConnected(voiceProvider);
+          safeLog(logger, 'info', 'voice.media.connected', { callConfigId, voiceProvider });
+          try {
+            ws.on?.('close', (code: number) => {
+              releaseActive();
+              metrics.mediaWsClosed(voiceProvider);
+              safeLog(logger, 'info', 'voice.media.closed', { callConfigId, voiceProvider, code: Number(code) });
             });
-            try { ws.close(); } catch {}
-          });
-      });
-      return true;
+            ws.on?.('error', (err: any) => {
+              metrics.mediaWsError(voiceProvider);
+              safeLog(logger, 'error', 'voice.media.ws_error', { callConfigId, voiceProvider, message: err?.message ?? String(err) });
+            });
+          } catch {}
+
+          void Promise.resolve()
+            .then(() =>
+              compat.handleMediaConnection({
+                ws,
+                req,
+                callConfigId,
+                callConfig,
+                voiceProvider,
+                registry: ctx.registry,
+                store,
+                logger,
+                metrics
+              })
+            )
+            .catch((err) => {
+              metrics.compatError('media_connection', voiceProvider);
+              safeLog(logger, 'error', 'voice.media.error', {
+                callConfigId,
+                voiceProvider,
+                code: err?.code !== undefined ? String(err.code) : undefined,
+                message: err?.message ?? 'Media handler failed'
+              });
+              try { ws.close(); } catch {}
+            });
+        });
+
+        return true;
+      } catch (error: any) {
+        releasePending();
+        writeHttpUpgradeResponse(socket, 500, 'Internal Server Error', 'Internal Server Error');
+        socket.destroy();
+        return true;
+      }
     },
 
     close

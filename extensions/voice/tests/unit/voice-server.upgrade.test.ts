@@ -17,6 +17,8 @@ function extractStatusLine(payload: any): string {
 describe('extensions/voice: server upgrade handler', () => {
   const prevSecret = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
   const prevTtl = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS;
+  const prevMaxConcurrent = process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_CONCURRENT_SESSIONS;
+  const prevMaxMessageBytes = process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_MESSAGE_BYTES;
 
   beforeEach(() => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
@@ -33,6 +35,16 @@ describe('extensions/voice: server upgrade handler', () => {
       delete process.env.LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS;
     } else {
       process.env.LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS = prevTtl;
+    }
+    if (prevMaxConcurrent === undefined) {
+      delete process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_CONCURRENT_SESSIONS;
+    } else {
+      process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_CONCURRENT_SESSIONS = prevMaxConcurrent;
+    }
+    if (prevMaxMessageBytes === undefined) {
+      delete process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_MESSAGE_BYTES;
+    } else {
+      process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_MESSAGE_BYTES = prevMaxMessageBytes;
     }
   });
 
@@ -172,5 +184,109 @@ describe('extensions/voice: server upgrade handler', () => {
     const socketMissingProvider = makeSocket();
     await expect(reg.handleUpgrade({ req: { url: `/voice/media?token=${encodeURIComponent(missingProviderToken)}` } as any, socket: socketMissingProvider, head: Buffer.alloc(0), pathname: '/voice/media' })).resolves.toBe(true);
     expect(extractStatusLine(socketMissingProvider)).toContain('401 Unauthorized');
+  });
+
+  test('rejects new upgrades while draining', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: { getCompat: jest.fn() } as any
+    });
+
+    await reg.close();
+
+    const socket = makeSocket();
+    await expect(reg.handleUpgrade({ req: { url: '/voice/media?token=bad' } as any, socket, head: Buffer.alloc(0), pathname: '/voice/media' })).resolves.toBe(true);
+    expect(extractStatusLine(socket)).toContain('503 Service Unavailable');
+    expect(socket.destroy).toHaveBeenCalled();
+  });
+
+  test('throws on invalid media WS env var config', async () => {
+    process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_MESSAGE_BYTES = '0';
+    await expect(
+      createVoiceServerRegistration({
+        server: {} as any,
+        registry: {},
+        pluginsPath: './plugins',
+        upgradeRouter: {} as any,
+        store: createInMemoryVoiceCallConfigStore(),
+        providerPlugins: { getCompat: jest.fn() } as any
+      })
+    ).rejects.toThrow('Invalid LLM_ADAPTER_VOICE_MEDIA_WS_MAX_MESSAGE_BYTES');
+
+    process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_MESSAGE_BYTES = '1';
+    process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_CONCURRENT_SESSIONS = 'nope';
+    await expect(
+      createVoiceServerRegistration({
+        server: {} as any,
+        registry: {},
+        pluginsPath: './plugins',
+        upgradeRouter: {} as any,
+        store: createInMemoryVoiceCallConfigStore(),
+        providerPlugins: { getCompat: jest.fn() } as any
+      })
+    ).rejects.toThrow('Invalid LLM_ADAPTER_VOICE_MEDIA_WS_MAX_CONCURRENT_SESSIONS');
+  });
+
+  test('unexpected upgrade errors return 500 and do not hang', async () => {
+    const store: any = {
+      putConfig: jest.fn(async () => {}),
+      getConfig: jest.fn(async () => null),
+      deleteConfig: jest.fn(async () => {}),
+      putIdempotency: jest.fn(async () => {}),
+      getIdempotency: jest.fn(async () => null),
+      consumeNonceOnce: jest.fn(async () => {
+        throw new Error('boom');
+      })
+    };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: { getCompat: jest.fn() } as any
+    });
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const token = createSignedWsToken({
+      secret: 'secret',
+      payload: {
+        iat: nowSeconds,
+        exp: nowSeconds + 60,
+        nonce: 'n1',
+        purpose: 'voice_media',
+        callConfigId: 'cfg_1',
+        voiceProvider: 'p1'
+      } as any
+    });
+
+    const socket = makeSocket();
+    await expect(reg.handleUpgrade({ req: { url: `/voice/media?token=${encodeURIComponent(token)}` } as any, socket, head: Buffer.alloc(0), pathname: '/voice/media' })).resolves.toBe(true);
+    expect(extractStatusLine(socket)).toContain('500 Internal Server Error');
+    expect(socket.destroy).toHaveBeenCalled();
+  });
+
+  test('unexpected upgrade errors before pending reservation return 500', async () => {
+    delete process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store: createInMemoryVoiceCallConfigStore(),
+      providerPlugins: { getCompat: jest.fn() } as any
+    });
+
+    const socket = makeSocket();
+    await expect(reg.handleUpgrade({ req: { url: '/voice/media' } as any, socket, head: Buffer.alloc(0), pathname: '/voice/media' })).resolves.toBe(true);
+    expect(extractStatusLine(socket)).toContain('500 Internal Server Error');
+    expect(socket.destroy).toHaveBeenCalled();
   });
 });
