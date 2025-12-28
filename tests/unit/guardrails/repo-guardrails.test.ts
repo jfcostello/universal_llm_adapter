@@ -7,6 +7,7 @@ const IGNORED_DIRS = new Set([
   'node_modules',
   'dist',
   'coverage',
+  '.worktrees',
   '.git',
   '.history',
   'logs'
