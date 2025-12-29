@@ -1,4 +1,5 @@
 import type { JsonValue, RealtimeAudioFrame, RealtimeSessionSpec, UnifiedTool } from '../../../../kernel/index.js';
+import { parseRealtimeSessionSettings } from '../../../../kernel/index.js';
 
 type OpenAIRealtimeClientEvent = Record<string, any>;
 
@@ -101,6 +102,7 @@ export function buildSessionUpdateEvent(options: {
   event: OpenAIRealtimeClientEvent;
   audio: { input: RealtimeAudioFrame; output: RealtimeAudioFrame };
   toolNameByProviderName: Map<string, string>;
+  settingsWarnings: { unknownKeys: string[]; invalidKeys: string[] };
 } {
   const audio = resolveAudioConfig(options.spec);
 
@@ -154,12 +156,22 @@ export function buildSessionUpdateEvent(options: {
 
   const resolvedToolChoice = toolChoice ?? (toolsForSession ? 'auto' : undefined);
 
+  const { values: settingsValues, unknownKeys, invalidKeys } = parseRealtimeSessionSettings(options.spec.settings, {
+    temperature: { type: 'number' },
+    voice: { type: 'string' }
+  });
+
+  const voice = typeof settingsValues.voice === 'string' ? settingsValues.voice : undefined;
+  const temperature = typeof settingsValues.temperature === 'number' ? settingsValues.temperature : undefined;
+
   const event: OpenAIRealtimeClientEvent = {
     type: 'session.update',
     session: {
       type: 'realtime',
       instructions: options.spec.systemPrompt ?? undefined,
       output_modalities: ['audio'],
+      ...(voice ? { voice } : {}),
+      ...(temperature !== undefined ? { temperature } : {}),
       audio: {
         input: {
           format: toOpenAIAudioFormat(audio.input.format),
@@ -182,7 +194,7 @@ export function buildSessionUpdateEvent(options: {
     }
   };
 
-  return { event, audio, toolNameByProviderName };
+  return { event, audio, toolNameByProviderName, settingsWarnings: { unknownKeys, invalidKeys } };
 }
 
 export function buildConversationItemCreateEvent(options: {

@@ -1,4 +1,5 @@
 import type { JsonValue, RealtimeAudioFrame, RealtimeSessionSpec, UnifiedTool } from '../../../../kernel/index.js';
+import { parseRealtimeSessionSettings } from '../../../../kernel/index.js';
 
 type GrokRealtimeClientEvent = Record<string, any>;
 
@@ -110,9 +111,17 @@ export function buildSessionUpdateEvent(options: {
   event: GrokRealtimeClientEvent;
   audio: { input: RealtimeAudioFrame; output: RealtimeAudioFrame };
   toolNameByProviderName: Map<string, string>;
+  settingsWarnings: { unknownKeys: string[]; invalidKeys: string[] };
 } {
   const audio = resolveAudioConfig(options.spec);
-  const voice = resolveVoice(options.spec, options.defaultVoice);
+  const { values: settingsValues, unknownKeys, invalidKeys } = parseRealtimeSessionSettings(options.spec.settings, {
+    temperature: { type: 'number' },
+    voice: { type: 'string' }
+  });
+
+  const voiceFromSettings = typeof settingsValues.voice === 'string' ? settingsValues.voice : undefined;
+  const voice = voiceFromSettings ?? resolveVoice(options.spec, options.defaultVoice);
+  const temperature = typeof settingsValues.temperature === 'number' ? settingsValues.temperature : undefined;
 
   const turnMode = options.spec.turnDetection?.mode ?? 'manual_commit';
   const turnDetection = turnMode === 'server_vad' ? { type: 'server_vad' } : null;
@@ -156,6 +165,7 @@ export function buildSessionUpdateEvent(options: {
     session: {
       ...(options.spec.systemPrompt ? { instructions: options.spec.systemPrompt } : {}),
       ...(voice ? { voice } : {}),
+      ...(temperature !== undefined ? { temperature } : {}),
       audio: {
         input: { format: toGrokAudioFormat(audio.input.format, audio.input.sampleRateHz) },
         output: { format: toGrokAudioFormat(audio.output.format, audio.output.sampleRateHz) }
@@ -166,7 +176,7 @@ export function buildSessionUpdateEvent(options: {
     }
   };
 
-  return { event, audio, toolNameByProviderName };
+  return { event, audio, toolNameByProviderName, settingsWarnings: { unknownKeys, invalidKeys } };
 }
 
 export function buildConversationItemCreateEvent(options: {

@@ -78,7 +78,7 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
 
   const toolCallTrackingMaxEntries = resolveRealtimeToolCallTrackingMaxEntries(spec);
 
-  const { message: setupMessage, audio } = buildGeminiSetupMessage({
+  const { message: setupMessage, audio, settingsWarnings } = buildGeminiSetupMessage({
     model,
     spec,
     tools: options.tools
@@ -111,6 +111,21 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
 
   let closed = false;
   let readySent = false;
+  const preReadyEvents: RealtimeEvent[] = [];
+  if (settingsWarnings.unknownKeys.length > 0) {
+    preReadyEvents.push({
+      type: 'error',
+      code: 'unsupported_session_settings',
+      message: `Unsupported session settings ignored: ${settingsWarnings.unknownKeys.sort().join(', ')}`
+    });
+  }
+  if (settingsWarnings.invalidKeys.length > 0) {
+    preReadyEvents.push({
+      type: 'error',
+      code: 'invalid_session_settings',
+      message: `Invalid session settings ignored: ${settingsWarnings.invalidKeys.sort().join(', ')}`
+    });
+  }
   let setupComplete = false;
   const expectedHistory = Array.isArray(spec.history) ? spec.history : undefined;
   let startupHistoryCallAccepted = false;
@@ -125,6 +140,7 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
       audio: { input: audio.input, output: audio.output },
       transcription: spec.transcription
     });
+    while (preReadyEvents.length > 0) queue.push(preReadyEvents.shift()!);
   };
 
   const emitClosedOnce = (reason: Extract<RealtimeEvent, { type: 'closed' }>['reason']) => {

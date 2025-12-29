@@ -1,4 +1,6 @@
 import fs from 'fs';
+import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
 
 import { Command } from 'commander';
 
@@ -70,6 +72,92 @@ function readOptionalNumber(value: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+function readOptionalJsonObject(options: {
+  json?: unknown;
+  jsonFile?: unknown;
+  context: string;
+}): any | undefined {
+  if (options.jsonFile !== undefined) {
+    const filePath = String(options.jsonFile);
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    return parseJsonOrThrow(raw, `in file '${filePath}'`);
+  }
+  if (options.json !== undefined) {
+    return parseJsonOrThrow(String(options.json), `in ${options.context}`);
+  }
+  return undefined;
+}
+
+function normalizeSseLine(line: string): { field: string; value: string } | undefined {
+  const idx = line.indexOf(':');
+  if (idx === -1) return undefined;
+  const field = line.slice(0, idx).trim();
+  if (!field) return undefined;
+  const value = line.slice(idx + 1).replace(/^\s/, '');
+  return { field, value };
+}
+
+async function streamSseJsonLines(options: {
+  res: Response;
+  onJson: (value: any) => Promise<void> | void;
+}): Promise<void> {
+  const body = options.res.body;
+  if (!body) return;
+
+  const stream = Readable.fromWeb(body as any);
+  stream.setEncoding('utf-8');
+
+  let buffer = '';
+  let dataLines: string[] = [];
+
+  const flush = async () => {
+    if (dataLines.length === 0) return;
+    const raw = dataLines.join('\n');
+    dataLines = [];
+    const parsed = JSON.parse(raw);
+    await options.onJson(parsed);
+  };
+
+  for await (const chunk of stream) {
+    buffer += String(chunk).replace(/\r/g, '');
+
+    let idx: number;
+    while ((idx = buffer.indexOf('\n\n')) !== -1) {
+      const block = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+
+      const lines = block.split('\n');
+      for (const rawLine of lines) {
+        const line = rawLine.trimEnd();
+        if (!line) continue;
+        if (line.startsWith(':')) continue;
+        const kv = normalizeSseLine(line);
+        if (!kv) continue;
+        if (kv.field === 'data') {
+          dataLines.push(kv.value);
+        }
+      }
+      await flush();
+    }
+  }
+
+  // Flush trailing buffered event if stream ended without a final blank line.
+  if (buffer.trim()) {
+    const lines = buffer.split('\n');
+    for (const rawLine of lines) {
+      const line = rawLine.trimEnd();
+      if (!line) continue;
+      if (line.startsWith(':')) continue;
+      const kv = normalizeSseLine(line);
+      if (!kv) continue;
+      if (kv.field === 'data') {
+        dataLines.push(kv.value);
+      }
+    }
+    await flush();
+  }
+}
+
 async function writeJson(stdout: NodeJS.WritableStream, value: unknown, options: { pretty: boolean }) {
   const text = options.pretty ? JSON.stringify(value, null, 2) : JSON.stringify(value);
   await new Promise<void>(resolve => (stdout as any).write(text + '\n', () => resolve()));
@@ -112,8 +200,17 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
     .option('--voice-provider <id>', 'Voice provider id (server plugin)')
     .option('--system-prompt <text>', 'System prompt text')
     .option('--system-prompt-file <path>', 'Path to a system prompt file')
+    .option('--metadata <json>', 'Metadata JSON object (stored on the call config)')
+    .option('--metadata-file <path>', 'Path to metadata JSON file')
+    .option('--request-id <id>', 'Optional request id (sent as x-request-id and stored on the call config)')
     .option('--realtime-spec <json>', 'Realtime session spec as JSON string')
     .option('--realtime-spec-file <path>', 'Path to realtime session spec JSON file')
+    .option('--assistant-first-turn <json>', 'assistantFirstTurn JSON object')
+    .option('--assistant-first-turn-file <path>', 'Path to assistantFirstTurn JSON file')
+    .option('--timeouts <json>', 'timeouts JSON object')
+    .option('--timeouts-file <path>', 'Path to timeouts JSON file')
+    .option('--recording <json>', 'recording JSON object')
+    .option('--recording-file <path>', 'Path to recording JSON file')
     .option('--pretty', 'Pretty print output')
     .action(async (options) => {
       try {
@@ -143,6 +240,16 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
           stdin: io.stdin
         });
 
+        const metadata = readOptionalJsonObject({ json: options.metadata, jsonFile: options.metadataFile, context: '--metadata' });
+        const requestId = typeof options.requestId === 'string' ? options.requestId.trim() : '';
+        const assistantFirstTurn = readOptionalJsonObject({
+          json: options.assistantFirstTurn,
+          jsonFile: options.assistantFirstTurnFile,
+          context: '--assistant-first-turn'
+        });
+        const timeouts = readOptionalJsonObject({ json: options.timeouts, jsonFile: options.timeoutsFile, context: '--timeouts' });
+        const recording = readOptionalJsonObject({ json: options.recording, jsonFile: options.recordingFile, context: '--recording' });
+
         const ttlSeconds = readOptionalNumber(options.ttlSeconds) ?? 900;
 
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -157,12 +264,20 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
           headers['Idempotency-Key'] = idempotencyKey;
         }
 
+        if (requestId) {
+          headers['x-request-id'] = requestId;
+        }
+
         const body = {
           to,
           from,
           voiceProvider,
           realtimeSpec,
           ...(systemPrompt !== undefined ? { systemPrompt } : {}),
+          ...(metadata !== undefined ? { metadata } : {}),
+          ...(assistantFirstTurn !== undefined ? { assistantFirstTurn } : {}),
+          ...(timeouts !== undefined ? { timeouts } : {}),
+          ...(recording !== undefined ? { recording } : {}),
           ttlSeconds
         };
 
@@ -181,6 +296,150 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
 
         const parsed = JSON.parse(text);
         await writeJson(io.stdout, parsed, { pretty: options.pretty === true });
+        deps.exit(0);
+      } catch (error: any) {
+        await writeStructuredError(deps, error);
+        deps.exit(1);
+      }
+    });
+
+  program
+    .command('end')
+    .description('End a voice call (server-side)')
+    .option('--server-url <url>', 'Base URL of a running adapter server (e.g. http://127.0.0.1:3000)')
+    .option('--api-key <key>', 'API key for server auth (sent as x-api-key by default)')
+    .option('--api-key-header-name <name>', 'Header name for api key (default: x-api-key)', 'x-api-key')
+    .option('--call-config-id <id>', 'Call config id to terminate')
+    .option('--pretty', 'Pretty print output')
+    .action(async (options) => {
+      try {
+        const serverUrl = readRequiredTrimmed(options.serverUrl, 'serverUrl');
+        const callConfigId = readRequiredTrimmed(options.callConfigId, 'callConfigId');
+
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        const apiKey = typeof options.apiKey === 'string' ? options.apiKey.trim() : '';
+        const apiKeyHeaderName = String(options.apiKeyHeaderName).trim();
+        if (apiKey) {
+          headers[apiKeyHeaderName] = apiKey;
+        }
+
+        const res = await fetch(new URL(`/voice/calls/${encodeURIComponent(callConfigId)}/end`, serverUrl), {
+          method: 'POST',
+          headers
+        });
+
+        const text = await res.text();
+        if (!res.ok) {
+          io.stderr.write(text.trimEnd() + '\n');
+          deps.exit(1);
+          return;
+        }
+
+        const parsed = JSON.parse(text);
+        await writeJson(io.stdout, parsed, { pretty: options.pretty === true });
+        deps.exit(0);
+      } catch (error: any) {
+        await writeStructuredError(deps, error);
+        deps.exit(1);
+      }
+    });
+
+  program
+    .command('events')
+    .description('Stream voice call events (server-side SSE)')
+    .option('--server-url <url>', 'Base URL of a running adapter server (e.g. http://127.0.0.1:3000)')
+    .option('--api-key <key>', 'API key for server auth (sent as x-api-key by default)')
+    .option('--api-key-header-name <name>', 'Header name for api key (default: x-api-key)', 'x-api-key')
+    .option('--call-config-id <id>', 'Call config id to stream events for')
+    .option('--include-deltas <0|1>', 'Include transcript deltas in the stream', (v) => String(v))
+    .action(async (options) => {
+      try {
+        const serverUrl = readRequiredTrimmed(options.serverUrl, 'serverUrl');
+        const callConfigId = readRequiredTrimmed(options.callConfigId, 'callConfigId');
+
+        const headers: Record<string, string> = { Accept: 'text/event-stream' };
+        const apiKey = typeof options.apiKey === 'string' ? options.apiKey.trim() : '';
+        const apiKeyHeaderName = String(options.apiKeyHeaderName).trim();
+        if (apiKey) {
+          headers[apiKeyHeaderName] = apiKey;
+        }
+
+        const url = new URL(`/voice/calls/${encodeURIComponent(callConfigId)}/events`, serverUrl);
+        const includeDeltasRaw = typeof options.includeDeltas === 'string' ? options.includeDeltas.trim() : '';
+        if (includeDeltasRaw === '0' || includeDeltasRaw === '1') {
+          url.searchParams.set('includeDeltas', includeDeltasRaw);
+        }
+
+        const res = await fetch(url, { method: 'GET', headers });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          io.stderr.write(text.trimEnd() + '\n');
+          deps.exit(1);
+          return;
+        }
+
+        await streamSseJsonLines({
+          res,
+          onJson: async (value) => {
+            await new Promise<void>(resolve => (io.stdout as any).write(JSON.stringify(value) + '\n', () => resolve()));
+          }
+        });
+
+        deps.exit(0);
+      } catch (error: any) {
+        await writeStructuredError(deps, error);
+        deps.exit(1);
+      }
+    });
+
+  program
+    .command('recording')
+    .description('Download a voice call recording (server-side)')
+    .option('--server-url <url>', 'Base URL of a running adapter server (e.g. http://127.0.0.1:3000)')
+    .option('--api-key <key>', 'API key for server auth (sent as x-api-key by default)')
+    .option('--api-key-header-name <name>', 'Header name for api key (default: x-api-key)', 'x-api-key')
+    .option('--call-config-id <id>', 'Call config id to download recording for')
+    .option('--output <path>', 'Write recording bytes to a file (defaults to stdout)')
+    .action(async (options) => {
+      try {
+        const serverUrl = readRequiredTrimmed(options.serverUrl, 'serverUrl');
+        const callConfigId = readRequiredTrimmed(options.callConfigId, 'callConfigId');
+
+        const headers: Record<string, string> = {};
+        const apiKey = typeof options.apiKey === 'string' ? options.apiKey.trim() : '';
+        const apiKeyHeaderName = String(options.apiKeyHeaderName).trim();
+        if (apiKey) {
+          headers[apiKeyHeaderName] = apiKey;
+        }
+
+        const res = await fetch(new URL(`/voice/calls/${encodeURIComponent(callConfigId)}/recording`, serverUrl), {
+          method: 'GET',
+          headers
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          io.stderr.write(text.trimEnd() + '\n');
+          deps.exit(1);
+          return;
+        }
+
+        const destPath = typeof options.output === 'string' ? options.output.trim() : '';
+        if (destPath) {
+          const writable = fs.createWriteStream(destPath);
+          if (res.body) {
+            const stream = Readable.fromWeb(res.body as any);
+            await pipeline(stream, writable);
+          } else {
+            writable.end();
+          }
+        } else {
+          if (res.body) {
+            const stream = Readable.fromWeb(res.body as any);
+            await pipeline(stream, io.stdout as any);
+          }
+        }
+
         deps.exit(0);
       } catch (error: any) {
         await writeStructuredError(deps, error);

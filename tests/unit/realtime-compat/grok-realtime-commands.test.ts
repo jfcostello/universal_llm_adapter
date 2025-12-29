@@ -42,6 +42,37 @@ describe('realtime-compat/grok — commands', () => {
     expect(event.session.voice).toBe('rex');
   });
 
+  test('buildSessionUpdateEvent prefers spec.settings.voice over spec.metadata.voice', () => {
+    const { event, settingsWarnings } = buildSessionUpdateEvent({
+      spec: { provider: 'grok', settings: { voice: 's1' }, metadata: { voice: 'm1' } } as any,
+      defaultVoice: 'ara'
+    });
+    expect(event.session.voice).toBe('s1');
+    expect(settingsWarnings.unknownKeys).toEqual([]);
+    expect(settingsWarnings.invalidKeys).toEqual([]);
+  });
+
+  test('buildSessionUpdateEvent maps temperature and reports unknown/invalid keys', () => {
+    const { event, settingsWarnings } = buildSessionUpdateEvent({
+      spec: { provider: 'grok', settings: { temperature: 0.9, extra: true } } as any,
+      defaultVoice: 'ara'
+    });
+    expect(event.session.temperature).toBe(0.9);
+    expect(settingsWarnings.unknownKeys).toEqual(['extra']);
+    expect(settingsWarnings.invalidKeys).toEqual([]);
+  });
+
+  test('buildSessionUpdateEvent ignores invalid typed session settings', () => {
+    const { event, settingsWarnings } = buildSessionUpdateEvent({
+      spec: { provider: 'grok', settings: { voice: '   ', temperature: 'nope' } } as any,
+      defaultVoice: 'ara'
+    });
+    expect(event.session.voice).toBe('ara');
+    expect(event.session.temperature).toBeUndefined();
+    expect(settingsWarnings.unknownKeys).toEqual([]);
+    expect(settingsWarnings.invalidKeys.sort()).toEqual(['temperature', 'voice']);
+  });
+
   test('buildSessionUpdateEvent trims voice override and falls back to default voice when override is empty', () => {
     const { event } = buildSessionUpdateEvent({
       spec: { provider: 'grok', metadata: { voice: '   ' } },

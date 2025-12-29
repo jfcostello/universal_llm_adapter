@@ -544,4 +544,87 @@ describe('extensions/voice: /voice/calls', () => {
       else process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED = prevMetricsEnabled;
     }
   });
+
+  test('stores assistantFirstTurn config when provided', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    const createOutboundCall = jest.fn(async () => ({ providerCallId: 'p1' }));
+    const harness = await startHarness({
+      store,
+      providerPlugins: {
+        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
+        getCompat: jest.fn(async () => ({ createOutboundCall }))
+      },
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+    });
+
+    try {
+      const res = await fetch(new URL('/voice/calls', harness.baseUrl), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer k1' },
+        body: JSON.stringify({
+          to: 'to',
+          from: 'from',
+          realtimeSpec: { ok: true },
+          voiceProvider: 'test',
+          timeouts: { callTimeoutMs: 12345, silenceTimeoutMs: 2345 },
+          recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'dual' },
+          assistantFirstTurn: {
+            enabled: true,
+            prompt: 'Greet the caller briefly and professionally.',
+            role: 'user',
+            delayMs: 123,
+            missingPromptBehavior: 'reject'
+          }
+        })
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+
+      const stored = await store.getConfig(body.callConfigId);
+      expect(stored?.assistantFirstTurn).toEqual({
+        enabled: true,
+        prompt: 'Greet the caller briefly and professionally.',
+        role: 'user',
+        delayMs: 123,
+        missingPromptBehavior: 'reject'
+      });
+      expect(stored?.timeouts).toEqual({ callTimeoutMs: 12345, silenceTimeoutMs: 2345 });
+      expect(stored?.recording).toEqual({ enabled: true, mode: 'provider', format: 'mp3', channels: 'dual' });
+      expect(stored?.providerCallId).toBe('p1');
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('rejects assistantFirstTurn enabled without prompt by default', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    const createOutboundCall = jest.fn(async () => ({ providerCallId: 'p1' }));
+    const harness = await startHarness({
+      store,
+      providerPlugins: {
+        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
+        getCompat: jest.fn(async () => ({ createOutboundCall }))
+      },
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+    });
+
+    try {
+      const res = await fetch(new URL('/voice/calls', harness.baseUrl), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer k1' },
+        body: JSON.stringify({
+          to: 'to',
+          from: 'from',
+          realtimeSpec: { ok: true },
+          voiceProvider: 'test',
+          assistantFirstTurn: { enabled: true }
+        })
+      });
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body?.error?.code).toBe('validation_error');
+    } finally {
+      await harness.close();
+    }
+  });
 });

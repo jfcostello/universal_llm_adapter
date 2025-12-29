@@ -102,6 +102,37 @@ describe('realtime-compat/grok — session core', () => {
     await session.close();
   });
 
+  test('emits non-fatal warnings for unsupported/invalid session settings', async () => {
+    const fake = createFakeTransport();
+
+    const session = createGrokRealtimeCompatSessionWithTransport(
+      {
+        provider,
+        spec: { provider: 'grok', settings: { unknownKey: 'x', temperature: 'nope' } } as any
+      },
+      fake.transport as any
+    );
+
+    const it = session.events()[Symbol.asyncIterator]();
+    fake.push({ type: 'open' });
+
+    fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created', conversation: { id: 'c1' } }) });
+    await new Promise(res => setTimeout(res, 0));
+
+    fake.push({ type: 'message', data: JSON.stringify({ type: 'session.updated', session: { id: 's1' } }) });
+    await waitForEvent(it, e => e.type === 'ready');
+
+    const second = await it.next();
+    expect(second.value).toMatchObject({ type: 'error', code: 'unsupported_session_settings' });
+    expect(String(second.value.message)).toContain('unknownKey');
+
+    const third = await it.next();
+    expect(third.value).toMatchObject({ type: 'error', code: 'invalid_session_settings' });
+    expect(String(third.value.message)).toContain('temperature');
+
+    await session.close();
+  });
+
   test('buffers mapped events until ready, then flushes them in order', async () => {
     const fake = createFakeTransport();
 

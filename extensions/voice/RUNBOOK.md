@@ -12,6 +12,50 @@
 - Metrics/logging enabled as needed:
   - `LLM_ADAPTER_VOICE_METRICS_ENABLED=1` for `GET /voice/metrics`
 
+## Call events (SSE)
+
+The server can stream per-call lifecycle + transcript events via:
+- `GET /voice/calls/:callConfigId/events` (requires server auth)
+
+Example:
+
+```bash
+curl -N "http://127.0.0.1:3000/voice/calls/<callConfigId>/events" \\
+  -H "x-api-key: <serverApiKey>"
+```
+
+Notes:
+- Use `?includeDeltas=0` to reduce event volume if you only need final transcript events.
+- In multi-instance deployments, ensure SSE requests route to the same instance handling the call’s media WS (or use a shared event bus).
+
+## Ending calls
+
+To terminate a live call:
+- `POST /voice/calls/:callConfigId/end` (requires server auth)
+
+```bash
+curl -sS -X POST "http://127.0.0.1:3000/voice/calls/<callConfigId>/end" \\
+  -H "x-api-key: <serverApiKey>"
+```
+
+Notes:
+- Call termination requires the call to have a provider call id; if it is missing you’ll see `409 not_ready`.
+
+## Recording download
+
+Provider-side recording support is surfaced via:
+- `POST /voice/webhook/recording` (provider callback; requires a call config with recording enabled)
+- `GET /voice/calls/:callConfigId/recording` (requires server auth)
+
+```bash
+curl -L "http://127.0.0.1:3000/voice/calls/<callConfigId>/recording" \\
+  -H "x-api-key: <serverApiKey>" \\
+  -o call.<ext>
+```
+
+Notes:
+- If recording is enabled but not ready yet, the download endpoint returns `409 recording_not_ready`.
+
 ## Local load exercise
 
 This repo includes a small local load exercise script under:
@@ -57,4 +101,3 @@ Notes:
   - call config missing/expired in the configured store.
 - `503` on `/voice/media`:
   - instance is draining or at the configured WS concurrency limit.
-

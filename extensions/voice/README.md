@@ -12,7 +12,11 @@ This extension is:
 Server endpoints:
 - `POST /voice/calls`
 - `GET|POST /voice/webhook`
+- `POST /voice/webhook/recording` (provider callback)
 - `WS /voice/media`
+- `GET /voice/calls/:callConfigId/events` (SSE; requires server auth)
+- `POST /voice/calls/:callConfigId/end` (requires server auth)
+- `GET /voice/calls/:callConfigId/recording` (requires server auth)
 - `GET /voice/metrics` (optional)
 
 CLI:
@@ -58,6 +62,15 @@ Enable the voice extension on the server via:
 - `LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS` (default: off)
   - When enabled, `x-forwarded-proto` / `x-forwarded-host` are used for public URL derivation (invalid values are ignored and the server falls back to the socket/`Host`).
 
+### Server defaults (optional)
+
+The voice extension supports server-side defaults under `server.extensions.voice` (applies to `POST /voice/calls` when a field is omitted):
+
+- `assistantFirstTurn`: `{ enabled, prompt, role, delayMs, missingPromptBehavior }`
+- `timeouts`: `{ callTimeoutMs, silenceTimeoutMs }`
+- `recording`: `{ enabled, mode, format, channels }`
+- `events`: `{ includeDeltas }` (default for `GET /voice/calls/:callConfigId/events?includeDeltas=...`)
+
 ### Provider plugins
 
 Voice providers are configured via plugin manifests under:
@@ -98,6 +111,8 @@ If you run behind a reverse proxy/load balancer, ensure it forwards those header
 
 Notes:
 - `POST /voice/calls` supports idempotency via the `Idempotency-Key` header or `idempotencyKey` JSON body field. Keys are trimmed; extremely large keys are stored via a stable hash to keep store keys bounded.
+- Consumers can subscribe to real-time call events (including transcripts) via `GET /voice/calls/<callConfigId>/events` (SSE).
+- When enabled, provider-side recording callbacks are received at `POST /voice/webhook/recording`, and recordings can be fetched via `GET /voice/calls/<callConfigId>/recording`.
 
 ### Inbound call
 
@@ -134,7 +149,24 @@ curl -sS http://127.0.0.1:3000/voice/calls \\
     "to": "<to>",
     "from": "<from>",
     "voiceProvider": "test",
-    "realtimeSpec": {}
+    "realtimeSpec": {},
+    "assistantFirstTurn": {
+      "enabled": true,
+      "prompt": "Greet the user briefly and ask how you can help.",
+      "role": "user",
+      "delayMs": 250,
+      "missingPromptBehavior": "reject"
+    },
+    "timeouts": {
+      "callTimeoutMs": 600000,
+      "silenceTimeoutMs": 30000
+    },
+    "recording": {
+      "enabled": false,
+      "mode": "provider",
+      "format": "mp3",
+      "channels": "mono"
+    }
   }'
 ```
 
@@ -165,6 +197,7 @@ Ensure `x-forwarded-proto` / `x-forwarded-host` are correct so the server genera
 
 - Keep `LLM_ADAPTER_VOICE_WS_TOKEN_SECRET` consistent across instances.
 - For horizontal scaling, configure a shared call config + idempotency store (`LLM_ADAPTER_VOICE_CALL_CONFIG_STORE=redis`).
+- `GET /voice/calls/:callConfigId/events` is emitted by the instance handling the call’s media WS; use sticky routing or a shared event bus if you need to consume events from a different instance.
 - Ensure your proxy/load balancer supports WebSocket and forwards `x-forwarded-*`.
 - Enable server auth + rate limiting when exposing `POST /voice/calls` and `GET /voice/metrics`.
 

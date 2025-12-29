@@ -78,6 +78,36 @@ describe('realtime-compat/openai — commands', () => {
     expect(event.session.audio.input.transcription.language).toBeUndefined();
   });
 
+  test('buildSessionUpdateEvent maps session settings (voice, temperature) and reports unknown/invalid keys', () => {
+    const { event, settingsWarnings } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        settings: { voice: 'voice_1', temperature: 0.7, extra: true, badVoice: '' } as any
+      }
+    });
+
+    expect(event.session.voice).toBe('voice_1');
+    expect(event.session.temperature).toBe(0.7);
+    expect(settingsWarnings.unknownKeys.sort()).toEqual(['badVoice', 'extra']);
+    expect(settingsWarnings.invalidKeys).toEqual([]);
+  });
+
+  test('buildSessionUpdateEvent ignores invalid typed session settings', () => {
+    const { event, settingsWarnings } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        settings: { voice: '   ', temperature: 'nope' } as any
+      }
+    });
+
+    expect(event.session.voice).toBeUndefined();
+    expect(event.session.temperature).toBeUndefined();
+    expect(settingsWarnings.unknownKeys).toEqual([]);
+    expect(settingsWarnings.invalidKeys.sort()).toEqual(['temperature', 'voice']);
+  });
+
   test('buildSessionUpdateEvent validates audio constraints (channels and sample rates)', () => {
     expect(() =>
       buildSessionUpdateEvent({

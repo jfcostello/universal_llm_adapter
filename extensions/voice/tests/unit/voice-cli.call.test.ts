@@ -44,6 +44,29 @@ async function startServer(handler: (req: http.IncomingMessage, body: any) => { 
   };
 }
 
+async function startRawServer(handler: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void> | void) {
+  const server = http.createServer(async (req, res) => {
+    try {
+      await handler(req, res);
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end(err?.message ?? String(err));
+    }
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Expected server address');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  return {
+    baseUrl,
+    close: async () => {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  };
+}
+
 describe('extensions/voice CLI', () => {
   test('call: sends request with system prompt from --system-prompt and realtime spec from --realtime-spec', async () => {
     const expectedResponse = { callConfigId: 'cfg', providerCallId: 'call', status: 'queued' };
@@ -301,6 +324,85 @@ describe('extensions/voice CLI', () => {
     expect(stderr.data).toContain('unauthorized');
   });
 
+  test('call: supports assistantFirstTurn/timeouts/recording/metadata and request-id header', async () => {
+    const expectedResponse = { callConfigId: 'cfg3', providerCallId: 'call3', status: 'queued' };
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'voice-cli-opts-'));
+    const timeoutsPath = path.join(tmpDir, 'timeouts.json');
+    fs.writeFileSync(timeoutsPath, JSON.stringify({ callTimeoutMs: 1234, silenceTimeoutMs: 5678 }), 'utf-8');
+
+    const server = await startServer((req, body) => {
+      expect(req.url).toBe('/voice/calls');
+      expect(req.method).toBe('POST');
+
+      expect(req.headers['x-api-key']).toBe('k');
+      expect(req.headers['x-request-id']).toBe('req_123');
+
+      expect(body).toEqual({
+        to: '+15550000000',
+        from: '+15551111111',
+        voiceProvider: 'vp',
+        realtimeSpec: { transport: { type: 'ws' } },
+        ttlSeconds: 900,
+        metadata: { foo: 1 },
+        assistantFirstTurn: { enabled: true, prompt: 'hello', role: 'user', delayMs: 250, missingPromptBehavior: 'reject' },
+        timeouts: { callTimeoutMs: 1234, silenceTimeoutMs: 5678 },
+        recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'mono' }
+      });
+
+      return { status: 200, body: expectedResponse };
+    });
+
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+
+    try {
+      await runVoiceCli({
+        argv: [
+          'node',
+          'llm-adapter',
+          'call',
+          '--server-url',
+          server.baseUrl,
+          '--api-key',
+          'k',
+          '--request-id',
+          'req_123',
+          '--to',
+          '+15550000000',
+          '--from',
+          '+15551111111',
+          '--voice-provider',
+          'vp',
+          '--realtime-spec',
+          '{"transport":{"type":"ws"}}',
+          '--metadata',
+          '{"foo":1}',
+          '--assistant-first-turn',
+          '{"enabled":true,"prompt":"hello","role":"user","delayMs":250,"missingPromptBehavior":"reject"}',
+          '--timeouts-file',
+          timeoutsPath,
+          '--recording',
+          '{"enabled":true,"mode":"provider","format":"mp3","channels":"mono"}'
+        ],
+        deps: { error: jest.fn(), exit },
+        io: {
+          stdin: Readable.from([]),
+          stdout: stdout.stream,
+          stderr: stderr.stream
+        }
+      });
+    } finally {
+      await server.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+
+    expect(exit).toHaveBeenCalledWith(0);
+    expect(JSON.parse(stdout.data)).toEqual(expectedResponse);
+    expect(stderr.data).toBe('');
+  });
+
   test('call: exits 1 with invalid realtime spec JSON', async () => {
     const stdout = createCaptureStream();
     const stderr = createCaptureStream();
@@ -444,6 +546,299 @@ describe('extensions/voice CLI', () => {
     expect(exit).toHaveBeenCalledWith(0);
     expect(JSON.parse(stdout.data)).toEqual({ ok: true });
     expect(stderr.data).toBe('');
+  });
+
+  test('end: calls server /voice/calls/:id/end and prints JSON', async () => {
+    const server = await startServer((req) => {
+      expect(req.method).toBe('POST');
+      expect(req.url).toBe('/voice/calls/cfg/end');
+      expect(req.headers['x-api-key']).toBe('k');
+      return { status: 200, body: { ok: true } };
+    });
+
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+
+    try {
+      await runVoiceCli({
+        argv: [
+          'node',
+          'llm-adapter',
+          'end',
+          '--server-url',
+          server.baseUrl,
+          '--api-key',
+          'k',
+          '--call-config-id',
+          'cfg'
+        ],
+        deps: { error: jest.fn(), exit },
+        io: {
+          stdin: Readable.from([]),
+          stdout: stdout.stream,
+          stderr: stderr.stream
+        }
+      });
+    } finally {
+      await server.close();
+    }
+
+    expect(exit).toHaveBeenCalledWith(0);
+    expect(JSON.parse(stdout.data)).toEqual({ ok: true });
+    expect(stderr.data).toBe('');
+  });
+
+  test('end: writes server error response to stderr and exits 1', async () => {
+    const server = await startServer(() => ({ status: 404, body: { type: 'error', error: { message: 'nope', code: 'not_found' } } }));
+
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+
+    try {
+      await runVoiceCli({
+        argv: ['node', 'llm-adapter', 'end', '--server-url', server.baseUrl, '--call-config-id', 'cfg'],
+        deps: { error: jest.fn(), exit },
+        io: {
+          stdin: Readable.from([]),
+          stdout: stdout.stream,
+          stderr: stderr.stream
+        }
+      });
+    } finally {
+      await server.close();
+    }
+
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(stdout.data).toBe('');
+    expect(stderr.data).toContain('not_found');
+  });
+
+  test('events: streams SSE envelopes as JSON lines and supports includeDeltas', async () => {
+    const server = await startRawServer((req, res) => {
+      const url = new URL(String(req.url), 'http://127.0.0.1');
+      expect(url.pathname).toBe('/voice/calls/cfg/events');
+      expect(url.searchParams.get('includeDeltas')).toBe('0');
+      expect(req.headers.accept).toContain('text/event-stream');
+
+      res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8' });
+      res.write(': keepalive\n\n');
+      res.write('garbage\n\n');
+      res.write('event: voice.test\n');
+      res.write('data: {\"seq\":1}\n\n');
+      // Trailing event without a blank line (covers flush-on-eof path)
+      res.end('data: {\"seq\":2}');
+    });
+
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+
+    try {
+      await runVoiceCli({
+        argv: [
+          'node',
+          'llm-adapter',
+          'events',
+          '--server-url',
+          server.baseUrl,
+          '--api-key',
+          'k',
+          '--call-config-id',
+          'cfg',
+          '--include-deltas',
+          '0'
+        ],
+        deps: { error: jest.fn(), exit },
+        io: {
+          stdin: Readable.from([]),
+          stdout: stdout.stream,
+          stderr: stderr.stream
+        }
+      });
+    } finally {
+      await server.close();
+    }
+
+    expect(exit).toHaveBeenCalledWith(0);
+    expect(stderr.data).toBe('');
+    const lines = stdout.data.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    expect(lines.map(l => JSON.parse(l))).toEqual([{ seq: 1 }, { seq: 2 }]);
+  });
+
+  test('events: exits 0 when SSE response has no body (204)', async () => {
+    const server = await startRawServer((req, res) => {
+      expect(req.url).toBe('/voice/calls/cfg/events');
+      res.writeHead(204);
+      res.end();
+    });
+
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+
+    try {
+      await runVoiceCli({
+        argv: ['node', 'llm-adapter', 'events', '--server-url', server.baseUrl, '--call-config-id', 'cfg'],
+        deps: { error: jest.fn(), exit },
+        io: {
+          stdin: Readable.from([]),
+          stdout: stdout.stream,
+          stderr: stderr.stream
+        }
+      });
+    } finally {
+      await server.close();
+    }
+
+    expect(exit).toHaveBeenCalledWith(0);
+    expect(stdout.data).toBe('');
+    expect(stderr.data).toBe('');
+  });
+
+  test('events: writes server error response to stderr and exits 1', async () => {
+    const server = await startRawServer((_req, res) => {
+      res.writeHead(401, { 'Content-Type': 'text/plain' });
+      res.end('nope');
+    });
+
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+
+    try {
+      await runVoiceCli({
+        argv: ['node', 'llm-adapter', 'events', '--server-url', server.baseUrl, '--call-config-id', 'cfg'],
+        deps: { error: jest.fn(), exit },
+        io: {
+          stdin: Readable.from([]),
+          stdout: stdout.stream,
+          stderr: stderr.stream
+        }
+      });
+    } finally {
+      await server.close();
+    }
+
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(stdout.data).toBe('');
+    expect(stderr.data).toContain('nope');
+  });
+
+  test('recording: downloads bytes to file (and supports 204 empty)', async () => {
+    const server = await startRawServer((req, res) => {
+      if (req.url === '/voice/calls/cfg/recording') {
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+        res.end('ABC');
+        return;
+      }
+      if (req.url === '/voice/calls/empty/recording') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+      res.writeHead(404);
+      res.end('nope');
+    });
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'voice-cli-rec-'));
+    const outPath = path.join(tmpDir, 'call.bin');
+    const outEmptyPath = path.join(tmpDir, 'call-empty.bin');
+
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+
+    try {
+      await runVoiceCli({
+        argv: ['node', 'llm-adapter', 'recording', '--server-url', server.baseUrl, '--call-config-id', 'cfg', '--output', outPath],
+        deps: { error: jest.fn(), exit },
+        io: {
+          stdin: Readable.from([]),
+          stdout: stdout.stream,
+          stderr: stderr.stream
+        }
+      });
+
+      await runVoiceCli({
+        argv: ['node', 'llm-adapter', 'recording', '--server-url', server.baseUrl, '--call-config-id', 'empty', '--output', outEmptyPath],
+        deps: { error: jest.fn(), exit },
+        io: {
+          stdin: Readable.from([]),
+          stdout: stdout.stream,
+          stderr: stderr.stream
+        }
+      });
+    } finally {
+      await server.close();
+    }
+
+    expect(exit).toHaveBeenCalledWith(0);
+    expect(fs.readFileSync(outPath, 'utf-8')).toBe('ABC');
+    expect(fs.readFileSync(outEmptyPath)).toEqual(Buffer.from([]));
+    expect(stdout.data).toBe('');
+    expect(stderr.data).toBe('');
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('recording: writes bytes to stdout when --output is omitted', async () => {
+    const server = await startRawServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+      res.end('XYZ');
+    });
+
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+
+    try {
+      await runVoiceCli({
+        argv: ['node', 'llm-adapter', 'recording', '--server-url', server.baseUrl, '--call-config-id', 'cfg'],
+        deps: { error: jest.fn(), exit },
+        io: {
+          stdin: Readable.from([]),
+          stdout: stdout.stream,
+          stderr: stderr.stream
+        }
+      });
+    } finally {
+      await server.close();
+    }
+
+    expect(exit).toHaveBeenCalledWith(0);
+    expect(stdout.data).toBe('XYZ');
+    expect(stderr.data).toBe('');
+  });
+
+  test('recording: writes server error response to stderr and exits 1', async () => {
+    const server = await startRawServer((_req, res) => {
+      res.writeHead(409, { 'Content-Type': 'text/plain' });
+      res.end('recording_not_ready');
+    });
+
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+
+    try {
+      await runVoiceCli({
+        argv: ['node', 'llm-adapter', 'recording', '--server-url', server.baseUrl, '--call-config-id', 'cfg'],
+        deps: { error: jest.fn(), exit },
+        io: {
+          stdin: Readable.from([]),
+          stdout: stdout.stream,
+          stderr: stderr.stream
+        }
+      });
+    } finally {
+      await server.close();
+    }
+
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(stdout.data).toBe('');
+    expect(stderr.data).toContain('recording_not_ready');
   });
 
   test('uses default deps/io when not provided and exits 1 on parse errors', async () => {

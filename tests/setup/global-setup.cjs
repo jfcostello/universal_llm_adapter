@@ -7,7 +7,12 @@ module.exports = async () => {
   }
 
   const rootDir = path.resolve(__dirname, '../..');
-  const tsc = path.join(rootDir, 'node_modules', 'typescript', 'bin', 'tsc');
+  let tsc;
+  try {
+    tsc = require.resolve('typescript/bin/tsc');
+  } catch {
+    throw new Error('TypeScript is not installed (missing typescript/bin/tsc)');
+  }
 
   const result = spawnSync('node', [tsc, '--project', path.join(rootDir, 'tsconfig.json')], {
     cwd: rootDir,
