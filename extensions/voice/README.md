@@ -77,11 +77,17 @@ The voice extension supports server-side defaults and settings under `server.ext
 
 Call defaults (applied to `POST /voice/calls` when a field is omitted):
 - `assistantFirstTurn`: `{ enabled, prompt, role, delayMs, missingPromptBehavior }`
-- `timeouts`: `{ callTimeoutMs, silenceTimeoutMs }`
+- `timeouts`: `{ callTimeoutMs, silenceTimeoutMs, silenceAssistantAudioStartFallbackMs, silenceAssistantAudioEndFallbackMs }`
 - `recording`: `{ enabled, mode, format, channels }`
 
 Events stream defaults/settings (applied to `GET /voice/calls/:callConfigId/events`):
-- `events`: `{ includeDeltas, keepAliveIntervalMs, maxWriteQueueBytes }`
+- `events`: `{ includeDeltas, keepAliveIntervalMs, maxWriteQueueBytes, maxActiveCalls, maxBufferedEventsPerCall, callTtlMs }`
+
+Notes:
+- `events.maxActiveCalls` (default: `20000`): cap on in-memory active call channels for the SSE events hub.
+- `events.maxBufferedEventsPerCall` (default: `200`): number of most-recent non-delta events kept per call for replay (set `0` to disable replay buffering).
+- `events.callTtlMs` (default: `900000`): sweep inactive call channels after this TTL (set `0` to disable TTL-based sweeping).
+- `timeouts.silenceAssistantAudioStartFallbackMs` / `timeouts.silenceAssistantAudioEndFallbackMs`: optional fallback windows used by some provider compats when `assistantFirstTurn.enabled=true` to ensure silence timers still arm when assistant-audio boundary events are missing (see the active compat README under `plugins/voice-compat/*`).
 
 ### Provider plugins
 

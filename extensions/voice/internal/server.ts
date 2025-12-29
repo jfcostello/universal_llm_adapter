@@ -20,7 +20,12 @@ import {
 
 import type { VoiceProviderPlugins } from './provider-plugins.js';
 import { createVoiceProviderPlugins } from './provider-plugins.js';
-import type { VoiceCallConfigStore } from './call-config-store/index.js';
+import type {
+  VoiceAssistantFirstTurnConfig,
+  VoiceCallConfigStore,
+  VoiceCallRecordingConfig,
+  VoiceCallTimeoutsConfig
+} from './call-config-store/index.js';
 import { createVoiceCallConfigStoreFromEnv } from './call-config-store/index.js';
 import { createVoiceCallEventHub, type VoiceCallEventHub, type VoiceCallEventEnvelope } from './call-events.js';
 import { createVoiceMetrics } from './metrics.js';
@@ -103,19 +108,6 @@ function readVoiceExtensionDefaults(httpConfig: any): Record<string, any> {
   return voice ?? {};
 }
 
-type AssistantFirstTurnConfig = {
-  enabled: boolean;
-  prompt?: string;
-  role: 'system' | 'user';
-  delayMs: number;
-  missingPromptBehavior: 'reject' | 'skip';
-};
-
-type VoiceCallTimeoutsConfig = {
-  callTimeoutMs?: number;
-  silenceTimeoutMs?: number;
-};
-
 function readPositiveInt(value: unknown, label: string): number {
   const n = typeof value === 'number' ? value : Number(value);
   const out = Math.floor(n);
@@ -135,6 +127,14 @@ function normalizeVoiceCallTimeouts(options: {
 
   const callTimeoutMsRaw = raw?.callTimeoutMs !== undefined ? raw.callTimeoutMs : defaults?.callTimeoutMs;
   const silenceTimeoutMsRaw = raw?.silenceTimeoutMs !== undefined ? raw.silenceTimeoutMs : defaults?.silenceTimeoutMs;
+  const silenceAssistantAudioStartFallbackMsRaw =
+    raw?.silenceAssistantAudioStartFallbackMs !== undefined
+      ? raw.silenceAssistantAudioStartFallbackMs
+      : defaults?.silenceAssistantAudioStartFallbackMs;
+  const silenceAssistantAudioEndFallbackMsRaw =
+    raw?.silenceAssistantAudioEndFallbackMs !== undefined
+      ? raw.silenceAssistantAudioEndFallbackMs
+      : defaults?.silenceAssistantAudioEndFallbackMs;
 
   const out: VoiceCallTimeoutsConfig = {};
   if (callTimeoutMsRaw !== undefined && callTimeoutMsRaw !== null && callTimeoutMsRaw !== '') {
@@ -143,16 +143,29 @@ function normalizeVoiceCallTimeouts(options: {
   if (silenceTimeoutMsRaw !== undefined && silenceTimeoutMsRaw !== null && silenceTimeoutMsRaw !== '') {
     out.silenceTimeoutMs = readPositiveInt(silenceTimeoutMsRaw, 'timeouts.silenceTimeoutMs');
   }
+  if (
+    silenceAssistantAudioStartFallbackMsRaw !== undefined &&
+    silenceAssistantAudioStartFallbackMsRaw !== null &&
+    silenceAssistantAudioStartFallbackMsRaw !== ''
+  ) {
+    out.silenceAssistantAudioStartFallbackMs = readPositiveInt(
+      silenceAssistantAudioStartFallbackMsRaw,
+      'timeouts.silenceAssistantAudioStartFallbackMs'
+    );
+  }
+  if (
+    silenceAssistantAudioEndFallbackMsRaw !== undefined &&
+    silenceAssistantAudioEndFallbackMsRaw !== null &&
+    silenceAssistantAudioEndFallbackMsRaw !== ''
+  ) {
+    out.silenceAssistantAudioEndFallbackMs = readPositiveInt(
+      silenceAssistantAudioEndFallbackMsRaw,
+      'timeouts.silenceAssistantAudioEndFallbackMs'
+    );
+  }
 
   return Object.keys(out).length > 0 ? out : {};
 }
-
-type VoiceCallRecordingConfig = {
-  enabled: boolean;
-  mode: 'provider' | 'adapter';
-  format: 'mp3' | 'wav';
-  channels: 'mono' | 'dual';
-};
 
 function normalizeVoiceCallRecording(options: {
   raw: unknown;
@@ -184,7 +197,7 @@ function normalizeVoiceCallRecording(options: {
 function normalizeAssistantFirstTurn(options: {
   raw: unknown;
   defaults: unknown;
-}): AssistantFirstTurnConfig | undefined {
+}): VoiceAssistantFirstTurnConfig | undefined {
   const raw = asPlainObject(options.raw);
   const defaults = asPlainObject(options.defaults);
   if (!raw && !defaults) return undefined;
@@ -218,7 +231,7 @@ function normalizeAssistantFirstTurn(options: {
       : defaults?.missingPromptBehavior;
   const missingPromptBehavior = missingPromptBehaviorRaw === 'skip' ? 'skip' : 'reject';
 
-  const out: AssistantFirstTurnConfig = {
+  const out: VoiceAssistantFirstTurnConfig = {
     enabled,
     ...(prompt !== undefined ? { prompt } : {}),
     role,
@@ -1523,6 +1536,33 @@ export async function createVoiceServerRegistration(ctx: {
                 providerCallId,
                 message: error?.message ?? String(error),
                 ...(requestId ? { requestId } : {})
+              });
+
+              // This is a first-class reliability problem: without a persisted providerCallId, call control and
+              // recording retrieval may be broken. Attempt best-effort cleanup and fail the request.
+              try {
+                const endCall = (compat as any)?.endCall;
+                if (typeof endCall === 'function') {
+                  await endCall({ callConfigId, callConfig, voiceProvider, providerCallId, providerDefaults });
+                }
+              } catch (endErr: any) {
+                safeLog(logger, 'error', 'voice.calls.cleanup_end_call_failed', {
+                  callConfigId,
+                  voiceProvider,
+                  providerCallId,
+                  message: endErr?.message ?? String(endErr),
+                  ...(requestId ? { requestId } : {})
+                });
+              }
+
+              try {
+                await store.deleteConfig(callConfigId);
+              } catch {}
+
+              throw makeHttpError({
+                message: 'Failed to persist providerCallId for outbound call',
+                statusCode: 500,
+                code: 'provider_call_id_persist_failed'
               });
             }
 

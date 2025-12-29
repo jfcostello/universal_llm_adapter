@@ -41,6 +41,22 @@ describe('extensions/voice: call events hub', () => {
     hub.close();
   });
 
+  test('routes delta events through eventTypes allowlist when includeDeltas=true', async () => {
+    const hub = createVoiceCallEventHub({ maxBufferedEventsPerCall: 10, maxActiveCalls: 10, callTtlMs: 0 });
+
+    const received: any[] = [];
+    const sub = hub.subscribe('c1', { includeDeltas: true, eventTypes: ['user_transcript.delta'] } as any, (evt) => received.push(evt));
+
+    hub.emit('c1', { type: 'user_transcript.delta', textDelta: 'he' });
+    hub.emit('c1', { type: 'user_transcript.final', text: 'hello' });
+
+    expect(received.map(r => r.event.type)).toEqual(['user_transcript.delta']);
+
+    sub.unsubscribe();
+    sub.unsubscribe();
+    hub.close();
+  });
+
   test('skips delta events for subscribers when includeDeltas=false', async () => {
     const hub = createVoiceCallEventHub({ maxBufferedEventsPerCall: 10, maxActiveCalls: 10, callTtlMs: 0 });
 
@@ -62,15 +78,40 @@ describe('extensions/voice: call events hub', () => {
     hub.emit('c1', { type: 'user_transcript.final', text: 'a' });
     hub.emit('c1', { type: 'assistant_transcript.final', text: 'b' });
 
-    const received: any[] = [];
-    const sub = hub.subscribe('c1', { includeDeltas: true, eventTypes: ['assistant_transcript.final'] } as any, (evt) => received.push(evt));
+    const receivedA: any[] = [];
+    const receivedB: any[] = [];
+    const subA = hub.subscribe('c1', { includeDeltas: true, eventTypes: ['assistant_transcript.final'] } as any, (evt) => receivedA.push(evt));
+    const subB = hub.subscribe('c1', { includeDeltas: true, eventTypes: ['assistant_transcript.final'] } as any, (evt) => receivedB.push(evt));
 
-    expect(sub.replay.map(r => r.event.type)).toEqual(['assistant_transcript.final']);
+    expect(subA.replay.map(r => r.event.type)).toEqual(['assistant_transcript.final']);
+    expect(subB.replay.map(r => r.event.type)).toEqual(['assistant_transcript.final']);
 
     hub.emit('c1', { type: 'user_transcript.delta', textDelta: 'x' });
     hub.emit('c1', { type: 'assistant_transcript.final', text: 'c' });
 
-    expect(received.map(r => r.event.type)).toEqual(['assistant_transcript.final']);
+    expect(receivedA.map(r => r.event.type)).toEqual(['assistant_transcript.final']);
+    expect(receivedB.map(r => r.event.type)).toEqual(['assistant_transcript.final']);
+
+    subA.unsubscribe();
+    subB.unsubscribe();
+    hub.close();
+  });
+
+  test('eventTypes allowlist does not override includeDeltas=false', async () => {
+    const hub = createVoiceCallEventHub({ maxBufferedEventsPerCall: 10, maxActiveCalls: 10, callTtlMs: 0 });
+
+    const received: any[] = [];
+    const sub = hub.subscribe(
+      'c1',
+      { includeDeltas: false, eventTypes: ['user_transcript.delta', 'user_transcript.final'] } as any,
+      (evt) => received.push(evt)
+    );
+
+    hub.emit('c1', { type: 'user_transcript.delta', textDelta: 'he' });
+    hub.emit('c1', { type: 'user_transcript.final', text: 'hello' });
+
+    expect(received.map(r => r.event.type)).toEqual(['user_transcript.final']);
+    expect(sub.replay.map(r => r.event.type)).toEqual([]);
 
     sub.unsubscribe();
     hub.close();

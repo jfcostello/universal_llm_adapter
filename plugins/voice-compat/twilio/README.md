@@ -45,8 +45,14 @@ This is **dynamic** (LLM-generated) and does not use pre-recorded audio. The pro
   - applied to the outbound call via Twilio `TimeLimit` (seconds).
 - `callConfig.timeouts.silenceTimeoutMs`:
   - enforced adapter-side during the media bridge (hang up after no user input for the configured duration).
+- `callConfig.timeouts.silenceAssistantAudioEndFallbackMs` (optional):
+  - when `assistantFirstTurn.enabled=true`, treats assistant audio as ended this many milliseconds after the first `assistant_audio.chunk` if `assistant_audio.end` is never emitted.
+  - default: `min(2000, max(500, silenceTimeoutMs))`.
+- `callConfig.timeouts.silenceAssistantAudioStartFallbackMs` (optional):
+  - when `assistantFirstTurn.enabled=true`, treats assistant audio as ended this many milliseconds after the first-turn `commit()` if no `assistant_audio.*` events are ever emitted.
+  - default: `max(3000, silenceTimeoutMs)`.
 
-When `assistantFirstTurn.enabled=true`, the silence timeout is armed after the first `assistant_audio.end` event (or after a fallback window if `assistant_audio.end` is never emitted).
+When `assistantFirstTurn.enabled=true`, the silence timeout is armed after the first `assistant_audio.end` event (or after the applicable fallback window if `assistant_audio.end` is never emitted).
 
 You can also terminate a call via `POST /voice/calls/:callConfigId/end` (server auth required).
 

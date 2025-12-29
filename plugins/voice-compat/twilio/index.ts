@@ -240,6 +240,38 @@ export default class TwilioVoiceCompat {
       throw makeHttpError({ message: 'Invalid timeouts.silenceTimeoutMs', statusCode: 400, code: 'validation_error' });
     }
 
+    const silenceAssistantAudioEndFallbackMsRaw = (timeouts as any)?.silenceAssistantAudioEndFallbackMs;
+    const silenceAssistantAudioEndFallbackMs =
+      silenceAssistantAudioEndFallbackMsRaw === undefined || silenceAssistantAudioEndFallbackMsRaw === null || silenceAssistantAudioEndFallbackMsRaw === ''
+        ? undefined
+        : Number(silenceAssistantAudioEndFallbackMsRaw);
+    if (
+      silenceAssistantAudioEndFallbackMs !== undefined &&
+      (!Number.isFinite(silenceAssistantAudioEndFallbackMs) || silenceAssistantAudioEndFallbackMs <= 0)
+    ) {
+      throw makeHttpError({
+        message: 'Invalid timeouts.silenceAssistantAudioEndFallbackMs',
+        statusCode: 400,
+        code: 'validation_error'
+      });
+    }
+
+    const silenceAssistantAudioStartFallbackMsRaw = (timeouts as any)?.silenceAssistantAudioStartFallbackMs;
+    const silenceAssistantAudioStartFallbackMs =
+      silenceAssistantAudioStartFallbackMsRaw === undefined || silenceAssistantAudioStartFallbackMsRaw === null || silenceAssistantAudioStartFallbackMsRaw === ''
+        ? undefined
+        : Number(silenceAssistantAudioStartFallbackMsRaw);
+    if (
+      silenceAssistantAudioStartFallbackMs !== undefined &&
+      (!Number.isFinite(silenceAssistantAudioStartFallbackMs) || silenceAssistantAudioStartFallbackMs <= 0)
+    ) {
+      throw makeHttpError({
+        message: 'Invalid timeouts.silenceAssistantAudioStartFallbackMs',
+        statusCode: 400,
+        code: 'validation_error'
+      });
+    }
+
     const assistantFirstTurnCfg = (callConfig as any)?.assistantFirstTurn;
     const assistantFirstTurnEnabled =
       Boolean(assistantFirstTurnCfg && typeof assistantFirstTurnCfg === 'object' && (assistantFirstTurnCfg as any).enabled === true) &&
@@ -250,6 +282,7 @@ export default class TwilioVoiceCompat {
 
     let callTimeoutTimer: any | undefined;
     let silenceTimer: any | undefined;
+    let assistantAudioStartFallbackTimer: any | undefined;
     let assistantAudioEndFallbackTimer: any | undefined;
     let waitingForFirstAssistantAudioEnd = assistantFirstTurnEnabled;
     let callEnded = false;
@@ -268,6 +301,13 @@ export default class TwilioVoiceCompat {
       }
     };
 
+    const clearAssistantAudioStartFallback = () => {
+      if (assistantAudioStartFallbackTimer) {
+        clearTimeout(assistantAudioStartFallbackTimer);
+        assistantAudioStartFallbackTimer = undefined;
+      }
+    };
+
     const clearAssistantAudioEndFallback = () => {
       if (assistantAudioEndFallbackTimer) {
         clearTimeout(assistantAudioEndFallbackTimer);
@@ -278,6 +318,7 @@ export default class TwilioVoiceCompat {
     const clearAllTimers = () => {
       clearCallTimeout();
       clearSilenceTimeout();
+      clearAssistantAudioStartFallback();
       clearAssistantAudioEndFallback();
     };
 
@@ -311,12 +352,44 @@ export default class TwilioVoiceCompat {
       silenceTimer = setTimeout(() => void requestEndCallOnce('silence_timeout'), Math.floor(timeoutMs));
     };
 
+    const resolveAssistantAudioEndFallbackMs = (timeoutMs: number) => {
+      if (silenceAssistantAudioEndFallbackMs !== undefined) {
+        return Math.floor(silenceAssistantAudioEndFallbackMs);
+      }
+      return Math.min(2000, Math.max(500, Math.floor(timeoutMs)));
+    };
+
+    const resolveAssistantAudioStartFallbackMs = (timeoutMs: number) => {
+      if (silenceAssistantAudioStartFallbackMs !== undefined) {
+        return Math.floor(silenceAssistantAudioStartFallbackMs);
+      }
+      // Give the assistant time to start speaking before arming a silence timer (covers missing assistant audio events).
+      // Prefer a stable default that is long enough to avoid racing typical greeting audio.
+      return Math.max(3000, Math.floor(timeoutMs));
+    };
+
+	    const scheduleAssistantAudioStartFallback = (timeoutMs: number) => {
+	      if (callEnded) return;
+	      if (!waitingForFirstAssistantAudioEnd) return;
+
+	      clearAssistantAudioStartFallback();
+	      const fallbackMs = resolveAssistantAudioStartFallbackMs(timeoutMs);
+	      assistantAudioStartFallbackTimer = setTimeout(() => {
+	        waitingForFirstAssistantAudioEnd = false;
+	        startSilenceTimer(timeoutMs);
+	      }, fallbackMs);
+      if (typeof (assistantAudioStartFallbackTimer as any)?.unref === 'function') {
+        (assistantAudioStartFallbackTimer as any).unref();
+      }
+    };
+
     const scheduleAssistantAudioEndFallback = (timeoutMs: number) => {
+      if (callEnded) return;
       if (!assistantFirstTurnEnabled) return;
       if (!waitingForFirstAssistantAudioEnd) return;
       clearAssistantAudioEndFallback();
 
-      const fallbackMs = Math.min(2000, Math.max(500, Math.floor(timeoutMs)));
+      const fallbackMs = resolveAssistantAudioEndFallbackMs(timeoutMs);
       assistantAudioEndFallbackTimer = setTimeout(() => {
         waitingForFirstAssistantAudioEnd = false;
         startSilenceTimer(timeoutMs);
@@ -371,6 +444,7 @@ export default class TwilioVoiceCompat {
                 }
                 await session.sendText({ text: prompt, role });
                 await session.commit();
+                if (silenceTimeoutMs) scheduleAssistantAudioStartFallback(silenceTimeoutMs);
               } catch (error: any) {
                 safeLog('error', 'voice.assistant_first_turn.failed', {
                   ...baseFields,
@@ -446,11 +520,14 @@ export default class TwilioVoiceCompat {
           if (silenceTimeoutMs) {
             if (type === 'user_speech.started') {
               clearSilenceTimeout();
+              clearAssistantAudioStartFallback();
               clearAssistantAudioEndFallback();
             } else if (type === 'assistant_audio.chunk') {
               clearSilenceTimeout();
+              clearAssistantAudioStartFallback();
               scheduleAssistantAudioEndFallback(silenceTimeoutMs);
             } else if (type === 'assistant_audio.end') {
+              clearAssistantAudioStartFallback();
               clearAssistantAudioEndFallback();
               if (waitingForFirstAssistantAudioEnd) {
                 waitingForFirstAssistantAudioEnd = false;

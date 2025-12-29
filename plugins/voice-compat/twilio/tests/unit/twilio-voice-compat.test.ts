@@ -438,6 +438,250 @@ describe('plugins/voice-compat/twilio', () => {
     }
   });
 
+  test('silence timeout fallback window is configurable via call config', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } }) as any
+    );
+
+    try {
+      process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+      const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
+
+      const { registry } = createRegistryHarnessWithCompatSession({
+        events: async function* () {
+          yield { type: 'ready', sessionId: 's1' };
+          await new Promise(resolve => setTimeout(resolve, 300));
+          yield {
+            type: 'assistant_audio.chunk',
+            frame: {
+              format: 'g711_ulaw',
+              sampleRateHz: 8000,
+              channels: 1,
+              dataBase64: Buffer.alloc(200).toString('base64')
+            }
+          };
+          // No assistant_audio.end event emitted.
+        }
+      });
+
+      const compat = new TwilioVoiceCompat();
+      const ws = new MockWebSocket();
+      const taskPromise = compat.handleMediaConnection({
+        ws: ws as any,
+        req: { url: `/voice/media?token=${encodeURIComponent(token)}` } as any,
+        callConfigId: 'cfg_1',
+        callConfig: {
+          realtimeSpec: { provider: 'realtime_p1' },
+          assistantFirstTurn: { enabled: true, prompt: 'Say hello briefly.', role: 'user', delayMs: 0 },
+          timeouts: { silenceTimeoutMs: 1000, silenceAssistantAudioEndFallbackMs: 200 }
+        },
+        voiceProvider: 'twilio',
+        registry,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token', apiBaseUrl: 'https://api.example.test' }
+      } as any);
+
+      ws.emitMessage(startMessage());
+      await jest.advanceTimersByTimeAsync(0);
+
+      // With fallback=200ms and silenceTimeout=1000ms, end should happen at ~300ms (chunk) + 200ms + 1000ms = 1500ms.
+      await jest.advanceTimersByTimeAsync(1400);
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      await jest.advanceTimersByTimeAsync(200);
+      expect(fetchSpy).toHaveBeenCalled();
+
+      ws.close();
+      await taskPromise;
+    } finally {
+      fetchSpy.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  test('silence timeout is armed even if no assistant audio events are emitted', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } }) as any
+    );
+
+    try {
+      process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+      const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
+
+      const { registry } = createRegistryHarnessWithCompatSession({
+        events: async function* () {
+          yield { type: 'ready', sessionId: 's1' };
+          // No assistant_audio.chunk/end events emitted.
+        }
+      });
+
+      const compat = new TwilioVoiceCompat();
+      const ws = new MockWebSocket();
+      const taskPromise = compat.handleMediaConnection({
+        ws: ws as any,
+        req: { url: `/voice/media?token=${encodeURIComponent(token)}` } as any,
+        callConfigId: 'cfg_1',
+        callConfig: {
+          realtimeSpec: { provider: 'realtime_p1' },
+          assistantFirstTurn: { enabled: true, prompt: 'Say hello briefly.', role: 'user', delayMs: 0 },
+          timeouts: { silenceTimeoutMs: 1000, silenceAssistantAudioStartFallbackMs: 200 }
+        },
+        voiceProvider: 'twilio',
+        registry,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token', apiBaseUrl: 'https://api.example.test' }
+      } as any);
+
+      ws.emitMessage(startMessage());
+      await jest.advanceTimersByTimeAsync(0);
+
+      // Fallback=200ms + silenceTimeout=1000ms => should end by ~1200ms even without audio boundary events.
+      await jest.advanceTimersByTimeAsync(1100);
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      await jest.advanceTimersByTimeAsync(200);
+      expect(fetchSpy).toHaveBeenCalled();
+
+      ws.close();
+      await taskPromise;
+    } finally {
+      fetchSpy.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  test('does not schedule silence fallback timers once the call is already ended', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockImplementation(() => {
+      return new Promise(resolve => {
+        setTimeout(
+          () =>
+            resolve(new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } }) as any),
+          100
+        );
+      });
+    });
+
+    try {
+      process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+      const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
+
+      const { registry, compatSession } = createRegistryHarnessWithCompatSession({
+        events: async function* () {
+          yield { type: 'ready', sessionId: 's1' };
+          await new Promise(resolve => setTimeout(resolve, 10));
+          yield {
+            type: 'assistant_audio.chunk',
+            frame: {
+              format: 'g711_ulaw',
+              sampleRateHz: 8000,
+              channels: 1,
+              dataBase64: Buffer.alloc(200).toString('base64')
+            }
+          };
+        }
+      });
+
+      compatSession.commit.mockImplementation(async () => {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      });
+
+      const compat = new TwilioVoiceCompat();
+      const ws = new MockWebSocket();
+      const taskPromise = compat.handleMediaConnection({
+        ws: ws as any,
+        req: { url: `/voice/media?token=${encodeURIComponent(token)}` } as any,
+        callConfigId: 'cfg_1',
+        callConfig: {
+          realtimeSpec: { provider: 'realtime_p1' },
+          assistantFirstTurn: { enabled: true, prompt: 'Say hello briefly.', role: 'user', delayMs: 0 },
+          timeouts: { silenceTimeoutMs: 1000, callTimeoutMs: 1 }
+        },
+        voiceProvider: 'twilio',
+        registry,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token', apiBaseUrl: 'https://api.example.test' }
+      } as any);
+
+      ws.emitMessage(startMessage());
+      await jest.advanceTimersByTimeAsync(0);
+
+      // End call via callTimeout before assistantFirstTurn commit finishes.
+      await jest.advanceTimersByTimeAsync(2);
+      expect(fetchSpy).toHaveBeenCalled();
+
+      // Allow post-end realtime events to be observed while endCall is pending.
+      await jest.advanceTimersByTimeAsync(50);
+
+      // Resolve endCall and shutdown.
+      await jest.advanceTimersByTimeAsync(200);
+      await taskPromise;
+    } finally {
+      fetchSpy.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  test('does not schedule assistant-audio-start fallback once assistant audio has already ended', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } }) as any
+    );
+
+    try {
+      process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+      const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
+
+      const { registry, compatSession } = createRegistryHarnessWithCompatSession({
+        events: async function* () {
+          yield { type: 'ready', sessionId: 's1' };
+          await new Promise(resolve => setTimeout(resolve, 10));
+          yield { type: 'assistant_audio.end' };
+        }
+      });
+
+      compatSession.commit.mockImplementation(async () => {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      });
+
+      const compat = new TwilioVoiceCompat();
+      const ws = new MockWebSocket();
+      const taskPromise = compat.handleMediaConnection({
+        ws: ws as any,
+        req: { url: `/voice/media?token=${encodeURIComponent(token)}` } as any,
+        callConfigId: 'cfg_1',
+        callConfig: {
+          realtimeSpec: { provider: 'realtime_p1' },
+          assistantFirstTurn: { enabled: true, prompt: 'Say hello briefly.', role: 'user', delayMs: 0 },
+          timeouts: { silenceTimeoutMs: 1000, silenceAssistantAudioStartFallbackMs: 25 }
+        },
+        voiceProvider: 'twilio',
+        registry,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token', apiBaseUrl: 'https://api.example.test' }
+      } as any);
+
+      ws.emitMessage(startMessage());
+      await jest.advanceTimersByTimeAsync(0);
+
+      // assistant_audio.end should arrive before the assistantFirstTurn commit finishes.
+      await jest.advanceTimersByTimeAsync(60);
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      ws.close();
+      await taskPromise;
+    } finally {
+      fetchSpy.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
   test('handleMediaConnection throws validation_error for invalid timeouts.callTimeoutMs', async () => {
     const { registry } = createRegistryHarness();
     const compat = new TwilioVoiceCompat();
@@ -469,6 +713,44 @@ describe('plugins/voice-compat/twilio', () => {
         callConfig: {
           realtimeSpec: { provider: 'realtime_p1' },
           timeouts: { silenceTimeoutMs: -1 }
+        },
+        voiceProvider: 'twilio',
+        registry
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 400, code: 'validation_error' });
+  });
+
+  test('handleMediaConnection throws validation_error for invalid timeouts.silenceAssistantAudioEndFallbackMs', async () => {
+    const { registry } = createRegistryHarness();
+    const compat = new TwilioVoiceCompat();
+
+    await expect(
+      compat.handleMediaConnection({
+        ws: new MockWebSocket() as any,
+        req: { url: '/voice/media?token=x' } as any,
+        callConfigId: 'cfg_1',
+        callConfig: {
+          realtimeSpec: { provider: 'realtime_p1' },
+          timeouts: { silenceAssistantAudioEndFallbackMs: 0 }
+        },
+        voiceProvider: 'twilio',
+        registry
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 400, code: 'validation_error' });
+  });
+
+  test('handleMediaConnection throws validation_error for invalid timeouts.silenceAssistantAudioStartFallbackMs', async () => {
+    const { registry } = createRegistryHarness();
+    const compat = new TwilioVoiceCompat();
+
+    await expect(
+      compat.handleMediaConnection({
+        ws: new MockWebSocket() as any,
+        req: { url: '/voice/media?token=x' } as any,
+        callConfigId: 'cfg_1',
+        callConfig: {
+          realtimeSpec: { provider: 'realtime_p1' },
+          timeouts: { silenceAssistantAudioStartFallbackMs: 0 }
         },
         voiceProvider: 'twilio',
         registry

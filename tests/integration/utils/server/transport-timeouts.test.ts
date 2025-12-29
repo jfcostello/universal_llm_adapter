@@ -236,12 +236,15 @@ describe('utils/server (integration) transport + timeouts', () => {
   });
 
   test('POST /run requestTimeoutMs returns 504 and does not deadlock limiter', async () => {
-    if (!networkAvailable) return;
+	    if (!networkAvailable) return;
 
-    let runCount = 0;
-    const gate = new Promise<void>(resolve => setTimeout(resolve, 250));
+	    let runCount = 0;
+	    let resolveGate: (() => void) | undefined;
+	    const gate = new Promise<void>(resolve => {
+	      resolveGate = resolve;
+	    });
 
-    const server = await createServer({
+	    const server = await createServer({
       maxConcurrentRequests: 1,
       maxQueueSize: 1,
       queueTimeoutMs: 500,
@@ -272,10 +275,12 @@ describe('utils/server (integration) transport + timeouts', () => {
       secondPromise.then(() => 'done'),
       delay(30).then(() => 'pending')
     ]);
-    expect(raced).toBe('pending');
+	    expect(raced).toBe('pending');
 
-    const secondRes = await secondPromise;
-    await server.close();
+	    resolveGate?.();
+
+	    const secondRes = await secondPromise;
+	    await server.close();
 
     expect(secondRes.status).toBe(200);
   });

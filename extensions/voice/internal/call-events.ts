@@ -30,19 +30,56 @@ export type VoiceCallEventHub = {
 
 type Subscriber = {
   includeDeltas: boolean;
-  eventTypes?: Set<string>;
+  routes: { kind: 'all' } | { kind: 'types'; eventTypes: string[] };
   onEvent: (event: VoiceCallEventEnvelope) => void;
 };
 
 type Channel = {
   callConfigId: string;
-  buffered: VoiceCallEventEnvelope[];
+  buffered: RingBuffer<VoiceCallEventEnvelope>;
   subscribers: Set<Subscriber>;
+  allNoDeltas: Set<Subscriber>;
+  allWithDeltas: Set<Subscriber>;
+  byTypeNoDeltas: Map<string, Set<Subscriber>>;
+  byTypeWithDeltas: Map<string, Set<Subscriber>>;
   lastActivityAtMs: number;
 };
 
 function isDeltaEvent(type: string): boolean {
   return type.endsWith('.delta');
+}
+
+type RingBuffer<T> = {
+  max: number;
+  buf: Array<T | undefined>;
+  start: number;
+  count: number;
+};
+
+function createRingBuffer<T>(max: number): RingBuffer<T> {
+  const size = Math.max(0, Math.floor(max));
+  return { max: size, buf: size > 0 ? new Array(size) : [], start: 0, count: 0 };
+}
+
+function ringBufferPush<T>(buffer: RingBuffer<T>, item: T): void {
+  const idx = (buffer.start + buffer.count) % buffer.max;
+  buffer.buf[idx] = item;
+  if (buffer.count < buffer.max) {
+    buffer.count += 1;
+    return;
+  }
+  buffer.start = (buffer.start + 1) % buffer.max;
+}
+
+function ringBufferToArray<T>(buffer: RingBuffer<T>): T[] {
+  if (buffer.count <= 0) return [];
+  const out: T[] = [];
+  for (let i = 0; i < buffer.count; i += 1) {
+    const idx = (buffer.start + i) % buffer.max;
+    const v = buffer.buf[idx];
+    if (v !== undefined) out.push(v);
+  }
+  return out;
 }
 
 export function createVoiceCallEventHub(options?: {
@@ -117,8 +154,12 @@ export function createVoiceCallEventHub(options?: {
     if (existing) return existing;
     const channel: Channel = {
       callConfigId,
-      buffered: [],
+      buffered: createRingBuffer(maxBufferedEventsPerCall),
       subscribers: new Set(),
+      allNoDeltas: new Set(),
+      allWithDeltas: new Set(),
+      byTypeNoDeltas: new Map(),
+      byTypeWithDeltas: new Map(),
       lastActivityAtMs: Date.now()
     };
     channels.set(callConfigId, channel);
@@ -139,21 +180,29 @@ export function createVoiceCallEventHub(options?: {
     const envelope: VoiceCallEventEnvelope = { callConfigId: id, atMs: Date.now(), event };
     const delta = isDeltaEvent(type);
 
-    for (const sub of channel.subscribers) {
-      if (delta && !sub.includeDeltas) continue;
-      if (sub.eventTypes && !sub.eventTypes.has(type)) continue;
+    const send = (sub: Subscriber) => {
       try {
         sub.onEvent(envelope);
       } catch {}
+    };
+
+    if (delta) {
+      for (const sub of channel.allWithDeltas) send(sub);
+      const typed = channel.byTypeWithDeltas.get(type);
+      if (typed) for (const sub of typed) send(sub);
+    } else {
+      for (const sub of channel.allNoDeltas) send(sub);
+      for (const sub of channel.allWithDeltas) send(sub);
+      const typedNo = channel.byTypeNoDeltas.get(type);
+      if (typedNo) for (const sub of typedNo) send(sub);
+      const typedYes = channel.byTypeWithDeltas.get(type);
+      if (typedYes) for (const sub of typedYes) send(sub);
     }
 
     if (delta) return;
     if (maxBufferedEventsPerCall <= 0) return;
 
-    channel.buffered.push(envelope);
-    while (channel.buffered.length > maxBufferedEventsPerCall) {
-      channel.buffered.shift();
-    }
+    ringBufferPush(channel.buffered, envelope);
   };
 
   const subscribe = (
@@ -183,25 +232,57 @@ export function createVoiceCallEventHub(options?: {
         const trimmed = entry.trim();
         if (trimmed) set.add(trimmed);
       }
-      return set.size > 0 ? set : undefined;
+      return set.size > 0 ? Array.from(set) : undefined;
     })();
 
+    const includeDeltas = options.includeDeltas === true;
     const subscriber: Subscriber = {
-      includeDeltas: options.includeDeltas === true,
-      ...(eventTypes ? { eventTypes } : {}),
-      onEvent
+      includeDeltas,
+      routes: eventTypes ? { kind: 'types', eventTypes } : { kind: 'all' },
+      onEvent,
     };
     channel.subscribers.add(subscriber);
 
     const replay = (() => {
-      if (!eventTypes) return channel.buffered.slice();
-      return channel.buffered.filter((evt) => eventTypes.has(evt.event.type));
+      const buffered = ringBufferToArray(channel.buffered);
+      if (!eventTypes) return buffered;
+      const allow = new Set(eventTypes);
+      return buffered.filter((evt) => allow.has(evt.event.type));
     })();
+
+    if (subscriber.routes.kind === 'all') {
+      if (subscriber.includeDeltas) channel.allWithDeltas.add(subscriber);
+      else channel.allNoDeltas.add(subscriber);
+    } else {
+      const map = subscriber.includeDeltas ? channel.byTypeWithDeltas : channel.byTypeNoDeltas;
+      for (const t of subscriber.routes.eventTypes) {
+        const existing = map.get(t);
+        if (existing) {
+          existing.add(subscriber);
+          continue;
+        }
+        map.set(t, new Set([subscriber]));
+      }
+    }
 
     return {
       replay,
       unsubscribe: () => {
         channel.subscribers.delete(subscriber);
+
+        if (subscriber.routes.kind === 'all') {
+          channel.allNoDeltas.delete(subscriber);
+          channel.allWithDeltas.delete(subscriber);
+          return;
+        }
+
+        const map = subscriber.includeDeltas ? channel.byTypeWithDeltas : channel.byTypeNoDeltas;
+        for (const t of subscriber.routes.eventTypes) {
+          const set = map.get(t);
+          if (!set) continue;
+          set.delete(subscriber);
+          if (set.size === 0) map.delete(t);
+        }
       }
     };
   };
@@ -211,7 +292,7 @@ export function createVoiceCallEventHub(options?: {
     let totalSubscribers = 0;
     for (const [callConfigId, channel] of channels.entries()) {
       totalSubscribers += channel.subscribers.size;
-      calls.push({ callConfigId, buffered: channel.buffered.length, subscribers: channel.subscribers.size });
+      calls.push({ callConfigId, buffered: channel.buffered.count, subscribers: channel.subscribers.size });
     }
 
     return { activeCalls: channels.size, totalSubscribers, calls };

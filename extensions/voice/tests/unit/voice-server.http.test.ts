@@ -1045,6 +1045,53 @@ describe('extensions/voice: server http handlers', () => {
     expect(createWebhookResponse).toHaveBeenCalled();
   });
 
+  test('/voice/webhook (GET) passes the full URL (including query string) to signature validation', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const validateWebhookRequest = jest.fn(async (options: any) => {
+      expect(options.method).toBe('GET');
+      expect(String(options.url)).toContain('http://localhost/voice/webhook?callConfigId=cfg_1');
+      expect(String(options.url)).toContain('CallSid=CA123');
+      expect(String(options.url)).toContain('From=%2B1');
+      expect(options.params).toEqual({});
+    });
+    const createWebhookResponse = jest.fn(async () => ({ status: 200, headers: { 'Content-Type': 'text/xml' }, body: '<ok/>' }));
+    const providerPlugins = { getCompat: jest.fn(async () => ({ validateWebhookRequest, createWebhookResponse })) };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: providerPlugins as any
+    });
+
+    const res = createMockRes();
+    await expect(
+      reg.handleHttp({ url: '/voice/webhook?callConfigId=cfg_1&CallSid=CA123&From=%2B1', method: 'GET', headers: { host: 'localhost' }, socket: {} } as any, res)
+    ).resolves.toBe(true);
+    expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+    expect(validateWebhookRequest).toHaveBeenCalledTimes(1);
+    expect(createWebhookResponse).toHaveBeenCalledTimes(1);
+  });
+
 	  test('/voice/webhook (POST) parses x-www-form-urlencoded body into params for signature validation', async () => {
 	    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
 
@@ -1950,6 +1997,56 @@ describe('extensions/voice: server http handlers', () => {
       )
     ).resolves.toBe(true);
     expect(String(res.writeHead.mock.calls[0][0])).toBe('400');
+  });
+
+  test('POST /voice/calls accepts silenceAssistantAudio*FallbackMs and persists them to the call config', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+
+    const store = createInMemoryVoiceCallConfigStore();
+
+    const createOutboundCall = jest.fn(async () => ({ providerCallId: 'pc_1' }));
+    const providerPlugins: any = {
+      getManifest: jest.fn(async () => ({ defaults: {} })),
+      getCompat: jest.fn(async () => ({ createOutboundCall }))
+    };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+    });
+
+    const res = createMockRes();
+    await expect(
+      reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1', host: 'localhost' },
+          body: {
+            to: 'to',
+            from: 'from',
+            realtimeSpec: {},
+            voiceProvider: 'test',
+            timeouts: { silenceAssistantAudioStartFallbackMs: 111, silenceAssistantAudioEndFallbackMs: 222 }
+          }
+        }),
+        res
+      )
+    ).resolves.toBe(true);
+
+    expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+    expect(createOutboundCall).toHaveBeenCalled();
+
+    const response = JSON.parse(String(res.end.mock.calls[0][0]));
+    expect(response).toMatchObject({ providerCallId: 'pc_1', status: 'queued' });
+
+    const callConfig = await store.getConfig(String(response.callConfigId));
+    expect(callConfig?.timeouts).toMatchObject({ silenceAssistantAudioStartFallbackMs: 111, silenceAssistantAudioEndFallbackMs: 222 });
   });
 
   test('POST /voice/calls returns 501 when adapter-side recording is requested', async () => {
@@ -3629,7 +3726,7 @@ describe('extensions/voice: server http handlers', () => {
 	    }
 	  });
 
-	  test('POST /voice/calls responds even when persisting providerCallId fails', async () => {
+		  test('POST /voice/calls fails fast when persisting providerCallId fails (and attempts cleanup)', async () => {
 	    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
 
     const store = createInMemoryVoiceCallConfigStore();
@@ -3647,9 +3744,10 @@ describe('extensions/voice: server http handlers', () => {
     });
 
     const createOutboundCall = jest.fn(async () => ({ providerCallId: 'c1' }));
+    const endCall = jest.fn(async () => ({ ok: true }));
     const providerPlugins: any = {
       getManifest: jest.fn(async () => ({ defaults: {} })),
-      getCompat: jest.fn(async () => ({ createOutboundCall }))
+      getCompat: jest.fn(async () => ({ createOutboundCall, endCall }))
     };
 
     const reg = await createVoiceServerRegistration({
@@ -3675,10 +3773,102 @@ describe('extensions/voice: server http handlers', () => {
       )
     ).resolves.toBe(true);
 
-    expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+    expect(String(res.writeHead.mock.calls[0][0])).toBe('500');
     expect(createOutboundCall).toHaveBeenCalled();
+	    expect(endCall).toHaveBeenCalledWith(expect.objectContaining({ providerCallId: 'c1' }));
+	  });
 
-    const resNoRequestId = createMockRes();
+	  test('POST /voice/calls attempts cleanup even when compat endCall fails after providerCallId persist error', async () => {
+	    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+
+    const store = createInMemoryVoiceCallConfigStore();
+    const origGet = store.getConfig.bind(store);
+    (store as any).getConfig = jest.fn(async (callConfigId: string) => {
+      const cfg = await origGet(callConfigId);
+      return cfg ? ({ ...(cfg as any), expiresAtMs: 0 } as any) : cfg;
+    });
+    const origPut = store.putConfig.bind(store);
+    (store as any).putConfig = jest.fn(async (config: any, opts: any) => {
+      if (typeof config?.providerCallId === 'string' && config.providerCallId) {
+        throw 'db down';
+      }
+      return origPut(config, opts);
+    });
+
+    const createOutboundCall = jest.fn(async () => ({ providerCallId: 'c1' }));
+    const endCall = jest.fn(async () => {
+      throw 'end failed';
+    });
+    const providerPlugins: any = {
+      getManifest: jest.fn(async () => ({ defaults: {} })),
+      getCompat: jest.fn(async () => ({ createOutboundCall, endCall }))
+    };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+    });
+
+    const res = createMockRes();
+    await expect(
+      reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1', host: 'localhost' },
+          body: { to: 'to', from: 'from', realtimeSpec: {}, voiceProvider: 'test', metadata: { requestId: 'req_1' } }
+        }),
+        res
+      )
+    ).resolves.toBe(true);
+
+    expect(String(res.writeHead.mock.calls[0][0])).toBe('500');
+	    expect(createOutboundCall).toHaveBeenCalled();
+	    expect(endCall).toHaveBeenCalledWith(expect.objectContaining({ providerCallId: 'c1' }));
+	  });
+
+	  test('POST /voice/calls logs cleanup failures without requestId context', async () => {
+	    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+
+    const store = createInMemoryVoiceCallConfigStore();
+    const origGet = store.getConfig.bind(store);
+    (store as any).getConfig = jest.fn(async (callConfigId: string) => {
+      const cfg = await origGet(callConfigId);
+      return cfg ? ({ ...(cfg as any), expiresAtMs: 0 } as any) : cfg;
+    });
+    const origPut = store.putConfig.bind(store);
+    (store as any).putConfig = jest.fn(async (config: any, opts: any) => {
+      if (typeof config?.providerCallId === 'string' && config.providerCallId) {
+        throw 'db down';
+      }
+      return origPut(config, opts);
+    });
+
+    const createOutboundCall = jest.fn(async () => ({ providerCallId: 'c1' }));
+    const endCall = jest.fn(async () => {
+      throw new Error('end failed');
+    });
+    const providerPlugins: any = {
+      getManifest: jest.fn(async () => ({ defaults: {} })),
+      getCompat: jest.fn(async () => ({ createOutboundCall, endCall }))
+    };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+    });
+
+    const res = createMockRes();
     await expect(
       reg.handleHttp(
         createJsonReq({
@@ -3687,11 +3877,14 @@ describe('extensions/voice: server http handlers', () => {
           headers: { authorization: 'Bearer k1', host: 'localhost' },
           body: { to: 'to', from: 'from', realtimeSpec: {}, voiceProvider: 'test' }
         }),
-        resNoRequestId
+        res
       )
     ).resolves.toBe(true);
-    expect(String(resNoRequestId.writeHead.mock.calls[0][0])).toBe('200');
-  });
+
+    expect(String(res.writeHead.mock.calls[0][0])).toBe('500');
+    expect(createOutboundCall).toHaveBeenCalled();
+    expect(endCall).toHaveBeenCalledWith(expect.objectContaining({ providerCallId: 'c1' }));
+	  });
 
   test('close terminates without throwing', async () => {
     const server = http.createServer();
