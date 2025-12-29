@@ -1066,11 +1066,11 @@ describe('extensions/voice: server http handlers', () => {
 
 	    const validateWebhookRequest = jest.fn(async (options: any) => {
 	      expect(options.method).toBe('POST');
-	      expect(options.params).toEqual({ CallSid: 'CA123', From: '+1' });
+	      expect(options.params).toEqual({ callId: 'CA123', from: '+1' });
 	      expect(options.providerDefaults).toEqual({ foo: 'bar' });
 	    });
 	    const createWebhookResponse = jest.fn(async (options: any) => {
-	      expect(options.params).toEqual({ CallSid: 'CA123', From: '+1' });
+	      expect(options.params).toEqual({ callId: 'CA123', from: '+1' });
 	      return { status: 200, headers: {}, body: 'ok' };
 	    });
     const providerPlugins = {
@@ -1089,7 +1089,7 @@ describe('extensions/voice: server http handlers', () => {
     });
 
     const res = createMockRes();
-    const req = Object.assign(Readable.from(['CallSid=CA123&From=%2B1']), {
+    const req = Object.assign(Readable.from(['callId=CA123&from=%2B1']), {
       url: '/voice/webhook?callConfigId=cfg_1',
       method: 'POST',
       headers: { host: 'localhost', 'content-type': 'application/x-www-form-urlencoded' },
@@ -1160,7 +1160,7 @@ describe('extensions/voice: server http handlers', () => {
 	    );
 
 	    const createWebhookResponse = jest.fn(async (options: any) => {
-	      expect(options.params).toEqual({ CallSid: 'CA123', From: '+1' });
+	      expect(options.params).toEqual({ callId: 'CA123', from: '+1' });
 	      return { status: 200, headers: {}, body: 'ok' };
 	    });
 	    const providerPlugins = { getCompat: jest.fn(async () => ({ createWebhookResponse })) };
@@ -1176,7 +1176,7 @@ describe('extensions/voice: server http handlers', () => {
 	    });
 
 	    const res = createMockRes();
-	    const req = Object.assign(Readable.from(['CallSid=CA123&From=%2B1']), {
+	    const req = Object.assign(Readable.from(['callId=CA123&from=%2B1']), {
 	      url: '/voice/webhook?callConfigId=cfg_1',
 	      method: 'POST',
 	      headers: { host: 'localhost', 'content-type': 'application/x-www-form-urlencoded' },
@@ -1227,7 +1227,7 @@ describe('extensions/voice: server http handlers', () => {
     });
 
     const res = createMockRes();
-    const req = Object.assign(Readable.from(['CallSid=CA123&From=%2B1']), {
+    const req = Object.assign(Readable.from(['callId=CA123&from=%2B1']), {
       url: '/voice/webhook?callConfigId=cfg_1',
       method: 'POST',
       headers: { host: 'localhost', 'content-type': 'application/json' },
@@ -1425,7 +1425,7 @@ describe('extensions/voice: server http handlers', () => {
         if (started) return;
         started = true;
         setTimeout(() => {
-          this.push('CallSid=CA123');
+          this.push('callId=CA123');
           this.push(null);
         }, 20);
       }
@@ -2120,7 +2120,7 @@ describe('extensions/voice: server http handlers', () => {
         createFormReq({
           url: '/voice/webhook/recording?callConfigId=cfg_recording_enabled',
           method: 'POST',
-          form: { RecordingSid: 'r1', RecordingUrl: 'https://example.com/r1', CallSid: 'c1' }
+          form: { recordingId: 'r1', recordingUrl: 'https://example.com/r1', providerCallId: 'c1' }
         }) as any,
         resMissingValidator
       )
@@ -2140,7 +2140,7 @@ describe('extensions/voice: server http handlers', () => {
         createFormReq({
           url: '/voice/webhook/recording?callConfigId=cfg_recording_enabled_no_reqid',
           method: 'POST',
-          form: { RecordingSid: 'r1', RecordingUrl: 'https://example.com/r1' }
+          form: { recordingId: 'r1', recordingUrl: 'https://example.com/r1' }
         }) as any,
         resValidation400
       )
@@ -2158,7 +2158,7 @@ describe('extensions/voice: server http handlers', () => {
         createFormReq({
           url: '/voice/webhook/recording?callConfigId=cfg_recording_enabled_no_reqid',
           method: 'POST',
-          form: { RecordingSid: 'r1', RecordingUrl: 'https://example.com/r1' }
+          form: { recordingId: 'r1', recordingUrl: 'https://example.com/r1' }
         }) as any,
         resValidation500
       )
@@ -2167,7 +2167,16 @@ describe('extensions/voice: server http handlers', () => {
 
     (providerPlugins.getCompat as any).mockResolvedValue({
       validateWebhookRequest: jest.fn(async () => {}),
-      createWebhookResponse: jest.fn()
+      createWebhookResponse: jest.fn(),
+      parseRecordingWebhook: jest.fn(async (options: any) => {
+        const params = options?.params ?? {};
+        return {
+          recordingId: String(params.recordingId ?? ''),
+          recordingUrl: String(params.recordingUrl ?? ''),
+          recordingStatus: String(params.recordingStatus ?? ''),
+          providerCallId: String(params.providerCallId ?? '')
+        };
+      })
     });
 
     const resRecordingDisabled = createMockRes();
@@ -2176,7 +2185,7 @@ describe('extensions/voice: server http handlers', () => {
         createFormReq({
           url: '/voice/webhook/recording?callConfigId=cfg_recording_disabled',
           method: 'POST',
-          form: { RecordingSid: 'r1', RecordingUrl: 'https://example.com/r1' }
+          form: { recordingId: 'r1', recordingUrl: 'https://example.com/r1' }
         }) as any,
         resRecordingDisabled
       )
@@ -2189,7 +2198,7 @@ describe('extensions/voice: server http handlers', () => {
         createFormReq({
           url: '/voice/webhook/recording?callConfigId=cfg_recording_enabled',
           method: 'POST',
-          form: { RecordingSid: 'r1' }
+          form: { recordingId: 'r1' }
         }) as any,
         resMissingFields
       )
@@ -2202,7 +2211,7 @@ describe('extensions/voice: server http handlers', () => {
         createFormReq({
           url: '/voice/webhook/recording?callConfigId=cfg_recording_enabled_no_reqid',
           method: 'POST',
-          form: { RecordingUrl: 'https://example.com/r1' }
+          form: { recordingUrl: 'https://example.com/r1' }
         }) as any,
         resMissingRecordingId
       )
@@ -2215,7 +2224,7 @@ describe('extensions/voice: server http handlers', () => {
         createFormReq({
           url: '/voice/webhook/recording?callConfigId=cfg_recording_enabled',
           method: 'POST',
-          form: { RecordingSid: 'r1', RecordingUrl: 'https://example.com/r1', RecordingStatus: 'completed', CallSid: 'c1' }
+          form: { recordingId: 'r1', recordingUrl: 'https://example.com/r1', recordingStatus: 'completed', providerCallId: 'c1' }
         }) as any,
         resOk
       )
@@ -2228,7 +2237,7 @@ describe('extensions/voice: server http handlers', () => {
         createFormReq({
           url: '/voice/webhook/recording?callConfigId=cfg_recording_enabled_no_reqid',
           method: 'POST',
-          form: { recordingSid: 'r2', recordingUrl: 'https://example.com/r2' }
+          form: { recordingId: 'r2', recordingUrl: 'https://example.com/r2' }
         }) as any,
         resOkLowercase
       )
@@ -2241,7 +2250,7 @@ describe('extensions/voice: server http handlers', () => {
         createFormReq({
           url: '/voice/webhook/recording?callConfigId=cfg_recording_enabled_no_provider_call_id',
           method: 'POST',
-          form: { recordingSid: 'r3', recordingUrl: 'https://example.com/r3' }
+          form: { recordingId: 'r3', recordingUrl: 'https://example.com/r3' }
         }) as any,
         resOkNoProviderCallId
       )
@@ -2278,7 +2287,15 @@ describe('extensions/voice: server http handlers', () => {
     const origPut = store.putConfig.bind(store);
     (store as any).putConfig = jest.fn(async (cfg: any, opts: any) => origPut(cfg, opts));
 
-    const providerPlugins = { getCompat: jest.fn(async () => ({ validateWebhookRequest: jest.fn(async () => {}) })) };
+    const providerPlugins = {
+      getCompat: jest.fn(async () => ({
+        validateWebhookRequest: jest.fn(async () => {}),
+        parseRecordingWebhook: jest.fn(async (options: any) => {
+          const params = options?.params ?? {};
+          return { recordingId: String(params.recordingId ?? ''), recordingUrl: String(params.recordingUrl ?? '') };
+        })
+      }))
+    };
 
     const reg = await createVoiceServerRegistration({
       server: {} as any,
@@ -2295,7 +2312,7 @@ describe('extensions/voice: server http handlers', () => {
         createFormReq({
           url: '/voice/webhook/recording?callConfigId=cfg_recording_ttl_fallback',
           method: 'POST',
-          form: { recordingSid: 'r1', recordingUrl: 'https://example.com/r1' }
+          form: { recordingId: 'r1', recordingUrl: 'https://example.com/r1' }
         }) as any,
         res
       )

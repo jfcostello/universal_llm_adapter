@@ -81,11 +81,20 @@ describe('extensions/voice: recording webhook + retrieval', () => {
     );
 
     const validateWebhookRequest = jest.fn(async () => {});
+    const parseRecordingWebhook = jest.fn(async (options: any) => {
+      const params = options?.params ?? {};
+      return {
+        recordingId: String(params.recordingId ?? ''),
+        recordingUrl: String(params.recordingUrl ?? ''),
+        recordingStatus: String(params.recordingStatus ?? ''),
+        providerCallId: String(params.providerCallId ?? '')
+      };
+    });
     const harness = await startHarness({
       store,
       providerPlugins: {
         getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
-        getCompat: jest.fn(async () => ({ validateWebhookRequest }))
+        getCompat: jest.fn(async () => ({ validateWebhookRequest, parseRecordingWebhook }))
       },
       httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
     });
@@ -95,10 +104,10 @@ describe('extensions/voice: recording webhook + retrieval', () => {
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
-          CallSid: 'p1',
-          RecordingSid: 'rec_1',
-          RecordingUrl: 'https://recording.example/rec_1',
-          RecordingStatus: 'completed'
+          providerCallId: 'p1',
+          recordingId: 'rec_1',
+          recordingUrl: 'https://recording.example/rec_1',
+          recordingStatus: 'completed'
         }).toString()
       });
       expect(res.status).toBe(200);
@@ -113,6 +122,7 @@ describe('extensions/voice: recording webhook + retrieval', () => {
       });
 
       expect(validateWebhookRequest).toHaveBeenCalled();
+      expect(parseRecordingWebhook).toHaveBeenCalled();
     } finally {
       await harness.close();
     }
@@ -184,4 +194,3 @@ describe('extensions/voice: recording webhook + retrieval', () => {
     }
   });
 });
-

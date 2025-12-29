@@ -102,6 +102,29 @@ export default class TwilioVoiceCompat {
     }
   }
 
+  async parseRecordingWebhook(options: {
+    params?: Record<string, string>;
+    callConfig?: any;
+  }): Promise<{ recordingId: string; recordingUrl: string; recordingStatus?: string; providerCallId?: string }> {
+    const params = options.params && typeof options.params === 'object' ? options.params : {};
+
+    const recordingId = String(params.RecordingSid ?? params.recordingSid ?? '').trim();
+    const recordingUrl = String(params.RecordingUrl ?? params.recordingUrl ?? '').trim();
+    const recordingStatus = String(params.RecordingStatus ?? params.recordingStatus ?? '').trim();
+    const providerCallId = String(params.CallSid ?? params.callSid ?? options.callConfig?.providerCallId ?? '').trim();
+
+    if (!recordingId || !recordingUrl) {
+      throw makeHttpError({ message: 'Missing recording fields', statusCode: 400, code: 'validation_error' });
+    }
+
+    return {
+      recordingId,
+      recordingUrl,
+      ...(recordingStatus ? { recordingStatus } : {}),
+      ...(providerCallId ? { providerCallId } : {})
+    };
+  }
+
   async createWebhookResponse(options: {
     req: http.IncomingMessage;
     callConfigId: string;

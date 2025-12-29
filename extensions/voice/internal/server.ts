@@ -46,51 +46,51 @@ type VoiceLogging = {
   getLogger: (correlationId?: string) => VoiceLogger;
 };
 
-  function parseUrl(rawUrl: string | undefined): URL | null {
-    const raw = rawUrl ?? '/';
-    try {
-      return new URL(raw, 'http://localhost');
-    } catch {
-      return null;
-    }
+function parseUrl(rawUrl: string | undefined): URL | null {
+  const raw = rawUrl ?? '/';
+  try {
+    return new URL(raw, 'http://localhost');
+  } catch {
+    return null;
   }
+}
 
-  function normalizeRequestId(value: string): string | undefined {
-    if (!value) return undefined;
-    const first = value.split(',')[0]!.trim();
-    const cleaned = first.replace(/[\r\n\t]/g, ' ').trim();
-    if (!cleaned) return undefined;
-    return cleaned.slice(0, 128);
-  }
+function normalizeRequestId(value: string): string | undefined {
+  if (!value) return undefined;
+  const first = value.split(',')[0]!.trim();
+  const cleaned = first.replace(/[\r\n\t]/g, ' ').trim();
+  if (!cleaned) return undefined;
+  return cleaned.slice(0, 128);
+}
 
-  function readRequestId(req: http.IncomingMessage): string | undefined {
-    const readHeader = (name: string): string => {
-      const raw = req.headers?.[name];
-      const first =
-        typeof raw === 'string'
-          ? raw
-          : Array.isArray(raw)
-            ? String(raw[0] ?? '')
-            : '';
-      return first.trim();
-    };
+function readRequestId(req: http.IncomingMessage): string | undefined {
+  const readHeader = (name: string): string => {
+    const raw = req.headers?.[name];
+    const first =
+      typeof raw === 'string'
+        ? raw
+        : Array.isArray(raw)
+          ? String(raw[0] ?? '')
+          : '';
+    return first.trim();
+  };
 
-    return (
-      normalizeRequestId(readHeader('x-request-id')) ??
-      normalizeRequestId(readHeader('x-correlation-id'))
-    );
-  }
+  return (
+    normalizeRequestId(readHeader('x-request-id')) ??
+    normalizeRequestId(readHeader('x-correlation-id'))
+  );
+}
 
-  function normalizeIdempotencyKey(value: string): string {
-    const trimmed = value.trim();
-    if (!trimmed) return '';
+function normalizeIdempotencyKey(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
 
-    const maxBytes = 512;
-    if (Buffer.byteLength(trimmed, 'utf8') <= maxBytes) return trimmed;
+  const maxBytes = 512;
+  if (Buffer.byteLength(trimmed, 'utf8') <= maxBytes) return trimmed;
 
-    const hash = crypto.createHash('sha256').update(trimmed).digest('hex');
-    return `sha256:${hash}`;
-  }
+  const hash = crypto.createHash('sha256').update(trimmed).digest('hex');
+  return `sha256:${hash}`;
+}
 
 function asPlainObject(value: unknown): Record<string, any> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
@@ -622,45 +622,45 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
-            const requestIdFromConfig = readTrimmedStringProperty((callConfig as any)?.metadata, 'requestId');
-            const requestId = requestIdFromConfig ? normalizeRequestId(requestIdFromConfig) : undefined;
+          const requestIdFromConfig = readTrimmedStringProperty((callConfig as any)?.metadata, 'requestId');
+          const requestId = requestIdFromConfig ? normalizeRequestId(requestIdFromConfig) : undefined;
 
-            const logger = await resolveLogger(callConfigId);
-            safeLog(logger, 'info', 'voice.webhook.request', { callConfigId, voiceProvider, method, ...(requestId ? { requestId } : {}) });
+          const logger = await resolveLogger(callConfigId);
+          safeLog(logger, 'info', 'voice.webhook.request', { callConfigId, voiceProvider, method, ...(requestId ? { requestId } : {}) });
 
-            const compat = await providerPlugins.getCompat(voiceProvider);
-            const params: Record<string, string> = {};
-            if (method === 'POST') {
-              const contentType = String(req.headers?.['content-type'] ?? '').toLowerCase();
-              if (contentType.includes('application/x-www-form-urlencoded')) {
-                const rawBody = await readTextBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
-                if (rawBody) {
-                  const form = new URLSearchParams(rawBody);
-                  for (const [k, v] of form.entries()) {
-                    params[String(k)] = String(v);
-                  }
+          const compat = await providerPlugins.getCompat(voiceProvider);
+          const params: Record<string, string> = {};
+          if (method === 'POST') {
+            const contentType = String(req.headers?.['content-type'] ?? '').toLowerCase();
+            if (contentType.includes('application/x-www-form-urlencoded')) {
+              const rawBody = await readTextBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
+              if (rawBody) {
+                const form = new URLSearchParams(rawBody);
+                for (const [k, v] of form.entries()) {
+                  params[String(k)] = String(v);
                 }
               }
             }
+          }
 
-            try {
-              const validateWebhookRequest = (compat as any)?.validateWebhookRequest;
-              if (typeof validateWebhookRequest !== 'function') {
-                if (getWebhookValidationRequired()) {
-                  throw makeHttpError({
-                    message: 'Voice compat missing validateWebhookRequest()',
-                    statusCode: 501,
-                    code: 'webhook_validation_unavailable'
-                  });
-                }
-              } else {
-                const httpBaseUrl = getPublicHttpBaseUrl(req);
-                const publicUrl = new URL(req.url ?? '/voice/webhook', httpBaseUrl).toString();
+          try {
+            const validateWebhookRequest = (compat as any)?.validateWebhookRequest;
+            if (typeof validateWebhookRequest !== 'function') {
+              if (getWebhookValidationRequired()) {
+                throw makeHttpError({
+                  message: 'Voice compat missing validateWebhookRequest()',
+                  statusCode: 501,
+                  code: 'webhook_validation_unavailable'
+                });
+              }
+            } else {
+              const httpBaseUrl = getPublicHttpBaseUrl(req);
+              const publicUrl = new URL(req.url ?? '/voice/webhook', httpBaseUrl).toString();
 
-                let providerDefaults: any | undefined;
-                try {
-                  const manifest = await providerPlugins.getManifest?.(voiceProvider);
-                  providerDefaults = (manifest as any)?.defaults;
+              let providerDefaults: any | undefined;
+              try {
+                const manifest = await providerPlugins.getManifest?.(voiceProvider);
+                providerDefaults = (manifest as any)?.defaults;
               } catch {
                 // ignore and allow compat to decide whether defaults are required
               }
@@ -683,16 +683,16 @@ export async function createVoiceServerRegistration(ctx: {
 
             const httpBaseUrl = getPublicHttpBaseUrl(req);
             const token = mintVoiceMediaToken({ callConfigId, voiceProvider });
-              const mediaWsUrl = toWsUrl(httpBaseUrl, '/voice/media', { token });
+            const mediaWsUrl = toWsUrl(httpBaseUrl, '/voice/media', { token });
 
-              const response = await (async () => {
-                try {
-                  return await compat.createWebhookResponse({ req, callConfigId, callConfig, voiceProvider, mediaWsUrl, params });
-                } catch (error: any) {
-                  metrics.compatError('webhook_response', voiceProvider);
-                  throw error;
-                }
-              })();
+            const response = await (async () => {
+              try {
+                return await compat.createWebhookResponse({ req, callConfigId, callConfig, voiceProvider, mediaWsUrl, params });
+              } catch (error: any) {
+                metrics.compatError('webhook_response', voiceProvider);
+                throw error;
+              }
+            })();
             const status = Number(response?.status ?? 200);
             const headers = (response?.headers && typeof response.headers === 'object') ? response.headers : {};
             const body = String(response?.body ?? '');
@@ -772,9 +772,9 @@ export async function createVoiceServerRegistration(ctx: {
                   code: 'webhook_validation_unavailable'
                 });
               }
-	            } else {
-	              const httpBaseUrl = getPublicHttpBaseUrl(req);
-	              const publicUrl = new URL(`${url.pathname}${url.search}`, httpBaseUrl).toString();
+            } else {
+              const httpBaseUrl = getPublicHttpBaseUrl(req);
+              const publicUrl = new URL(`${url.pathname}${url.search}`, httpBaseUrl).toString();
 
               let providerDefaults: any | undefined;
               try {
@@ -802,9 +802,31 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
-          const recordingId = String(params.RecordingSid ?? params.recordingSid ?? '').trim();
-          const recordingUrl = String(params.RecordingUrl ?? params.recordingUrl ?? '').trim();
-          const recordingStatus = String(params.RecordingStatus ?? params.recordingStatus ?? '').trim();
+          const parseRecordingWebhook = (compat as any)?.parseRecordingWebhook;
+          if (typeof parseRecordingWebhook !== 'function') {
+            writeJson(res, 501, { type: 'error', error: { message: 'Voice compat missing parseRecordingWebhook()', code: 'recording_parse_unavailable' } });
+            return true;
+          }
+
+          let parsed: any;
+          try {
+            parsed = await parseRecordingWebhook({ params, callConfigId, callConfig, voiceProvider });
+          } catch (error: any) {
+            const statusCode = Number(error?.statusCode ?? 500);
+            const code = error?.code !== undefined ? String(error.code) : undefined;
+            safeLog(
+              logger,
+              statusCode >= 500 ? 'error' : 'warning',
+              'voice.webhook.recording.parse_failed',
+              { callConfigId, voiceProvider, statusCode, ...(code ? { code } : {}), ...(requestId ? { requestId } : {}) }
+            );
+            throw error;
+          }
+
+          const recordingId = String(parsed?.recordingId ?? '').trim();
+          const recordingUrl = String(parsed?.recordingUrl ?? '').trim();
+          const recordingStatus = String(parsed?.recordingStatus ?? '').trim();
+          const providerCallId = String(parsed?.providerCallId ?? (callConfig as any)?.providerCallId ?? '').trim();
           if (!recordingId || !recordingUrl) {
             writeJson(res, 400, { type: 'error', error: { message: 'Missing recording fields', code: 'validation_error' } });
             return true;
@@ -825,7 +847,6 @@ export async function createVoiceServerRegistration(ctx: {
             : 60;
           await store.putConfig({ ...(callConfig as any), recording: updatedRecording } as any, { ttlSeconds: ttlRemainingSeconds });
 
-          const providerCallId = String(params.CallSid ?? params.callSid ?? (callConfig as any)?.providerCallId ?? '').trim();
           eventsHub.emit(callConfigId, { type: 'voice.recording.ready', recordingId, ...(providerCallId ? { providerCallId } : {}) });
 
           safeLog(logger, 'info', 'voice.webhook.recording.received', {
@@ -1106,14 +1127,14 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
-	          const stream = Readable.fromWeb(upstream.body as any);
-	          try {
-	            await pipeline(stream, res);
-	          } catch {
-	            try { res.end(); } catch {}
-	          }
-	          return true;
-	        }
+          const stream = Readable.fromWeb(upstream.body as any);
+          try {
+            await pipeline(stream, res);
+          } catch {
+            try { res.end(); } catch {}
+          }
+          return true;
+        }
 
         if (pathname === '/voice/calls') {
           const method = (req.method ?? 'GET').toUpperCase();

@@ -1425,6 +1425,27 @@ describe('plugins/voice-compat/twilio', () => {
     }
   });
 
+  test('parseRecordingWebhook returns normalized recording fields', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.parseRecordingWebhook({
+        params: { RecordingSid: 'r1', RecordingUrl: 'https://example.com/r1', RecordingStatus: 'completed', CallSid: 'c1' }
+      } as any)
+    ).resolves.toEqual({
+      recordingId: 'r1',
+      recordingUrl: 'https://example.com/r1',
+      recordingStatus: 'completed',
+      providerCallId: 'c1'
+    });
+  });
+
+  test('parseRecordingWebhook throws validation_error when required fields are missing', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.parseRecordingWebhook({ params: { RecordingSid: 'r1' } } as any)
+    ).rejects.toMatchObject({ statusCode: 400, code: 'validation_error' });
+  });
+
   test('getRecordingDownloadRequest appends extension and RequestedChannels', async () => {
     const compat = new TwilioVoiceCompat();
     const req = await compat.getRecordingDownloadRequest({
