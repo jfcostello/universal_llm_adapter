@@ -352,6 +352,7 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
     .option('--api-key-header-name <name>', 'Header name for api key (default: x-api-key)', 'x-api-key')
     .option('--call-config-id <id>', 'Call config id to stream events for')
     .option('--include-deltas <0|1>', 'Include transcript deltas in the stream', (v) => String(v))
+    .option('--event-types <csv>', 'Comma-separated allowlist of event types to include', (v) => String(v))
     .action(async (options) => {
       try {
         const serverUrl = readRequiredTrimmed(options.serverUrl, 'serverUrl');
@@ -368,6 +369,10 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
         const includeDeltasRaw = typeof options.includeDeltas === 'string' ? options.includeDeltas.trim() : '';
         if (includeDeltasRaw === '0' || includeDeltasRaw === '1') {
           url.searchParams.set('includeDeltas', includeDeltasRaw);
+        }
+        const eventTypesRaw = typeof options.eventTypes === 'string' ? options.eventTypes.trim() : '';
+        if (eventTypesRaw) {
+          url.searchParams.set('eventTypes', eventTypesRaw);
         }
 
         const res = await fetch(url, { method: 'GET', headers });
@@ -426,12 +431,12 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
 
         const destPath = typeof options.output === 'string' ? options.output.trim() : '';
         if (destPath) {
-          const writable = fs.createWriteStream(destPath);
           if (res.body) {
+            const writable = fs.createWriteStream(destPath);
             const stream = Readable.fromWeb(res.body as any);
             await pipeline(stream, writable);
           } else {
-            writable.end();
+            fs.writeFileSync(destPath, Buffer.from([]));
           }
         } else {
           if (res.body) {

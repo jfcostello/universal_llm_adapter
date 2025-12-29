@@ -320,6 +320,124 @@ describe('plugins/voice-compat/twilio', () => {
     }
   });
 
+  test('assistant_audio.chunk does not schedule assistant audio end fallback after first assistant_audio.end', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+
+    try {
+      process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+      const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
+
+      const { registry } = createRegistryHarnessWithCompatSession({
+        events: async function* () {
+          yield { type: 'ready', sessionId: 's1' };
+          await new Promise(resolve => setTimeout(resolve, 10));
+          yield { type: 'assistant_audio.end' };
+          await new Promise(resolve => setTimeout(resolve, 10));
+          yield {
+            type: 'assistant_audio.chunk',
+            frame: {
+              format: 'g711_ulaw',
+              sampleRateHz: 8000,
+              channels: 1,
+              dataBase64: Buffer.alloc(200).toString('base64')
+            }
+          };
+        }
+      });
+
+      const compat = new TwilioVoiceCompat();
+      const ws = new MockWebSocket();
+      const taskPromise = compat.handleMediaConnection({
+        ws: ws as any,
+        req: { url: `/voice/media?token=${encodeURIComponent(token)}` } as any,
+        callConfigId: 'cfg_1',
+        callConfig: {
+          realtimeSpec: { provider: 'realtime_p1' },
+          assistantFirstTurn: { enabled: true, prompt: 'Say hello briefly.', role: 'user', delayMs: 0 },
+          timeouts: { silenceTimeoutMs: 1000 }
+        },
+        voiceProvider: 'twilio',
+        registry,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token', apiBaseUrl: 'https://api.example.test' }
+      } as any);
+
+      ws.emitMessage(startMessage());
+      await jest.advanceTimersByTimeAsync(0);
+
+      await jest.advanceTimersByTimeAsync(25);
+
+      ws.emitMessage(stopMessage());
+      await taskPromise;
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('silence timeout is armed under fallback when assistant_audio.end is missing', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } }) as any
+    );
+
+    try {
+      process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+      const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
+
+      const { registry } = createRegistryHarnessWithCompatSession({
+        events: async function* () {
+          yield { type: 'ready', sessionId: 's1' };
+          await new Promise(resolve => setTimeout(resolve, 300));
+          yield {
+            type: 'assistant_audio.chunk',
+            frame: {
+              format: 'g711_ulaw',
+              sampleRateHz: 8000,
+              channels: 1,
+              dataBase64: Buffer.alloc(200).toString('base64')
+            }
+          };
+          // No assistant_audio.end event emitted.
+        }
+      });
+
+      const compat = new TwilioVoiceCompat();
+      const ws = new MockWebSocket();
+      const taskPromise = compat.handleMediaConnection({
+        ws: ws as any,
+        req: { url: `/voice/media?token=${encodeURIComponent(token)}` } as any,
+        callConfigId: 'cfg_1',
+        callConfig: {
+          realtimeSpec: { provider: 'realtime_p1' },
+          assistantFirstTurn: { enabled: true, prompt: 'Say hello briefly.', role: 'user', delayMs: 0 },
+          timeouts: { silenceTimeoutMs: 1000 }
+        },
+        voiceProvider: 'twilio',
+        registry,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token', apiBaseUrl: 'https://api.example.test' }
+      } as any);
+
+      ws.emitMessage(startMessage());
+      await jest.advanceTimersByTimeAsync(0);
+
+      // Should not fire during the initial assistant audio window.
+      await jest.advanceTimersByTimeAsync(1500);
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      // Should eventually fire once assistant audio is considered ended under fallback + silenceTimeoutMs has elapsed.
+      await jest.advanceTimersByTimeAsync(2000);
+      expect(fetchSpy).toHaveBeenCalled();
+
+      ws.close();
+      await taskPromise;
+    } finally {
+      fetchSpy.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
   test('handleMediaConnection throws validation_error for invalid timeouts.callTimeoutMs', async () => {
     const { registry } = createRegistryHarness();
     const compat = new TwilioVoiceCompat();
@@ -1429,14 +1547,111 @@ describe('plugins/voice-compat/twilio', () => {
     const compat = new TwilioVoiceCompat();
     await expect(
       compat.parseRecordingWebhook({
-        params: { RecordingSid: 'r1', RecordingUrl: 'https://example.com/r1', RecordingStatus: 'completed', CallSid: 'c1' }
+        params: {
+          RecordingSid: 'r1',
+          RecordingUrl: 'https://api.twilio.com/2010-04-01/Accounts/AC123/Recordings/RE123',
+          RecordingStatus: 'completed',
+          CallSid: 'c1'
+        },
+        providerDefaults: { apiBaseUrl: 'https://api.twilio.com' }
       } as any)
     ).resolves.toEqual({
       recordingId: 'r1',
-      recordingUrl: 'https://example.com/r1',
+      recordingUrl: 'https://api.twilio.com/2010-04-01/Accounts/AC123/Recordings/RE123',
       recordingStatus: 'completed',
       providerCallId: 'c1'
     });
+  });
+
+  test('parseRecordingWebhook accepts alternate param names and callConfig providerCallId fallback', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.parseRecordingWebhook({
+        params: { recordingSid: 'r1', recordingUrl: 'https://api.twilio.com/r1', recordingStatus: 'completed' },
+        callConfig: { providerCallId: 'c1' },
+        providerDefaults: { apiBaseUrl: 'https://api.twilio.com' }
+      } as any)
+    ).resolves.toEqual({
+      recordingId: 'r1',
+      recordingUrl: 'https://api.twilio.com/r1',
+      recordingStatus: 'completed',
+      providerCallId: 'c1'
+    });
+  });
+
+  test('parseRecordingWebhook omits optional fields when not provided', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.parseRecordingWebhook({
+        params: { RecordingSid: 'r1', RecordingUrl: 'https://api.twilio.com/r1' },
+        providerDefaults: { apiBaseUrl: 'https://api.twilio.com' }
+      } as any)
+    ).resolves.toEqual({
+      recordingId: 'r1',
+      recordingUrl: 'https://api.twilio.com/r1'
+    });
+  });
+
+  test('parseRecordingWebhook falls back to default apiBaseUrl when empty', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.parseRecordingWebhook({
+        params: { RecordingSid: 'r1', RecordingUrl: 'https://api.twilio.com/r1' },
+        providerDefaults: { apiBaseUrl: '' }
+      } as any)
+    ).resolves.toEqual({
+      recordingId: 'r1',
+      recordingUrl: 'https://api.twilio.com/r1'
+    });
+  });
+
+  test('parseRecordingWebhook falls back to default apiBaseUrl when providerDefaults is missing', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.parseRecordingWebhook({
+        params: { RecordingSid: 'r1', RecordingUrl: 'https://api.twilio.com/r1' }
+      } as any)
+    ).resolves.toEqual({
+      recordingId: 'r1',
+      recordingUrl: 'https://api.twilio.com/r1'
+    });
+  });
+
+  test('parseRecordingWebhook treats non-object params as missing fields', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.parseRecordingWebhook({ params: 'nope' as any, providerDefaults: { apiBaseUrl: 'https://api.twilio.com' } } as any)
+    ).rejects.toMatchObject({ statusCode: 400, code: 'validation_error' });
+  });
+
+  test('parseRecordingWebhook rejects non-https recordingUrl', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.parseRecordingWebhook({
+        params: { RecordingSid: 'r1', RecordingUrl: 'http://api.twilio.com/r1' },
+        providerDefaults: { apiBaseUrl: 'https://api.twilio.com' }
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 400, code: 'validation_error' });
+  });
+
+  test('parseRecordingWebhook rejects unexpected recordingUrl origin', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.parseRecordingWebhook({
+        params: { RecordingSid: 'r1', RecordingUrl: 'https://evil.example/r1' },
+        providerDefaults: { apiBaseUrl: 'https://api.twilio.com' }
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 400, code: 'validation_error' });
+  });
+
+  test('parseRecordingWebhook rejects malformed recordingUrl', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.parseRecordingWebhook({
+        params: { RecordingSid: 'r1', RecordingUrl: 'not-a-url' },
+        providerDefaults: { apiBaseUrl: 'https://api.twilio.com' }
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 400, code: 'validation_error' });
   });
 
   test('parseRecordingWebhook throws validation_error when required fields are missing', async () => {
@@ -1456,13 +1671,13 @@ describe('plugins/voice-compat/twilio', () => {
           mode: 'provider',
           format: 'mp3',
           channels: 'dual',
-          providerRecording: { id: 'rec_1', url: 'https://recording.example/rec_1' }
+          providerRecording: { id: 'rec_1', url: 'https://api.twilio.com/2010-04-01/Accounts/AC123/Recordings/RE123' }
         }
       },
-      providerDefaults: { accountSid: 'AC123', authToken: 'token' }
+      providerDefaults: { accountSid: 'AC123', authToken: 'token', apiBaseUrl: 'https://api.twilio.com' }
     } as any);
 
-    expect(req.url).toContain('https://recording.example/rec_1.mp3');
+    expect(req.url).toContain('https://api.twilio.com/2010-04-01/Accounts/AC123/Recordings/RE123.mp3');
     expect(req.url).toContain('RequestedChannels=2');
     expect(req.headers.Authorization).toBe(`Basic ${Buffer.from('AC123:token').toString('base64')}`);
   });

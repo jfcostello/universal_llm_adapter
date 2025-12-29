@@ -93,7 +93,12 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
     },
     securityHeadersEnabled: true,
     extensions: {
-      enabled: []
+      enabled: [],
+      voice: {
+        events: {
+          keepAliveIntervalMs: 15000
+        }
+      }
     }
   },
   paths: {

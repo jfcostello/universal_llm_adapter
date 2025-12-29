@@ -21,6 +21,9 @@ Server endpoints:
 
 CLI:
 - `llm-adapter voice call`
+- `llm-adapter voice events`
+- `llm-adapter voice end`
+- `llm-adapter voice recording`
 
 ## Enabling
 
@@ -62,14 +65,23 @@ Enable the voice extension on the server via:
 - `LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS` (default: off)
   - When enabled, `x-forwarded-proto` / `x-forwarded-host` are used for public URL derivation (invalid values are ignored and the server falls back to the socket/`Host`).
 
+- `LLM_ADAPTER_VOICE_RECORDING_PROXY_TIMEOUT_MS` (default: `30000`)
+  - Max time the server will wait for upstream recording downloads when proxying `GET /voice/calls/:callConfigId/recording` (also aborted on client disconnect).
+
+- `LLM_ADAPTER_VOICE_EVENTS_KEEPALIVE_INTERVAL_MS` (default: `15000`)
+  - Overrides the default SSE keepalive interval (`server.extensions.voice.events.keepAliveIntervalMs`). Set to `0` to disable keepalives.
+
 ### Server defaults (optional)
 
-The voice extension supports server-side defaults under `server.extensions.voice` (applies to `POST /voice/calls` when a field is omitted):
+The voice extension supports server-side defaults and settings under `server.extensions.voice`:
 
+Call defaults (applied to `POST /voice/calls` when a field is omitted):
 - `assistantFirstTurn`: `{ enabled, prompt, role, delayMs, missingPromptBehavior }`
 - `timeouts`: `{ callTimeoutMs, silenceTimeoutMs }`
 - `recording`: `{ enabled, mode, format, channels }`
-- `events`: `{ includeDeltas }` (default for `GET /voice/calls/:callConfigId/events?includeDeltas=...`)
+
+Events stream defaults/settings (applied to `GET /voice/calls/:callConfigId/events`):
+- `events`: `{ includeDeltas, keepAliveIntervalMs, maxWriteQueueBytes }`
 
 ### Provider plugins
 
@@ -286,3 +298,53 @@ System prompt sources (optional):
 - `--system-prompt <text>`
 - `--system-prompt-file <path>`
 - stdin (only when stdin is not a TTY)
+
+Other options (optional):
+- `--api-key-header-name <name>` (default: `x-api-key`)
+- `--idempotency-key <key>`
+- `--ttl-seconds <seconds>` (default: `900`)
+- `--metadata <json>` / `--metadata-file <path>`
+- `--request-id <id>`
+- `--assistant-first-turn <json>` / `--assistant-first-turn-file <path>`
+- `--timeouts <json>` / `--timeouts-file <path>`
+- `--recording <json>` / `--recording-file <path>`
+- `--pretty`
+
+## CLI: `llm-adapter voice events`
+
+Streams `GET /voice/calls/:callConfigId/events` (SSE) as newline-delimited JSON.
+
+Required:
+- `--server-url <url>`
+- `--call-config-id <id>`
+
+Optional:
+- `--api-key <key>`
+- `--api-key-header-name <name>` (default: `x-api-key`)
+- `--include-deltas 0|1`
+- `--event-types <csv>` (comma-separated allowlist; maps to the `eventTypes` query param)
+
+## CLI: `llm-adapter voice end`
+
+Ends a call by calling `POST /voice/calls/:callConfigId/end`.
+
+Required:
+- `--server-url <url>`
+- `--call-config-id <id>`
+
+Optional:
+- `--api-key <key>`
+- `--api-key-header-name <name>` (default: `x-api-key`)
+
+## CLI: `llm-adapter voice recording`
+
+Downloads a recording via `GET /voice/calls/:callConfigId/recording`.
+
+Required:
+- `--server-url <url>`
+- `--call-config-id <id>`
+
+Optional:
+- `--api-key <key>`
+- `--api-key-header-name <name>` (default: `x-api-key`)
+- `--output <path>` (defaults to stdout)

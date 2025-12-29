@@ -49,6 +49,7 @@ async function startHarness(options: { store: any; providerPlugins: any; httpCon
 
 describe('extensions/voice: recording webhook + retrieval', () => {
   const prevSecret = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
+  const prevProxyTimeoutMs = process.env.LLM_ADAPTER_VOICE_RECORDING_PROXY_TIMEOUT_MS;
 
   beforeEach(() => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
@@ -59,6 +60,11 @@ describe('extensions/voice: recording webhook + retrieval', () => {
       delete process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
     } else {
       process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = prevSecret;
+    }
+    if (prevProxyTimeoutMs === undefined) {
+      delete process.env.LLM_ADAPTER_VOICE_RECORDING_PROXY_TIMEOUT_MS;
+    } else {
+      process.env.LLM_ADAPTER_VOICE_RECORDING_PROXY_TIMEOUT_MS = prevProxyTimeoutMs;
     }
   });
 
@@ -188,6 +194,173 @@ describe('extensions/voice: recording webhook + retrieval', () => {
       expect(getRecordingDownloadRequest).toHaveBeenCalledWith(
         expect.objectContaining({ callConfigId: 'cfg_1', voiceProvider: 'test' })
       );
+    } finally {
+      await harness.close();
+      await new Promise<void>((resolve, reject) => mediaServer.close(err => (err ? reject(err) : resolve())));
+    }
+  });
+
+  test('GET /voice/calls/:callConfigId/recording aborts upstream fetch when client disconnects', async () => {
+    let sawRequest = false;
+    let sawAbort = false;
+    let resolveRequest: (() => void) | undefined;
+    let resolveAbort: (() => void) | undefined;
+    const requestSeen = new Promise<void>((resolve) => { resolveRequest = resolve; });
+    const abortSeen = new Promise<void>((resolve) => { resolveAbort = resolve; });
+
+    const mediaServer = http.createServer((req, res) => {
+      if ((req.url ?? '') !== '/file.mp3') {
+        res.statusCode = 404;
+        res.end('not found');
+        return;
+      }
+
+      sawRequest = true;
+      resolveRequest?.();
+
+      const markAbort = () => {
+        if (sawAbort) return;
+        sawAbort = true;
+        resolveAbort?.();
+      };
+      req.on('aborted', markAbort);
+      req.on('close', markAbort);
+
+      res.writeHead(200, { 'Content-Type': 'audio/mpeg' });
+      // Keep the connection open until the proxy aborts.
+    });
+    await new Promise<void>((resolve) => mediaServer.listen(0, '127.0.0.1', resolve));
+    const address = mediaServer.address();
+    if (!address || typeof address === 'string') throw new Error('Expected TCP address');
+    const mediaUrl = `http://127.0.0.1:${address.port}/file.mp3`;
+
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'outbound',
+        realtimeSpec: {},
+        voiceProvider: 'test',
+        recording: {
+          enabled: true,
+          mode: 'provider',
+          format: 'mp3',
+          channels: 'mono',
+          providerRecording: { id: 'rec_1', url: 'https://recording.example/rec_1', status: 'completed' }
+        }
+      } as any,
+      { ttlSeconds: 60 }
+    );
+
+    const getRecordingDownloadRequest = jest.fn(async () => ({ url: mediaUrl, headers: {} }));
+    const harness = await startHarness({
+      store,
+      providerPlugins: {
+        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
+        getCompat: jest.fn(async () => ({ getRecordingDownloadRequest }))
+      },
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+    });
+
+    const controller = new AbortController();
+    try {
+      const fetchPromise = fetch(new URL('/voice/calls/cfg_1/recording', harness.baseUrl), {
+        method: 'GET',
+        headers: { Authorization: 'Bearer k1' },
+        signal: controller.signal
+      });
+
+      await Promise.race([
+        requestSeen,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Expected upstream request')), 1000))
+      ]);
+      expect(sawRequest).toBe(true);
+
+      controller.abort();
+      await expect(fetchPromise).rejects.toBeDefined();
+
+      await Promise.race([
+        abortSeen,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Expected upstream abort')), 1000))
+      ]);
+
+      expect(sawAbort).toBe(true);
+      expect(getRecordingDownloadRequest).toHaveBeenCalled();
+    } finally {
+      controller.abort();
+      await harness.close();
+      await new Promise<void>((resolve, reject) => mediaServer.close(err => (err ? reject(err) : resolve())));
+    }
+  });
+
+  test('GET /voice/calls/:callConfigId/recording enforces proxy timeout', async () => {
+    process.env.LLM_ADAPTER_VOICE_RECORDING_PROXY_TIMEOUT_MS = '50';
+
+    const mediaServer = http.createServer((req, res) => {
+      if ((req.url ?? '') !== '/file.mp3') {
+        res.statusCode = 404;
+        res.end('not found');
+        return;
+      }
+      // Delay longer than the proxy timeout.
+      setTimeout(() => {
+        res.writeHead(200, { 'Content-Type': 'audio/mpeg' });
+        res.end('abc');
+      }, 1000);
+    });
+    await new Promise<void>((resolve) => mediaServer.listen(0, '127.0.0.1', resolve));
+    const address = mediaServer.address();
+    if (!address || typeof address === 'string') throw new Error('Expected TCP address');
+    const mediaUrl = `http://127.0.0.1:${address.port}/file.mp3`;
+
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'outbound',
+        realtimeSpec: {},
+        voiceProvider: 'test',
+        recording: {
+          enabled: true,
+          mode: 'provider',
+          format: 'mp3',
+          channels: 'mono',
+          providerRecording: { id: 'rec_1', url: 'https://recording.example/rec_1', status: 'completed' }
+        }
+      } as any,
+      { ttlSeconds: 60 }
+    );
+
+    const getRecordingDownloadRequest = jest.fn(async () => ({ url: mediaUrl, headers: {} }));
+    const harness = await startHarness({
+      store,
+      providerPlugins: {
+        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
+        getCompat: jest.fn(async () => ({ getRecordingDownloadRequest }))
+      },
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+    });
+
+    try {
+      const res = await fetch(new URL('/voice/calls/cfg_1/recording', harness.baseUrl), {
+        method: 'GET',
+        headers: { Authorization: 'Bearer k1' }
+      });
+
+      expect(res.status).toBe(502);
+      const body = await res.json();
+      expect(body?.error?.code ?? body?.type).toBeDefined();
+      expect(getRecordingDownloadRequest).toHaveBeenCalled();
     } finally {
       await harness.close();
       await new Promise<void>((resolve, reject) => mediaServer.close(err => (err ? reject(err) : resolve())));

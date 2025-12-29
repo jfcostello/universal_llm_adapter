@@ -1180,6 +1180,10 @@ export interface ServerExtensionsDefaults {
    * Extensions are optional features that bolt new services onto the server/CLI.
    */
   enabled: string[];
+  /**
+   * Extension-specific defaults (e.g. `extensions.voice`).
+   */
+  [key: string]: any;
 }
 
 export interface ServerDefaults {

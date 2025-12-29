@@ -104,7 +104,7 @@ describe('extensions/voice: call events + control endpoints', () => {
     }
   });
 
-	  test('GET /voice/calls/:callConfigId/events replays buffered events and streams deltas when enabled', async () => {
+		  test('GET /voice/calls/:callConfigId/events replays buffered events and streams deltas when enabled', async () => {
     const store = createInMemoryVoiceCallConfigStore();
     await store.putConfig(
       {
@@ -154,6 +154,65 @@ describe('extensions/voice: call events + control endpoints', () => {
 
       controller.abort();
 
+    } finally {
+      controller.abort();
+      hub.close();
+      await harness.close();
+    }
+	  });
+
+  test('GET /voice/calls/:callConfigId/events supports eventTypes allowlist filtering', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'outbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const hub = createVoiceCallEventHub({ maxBufferedEventsPerCall: 10, maxActiveCalls: 10, callTtlMs: 0 });
+    hub.emit('cfg_1', { type: 'user_transcript.final', text: 'hello' });
+    hub.emit('cfg_1', { type: 'assistant_transcript.final', text: 'skip' });
+
+    const harness = await startHarness({
+      store,
+      providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn() },
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+      eventsHub: hub
+    });
+
+    const controller = new AbortController();
+    try {
+      const res = await fetch(new URL('/voice/calls/cfg_1/events?eventTypes=user_transcript.final&includeDeltas=1', harness.baseUrl), {
+        method: 'GET',
+        headers: { Authorization: 'Bearer k1' },
+        signal: controller.signal
+      });
+
+      expect(res.status).toBe(200);
+
+      const iterator = iterateSse(res, { timeoutMs: 1000 });
+      const first = await iterator.next();
+      expect(first.done).toBe(false);
+      expect(first.value?.data?.event?.type ?? first.value?.event).toBe('user_transcript.final');
+
+      hub.emit('cfg_1', { type: 'assistant_transcript.final', text: 'nope' });
+      hub.emit('cfg_1', { type: 'user_transcript.delta', textDelta: 'he' });
+      hub.emit('cfg_1', { type: 'user_transcript.final', text: 'ok' });
+
+      const second = await iterator.next();
+      expect(second.done).toBe(false);
+      expect(second.value?.data?.event?.type ?? second.value?.event).toBe('user_transcript.final');
+
+      controller.abort();
     } finally {
       controller.abort();
       hub.close();

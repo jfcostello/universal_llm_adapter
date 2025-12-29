@@ -56,6 +56,44 @@ describe('extensions/voice: call events hub', () => {
     hub.close();
   });
 
+  test('supports event type allowlist filtering (high-volume)', async () => {
+    const hub = createVoiceCallEventHub({ maxBufferedEventsPerCall: 10, maxActiveCalls: 10, callTtlMs: 0 });
+
+    hub.emit('c1', { type: 'user_transcript.final', text: 'a' });
+    hub.emit('c1', { type: 'assistant_transcript.final', text: 'b' });
+
+    const received: any[] = [];
+    const sub = hub.subscribe('c1', { includeDeltas: true, eventTypes: ['assistant_transcript.final'] } as any, (evt) => received.push(evt));
+
+    expect(sub.replay.map(r => r.event.type)).toEqual(['assistant_transcript.final']);
+
+    hub.emit('c1', { type: 'user_transcript.delta', textDelta: 'x' });
+    hub.emit('c1', { type: 'assistant_transcript.final', text: 'c' });
+
+    expect(received.map(r => r.event.type)).toEqual(['assistant_transcript.final']);
+
+    sub.unsubscribe();
+    hub.close();
+  });
+
+  test('treats invalid eventTypes allowlist as no filter', async () => {
+    const hub = createVoiceCallEventHub({ maxBufferedEventsPerCall: 10, maxActiveCalls: 10, callTtlMs: 0 });
+
+    hub.emit('c1', { type: 'user_transcript.final', text: 'a' });
+    hub.emit('c1', { type: 'assistant_transcript.final', text: 'b' });
+
+    const received: any[] = [];
+    const sub = hub.subscribe('c1', { includeDeltas: true, eventTypes: ['  ', 123 as any] } as any, (evt) => received.push(evt));
+
+    expect(sub.replay.map(r => r.event.type)).toEqual(['user_transcript.final', 'assistant_transcript.final']);
+
+    hub.emit('c1', { type: 'assistant_transcript.final', text: 'c' });
+    expect(received.map(r => r.event.type)).toEqual(['assistant_transcript.final']);
+
+    sub.unsubscribe();
+    hub.close();
+  });
+
   test('sweeps inactive calls with no subscribers', async () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'));

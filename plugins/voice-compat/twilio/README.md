@@ -46,6 +46,8 @@ This is **dynamic** (LLM-generated) and does not use pre-recorded audio. The pro
 - `callConfig.timeouts.silenceTimeoutMs`:
   - enforced adapter-side during the media bridge (hang up after no user input for the configured duration).
 
+When `assistantFirstTurn.enabled=true`, the silence timeout is armed after the first `assistant_audio.end` event (or after a fallback window if `assistant_audio.end` is never emitted).
+
 You can also terminate a call via `POST /voice/calls/:callConfigId/end` (server auth required).
 
 ### Provider-side recording + download
@@ -58,3 +60,7 @@ Once the recording callback has been received and stored on the call config, the
 - `GET /voice/calls/:callConfigId/recording` (server auth required)
 
 The download request is authenticated upstream using the configured `accountSid` + `authToken`.
+
+To harden against SSRF, the recording URL received from the webhook is validated before being stored:
+- `https:` only
+- must match the origin of `defaults.apiBaseUrl` (default: `https://api.twilio.com`)

@@ -119,11 +119,12 @@ describe('core/defaults', () => {
         expect(server.auth.enabled).toBe(false);
         expect(server.auth.allowBearer).toBe(true);
         expect(server.auth.allowApiKeyHeader).toBe(true);
-        expect(server.rateLimit.enabled).toBe(false);
-        expect(server.cors.enabled).toBe(false);
-        expect(server.securityHeadersEnabled).toBe(true);
-        expect(server.extensions?.enabled).toEqual([]);
-      });
+	        expect(server.rateLimit.enabled).toBe(false);
+	        expect(server.cors.enabled).toBe(false);
+	        expect(server.securityHeadersEnabled).toBe(true);
+	        expect(server.extensions?.enabled).toEqual([]);
+	        expect(Number((server.extensions as any)?.voice?.events?.keepAliveIntervalMs)).toBe(15000);
+	      });
 
     test('returns correct paths defaults', async () => {
       const { getDefaults } = await import('@/kernel/index.ts');

@@ -21,7 +21,7 @@ export type VoiceCallEventHub = {
   emit: (callConfigId: string, event: any) => void;
   subscribe: (
     callConfigId: string,
-    options: { includeDeltas: boolean },
+    options: { includeDeltas: boolean; eventTypes?: string[] },
     onEvent: (event: VoiceCallEventEnvelope) => void
   ) => VoiceCallEventSubscription;
   snapshot: () => VoiceCallEventHubSnapshot;
@@ -30,6 +30,7 @@ export type VoiceCallEventHub = {
 
 type Subscriber = {
   includeDeltas: boolean;
+  eventTypes?: Set<string>;
   onEvent: (event: VoiceCallEventEnvelope) => void;
 };
 
@@ -140,6 +141,7 @@ export function createVoiceCallEventHub(options?: {
 
     for (const sub of channel.subscribers) {
       if (delta && !sub.includeDeltas) continue;
+      if (sub.eventTypes && !sub.eventTypes.has(type)) continue;
       try {
         sub.onEvent(envelope);
       } catch {}
@@ -156,7 +158,7 @@ export function createVoiceCallEventHub(options?: {
 
   const subscribe = (
     callConfigId: string,
-    options: { includeDeltas: boolean },
+    options: { includeDeltas: boolean; eventTypes?: string[] },
     onEvent: (event: VoiceCallEventEnvelope) => void
   ): VoiceCallEventSubscription => {
     maybeSweep();
@@ -172,14 +174,32 @@ export function createVoiceCallEventHub(options?: {
     channel.lastActivityAtMs = Date.now();
     channels.set(id, channel); // refresh recency
 
+    const eventTypes = (() => {
+      const raw = options?.eventTypes;
+      if (!Array.isArray(raw) || raw.length === 0) return undefined;
+      const set = new Set<string>();
+      for (const entry of raw) {
+        if (typeof entry !== 'string') continue;
+        const trimmed = entry.trim();
+        if (trimmed) set.add(trimmed);
+      }
+      return set.size > 0 ? set : undefined;
+    })();
+
     const subscriber: Subscriber = {
       includeDeltas: options.includeDeltas === true,
+      ...(eventTypes ? { eventTypes } : {}),
       onEvent
     };
     channel.subscribers.add(subscriber);
 
+    const replay = (() => {
+      if (!eventTypes) return channel.buffered.slice();
+      return channel.buffered.filter((evt) => eventTypes.has(evt.event.type));
+    })();
+
     return {
-      replay: channel.buffered.slice(),
+      replay,
       unsubscribe: () => {
         channel.subscribers.delete(subscriber);
       }
@@ -204,4 +224,3 @@ export function createVoiceCallEventHub(options?: {
 
   return { emit, subscribe, snapshot, close };
 }
-

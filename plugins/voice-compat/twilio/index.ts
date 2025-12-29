@@ -105,6 +105,7 @@ export default class TwilioVoiceCompat {
   async parseRecordingWebhook(options: {
     params?: Record<string, string>;
     callConfig?: any;
+    providerDefaults?: any;
   }): Promise<{ recordingId: string; recordingUrl: string; recordingStatus?: string; providerCallId?: string }> {
     const params = options.params && typeof options.params === 'object' ? options.params : {};
 
@@ -117,9 +118,34 @@ export default class TwilioVoiceCompat {
       throw makeHttpError({ message: 'Missing recording fields', statusCode: 400, code: 'validation_error' });
     }
 
+    let parsed: URL;
+    try {
+      parsed = new URL(recordingUrl);
+    } catch {
+      throw makeHttpError({ message: 'Invalid recordingUrl', statusCode: 400, code: 'validation_error' });
+    }
+
+    if (parsed.protocol !== 'https:') {
+      throw makeHttpError({ message: 'Invalid recordingUrl protocol', statusCode: 400, code: 'validation_error' });
+    }
+
+    const defaultsRaw = options.providerDefaults;
+    const defaults =
+      defaultsRaw && typeof defaultsRaw === 'object' && !Array.isArray(defaultsRaw)
+        ? defaultsRaw
+        : {};
+
+    const apiBaseUrlRaw = String((defaults as any).apiBaseUrl ?? 'https://api.twilio.com').trim();
+    const apiBaseUrl = apiBaseUrlRaw ? apiBaseUrlRaw.replace(/\/+$/g, '') : 'https://api.twilio.com';
+    const allowedOrigin = new URL(apiBaseUrl).origin;
+
+    if (parsed.origin !== allowedOrigin) {
+      throw makeHttpError({ message: 'Invalid recordingUrl origin', statusCode: 400, code: 'validation_error' });
+    }
+
     return {
       recordingId,
-      recordingUrl,
+      recordingUrl: parsed.toString(),
       ...(recordingStatus ? { recordingStatus } : {}),
       ...(providerCallId ? { providerCallId } : {})
     };
@@ -224,6 +250,7 @@ export default class TwilioVoiceCompat {
 
     let callTimeoutTimer: any | undefined;
     let silenceTimer: any | undefined;
+    let assistantAudioEndFallbackTimer: any | undefined;
     let waitingForFirstAssistantAudioEnd = assistantFirstTurnEnabled;
     let callEnded = false;
 
@@ -241,9 +268,17 @@ export default class TwilioVoiceCompat {
       }
     };
 
+    const clearAssistantAudioEndFallback = () => {
+      if (assistantAudioEndFallbackTimer) {
+        clearTimeout(assistantAudioEndFallbackTimer);
+        assistantAudioEndFallbackTimer = undefined;
+      }
+    };
+
     const clearAllTimers = () => {
       clearCallTimeout();
       clearSilenceTimeout();
+      clearAssistantAudioEndFallback();
     };
 
     const requestEndCallOnce = async (reason: string) => {
@@ -274,6 +309,21 @@ export default class TwilioVoiceCompat {
     const startSilenceTimer = (timeoutMs: number) => {
       clearSilenceTimeout();
       silenceTimer = setTimeout(() => void requestEndCallOnce('silence_timeout'), Math.floor(timeoutMs));
+    };
+
+    const scheduleAssistantAudioEndFallback = (timeoutMs: number) => {
+      if (!assistantFirstTurnEnabled) return;
+      if (!waitingForFirstAssistantAudioEnd) return;
+      clearAssistantAudioEndFallback();
+
+      const fallbackMs = Math.min(2000, Math.max(500, Math.floor(timeoutMs)));
+      assistantAudioEndFallbackTimer = setTimeout(() => {
+        waitingForFirstAssistantAudioEnd = false;
+        startSilenceTimer(timeoutMs);
+      }, fallbackMs);
+      if (typeof (assistantAudioEndFallbackTimer as any)?.unref === 'function') {
+        (assistantAudioEndFallbackTimer as any).unref();
+      }
     };
 
     const bridge = createTwilioMediaStreamsBridge({
@@ -396,9 +446,12 @@ export default class TwilioVoiceCompat {
           if (silenceTimeoutMs) {
             if (type === 'user_speech.started') {
               clearSilenceTimeout();
+              clearAssistantAudioEndFallback();
             } else if (type === 'assistant_audio.chunk') {
               clearSilenceTimeout();
+              scheduleAssistantAudioEndFallback(silenceTimeoutMs);
             } else if (type === 'assistant_audio.end') {
+              clearAssistantAudioEndFallback();
               if (waitingForFirstAssistantAudioEnd) {
                 waitingForFirstAssistantAudioEnd = false;
               }

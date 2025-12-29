@@ -542,6 +542,33 @@ export async function createVoiceServerRegistration(ctx: {
 
   const voiceEventsDefaults = asPlainObject((voiceDefaults as any)?.events) ?? {};
   const eventsDefaultIncludeDeltas = voiceEventsDefaults.includeDeltas === true;
+  const eventsKeepAliveIntervalMs = (() => {
+    const raw = (voiceEventsDefaults as any)?.keepAliveIntervalMs;
+    if (raw === undefined || raw === null || raw === '') return 15000;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return 15000;
+    const out = Math.floor(n);
+    if (out <= 0) return 0;
+    return out;
+  })();
+  const eventsMaxWriteQueueBytes = (() => {
+    const raw = (voiceEventsDefaults as any)?.maxWriteQueueBytes;
+    if (raw === undefined || raw === null || raw === '') return 256 * 1024;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return 256 * 1024;
+    const out = Math.floor(n);
+    if (out <= 0) return 256 * 1024;
+    return out;
+  })();
+  const recordingProxyTimeoutMs = (() => {
+    const raw = String(process.env.LLM_ADAPTER_VOICE_RECORDING_PROXY_TIMEOUT_MS ?? '').trim();
+    if (!raw) return 30000;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return 30000;
+    const out = Math.floor(n);
+    if (out <= 0) return 30000;
+    return out;
+  })();
 
   const eventsHub: VoiceCallEventHub = (() => {
     const injected = (ctx as any)?.eventsHub;
@@ -919,6 +946,13 @@ export async function createVoiceServerRegistration(ctx: {
             ? eventsDefaultIncludeDeltas
             : normalizeFlag(includeDeltasRaw, eventsDefaultIncludeDeltas);
 
+          const eventTypes = (() => {
+            const raw = String(url.searchParams.get('eventTypes') ?? '').trim();
+            if (!raw) return undefined;
+            const parts = raw.split(',').map(p => p.trim()).filter(Boolean);
+            return parts.length > 0 ? parts.slice(0, 100) : undefined;
+          })();
+
           res.writeHead(200, {
             'Content-Type': 'text/event-stream; charset=utf-8',
             'Cache-Control': 'no-cache, no-transform',
@@ -935,25 +969,88 @@ export async function createVoiceServerRegistration(ctx: {
           let closed = false;
           let keepAliveTimer: any | undefined;
           let sub: { replay: VoiceCallEventEnvelope[]; unsubscribe: () => void } | undefined;
+          let drainListenerAttached = false;
+          let drainingWrites = false;
+          let inFlightBytes = 0;
+          let queuedBytes = 0;
+          const queuedChunks: string[] = [];
 
           const cleanup = () => {
             if (closed) return;
             closed = true;
             try { if (keepAliveTimer) clearInterval(keepAliveTimer); } catch {}
             try { sub?.unsubscribe(); } catch {}
+            try { res.off?.('drain', onDrain); } catch {}
+            drainListenerAttached = false;
           };
+
+          const closeResponse = () => {
+            cleanup();
+            try { res.end(); } catch {}
+          };
+
+          const checkQueueLimit = () => {
+            const pendingBytes = inFlightBytes + queuedBytes;
+            if (pendingBytes <= eventsMaxWriteQueueBytes) return;
+            closeResponse();
+          };
+
+          const attachDrain = () => {
+            drainListenerAttached = true;
+            res.on?.('drain', onDrain);
+          };
+
+          const flushQueued = () => {
+            while (queuedChunks.length > 0) {
+              const chunk = queuedChunks.shift() as string;
+              queuedBytes -= Buffer.byteLength(chunk, 'utf8');
+              try {
+                const ok = res.write(chunk);
+                if (ok === false) {
+                  drainingWrites = true;
+                  inFlightBytes = Buffer.byteLength(chunk, 'utf8');
+                  attachDrain();
+                  checkQueueLimit();
+                  return;
+                }
+              } catch {
+                closeResponse();
+                return;
+              }
+            }
+          };
+
+          function onDrain() {
+            if (closed) return;
+            drainingWrites = false;
+            inFlightBytes = 0;
+            try {
+              res.off?.('drain', onDrain);
+            } catch {}
+            drainListenerAttached = false;
+            flushQueued();
+          }
 
           const writeChunk = (chunk: string) => {
             if (closed) return;
+
+            if (drainingWrites) {
+              queuedChunks.push(chunk);
+              queuedBytes += Buffer.byteLength(chunk, 'utf8');
+              checkQueueLimit();
+              return;
+            }
+
             try {
               const ok = res.write(chunk);
               if (ok === false) {
-                cleanup();
-                try { res.end(); } catch {}
+                drainingWrites = true;
+                inFlightBytes = Buffer.byteLength(chunk, 'utf8');
+                attachDrain();
+                checkQueueLimit();
               }
             } catch {
-              cleanup();
-              try { res.end(); } catch {}
+              closeResponse();
             }
           };
 
@@ -965,18 +1062,20 @@ export async function createVoiceServerRegistration(ctx: {
             } catch {}
           };
 
-          sub = eventsHub.subscribe(callConfigId, { includeDeltas }, (evt) => writeEvent(evt));
+          sub = eventsHub.subscribe(callConfigId, { includeDeltas, ...(eventTypes ? { eventTypes } : {}) }, (evt) => writeEvent(evt));
           for (const evt of sub.replay) {
             writeEvent(evt);
           }
 
           if (closed) return true;
 
-          keepAliveTimer = setInterval(() => {
-            writeChunk(': keepalive\n\n');
-          }, 15000);
-          if (typeof (keepAliveTimer as any)?.unref === 'function') {
-            (keepAliveTimer as any).unref();
+          if (eventsKeepAliveIntervalMs > 0) {
+            keepAliveTimer = setInterval(() => {
+              writeChunk(': keepalive\n\n');
+            }, eventsKeepAliveIntervalMs);
+            if (typeof (keepAliveTimer as any)?.unref === 'function') {
+              (keepAliveTimer as any).unref();
+            }
           }
 
           req.on?.('close', cleanup);
@@ -1118,37 +1217,89 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
-          const upstream = await fetch(downloadUrl, {
-            method: 'GET',
-            headers: (download?.headers && typeof download.headers === 'object') ? download.headers : undefined
-          });
-          if (!upstream.ok) {
-            const text = await upstream.text().catch(() => '');
-            writeJson(res, 502, { type: 'error', error: { message: `Upstream recording download failed (${upstream.status})`, code: 'provider_error', ...(text ? { detail: text.slice(0, 500) } : {}) } });
-            return true;
+          const controller = new AbortController();
+          let didClientDisconnect = false;
+          let didTimeout = false;
+
+          const handleClientDisconnect = () => {
+            didClientDisconnect = true;
+            try { controller.abort(); } catch {}
+          };
+          req.on?.('aborted', handleClientDisconnect);
+          req.on?.('close', handleClientDisconnect);
+          res.on?.('close', handleClientDisconnect);
+
+          const timeoutId = setTimeout(() => {
+            didTimeout = true;
+            try { controller.abort(); } catch {}
+          }, recordingProxyTimeoutMs);
+          if (typeof (timeoutId as any)?.unref === 'function') {
+            (timeoutId as any).unref();
           }
 
-          const contentType = upstream.headers.get('content-type') ?? 'application/octet-stream';
-          const format = (recordingCfg as any)?.format === 'wav' ? 'wav' : 'mp3';
-
-          res.writeHead(200, {
-            'Content-Type': contentType,
-            'Cache-Control': 'no-store',
-            'Content-Disposition': `attachment; filename=\"${callConfigId}.${format}\"`
-          });
-
-          if (!upstream.body) {
-            res.end();
-            return true;
-          }
-
-          const stream = Readable.fromWeb(upstream.body as any);
           try {
-            await pipeline(stream, res);
-          } catch {
-            try { res.end(); } catch {}
+            const upstream = await fetch(downloadUrl, {
+              method: 'GET',
+              headers: (download?.headers && typeof download.headers === 'object') ? download.headers : undefined,
+              signal: controller.signal
+            });
+
+            if (!upstream.ok) {
+              const text = await upstream.text().catch(() => '');
+              writeJson(res, 502, { type: 'error', error: { message: `Upstream recording download failed (${upstream.status})`, code: 'provider_error', ...(text ? { detail: text.slice(0, 500) } : {}) } });
+              return true;
+            }
+
+            const contentType = upstream.headers.get('content-type') ?? 'application/octet-stream';
+            const format = (recordingCfg as any)?.format === 'wav' ? 'wav' : 'mp3';
+
+            res.writeHead(200, {
+              'Content-Type': contentType,
+              'Cache-Control': 'no-store',
+              'Content-Disposition': `attachment; filename=\"${callConfigId}.${format}\"`
+            });
+
+            if (!upstream.body) {
+              res.end();
+              return true;
+            }
+
+            const stream = Readable.fromWeb(upstream.body as any);
+            try {
+              await pipeline(stream, res);
+            } catch {
+              try { res.end(); } catch {}
+            }
+            return true;
+          } catch (err: any) {
+            if (didClientDisconnect) return true;
+            if (err?.name === 'AbortError' && didTimeout) {
+              if (!res.headersSent) {
+                writeJson(res, 502, { type: 'error', error: { message: 'Upstream recording download timed out', code: 'provider_error' } });
+              } else {
+                try { res.end(); } catch {}
+              }
+              return true;
+            }
+
+            if (err?.name === 'AbortError') {
+              if (!res.headersSent) {
+                writeJson(res, 502, { type: 'error', error: { message: 'Upstream recording download aborted', code: 'provider_error' } });
+              } else {
+                try { res.end(); } catch {}
+              }
+              return true;
+            }
+
+            const message = err?.message ? String(err.message).slice(0, 200) : 'Upstream recording download failed';
+            writeJson(res, 502, { type: 'error', error: { message, code: 'provider_error' } });
+            return true;
+          } finally {
+            clearTimeout(timeoutId);
+            req.off?.('aborted', handleClientDisconnect);
+            req.off?.('close', handleClientDisconnect);
+            res.off?.('close', handleClientDisconnect);
           }
-          return true;
         }
 
         if (pathname === '/voice/calls') {
