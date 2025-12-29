@@ -2394,6 +2394,55 @@ describe('extensions/voice: server http handlers', () => {
     jest.useRealTimers();
   });
 
+  test('/voice/calls/:id/events closes and unsubscribes when response backpressures', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_events',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      } as any,
+      { ttlSeconds: 60 }
+    );
+
+    const unsubscribe = jest.fn();
+    const subscribe = jest.fn((_id: string, _opts: any, _onEvent: any) => ({
+      replay: [{ callConfigId: 'cfg_events', atMs: Date.now(), event: { type: 'user_transcript.final', text: 'hi' } }],
+      unsubscribe
+    }));
+    const eventsHub = { emit: jest.fn(), subscribe, snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })), close: jest.fn() };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: { getCompat: jest.fn() } as any,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+      eventsHub: eventsHub as any
+    });
+
+    const req = new EventEmitter() as any;
+    req.url = '/voice/calls/cfg_events/events';
+    req.method = 'GET';
+    req.headers = { authorization: 'Bearer k1', host: 'localhost' };
+    req.socket = {};
+
+    const res = createSseRes();
+    res.write.mockReturnValue(false);
+
+    await expect(reg.handleHttp(req, res)).resolves.toBe(true);
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(res.end).toHaveBeenCalledTimes(1);
+  });
+
   test('/voice/calls/:id/end handles auth/missing config/provider and success', async () => {
     const store = createInMemoryVoiceCallConfigStore();
     await store.putConfig(

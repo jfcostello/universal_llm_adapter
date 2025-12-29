@@ -932,33 +932,48 @@ export async function createVoiceServerRegistration(ctx: {
               .trim()
               .slice(0, 128) || 'message';
 
-          const writeEvent = (envelope: VoiceCallEventEnvelope) => {
-            try {
-              const name = sanitizeEventName(envelope.event?.type);
-              const data = JSON.stringify(envelope);
-              res.write(`event: ${name}\n`);
-              res.write(`data: ${data}\n\n`);
-            } catch {}
-          };
-
-          const sub = eventsHub.subscribe(callConfigId, { includeDeltas }, (evt) => writeEvent(evt));
-          for (const evt of sub.replay) {
-            writeEvent(evt);
-          }
-
           let closed = false;
           let keepAliveTimer: any | undefined;
+          let sub: { replay: VoiceCallEventEnvelope[]; unsubscribe: () => void } | undefined;
+
           const cleanup = () => {
             if (closed) return;
             closed = true;
             try { if (keepAliveTimer) clearInterval(keepAliveTimer); } catch {}
-            try { sub.unsubscribe(); } catch {}
+            try { sub?.unsubscribe(); } catch {}
           };
 
-          keepAliveTimer = setInterval(() => {
+          const writeChunk = (chunk: string) => {
+            if (closed) return;
             try {
-              res.write(': keepalive\n\n');
+              const ok = res.write(chunk);
+              if (ok === false) {
+                cleanup();
+                try { res.end(); } catch {}
+              }
+            } catch {
+              cleanup();
+              try { res.end(); } catch {}
+            }
+          };
+
+          const writeEvent = (envelope: VoiceCallEventEnvelope) => {
+            try {
+              const name = sanitizeEventName(envelope.event?.type);
+              const data = JSON.stringify(envelope);
+              writeChunk(`event: ${name}\ndata: ${data}\n\n`);
             } catch {}
+          };
+
+          sub = eventsHub.subscribe(callConfigId, { includeDeltas }, (evt) => writeEvent(evt));
+          for (const evt of sub.replay) {
+            writeEvent(evt);
+          }
+
+          if (closed) return true;
+
+          keepAliveTimer = setInterval(() => {
+            writeChunk(': keepalive\n\n');
           }, 15000);
           if (typeof (keepAliveTimer as any)?.unref === 'function') {
             (keepAliveTimer as any).unref();
