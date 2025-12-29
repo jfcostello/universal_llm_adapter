@@ -847,6 +847,33 @@ describe('plugins/realtime-compat/openai — webrtc transport + session', () => 
     expect(events[2]).toMatchObject({ type: 'closed' });
   });
 
+  test('session-core emits non-fatal warnings for unsupported/invalid session settings', async () => {
+    const transport = {
+      send: jest.fn(),
+      close: jest.fn(),
+      events: async function* () {
+        yield { type: 'open' } as any;
+        yield { type: 'message', data: JSON.stringify({ type: 'session.updated', session: { type: 'realtime' } }) } as any;
+        yield { type: 'close' } as any;
+      }
+    };
+
+    const session = createOpenAIRealtimeCompatSessionWithTransport({
+      provider: {
+        id: 'openai',
+        compat: 'openai',
+        endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} }
+      } as any,
+      spec: { provider: 'openai', model: 'm', settings: { unknownKey: 'x', temperature: 'nope' } }
+    } as any, transport as any);
+
+    const events = await collectN(session.events()[Symbol.asyncIterator](), 4);
+    expect(events[0]).toMatchObject({ type: 'ready' });
+    expect(events[1]).toMatchObject({ type: 'error', code: 'unsupported_session_settings' });
+    expect(events[2]).toMatchObject({ type: 'error', code: 'invalid_session_settings' });
+    expect(events[3]).toMatchObject({ type: 'closed' });
+  });
+
   test('openai compat class selects webrtc branch', async () => {
     class FakeDataChannel {
       readyState = 'open';

@@ -1,4 +1,5 @@
 import type { RealtimeAudioFrame, RealtimeSessionSpec, UnifiedTool } from '../../../../kernel/index.js';
+import { parseRealtimeSessionSettings } from '../../../../kernel/index.js';
 import { serializeToolsForLiveSDK } from '../../../modules/google-tooling/index.js';
 
 type SessionAudioConfig = {
@@ -43,10 +44,19 @@ export function buildGeminiSetupMessage(options: {
   model: string;
   spec: RealtimeSessionSpec;
   tools?: UnifiedTool[];
-}): { message: any; audio: SessionAudioConfig } {
+}): { message: any; audio: SessionAudioConfig; settingsWarnings: { unknownKeys: string[]; invalidKeys: string[] } } {
   const audio = normalizeSessionAudio(options.spec.audio);
 
   const tools = filterToolsForSpec(options.spec, options.tools);
+
+  const { values: settingsValues, unknownKeys, invalidKeys } = parseRealtimeSessionSettings(options.spec.settings, {
+    temperature: { type: 'number' },
+    maxOutputTokens: { type: 'int', aliases: ['maxTokens'] }
+  });
+
+  const temperature = typeof settingsValues.temperature === 'number' ? settingsValues.temperature : undefined;
+  const maxOutputTokens =
+    typeof settingsValues.maxOutputTokens === 'number' ? Math.floor(settingsValues.maxOutputTokens) : undefined;
 
   const setup: any = {
     model: normalizeModel(options.model),
@@ -54,6 +64,9 @@ export function buildGeminiSetupMessage(options: {
       responseModalities: ['AUDIO']
     }
   };
+
+  if (temperature !== undefined) setup.generationConfig.temperature = temperature;
+  if (maxOutputTokens !== undefined) setup.generationConfig.maxOutputTokens = maxOutputTokens;
 
   const history = Array.isArray(options.spec.history) ? options.spec.history : [];
   const systemPromptText = options.spec.systemPrompt ? String(options.spec.systemPrompt) : '';
@@ -81,7 +94,7 @@ export function buildGeminiSetupMessage(options: {
     setup.outputAudioTranscription = {};
   }
 
-  return { message: { setup }, audio };
+  return { message: { setup }, audio, settingsWarnings: { unknownKeys, invalidKeys } };
 }
 
 export function buildGeminiClientContentMessage(options: { turns: any[]; turnComplete: boolean }): any {

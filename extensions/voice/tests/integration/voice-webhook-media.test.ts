@@ -181,6 +181,64 @@ describe('extensions/voice: webhook + media wiring', () => {
     }
   });
 
+  test('end-to-end: media compat can emit normalized events via adapter event hub', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_emit_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    let resolveEmitted: (() => void) | undefined;
+    const emitted = new Promise<void>((resolve) => {
+      resolveEmitted = resolve;
+    });
+
+    const providerPlugins = {
+      getCompat: jest.fn(async () => ({
+        validateWebhookRequest: jest.fn(async () => {}),
+        createWebhookResponse: jest.fn(async (options: any) => ({
+          status: 200,
+          headers: { 'Content-Type': 'text/xml' },
+          body: `<Response><Start><Stream url=\"${options.mediaWsUrl}\" /></Start></Response>`
+        })),
+        handleMediaConnection: jest.fn(async (options: any) => {
+          options.events?.emit?.({ type: 'voice.test_event' });
+          resolveEmitted?.();
+          try {
+            options.ws?.send?.(JSON.stringify({ type: 'ready', callConfigId: options.callConfigId }));
+          } catch {}
+        })
+      }))
+    };
+
+    const harness = await startHarness({ store, providerPlugins });
+    try {
+      const res = await fetch(new URL('/voice/webhook?callConfigId=cfg_emit_1', harness.baseUrl), {
+        headers: { 'x-test-signature': 'ok' }
+      });
+      expect(res.status).toBe(200);
+      const xml = await res.text();
+      const wsUrl = extractStreamUrl(xml);
+
+      const { ws, closePromise } = await openWs(wsUrl);
+      await emitted;
+      ws.close();
+      await closePromise;
+    } finally {
+      await harness.close();
+    }
+  });
+
   test('end-to-end: supports WS token TTL > 300s when configured', async () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS = '600';
 

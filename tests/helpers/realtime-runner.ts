@@ -220,107 +220,120 @@ async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealti
   };
 
   const timeoutMs = options.timeoutMs ?? 30000;
-  await writeLine({ type: 'open', protocolVersion: 1, spec });
+  const readyTimeoutMs = Math.max(timeoutMs, 60000);
 
-  // Wait for ready or error
-  while (true) {
-    const env = await q.next(timeoutMs);
-    if (env.type === 'error') throw new Error(env.error?.message ?? 'Realtime CLI error');
-    if (env.type === 'event' && env.event?.type === 'ready') break;
-  }
+  try {
+    await writeLine({ type: 'open', protocolVersion: 1, spec });
 
-  const baselineEventCounts = new Map(seenEventCounts);
-  const claimedEventCounts = new Map<string, number>();
-
-  for (const step of options.steps) {
-    switch (step.type) {
-      case 'send_text': {
-        await writeLine({
-          type: 'send_text',
-          text: String(step.text ?? ''),
-          role: step.role ?? 'user'
-        });
-        break;
+    const deadline = Date.now() + readyTimeoutMs;
+    while (true) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        throw new Error(`Timed out waiting for realtime ready (${readyTimeoutMs}ms)`);
       }
-      case 'inject_context': {
-        await writeLine({ type: 'inject_context', items: Array.isArray(step.items) ? step.items : [] });
-        break;
-      }
-      case 'send_audio_file': {
-        if (!step.filePath) throw new Error('send_audio_file missing filePath');
-        const frames = await readAudioFileAsFrames({
-          filePath: step.filePath,
-          format: String(step.frameFormat ?? 'pcm16'),
-          sampleRateHz: Number(step.sampleRateHz ?? 24000),
-          channels: (step.channels ?? 1) as 1 | 2,
-          chunkMs: Number(step.chunkMs ?? 20)
-        });
-        for (const frame of frames) {
-          await writeLine({ type: 'send_audio', frame });
+      const env = await q.next(remainingMs);
+      if (env.type === 'error') throw new Error(env.error?.message ?? 'Realtime CLI error');
+      if (env.type === 'event' && env.event?.type === 'ready') break;
+    }
+
+    const baselineEventCounts = new Map(seenEventCounts);
+    const claimedEventCounts = new Map<string, number>();
+
+    for (const step of options.steps) {
+      switch (step.type) {
+        case 'send_text': {
+          await writeLine({
+            type: 'send_text',
+            text: String(step.text ?? ''),
+            role: step.role ?? 'user'
+          });
+          break;
         }
-        break;
-      }
-      case 'commit':
-        await writeLine({ type: 'commit' });
-        break;
-      case 'interrupt':
-        await writeLine({ type: 'interrupt', reason: step.reason });
-        break;
-      case 'wait_for_event': {
-        const want = String(step.eventType ?? '').trim();
-        if (!want) throw new Error('wait_for_event missing eventType');
-        const stepTimeoutMs = Number(step.timeoutMs ?? timeoutMs);
-        const baseline = baselineEventCounts.get(want) ?? 0;
-        const alreadyClaimed = claimedEventCounts.get(want) ?? 0;
-        const targetCount = baseline + alreadyClaimed + 1;
-        const deadline = Date.now() + stepTimeoutMs;
-
-        while ((seenEventCounts.get(want) ?? 0) < targetCount) {
-          const remainingMs = deadline - Date.now();
-          if (remainingMs <= 0) {
-            throw new Error(`Timed out waiting for realtime event '${want}' (${stepTimeoutMs}ms)`);
+        case 'inject_context': {
+          await writeLine({ type: 'inject_context', items: Array.isArray(step.items) ? step.items : [] });
+          break;
+        }
+        case 'send_audio_file': {
+          if (!step.filePath) throw new Error('send_audio_file missing filePath');
+          const frames = await readAudioFileAsFrames({
+            filePath: step.filePath,
+            format: String(step.frameFormat ?? 'pcm16'),
+            sampleRateHz: Number(step.sampleRateHz ?? 24000),
+            channels: (step.channels ?? 1) as 1 | 2,
+            chunkMs: Number(step.chunkMs ?? 20)
+          });
+          for (const frame of frames) {
+            await writeLine({ type: 'send_audio', frame });
           }
+          break;
+        }
+        case 'commit':
+          await writeLine({ type: 'commit' });
+          break;
+        case 'interrupt':
+          await writeLine({ type: 'interrupt', reason: step.reason });
+          break;
+        case 'wait_for_event': {
+          const want = String(step.eventType ?? '').trim();
+          if (!want) throw new Error('wait_for_event missing eventType');
+          const stepTimeoutMs = Number(step.timeoutMs ?? timeoutMs);
+          const baseline = baselineEventCounts.get(want) ?? 0;
+          const alreadyClaimed = claimedEventCounts.get(want) ?? 0;
+          const targetCount = baseline + alreadyClaimed + 1;
+          const deadline = Date.now() + stepTimeoutMs;
 
-          let env: RealtimeServerEnvelope;
-          try {
-            env = await q.next(remainingMs);
-          } catch (err: any) {
-            if (err instanceof Error && err.message.startsWith('Timed out waiting for realtime envelope')) {
+          while ((seenEventCounts.get(want) ?? 0) < targetCount) {
+            const remainingMs = deadline - Date.now();
+            if (remainingMs <= 0) {
               throw new Error(`Timed out waiting for realtime event '${want}' (${stepTimeoutMs}ms)`);
             }
-            throw err;
-          }
-          if (env.type === 'error') throw new Error(env.error?.message ?? 'Realtime CLI error');
-        }
 
-        claimedEventCounts.set(want, alreadyClaimed + 1);
-        break;
+            let env: RealtimeServerEnvelope;
+            try {
+              env = await q.next(remainingMs);
+            } catch (err: any) {
+              if (err instanceof Error && err.message.startsWith('Timed out waiting for realtime envelope')) {
+                throw new Error(`Timed out waiting for realtime event '${want}' (${stepTimeoutMs}ms)`);
+              }
+              throw err;
+            }
+            if (env.type === 'error') throw new Error(env.error?.message ?? 'Realtime CLI error');
+          }
+
+          claimedEventCounts.set(want, alreadyClaimed + 1);
+          break;
+        }
+        case 'sleep_ms':
+          await sleep(Number(step.ms ?? 0));
+          break;
+        case 'close':
+          try {
+            await writeLine({ type: 'close' });
+          } catch (err: any) {
+            // If the child exited before we could send a close command, treat that as a no-op and
+            // proceed to collect whatever output we captured.
+            if (!(err instanceof Error) || err.code !== 'ERR_STREAM_DESTROYED') {
+              throw err;
+            }
+          }
+          break;
       }
-      case 'sleep_ms':
-        await sleep(Number(step.ms ?? 0));
-        break;
-      case 'close':
-        try {
-          await writeLine({ type: 'close' });
-        } catch (err: any) {
-          // If the child exited before we could send a close command, treat that as a no-op and
-          // proceed to collect whatever output we captured.
-          if (!(err instanceof Error) || err.code !== 'ERR_STREAM_DESTROYED') {
-            throw err;
-          }
-        }
-        break;
     }
+
+    // Always close stdin so the child can exit.
+    try {
+      child.stdin.end();
+    } catch {}
+
+    const code: number | null = await closedPromise;
+
+    return { code, stdout, stderr, envelopes };
+  } catch (err) {
+    try {
+      child.kill('SIGKILL');
+    } catch {}
+    throw err;
   }
-
-  // Always close stdin so the child can exit.
-  try {
-    child.stdin.end();
-  } catch {}
-
-  const code: number | null = await closedPromise;
-
-  return { code, stdout, stderr, envelopes };
 }
 
 async function runViaServer(options: RunRealtimeScenarioOptions): Promise<RunRealtimeScenarioResult> {
@@ -392,99 +405,112 @@ async function runViaServer(options: RunRealtimeScenarioOptions): Promise<RunRea
 
   const send = (msg: RealtimeClientMessage) => ws.send(JSON.stringify(msg));
 
-  send({ type: 'open', protocolVersion: 1, spec });
+  const readyTimeoutMs = Math.max(timeoutMs, 60000);
 
-  while (true) {
-    const env = await q.next(timeoutMs);
-    if (env.type === 'error') throw new Error(env.error?.message ?? 'Realtime WS error');
-    if (env.type === 'event' && env.event?.type === 'ready') break;
-  }
+  try {
+    send({ type: 'open', protocolVersion: 1, spec });
 
-  const baselineEventCounts = new Map(seenEventCounts);
-  const claimedEventCounts = new Map<string, number>();
-
-  for (const step of options.steps) {
-    switch (step.type) {
-      case 'send_text':
-        send({ type: 'send_text', text: String(step.text ?? ''), role: step.role ?? 'user' });
-        break;
-      case 'inject_context':
-        send({ type: 'inject_context', items: Array.isArray(step.items) ? step.items : [] });
-        break;
-      case 'send_audio_file': {
-        if (!step.filePath) throw new Error('send_audio_file missing filePath');
-        const frames = await readAudioFileAsFrames({
-          filePath: step.filePath,
-          format: String(step.frameFormat ?? 'pcm16'),
-          sampleRateHz: Number(step.sampleRateHz ?? 24000),
-          channels: (step.channels ?? 1) as 1 | 2,
-          chunkMs: Number(step.chunkMs ?? 20)
-        });
-        for (const frame of frames) {
-          send({ type: 'send_audio', frame });
-        }
-        break;
+    const readyDeadline = Date.now() + readyTimeoutMs;
+    while (true) {
+      const remainingMs = readyDeadline - Date.now();
+      if (remainingMs <= 0) {
+        throw new Error(`Timed out waiting for realtime ready (${readyTimeoutMs}ms)`);
       }
-      case 'commit':
-        send({ type: 'commit' });
-        break;
-      case 'interrupt':
-        send({ type: 'interrupt', reason: step.reason });
-        break;
-      case 'wait_for_event': {
-        const want = String(step.eventType ?? '').trim();
-        if (!want) throw new Error('wait_for_event missing eventType');
-        const stepTimeoutMs = Number(step.timeoutMs ?? timeoutMs);
-        const baseline = baselineEventCounts.get(want) ?? 0;
-        const alreadyClaimed = claimedEventCounts.get(want) ?? 0;
-        const targetCount = baseline + alreadyClaimed + 1;
-        const deadline = Date.now() + stepTimeoutMs;
+      const env = await q.next(remainingMs);
+      if (env.type === 'error') throw new Error(env.error?.message ?? 'Realtime WS error');
+      if (env.type === 'event' && env.event?.type === 'ready') break;
+    }
 
-        while ((seenEventCounts.get(want) ?? 0) < targetCount) {
-          const remainingMs = deadline - Date.now();
-          if (remainingMs <= 0) {
-            throw new Error(`Timed out waiting for realtime event '${want}' (${stepTimeoutMs}ms)`);
+    const baselineEventCounts = new Map(seenEventCounts);
+    const claimedEventCounts = new Map<string, number>();
+
+    for (const step of options.steps) {
+      switch (step.type) {
+        case 'send_text':
+          send({ type: 'send_text', text: String(step.text ?? ''), role: step.role ?? 'user' });
+          break;
+        case 'inject_context':
+          send({ type: 'inject_context', items: Array.isArray(step.items) ? step.items : [] });
+          break;
+        case 'send_audio_file': {
+          if (!step.filePath) throw new Error('send_audio_file missing filePath');
+          const frames = await readAudioFileAsFrames({
+            filePath: step.filePath,
+            format: String(step.frameFormat ?? 'pcm16'),
+            sampleRateHz: Number(step.sampleRateHz ?? 24000),
+            channels: (step.channels ?? 1) as 1 | 2,
+            chunkMs: Number(step.chunkMs ?? 20)
+          });
+          for (const frame of frames) {
+            send({ type: 'send_audio', frame });
           }
+          break;
+        }
+        case 'commit':
+          send({ type: 'commit' });
+          break;
+        case 'interrupt':
+          send({ type: 'interrupt', reason: step.reason });
+          break;
+        case 'wait_for_event': {
+          const want = String(step.eventType ?? '').trim();
+          if (!want) throw new Error('wait_for_event missing eventType');
+          const stepTimeoutMs = Number(step.timeoutMs ?? timeoutMs);
+          const baseline = baselineEventCounts.get(want) ?? 0;
+          const alreadyClaimed = claimedEventCounts.get(want) ?? 0;
+          const targetCount = baseline + alreadyClaimed + 1;
+          const deadline = Date.now() + stepTimeoutMs;
 
-          let env: RealtimeServerEnvelope;
-          try {
-            env = await q.next(remainingMs);
-          } catch (err: any) {
-            if (err instanceof Error && err.message.startsWith('Timed out waiting for realtime envelope')) {
+          while ((seenEventCounts.get(want) ?? 0) < targetCount) {
+            const remainingMs = deadline - Date.now();
+            if (remainingMs <= 0) {
               throw new Error(`Timed out waiting for realtime event '${want}' (${stepTimeoutMs}ms)`);
             }
-            throw err;
+
+            let env: RealtimeServerEnvelope;
+            try {
+              env = await q.next(remainingMs);
+            } catch (err: any) {
+              if (err instanceof Error && err.message.startsWith('Timed out waiting for realtime envelope')) {
+                throw new Error(`Timed out waiting for realtime event '${want}' (${stepTimeoutMs}ms)`);
+              }
+              throw err;
+            }
+            if (env.type === 'error') throw new Error(env.error?.message ?? 'Realtime WS error');
           }
-          if (env.type === 'error') throw new Error(env.error?.message ?? 'Realtime WS error');
+
+          claimedEventCounts.set(want, alreadyClaimed + 1);
+          break;
         }
-
-        claimedEventCounts.set(want, alreadyClaimed + 1);
-        break;
+        case 'sleep_ms':
+          await sleep(Number(step.ms ?? 0));
+          break;
+        case 'close':
+          send({ type: 'close' });
+          break;
       }
-      case 'sleep_ms':
-        await sleep(Number(step.ms ?? 0));
-        break;
-      case 'close':
-        send({ type: 'close' });
-        break;
     }
-  }
 
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, 250);
-    ws.once('close', () => {
-      clearTimeout(timer);
-      resolve();
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, 250);
+      ws.once('close', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+      try {
+        ws.close();
+      } catch {
+        clearTimeout(timer);
+        resolve();
+      }
     });
-    try {
-      ws.close();
-    } catch {
-      clearTimeout(timer);
-      resolve();
-    }
-  });
 
-  return { code: 0, stdout, stderr, envelopes };
+    return { code: 0, stdout, stderr, envelopes };
+  } finally {
+    try {
+      ws.terminate();
+    } catch {}
+  }
 }
 
 export async function runRealtimeScenario(options: RunRealtimeScenarioOptions): Promise<RunRealtimeScenarioResult> {

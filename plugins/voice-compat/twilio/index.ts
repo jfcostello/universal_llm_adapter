@@ -102,6 +102,55 @@ export default class TwilioVoiceCompat {
     }
   }
 
+  async parseRecordingWebhook(options: {
+    params?: Record<string, string>;
+    callConfig?: any;
+    providerDefaults?: any;
+  }): Promise<{ recordingId: string; recordingUrl: string; recordingStatus?: string; providerCallId?: string }> {
+    const params = options.params && typeof options.params === 'object' ? options.params : {};
+
+    const recordingId = String(params.RecordingSid ?? params.recordingSid ?? '').trim();
+    const recordingUrl = String(params.RecordingUrl ?? params.recordingUrl ?? '').trim();
+    const recordingStatus = String(params.RecordingStatus ?? params.recordingStatus ?? '').trim();
+    const providerCallId = String(params.CallSid ?? params.callSid ?? options.callConfig?.providerCallId ?? '').trim();
+
+    if (!recordingId || !recordingUrl) {
+      throw makeHttpError({ message: 'Missing recording fields', statusCode: 400, code: 'validation_error' });
+    }
+
+    let parsed: URL;
+    try {
+      parsed = new URL(recordingUrl);
+    } catch {
+      throw makeHttpError({ message: 'Invalid recordingUrl', statusCode: 400, code: 'validation_error' });
+    }
+
+    if (parsed.protocol !== 'https:') {
+      throw makeHttpError({ message: 'Invalid recordingUrl protocol', statusCode: 400, code: 'validation_error' });
+    }
+
+    const defaultsRaw = options.providerDefaults;
+    const defaults =
+      defaultsRaw && typeof defaultsRaw === 'object' && !Array.isArray(defaultsRaw)
+        ? defaultsRaw
+        : {};
+
+    const apiBaseUrlRaw = String((defaults as any).apiBaseUrl ?? 'https://api.twilio.com').trim();
+    const apiBaseUrl = apiBaseUrlRaw ? apiBaseUrlRaw.replace(/\/+$/g, '') : 'https://api.twilio.com';
+    const allowedOrigin = new URL(apiBaseUrl).origin;
+
+    if (parsed.origin !== allowedOrigin) {
+      throw makeHttpError({ message: 'Invalid recordingUrl origin', statusCode: 400, code: 'validation_error' });
+    }
+
+    return {
+      recordingId,
+      recordingUrl: parsed.toString(),
+      ...(recordingStatus ? { recordingStatus } : {}),
+      ...(providerCallId ? { providerCallId } : {})
+    };
+  }
+
   async createWebhookResponse(options: {
     req: http.IncomingMessage;
     callConfigId: string;
@@ -139,6 +188,8 @@ export default class TwilioVoiceCompat {
     callConfig: any;
     voiceProvider: string;
     registry: any;
+    providerDefaults?: any;
+    events?: { emit?: (event: any) => void };
     logger?: any;
     metrics?: any;
   }): Promise<void> {
@@ -169,6 +220,112 @@ export default class TwilioVoiceCompat {
       ...(requestId ? { requestId } : {})
     };
 
+    const emitEvent = (event: any) => {
+      try {
+        const fn = options.events?.emit;
+        if (typeof fn === 'function') fn(event);
+      } catch {}
+    };
+
+    const timeouts = (callConfig as any)?.timeouts;
+    const callTimeoutMsRaw = timeouts?.callTimeoutMs;
+    const callTimeoutMs = callTimeoutMsRaw === undefined || callTimeoutMsRaw === null || callTimeoutMsRaw === '' ? undefined : Number(callTimeoutMsRaw);
+    if (callTimeoutMs !== undefined && (!Number.isFinite(callTimeoutMs) || callTimeoutMs <= 0)) {
+      throw makeHttpError({ message: 'Invalid timeouts.callTimeoutMs', statusCode: 400, code: 'validation_error' });
+    }
+
+    const silenceTimeoutMsRaw = timeouts?.silenceTimeoutMs;
+    const silenceTimeoutMs = silenceTimeoutMsRaw === undefined || silenceTimeoutMsRaw === null || silenceTimeoutMsRaw === '' ? undefined : Number(silenceTimeoutMsRaw);
+    if (silenceTimeoutMs !== undefined && (!Number.isFinite(silenceTimeoutMs) || silenceTimeoutMs <= 0)) {
+      throw makeHttpError({ message: 'Invalid timeouts.silenceTimeoutMs', statusCode: 400, code: 'validation_error' });
+    }
+
+    const assistantFirstTurnCfg = (callConfig as any)?.assistantFirstTurn;
+    const assistantFirstTurnEnabled =
+      Boolean(assistantFirstTurnCfg && typeof assistantFirstTurnCfg === 'object' && (assistantFirstTurnCfg as any).enabled === true) &&
+      Boolean(String((assistantFirstTurnCfg as any).prompt ?? '').trim());
+
+    let providerCallId: string | undefined;
+    let providerStreamId: string | undefined;
+
+    let callTimeoutTimer: any | undefined;
+    let silenceTimer: any | undefined;
+    let assistantAudioEndFallbackTimer: any | undefined;
+    let waitingForFirstAssistantAudioEnd = assistantFirstTurnEnabled;
+    let callEnded = false;
+
+    const clearCallTimeout = () => {
+      if (callTimeoutTimer) {
+        clearTimeout(callTimeoutTimer);
+        callTimeoutTimer = undefined;
+      }
+    };
+
+    const clearSilenceTimeout = () => {
+      if (silenceTimer) {
+        clearTimeout(silenceTimer);
+        silenceTimer = undefined;
+      }
+    };
+
+    const clearAssistantAudioEndFallback = () => {
+      if (assistantAudioEndFallbackTimer) {
+        clearTimeout(assistantAudioEndFallbackTimer);
+        assistantAudioEndFallbackTimer = undefined;
+      }
+    };
+
+    const clearAllTimers = () => {
+      clearCallTimeout();
+      clearSilenceTimeout();
+      clearAssistantAudioEndFallback();
+    };
+
+    const requestEndCallOnce = async (reason: string) => {
+      if (callEnded) return;
+      callEnded = true;
+      clearAllTimers();
+
+      emitEvent({ type: 'voice.call.end_requested', reason, ...(providerCallId ? { providerCallId } : {}) });
+
+      if (providerCallId) {
+        try {
+          await this.endCall({ providerCallId, providerDefaults: options.providerDefaults });
+        } catch (error: any) {
+          safeLog('error', 'voice.call.end_failed', {
+            ...baseFields,
+            providerCallId,
+            reason,
+            message: error?.message ?? String(error),
+            code: error?.code !== undefined ? String(error.code) : undefined,
+            statusCode: Number(error?.statusCode ?? error?.status ?? 0) || undefined
+          });
+        }
+      }
+
+      try { options.ws?.close?.(); } catch {}
+    };
+
+    const startSilenceTimer = (timeoutMs: number) => {
+      clearSilenceTimeout();
+      silenceTimer = setTimeout(() => void requestEndCallOnce('silence_timeout'), Math.floor(timeoutMs));
+    };
+
+    const scheduleAssistantAudioEndFallback = (timeoutMs: number) => {
+      if (!assistantFirstTurnEnabled) return;
+      if (!waitingForFirstAssistantAudioEnd) return;
+      clearAssistantAudioEndFallback();
+
+      const fallbackMs = Math.min(2000, Math.max(500, Math.floor(timeoutMs)));
+      assistantAudioEndFallbackTimer = setTimeout(() => {
+        waitingForFirstAssistantAudioEnd = false;
+        startSilenceTimer(timeoutMs);
+      }, fallbackMs);
+      if (typeof (assistantAudioEndFallbackTimer as any)?.unref === 'function') {
+        (assistantAudioEndFallbackTimer as any).unref();
+      }
+    };
+
     const bridge = createTwilioMediaStreamsBridge({
       createSession: async ({ metadata }) => {
         const existingMetadataRaw = (realtimeSpec as any)?.metadata;
@@ -187,7 +344,50 @@ export default class TwilioVoiceCompat {
             providerCallMetadata: metadata
           }
         };
-        return await createRealtimeSession(options.registry, mergedSpec);
+        const session = await createRealtimeSession(options.registry, mergedSpec);
+        if (!assistantFirstTurnEnabled) return session;
+
+        const prompt = String((assistantFirstTurnCfg as any).prompt);
+        const roleRaw = String((assistantFirstTurnCfg as any).role ?? 'user');
+        const role = roleRaw === 'system' ? 'system' : 'user';
+        const delayMsRaw = (assistantFirstTurnCfg as any).delayMs;
+        const delayMs = delayMsRaw === undefined || delayMsRaw === null || delayMsRaw === '' ? 0 : Number(delayMsRaw);
+        if (!Number.isFinite(delayMs) || delayMs < 0) {
+          throw makeHttpError({ message: 'Invalid assistantFirstTurn.delayMs', statusCode: 400, code: 'validation_error' });
+        }
+
+        const originalEvents = session.events.bind(session);
+        session.events = () => (async function* () {
+          const iter = originalEvents()[Symbol.asyncIterator]();
+          const first = await iter.next();
+          const ready = first.value;
+          yield ready;
+
+          if (ready?.type === 'ready') {
+            void (async () => {
+              try {
+                if (delayMs > 0) {
+                  await new Promise(resolve => setTimeout(resolve, Math.floor(delayMs)));
+                }
+                await session.sendText({ text: prompt, role });
+                await session.commit();
+              } catch (error: any) {
+                safeLog('error', 'voice.assistant_first_turn.failed', {
+                  ...baseFields,
+                  message: error?.message ?? String(error),
+                  code: error?.code !== undefined ? String(error.code) : undefined
+                });
+                await requestEndCallOnce('assistant_first_turn_failed');
+              }
+            })();
+          }
+
+          for await (const event of { [Symbol.asyncIterator]: () => iter } as AsyncIterable<any>) {
+            yield event;
+          }
+        })();
+
+        return session;
       },
       security: {
         tokenSecret: requireVoiceWsTokenSecret(),
@@ -200,11 +400,27 @@ export default class TwilioVoiceCompat {
       },
       callbacks: {
         onCallStart: (metadata) => {
+          providerCallId = metadata.callSid;
+          providerStreamId = metadata.streamSid;
+
           safeLog('info', 'voice.media.stream_started', {
             ...baseFields,
             providerStreamId: metadata.streamSid,
             providerCallId: metadata.callSid
           });
+
+          emitEvent({ type: 'voice.call.connected', providerStreamId: metadata.streamSid, providerCallId: metadata.callSid });
+
+          if (callTimeoutMs && !callTimeoutTimer) {
+            callTimeoutTimer = setTimeout(() => void requestEndCallOnce('call_timeout'), Math.floor(callTimeoutMs));
+            if (typeof (callTimeoutTimer as any)?.unref === 'function') {
+              (callTimeoutTimer as any).unref();
+            }
+          }
+
+          if (silenceTimeoutMs && !assistantFirstTurnEnabled) {
+            startSilenceTimer(silenceTimeoutMs);
+          }
         },
         onRealtimeEvent: ({ event, metadata }) => {
           if (event?.type === 'ready') {
@@ -213,6 +429,40 @@ export default class TwilioVoiceCompat {
               providerStreamId: metadata.streamSid,
               realtimeSessionId: (event as any).sessionId
             });
+          }
+
+          const type = String((event as any)?.type ?? '');
+          if (
+            type === 'ready' ||
+            type === 'closed' ||
+            type === 'timeout' ||
+            type === 'error' ||
+            type.startsWith('user_transcript.') ||
+            type.startsWith('assistant_transcript.')
+          ) {
+            emitEvent(event);
+          }
+
+          if (silenceTimeoutMs) {
+            if (type === 'user_speech.started') {
+              clearSilenceTimeout();
+              clearAssistantAudioEndFallback();
+            } else if (type === 'assistant_audio.chunk') {
+              clearSilenceTimeout();
+              scheduleAssistantAudioEndFallback(silenceTimeoutMs);
+            } else if (type === 'assistant_audio.end') {
+              clearAssistantAudioEndFallback();
+              if (waitingForFirstAssistantAudioEnd) {
+                waitingForFirstAssistantAudioEnd = false;
+              }
+              if (!waitingForFirstAssistantAudioEnd) {
+                startSilenceTimer(silenceTimeoutMs);
+              }
+            }
+          }
+
+          if (type === 'closed') {
+            clearAllTimers();
           }
         },
         onError: ({ message, code, metadata }) => {
@@ -228,14 +478,20 @@ export default class TwilioVoiceCompat {
       }
     });
 
-    await bridge.handleConnection(options.ws, options.req);
+    try {
+      await bridge.handleConnection(options.ws, options.req);
+    } finally {
+      clearAllTimers();
+    }
   }
 
   async createOutboundCall(options: {
     to: string;
     from: string;
     callConfigId: string;
+    callConfig?: any;
     mediaWsUrl: string;
+    recordingStatusCallbackUrl?: string;
     providerDefaults?: any;
   }): Promise<{ providerCallId: string }> {
     const to = String(options.to ?? '').trim();
@@ -274,6 +530,35 @@ export default class TwilioVoiceCompat {
     const form = new URLSearchParams();
     form.set('To', to);
     form.set('From', from);
+
+    const callConfig = options.callConfig ?? {};
+    const timeouts = (callConfig as any)?.timeouts;
+    const callTimeoutMsRaw = (timeouts as any)?.callTimeoutMs;
+    const callTimeoutMs = callTimeoutMsRaw === undefined || callTimeoutMsRaw === null || callTimeoutMsRaw === '' ? undefined : Number(callTimeoutMsRaw);
+    if (callTimeoutMs !== undefined) {
+      if (!Number.isFinite(callTimeoutMs) || callTimeoutMs <= 0) {
+        throw makeHttpError({ message: 'Invalid timeouts.callTimeoutMs', statusCode: 400, code: 'validation_error' });
+      }
+      const seconds = Math.max(1, Math.ceil(callTimeoutMs / 1000));
+      form.set('TimeLimit', String(seconds));
+    }
+
+    const recording = (callConfig as any)?.recording;
+    const recordingEnabled = Boolean(recording && typeof recording === 'object' && (recording as any).enabled === true);
+    const recordingMode = recordingEnabled ? String((recording as any).mode ?? 'provider') : '';
+    if (recordingEnabled && recordingMode === 'provider') {
+      form.set('Record', 'true');
+
+      const channelsRaw = String((recording as any).channels ?? 'mono').trim().toLowerCase();
+      const channels = channelsRaw === 'dual' ? 'dual' : 'mono';
+      form.set('RecordingChannels', channels);
+
+      const callbackUrl = String(options.recordingStatusCallbackUrl ?? '').trim();
+      if (callbackUrl) {
+        form.set('RecordingStatusCallback', callbackUrl);
+        form.set('RecordingStatusCallbackEvent', 'completed');
+      }
+    }
 
     if (mode === 'url') {
       const baseUrl = String(outbound?.webhookUrl ?? '').trim();
@@ -337,5 +622,99 @@ export default class TwilioVoiceCompat {
     }
 
     return { providerCallId: sid };
+  }
+
+  async endCall(options: { providerCallId: string; providerDefaults?: any }): Promise<{ ok: true }> {
+    const providerCallId = String(options.providerCallId ?? '').trim();
+    if (!providerCallId) {
+      throw makeHttpError({ message: 'Missing providerCallId', statusCode: 400, code: 'validation_error' });
+    }
+
+    const defaultsRaw = options.providerDefaults;
+    const defaults =
+      defaultsRaw && typeof defaultsRaw === 'object' && !Array.isArray(defaultsRaw)
+        ? defaultsRaw
+        : {};
+
+    const accountSid = String((defaults as any).accountSid ?? '').trim();
+    const authToken = String((defaults as any).authToken ?? '').trim();
+    if (!accountSid || !authToken) {
+      throw makeProviderConfigError('Missing required provider credentials');
+    }
+
+    const apiBaseUrlRaw = String((defaults as any).apiBaseUrl ?? 'https://api.twilio.com').trim();
+    const apiBaseUrl = apiBaseUrlRaw ? apiBaseUrlRaw.replace(/\/+$/g, '') : 'https://api.twilio.com';
+
+    const url = `${apiBaseUrl}/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Calls/${encodeURIComponent(providerCallId)}.json`;
+    const form = new URLSearchParams();
+    form.set('Status', 'completed');
+
+    let res: any;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: basicAuthHeader(accountSid, authToken),
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: form.toString()
+      });
+    } catch (err: any) {
+      const detail = err?.message ? `: ${String(err.message).slice(0, 200)}` : '';
+      throw new ProviderExecutionError('twilio', `Call terminate failed${detail}`, 502);
+    }
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      const suffix = text ? `: ${text.slice(0, 500)}` : '';
+      throw new ProviderExecutionError('twilio', `Call terminate failed (${res.status})${suffix}`, res.status, res.status === 429);
+    }
+
+    return { ok: true };
+  }
+
+  async getRecordingDownloadRequest(options: { callConfigId: string; callConfig: any; providerDefaults?: any }): Promise<{ url: string; headers: Record<string, string> }> {
+    const callConfig = options.callConfig ?? {};
+    const recording = (callConfig as any)?.recording;
+    const providerRecording = recording && typeof recording === 'object' ? (recording as any).providerRecording : undefined;
+    const baseUrl = String(providerRecording?.url ?? '').trim();
+    if (!baseUrl) {
+      throw makeHttpError({ message: 'Recording is not ready', statusCode: 409, code: 'recording_not_ready' });
+    }
+
+    const defaultsRaw = options.providerDefaults;
+    const defaults =
+      defaultsRaw && typeof defaultsRaw === 'object' && !Array.isArray(defaultsRaw)
+        ? defaultsRaw
+        : {};
+
+    const accountSid = String((defaults as any).accountSid ?? '').trim();
+    const authToken = String((defaults as any).authToken ?? '').trim();
+    if (!accountSid || !authToken) {
+      throw makeProviderConfigError('Missing required provider credentials');
+    }
+
+    const format = String((recording as any)?.format ?? 'mp3').trim().toLowerCase() === 'wav' ? 'wav' : 'mp3';
+    const channelsRaw = String((recording as any)?.channels ?? 'mono').trim().toLowerCase();
+    const requestedChannels = channelsRaw === 'dual' ? '2' : undefined;
+
+    let url: URL;
+    try {
+      url = new URL(baseUrl);
+    } catch {
+      throw makeHttpError({ message: 'Invalid recording URL', statusCode: 500, code: 'provider_error' });
+    }
+
+    if (!url.pathname.endsWith(`.${format}`)) {
+      url.pathname = `${url.pathname}.${format}`;
+    }
+    if (requestedChannels) {
+      url.searchParams.set('RequestedChannels', requestedChannels);
+    }
+
+    return {
+      url: url.toString(),
+      headers: { Authorization: basicAuthHeader(accountSid, authToken) }
+    };
   }
 }

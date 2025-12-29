@@ -330,6 +330,7 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
       cors: corsConfig,
       securityHeadersEnabled:
         options.securityHeadersEnabled ?? serverDefaults.securityHeadersEnabled,
+      extensions: serverDefaults.extensions,
       authorize: options.authorize
     };
     const host = await loadServerExtensions({

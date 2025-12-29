@@ -27,6 +27,22 @@ describe('realtime-compat/gemini — commands', () => {
     expect(audio.input.channels).toBe(1);
   });
 
+  test('buildGeminiSetupMessage maps session settings (temperature, maxOutputTokens)', () => {
+    const { message, settingsWarnings } = buildGeminiSetupMessage({
+      model: 'm',
+      spec: {
+        provider: 'google',
+        model: 'm',
+        turnDetection: { mode: 'manual_commit' },
+        settings: { temperature: '0.42', maxTokens: '8' }
+      } as any
+    });
+
+    expect(message.setup.generationConfig.temperature).toBe(0.42);
+    expect(message.setup.generationConfig.maxOutputTokens).toBe(8);
+    expect(settingsWarnings).toEqual({ unknownKeys: [], invalidKeys: [] });
+  });
+
   test('buildGeminiSetupMessage includes system instruction, transcription, and tools', () => {
     const tools: UnifiedTool[] = [
       { name: 'test.echo', description: 'Echo', parametersJsonSchema: { type: 'object', properties: { message: { type: 'string' } } } }

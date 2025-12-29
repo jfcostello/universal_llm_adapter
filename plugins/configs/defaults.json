@@ -102,7 +102,12 @@
         },
         "securityHeadersEnabled": true,
         "extensions": {
-            "enabled": []
+            "enabled": [],
+            "voice": {
+                "events": {
+                    "keepAliveIntervalMs": "${LLM_ADAPTER_VOICE_EVENTS_KEEPALIVE_INTERVAL_MS:-15000}"
+                }
+            }
         }
     },
     "paths": {

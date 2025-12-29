@@ -145,6 +145,45 @@ describe('integration/realtime-compat/gemini session', () => {
     }
   });
 
+  test('emits non-fatal warnings for unsupported/invalid session settings', async () => {
+    const server = await startWsServer();
+    try {
+      const session = createGeminiRealtimeCompatSession({
+        provider: {
+          id: 'google',
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
+        } as any,
+        spec: {
+          provider: 'google',
+          model: 'm',
+          turnDetection: { mode: 'manual_commit' },
+          settings: { unknownKey: 'x', maxTokens: 'nope' }
+        } as any
+      } as any);
+
+      await waitForMessage(server.messages, m => m?.setup?.model === 'models/m', 2000);
+      server.sendToClient({ setupComplete: {} });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      const first = await it.next();
+      expect(first.value.type).toBe('ready');
+
+      const second = await it.next();
+      expect(second.value).toMatchObject({ type: 'error', code: 'unsupported_session_settings' });
+      expect(String(second.value.message)).toContain('unknownKey');
+
+      const third = await it.next();
+      expect(third.value).toMatchObject({ type: 'error', code: 'invalid_session_settings' });
+      expect(String(third.value.message)).toContain('maxTokens');
+
+      await session.close();
+      await it.next();
+    } finally {
+      await server.close();
+    }
+  });
+
   test('injectContext is a startup-only no-op and runtime injection is not supported', async () => {
     const server = await startWsServer();
     try {

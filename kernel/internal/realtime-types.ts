@@ -134,6 +134,8 @@ export interface RealtimeEventBufferConfig {
   maxEvents?: number;
 }
 
+export type RealtimeSessionSettings = Record<string, any>;
+
 export interface RealtimeSessionSpec {
   /** Provider id from plugins/realtime-providers/*.json */
   provider: string;
@@ -165,6 +167,13 @@ export interface RealtimeSessionSpec {
 
   // timeouts
   timeout?: RealtimeTimeoutConfig;
+
+  /**
+   * Provider-agnostic session settings (e.g. temperature, voice selection).
+   *
+   * Each realtime compat is responsible for mapping supported keys to its provider protocol.
+   */
+  settings?: RealtimeSessionSettings;
 
   metadata?: Record<string, any>;
 }

@@ -47,7 +47,7 @@ export function createGrokRealtimeCompatSessionWithTransport(
 
   const toolCallTrackingMaxEntries = resolveRealtimeToolCallTrackingMaxEntries(spec);
 
-  const { event: sessionUpdateEvent, audio, toolNameByProviderName } = buildSessionUpdateEvent({
+  const { event: sessionUpdateEvent, audio, toolNameByProviderName, settingsWarnings } = buildSessionUpdateEvent({
     spec,
     tools: options.tools,
     defaultVoice: (provider.metadata as any)?.defaultVoice
@@ -76,6 +76,20 @@ export function createGrokRealtimeCompatSessionWithTransport(
   const commitMode = spec.turnDetection?.mode ?? 'manual_commit';
   const forceToolChoiceOnCommit = typeof spec.toolChoice === 'object' && spec.toolChoice?.type === 'single';
   const preReadyEvents: RealtimeEvent[] = [];
+  if (settingsWarnings.unknownKeys.length > 0) {
+    preReadyEvents.push({
+      type: 'error',
+      code: 'unsupported_session_settings',
+      message: `Unsupported session settings ignored: ${settingsWarnings.unknownKeys.sort().join(', ')}`
+    });
+  }
+  if (settingsWarnings.invalidKeys.length > 0) {
+    preReadyEvents.push({
+      type: 'error',
+      code: 'invalid_session_settings',
+      message: `Invalid session settings ignored: ${settingsWarnings.invalidKeys.sort().join(', ')}`
+    });
+  }
 
   let pendingCancel: Deferred<void> | undefined;
 

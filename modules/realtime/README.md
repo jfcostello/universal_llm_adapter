@@ -16,6 +16,11 @@ const session = await createRealtimeSession(registry, {
   provider: '...',
   model: '...',
   systemPrompt: '...',
+  settings: {
+    // Optional provider-agnostic session settings (support varies by compat)
+    temperature: 0.2,
+    voice: '...'
+  },
   transcription: { enabled: true },
   turnDetection: { mode: 'manual_commit' },
   audio: {
@@ -70,6 +75,11 @@ Key fields:
   - `onRemoteStream`: callback invoked with the remote media stream for playback.
   - `dataChannelLabel`: override the data-channel label used for JSON events.
 - `systemPrompt`: optional system prompt for the session.
+- `settings`: optional, provider-agnostic session settings surface (support varies by compat).
+  - Common keys: `temperature` (number), `voice` (string), `maxOutputTokens` (positive integer; alias: `maxTokens`).
+  - Unknown/invalid keys are ignored and surfaced as non-fatal `error` events:
+    - `unsupported_session_settings`
+    - `invalid_session_settings`
 - `history`: optional **text-first** conversation seeding (cross-session context) injected before the first user-visible `ready` event is emitted.
   - Each item is `{ role: 'system' | 'user' | 'assistant', text: string }`.
   - Use `session.injectContext(items)` for mid-session injection (does not auto-trigger a response).

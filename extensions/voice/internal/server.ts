@@ -1,5 +1,7 @@
 import type http from 'http';
 import type net from 'net';
+import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
 import crypto from 'crypto';
 import { createRequire } from 'module';
 
@@ -20,6 +22,7 @@ import type { VoiceProviderPlugins } from './provider-plugins.js';
 import { createVoiceProviderPlugins } from './provider-plugins.js';
 import type { VoiceCallConfigStore } from './call-config-store/index.js';
 import { createVoiceCallConfigStoreFromEnv } from './call-config-store/index.js';
+import { createVoiceCallEventHub, type VoiceCallEventHub, type VoiceCallEventEnvelope } from './call-events.js';
 import { createVoiceMetrics } from './metrics.js';
 
 type VoiceMediaTokenPayload = {
@@ -43,51 +46,203 @@ type VoiceLogging = {
   getLogger: (correlationId?: string) => VoiceLogger;
 };
 
-  function parseUrl(rawUrl: string | undefined): URL | null {
-    const raw = rawUrl ?? '/';
-    try {
-      return new URL(raw, 'http://localhost');
-    } catch {
-      return null;
+function parseUrl(rawUrl: string | undefined): URL | null {
+  const raw = rawUrl ?? '/';
+  try {
+    return new URL(raw, 'http://localhost');
+  } catch {
+    return null;
+  }
+}
+
+function normalizeRequestId(value: string): string | undefined {
+  if (!value) return undefined;
+  const first = value.split(',')[0]!.trim();
+  const cleaned = first.replace(/[\r\n\t]/g, ' ').trim();
+  if (!cleaned) return undefined;
+  return cleaned.slice(0, 128);
+}
+
+function readRequestId(req: http.IncomingMessage): string | undefined {
+  const readHeader = (name: string): string => {
+    const raw = req.headers?.[name];
+    const first =
+      typeof raw === 'string'
+        ? raw
+        : Array.isArray(raw)
+          ? String(raw[0] ?? '')
+          : '';
+    return first.trim();
+  };
+
+  return (
+    normalizeRequestId(readHeader('x-request-id')) ??
+    normalizeRequestId(readHeader('x-correlation-id'))
+  );
+}
+
+function normalizeIdempotencyKey(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  const maxBytes = 512;
+  if (Buffer.byteLength(trimmed, 'utf8') <= maxBytes) return trimmed;
+
+  const hash = crypto.createHash('sha256').update(trimmed).digest('hex');
+  return `sha256:${hash}`;
+}
+
+function asPlainObject(value: unknown): Record<string, any> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  return value as Record<string, any>;
+}
+
+function readVoiceExtensionDefaults(httpConfig: any): Record<string, any> {
+  const extensions = asPlainObject(httpConfig?.extensions);
+  const voice = asPlainObject(extensions?.voice);
+  return voice ?? {};
+}
+
+type AssistantFirstTurnConfig = {
+  enabled: boolean;
+  prompt?: string;
+  role: 'system' | 'user';
+  delayMs: number;
+  missingPromptBehavior: 'reject' | 'skip';
+};
+
+type VoiceCallTimeoutsConfig = {
+  callTimeoutMs?: number;
+  silenceTimeoutMs?: number;
+};
+
+function readPositiveInt(value: unknown, label: string): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  const out = Math.floor(n);
+  if (!Number.isFinite(n) || out <= 0) {
+    throw makeHttpError({ message: `Invalid ${label}`, statusCode: 400, code: 'validation_error' });
+  }
+  return out;
+}
+
+function normalizeVoiceCallTimeouts(options: {
+  raw: unknown;
+  defaults: unknown;
+}): VoiceCallTimeoutsConfig | undefined {
+  const raw = asPlainObject(options.raw);
+  const defaults = asPlainObject(options.defaults);
+  if (!raw && !defaults) return undefined;
+
+  const callTimeoutMsRaw = raw?.callTimeoutMs !== undefined ? raw.callTimeoutMs : defaults?.callTimeoutMs;
+  const silenceTimeoutMsRaw = raw?.silenceTimeoutMs !== undefined ? raw.silenceTimeoutMs : defaults?.silenceTimeoutMs;
+
+  const out: VoiceCallTimeoutsConfig = {};
+  if (callTimeoutMsRaw !== undefined && callTimeoutMsRaw !== null && callTimeoutMsRaw !== '') {
+    out.callTimeoutMs = readPositiveInt(callTimeoutMsRaw, 'timeouts.callTimeoutMs');
+  }
+  if (silenceTimeoutMsRaw !== undefined && silenceTimeoutMsRaw !== null && silenceTimeoutMsRaw !== '') {
+    out.silenceTimeoutMs = readPositiveInt(silenceTimeoutMsRaw, 'timeouts.silenceTimeoutMs');
+  }
+
+  return Object.keys(out).length > 0 ? out : {};
+}
+
+type VoiceCallRecordingConfig = {
+  enabled: boolean;
+  mode: 'provider' | 'adapter';
+  format: 'mp3' | 'wav';
+  channels: 'mono' | 'dual';
+};
+
+function normalizeVoiceCallRecording(options: {
+  raw: unknown;
+  defaults: unknown;
+}): VoiceCallRecordingConfig | undefined {
+  const raw = asPlainObject(options.raw);
+  const defaults = asPlainObject(options.defaults);
+  if (!raw && !defaults) return undefined;
+
+  const enabled =
+    raw?.enabled !== undefined
+      ? Boolean(raw.enabled)
+      : defaults?.enabled !== undefined
+        ? Boolean(defaults.enabled)
+        : false;
+
+  const modeRaw = raw?.mode !== undefined ? raw.mode : defaults?.mode;
+  const mode = modeRaw === 'adapter' ? 'adapter' : 'provider';
+
+  const formatRaw = raw?.format !== undefined ? raw.format : defaults?.format;
+  const format = formatRaw === 'wav' ? 'wav' : 'mp3';
+
+  const channelsRaw = raw?.channels !== undefined ? raw.channels : defaults?.channels;
+  const channels = channelsRaw === 'dual' ? 'dual' : 'mono';
+
+  return { enabled, mode, format, channels };
+}
+
+function normalizeAssistantFirstTurn(options: {
+  raw: unknown;
+  defaults: unknown;
+}): AssistantFirstTurnConfig | undefined {
+  const raw = asPlainObject(options.raw);
+  const defaults = asPlainObject(options.defaults);
+  if (!raw && !defaults) return undefined;
+
+  const enabled =
+    raw?.enabled !== undefined
+      ? Boolean(raw.enabled)
+      : defaults?.enabled !== undefined
+        ? Boolean(defaults.enabled)
+        : false;
+
+  const promptRaw = raw?.prompt !== undefined ? raw.prompt : defaults?.prompt;
+  const prompt = promptRaw === undefined || promptRaw === null ? undefined : String(promptRaw);
+
+  const roleRaw = raw?.role !== undefined ? raw.role : defaults?.role;
+  const role = roleRaw === 'system' ? 'system' : 'user';
+
+  const delayMsRaw = raw?.delayMs !== undefined ? raw.delayMs : defaults?.delayMs;
+  const delayMsValue =
+    delayMsRaw === undefined || delayMsRaw === null || delayMsRaw === ''
+      ? 0
+      : Number(delayMsRaw);
+  if (!Number.isFinite(delayMsValue) || delayMsValue < 0) {
+    throw makeHttpError({ message: 'Invalid assistantFirstTurn.delayMs', statusCode: 400, code: 'validation_error' });
+  }
+  const delayMs = Math.floor(delayMsValue);
+
+  const missingPromptBehaviorRaw =
+    raw?.missingPromptBehavior !== undefined
+      ? raw.missingPromptBehavior
+      : defaults?.missingPromptBehavior;
+  const missingPromptBehavior = missingPromptBehaviorRaw === 'skip' ? 'skip' : 'reject';
+
+  const out: AssistantFirstTurnConfig = {
+    enabled,
+    ...(prompt !== undefined ? { prompt } : {}),
+    role,
+    delayMs,
+    missingPromptBehavior
+  };
+
+  if (out.enabled) {
+    const trimmed = String(out.prompt ?? '').trim();
+    if (!trimmed) {
+      if (out.missingPromptBehavior === 'skip') {
+        out.enabled = false;
+      } else {
+        throw makeHttpError({
+          message: 'assistantFirstTurn.prompt is required when assistantFirstTurn.enabled=true',
+          statusCode: 400,
+          code: 'validation_error'
+        });
+      }
     }
   }
 
-  function normalizeRequestId(value: string): string | undefined {
-    if (!value) return undefined;
-    const first = value.split(',')[0]!.trim();
-    const cleaned = first.replace(/[\r\n\t]/g, ' ').trim();
-    if (!cleaned) return undefined;
-    return cleaned.slice(0, 128);
-  }
-
-  function readRequestId(req: http.IncomingMessage): string | undefined {
-    const readHeader = (name: string): string => {
-      const raw = req.headers?.[name];
-      const first =
-        typeof raw === 'string'
-          ? raw
-          : Array.isArray(raw)
-            ? String(raw[0] ?? '')
-            : '';
-      return first.trim();
-    };
-
-    return (
-      normalizeRequestId(readHeader('x-request-id')) ??
-      normalizeRequestId(readHeader('x-correlation-id'))
-    );
-  }
-
-  function normalizeIdempotencyKey(value: string): string {
-    const trimmed = value.trim();
-    if (!trimmed) return '';
-
-    const maxBytes = 512;
-    if (Buffer.byteLength(trimmed, 'utf8') <= maxBytes) return trimmed;
-
-    const hash = crypto.createHash('sha256').update(trimmed).digest('hex');
-    return `sha256:${hash}`;
-  }
+  return out;
+}
 
 function getVoicePublicBaseUrlOverride(): string | undefined {
   const raw = String(process.env.LLM_ADAPTER_VOICE_PUBLIC_BASE_URL ?? '').trim();
@@ -357,6 +512,8 @@ export async function createVoiceServerRegistration(ctx: {
         }
       });
 
+    const voiceDefaults = readVoiceExtensionDefaults(httpConfig);
+
     const assertAuthorizedAndRateLimited = async (req: http.IncomingMessage): Promise<string | undefined> => {
       const authIdentity = await assertAuthorized(req, authConfig, authorize as any);
       const clientIp = getClientIp(req, Boolean(rateLimitConfig?.trustProxyHeaders));
@@ -383,6 +540,60 @@ export async function createVoiceServerRegistration(ctx: {
     enabled: normalizeFlag(process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED, false)
   });
 
+  const voiceEventsDefaults = asPlainObject((voiceDefaults as any)?.events) ?? {};
+  const eventsDefaultIncludeDeltas = voiceEventsDefaults.includeDeltas === true;
+  const eventsKeepAliveIntervalMs = (() => {
+    const raw = (voiceEventsDefaults as any)?.keepAliveIntervalMs;
+    if (raw === undefined || raw === null || raw === '') return 15000;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return 15000;
+    const out = Math.floor(n);
+    if (out <= 0) return 0;
+    return out;
+  })();
+  const eventsMaxWriteQueueBytes = (() => {
+    const raw = (voiceEventsDefaults as any)?.maxWriteQueueBytes;
+    if (raw === undefined || raw === null || raw === '') return 256 * 1024;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return 256 * 1024;
+    const out = Math.floor(n);
+    if (out <= 0) return 256 * 1024;
+    return out;
+  })();
+  const recordingProxyTimeoutMs = (() => {
+    const raw = String(process.env.LLM_ADAPTER_VOICE_RECORDING_PROXY_TIMEOUT_MS ?? '').trim();
+    if (!raw) return 30000;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return 30000;
+    const out = Math.floor(n);
+    if (out <= 0) return 30000;
+    return out;
+  })();
+
+  const eventsHub: VoiceCallEventHub = (() => {
+    const injected = (ctx as any)?.eventsHub;
+    if (injected && typeof injected.emit === 'function' && typeof injected.subscribe === 'function') {
+      return injected as VoiceCallEventHub;
+    }
+
+    const maxActiveCallsRaw = voiceEventsDefaults.maxActiveCalls;
+    const maxActiveCalls = Number.isFinite(Number(maxActiveCallsRaw)) ? Math.max(1, Math.floor(Number(maxActiveCallsRaw))) : undefined;
+
+    const maxBufferedEventsPerCallRaw = voiceEventsDefaults.maxBufferedEventsPerCall;
+    const maxBufferedEventsPerCall = Number.isFinite(Number(maxBufferedEventsPerCallRaw))
+      ? Math.max(0, Math.floor(Number(maxBufferedEventsPerCallRaw)))
+      : undefined;
+
+    const callTtlMsRaw = voiceEventsDefaults.callTtlMs;
+    const callTtlMs = Number.isFinite(Number(callTtlMsRaw)) ? Math.max(0, Math.floor(Number(callTtlMsRaw))) : undefined;
+
+    return createVoiceCallEventHub({
+      ...(maxActiveCalls !== undefined ? { maxActiveCalls } : {}),
+      ...(maxBufferedEventsPerCall !== undefined ? { maxBufferedEventsPerCall } : {}),
+      ...(callTtlMs !== undefined ? { callTtlMs } : {})
+    });
+  })();
+
   const close = async () => {
     draining = true;
     const clients: any[] = Array.from(wss.clients);
@@ -392,6 +603,9 @@ export async function createVoiceServerRegistration(ctx: {
     await new Promise<void>((resolve) => wss.close(() => resolve()));
     activeMediaWs = 0;
     pendingMediaWs = 0;
+    try {
+      eventsHub.close();
+    } catch {}
     try {
       await storeInit.close?.();
     } catch {}
@@ -435,45 +649,45 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
-            const requestIdFromConfig = readTrimmedStringProperty((callConfig as any)?.metadata, 'requestId');
-            const requestId = requestIdFromConfig ? normalizeRequestId(requestIdFromConfig) : undefined;
+          const requestIdFromConfig = readTrimmedStringProperty((callConfig as any)?.metadata, 'requestId');
+          const requestId = requestIdFromConfig ? normalizeRequestId(requestIdFromConfig) : undefined;
 
-            const logger = await resolveLogger(callConfigId);
-            safeLog(logger, 'info', 'voice.webhook.request', { callConfigId, voiceProvider, method, ...(requestId ? { requestId } : {}) });
+          const logger = await resolveLogger(callConfigId);
+          safeLog(logger, 'info', 'voice.webhook.request', { callConfigId, voiceProvider, method, ...(requestId ? { requestId } : {}) });
 
-            const compat = await providerPlugins.getCompat(voiceProvider);
-            const params: Record<string, string> = {};
-            if (method === 'POST') {
-              const contentType = String(req.headers?.['content-type'] ?? '').toLowerCase();
-              if (contentType.includes('application/x-www-form-urlencoded')) {
-                const rawBody = await readTextBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
-                if (rawBody) {
-                  const form = new URLSearchParams(rawBody);
-                  for (const [k, v] of form.entries()) {
-                    params[String(k)] = String(v);
-                  }
+          const compat = await providerPlugins.getCompat(voiceProvider);
+          const params: Record<string, string> = {};
+          if (method === 'POST') {
+            const contentType = String(req.headers?.['content-type'] ?? '').toLowerCase();
+            if (contentType.includes('application/x-www-form-urlencoded')) {
+              const rawBody = await readTextBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
+              if (rawBody) {
+                const form = new URLSearchParams(rawBody);
+                for (const [k, v] of form.entries()) {
+                  params[String(k)] = String(v);
                 }
               }
             }
+          }
 
-            try {
-              const validateWebhookRequest = (compat as any)?.validateWebhookRequest;
-              if (typeof validateWebhookRequest !== 'function') {
-                if (getWebhookValidationRequired()) {
-                  throw makeHttpError({
-                    message: 'Voice compat missing validateWebhookRequest()',
-                    statusCode: 501,
-                    code: 'webhook_validation_unavailable'
-                  });
-                }
-              } else {
-                const httpBaseUrl = getPublicHttpBaseUrl(req);
-                const publicUrl = new URL(req.url ?? '/voice/webhook', httpBaseUrl).toString();
+          try {
+            const validateWebhookRequest = (compat as any)?.validateWebhookRequest;
+            if (typeof validateWebhookRequest !== 'function') {
+              if (getWebhookValidationRequired()) {
+                throw makeHttpError({
+                  message: 'Voice compat missing validateWebhookRequest()',
+                  statusCode: 501,
+                  code: 'webhook_validation_unavailable'
+                });
+              }
+            } else {
+              const httpBaseUrl = getPublicHttpBaseUrl(req);
+              const publicUrl = new URL(req.url ?? '/voice/webhook', httpBaseUrl).toString();
 
-                let providerDefaults: any | undefined;
-                try {
-                  const manifest = await providerPlugins.getManifest?.(voiceProvider);
-                  providerDefaults = (manifest as any)?.defaults;
+              let providerDefaults: any | undefined;
+              try {
+                const manifest = await providerPlugins.getManifest?.(voiceProvider);
+                providerDefaults = (manifest as any)?.defaults;
               } catch {
                 // ignore and allow compat to decide whether defaults are required
               }
@@ -496,16 +710,16 @@ export async function createVoiceServerRegistration(ctx: {
 
             const httpBaseUrl = getPublicHttpBaseUrl(req);
             const token = mintVoiceMediaToken({ callConfigId, voiceProvider });
-              const mediaWsUrl = toWsUrl(httpBaseUrl, '/voice/media', { token });
+            const mediaWsUrl = toWsUrl(httpBaseUrl, '/voice/media', { token });
 
-              const response = await (async () => {
-                try {
-                  return await compat.createWebhookResponse({ req, callConfigId, callConfig, voiceProvider, mediaWsUrl, params });
-                } catch (error: any) {
-                  metrics.compatError('webhook_response', voiceProvider);
-                  throw error;
-                }
-              })();
+            const response = await (async () => {
+              try {
+                return await compat.createWebhookResponse({ req, callConfigId, callConfig, voiceProvider, mediaWsUrl, params });
+              } catch (error: any) {
+                metrics.compatError('webhook_response', voiceProvider);
+                throw error;
+              }
+            })();
             const status = Number(response?.status ?? 200);
             const headers = (response?.headers && typeof response.headers === 'object') ? response.headers : {};
             const body = String(response?.body ?? '');
@@ -528,6 +742,150 @@ export async function createVoiceServerRegistration(ctx: {
             }
             throw error;
           }
+        }
+
+        if (pathname === '/voice/webhook/recording') {
+          const method = (req.method ?? 'GET').toUpperCase();
+          if (method !== 'POST') {
+            writeJson(res, 405, { type: 'error', error: { message: 'Method not allowed', code: 'method_not_allowed' } });
+            return true;
+          }
+
+          const callConfigId = String(url.searchParams.get('callConfigId') ?? '').trim();
+          if (!callConfigId) {
+            writeJson(res, 400, { type: 'error', error: { message: 'Missing callConfigId', code: 'validation_error' } });
+            return true;
+          }
+
+          const callConfig = await store.getConfig(callConfigId);
+          if (!callConfig) {
+            writeJson(res, 404, { type: 'error', error: { message: 'Unknown callConfigId', code: 'not_found' } });
+            return true;
+          }
+
+          const voiceProvider = String((callConfig as any)?.voiceProvider ?? '').trim();
+          if (!voiceProvider) {
+            writeJson(res, 400, { type: 'error', error: { message: 'Missing voiceProvider in call config', code: 'validation_error' } });
+            return true;
+          }
+
+          const logger = await resolveLogger(callConfigId);
+          const requestIdFromConfig = readTrimmedStringProperty((callConfig as any)?.metadata, 'requestId');
+          const requestId = requestIdFromConfig ? normalizeRequestId(requestIdFromConfig) : undefined;
+
+          const contentType = String(req.headers?.['content-type'] ?? '').toLowerCase();
+          if (!contentType.includes('application/x-www-form-urlencoded')) {
+            writeJson(res, 400, { type: 'error', error: { message: 'Unsupported content-type', code: 'validation_error' } });
+            return true;
+          }
+
+          const rawBody = await readTextBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
+          const params: Record<string, string> = {};
+          if (rawBody) {
+            const form = new URLSearchParams(rawBody);
+            for (const [k, v] of form.entries()) {
+              params[String(k)] = String(v);
+            }
+          }
+
+          const compat = await providerPlugins.getCompat(voiceProvider);
+          try {
+            const validateWebhookRequest = (compat as any)?.validateWebhookRequest;
+            if (typeof validateWebhookRequest !== 'function') {
+              if (getWebhookValidationRequired()) {
+                throw makeHttpError({
+                  message: 'Voice compat missing validateWebhookRequest()',
+                  statusCode: 501,
+                  code: 'webhook_validation_unavailable'
+                });
+              }
+            } else {
+              const httpBaseUrl = getPublicHttpBaseUrl(req);
+              const publicUrl = new URL(`${url.pathname}${url.search}`, httpBaseUrl).toString();
+
+              let providerDefaults: any | undefined;
+              try {
+                const manifest = await providerPlugins.getManifest?.(voiceProvider);
+                providerDefaults = (manifest as any)?.defaults;
+              } catch {}
+
+              await validateWebhookRequest({ req, method, url: publicUrl, params, callConfigId, callConfig, voiceProvider, providerDefaults });
+            }
+          } catch (error: any) {
+            const statusCode = Number(error?.statusCode ?? 500);
+            const code = error?.code !== undefined ? String(error.code) : undefined;
+            safeLog(
+              logger,
+              statusCode >= 500 ? 'error' : 'warning',
+              'voice.webhook.recording.error',
+              { callConfigId, voiceProvider, statusCode, ...(code ? { code } : {}), ...(requestId ? { requestId } : {}) }
+            );
+            throw error;
+          }
+
+          const recordingCfg = (callConfig as any)?.recording;
+          if (!(recordingCfg && typeof recordingCfg === 'object' && (recordingCfg as any).enabled === true)) {
+            writeJson(res, 409, { type: 'error', error: { message: 'Recording is not enabled for this call', code: 'recording_not_enabled' } });
+            return true;
+          }
+
+          const parseRecordingWebhook = (compat as any)?.parseRecordingWebhook;
+          if (typeof parseRecordingWebhook !== 'function') {
+            writeJson(res, 501, { type: 'error', error: { message: 'Voice compat missing parseRecordingWebhook()', code: 'recording_parse_unavailable' } });
+            return true;
+          }
+
+          let parsed: any;
+          try {
+            parsed = await parseRecordingWebhook({ params, callConfigId, callConfig, voiceProvider });
+          } catch (error: any) {
+            const statusCode = Number(error?.statusCode ?? 500);
+            const code = error?.code !== undefined ? String(error.code) : undefined;
+            safeLog(
+              logger,
+              statusCode >= 500 ? 'error' : 'warning',
+              'voice.webhook.recording.parse_failed',
+              { callConfigId, voiceProvider, statusCode, ...(code ? { code } : {}), ...(requestId ? { requestId } : {}) }
+            );
+            throw error;
+          }
+
+          const recordingId = String(parsed?.recordingId ?? '').trim();
+          const recordingUrl = String(parsed?.recordingUrl ?? '').trim();
+          const recordingStatus = String(parsed?.recordingStatus ?? '').trim();
+          const providerCallId = String(parsed?.providerCallId ?? (callConfig as any)?.providerCallId ?? '').trim();
+          if (!recordingId || !recordingUrl) {
+            writeJson(res, 400, { type: 'error', error: { message: 'Missing recording fields', code: 'validation_error' } });
+            return true;
+          }
+
+          const updatedRecording = {
+            ...(recordingCfg as any),
+            providerRecording: {
+              id: recordingId,
+              url: recordingUrl,
+              ...(recordingStatus ? { status: recordingStatus } : {})
+            }
+          };
+
+          const expiresAtMs = Number((callConfig as any)?.expiresAtMs);
+          const ttlRemainingSeconds = Number.isFinite(expiresAtMs) && expiresAtMs > Date.now()
+            ? Math.max(1, Math.ceil((expiresAtMs - Date.now()) / 1000))
+            : 60;
+          await store.putConfig({ ...(callConfig as any), recording: updatedRecording } as any, { ttlSeconds: ttlRemainingSeconds });
+
+          eventsHub.emit(callConfigId, { type: 'voice.recording.ready', recordingId, ...(providerCallId ? { providerCallId } : {}) });
+
+          safeLog(logger, 'info', 'voice.webhook.recording.received', {
+            callConfigId,
+            voiceProvider,
+            recordingId,
+            ...(providerCallId ? { providerCallId } : {}),
+            ...(requestId ? { requestId } : {})
+          });
+
+          writeJson(res, 200, { ok: true });
+          return true;
         }
 
         if (pathname === '/voice/metrics') {
@@ -554,6 +912,396 @@ export async function createVoiceServerRegistration(ctx: {
           return true;
         }
 
+        const callPathParts = pathname.split('/').filter(Boolean);
+
+        if (
+          callPathParts.length === 4 &&
+          callPathParts[0] === 'voice' &&
+          callPathParts[1] === 'calls' &&
+          callPathParts[2] &&
+          callPathParts[3] === 'events'
+        ) {
+          const method = (req.method ?? 'GET').toUpperCase();
+          if (method !== 'GET') {
+            writeJson(res, 405, { type: 'error', error: { message: 'Method not allowed', code: 'method_not_allowed' } });
+            return true;
+          }
+
+          if (!authConfig?.enabled) {
+            writeJson(res, 501, { type: 'error', error: { message: 'Voice call events endpoint requires server auth to be enabled', code: 'not_implemented' } });
+            return true;
+          }
+
+          await assertAuthorizedAndRateLimited(req);
+
+          const callConfigId = String(callPathParts[2]).trim();
+          const callConfig = await store.getConfig(callConfigId);
+          if (!callConfig) {
+            writeJson(res, 404, { type: 'error', error: { message: 'Unknown callConfigId', code: 'not_found' } });
+            return true;
+          }
+
+          const includeDeltasRaw = url.searchParams.get('includeDeltas');
+          const includeDeltas = includeDeltasRaw === null
+            ? eventsDefaultIncludeDeltas
+            : normalizeFlag(includeDeltasRaw, eventsDefaultIncludeDeltas);
+
+          const eventTypes = (() => {
+            const raw = String(url.searchParams.get('eventTypes') ?? '').trim();
+            if (!raw) return undefined;
+            const parts = raw.split(',').map(p => p.trim()).filter(Boolean);
+            return parts.length > 0 ? parts.slice(0, 100) : undefined;
+          })();
+
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive',
+            'X-Accel-Buffering': 'no'
+          });
+
+          const sanitizeEventName = (value: string): string =>
+            String(value ?? '')
+              .replace(/[\r\n]/g, '')
+              .trim()
+              .slice(0, 128) || 'message';
+
+          let closed = false;
+          let keepAliveTimer: any | undefined;
+          let sub: { replay: VoiceCallEventEnvelope[]; unsubscribe: () => void } | undefined;
+          let drainListenerAttached = false;
+          let drainingWrites = false;
+          let inFlightBytes = 0;
+          let queuedBytes = 0;
+          const queuedChunks: string[] = [];
+
+          const cleanup = () => {
+            if (closed) return;
+            closed = true;
+            try { if (keepAliveTimer) clearInterval(keepAliveTimer); } catch {}
+            try { sub?.unsubscribe(); } catch {}
+            try { res.off?.('drain', onDrain); } catch {}
+            drainListenerAttached = false;
+          };
+
+          const closeResponse = () => {
+            cleanup();
+            try { res.end(); } catch {}
+          };
+
+          const checkQueueLimit = () => {
+            const pendingBytes = inFlightBytes + queuedBytes;
+            if (pendingBytes <= eventsMaxWriteQueueBytes) return;
+            closeResponse();
+          };
+
+          const attachDrain = () => {
+            drainListenerAttached = true;
+            res.on?.('drain', onDrain);
+          };
+
+          const flushQueued = () => {
+            while (queuedChunks.length > 0) {
+              const chunk = queuedChunks.shift() as string;
+              queuedBytes -= Buffer.byteLength(chunk, 'utf8');
+              try {
+                const ok = res.write(chunk);
+                if (ok === false) {
+                  drainingWrites = true;
+                  inFlightBytes = Buffer.byteLength(chunk, 'utf8');
+                  attachDrain();
+                  checkQueueLimit();
+                  return;
+                }
+              } catch {
+                closeResponse();
+                return;
+              }
+            }
+          };
+
+          function onDrain() {
+            if (closed) return;
+            drainingWrites = false;
+            inFlightBytes = 0;
+            try {
+              res.off?.('drain', onDrain);
+            } catch {}
+            drainListenerAttached = false;
+            flushQueued();
+          }
+
+          const writeChunk = (chunk: string) => {
+            if (closed) return;
+
+            if (drainingWrites) {
+              queuedChunks.push(chunk);
+              queuedBytes += Buffer.byteLength(chunk, 'utf8');
+              checkQueueLimit();
+              return;
+            }
+
+            try {
+              const ok = res.write(chunk);
+              if (ok === false) {
+                drainingWrites = true;
+                inFlightBytes = Buffer.byteLength(chunk, 'utf8');
+                attachDrain();
+                checkQueueLimit();
+              }
+            } catch {
+              closeResponse();
+            }
+          };
+
+          const writeEvent = (envelope: VoiceCallEventEnvelope) => {
+            try {
+              const name = sanitizeEventName(envelope.event?.type);
+              const data = JSON.stringify(envelope);
+              writeChunk(`event: ${name}\ndata: ${data}\n\n`);
+            } catch {}
+          };
+
+          sub = eventsHub.subscribe(callConfigId, { includeDeltas, ...(eventTypes ? { eventTypes } : {}) }, (evt) => writeEvent(evt));
+          for (const evt of sub.replay) {
+            writeEvent(evt);
+          }
+
+          if (closed) return true;
+
+          if (eventsKeepAliveIntervalMs > 0) {
+            keepAliveTimer = setInterval(() => {
+              writeChunk(': keepalive\n\n');
+            }, eventsKeepAliveIntervalMs);
+            if (typeof (keepAliveTimer as any)?.unref === 'function') {
+              (keepAliveTimer as any).unref();
+            }
+          }
+
+          req.on?.('close', cleanup);
+          res.on?.('close', cleanup);
+          res.on?.('error', cleanup);
+
+          return true;
+        }
+
+        if (
+          callPathParts.length === 4 &&
+          callPathParts[0] === 'voice' &&
+          callPathParts[1] === 'calls' &&
+          callPathParts[2] &&
+          callPathParts[3] === 'end'
+        ) {
+          const method = (req.method ?? 'GET').toUpperCase();
+          if (method !== 'POST') {
+            writeJson(res, 405, { type: 'error', error: { message: 'Method not allowed', code: 'method_not_allowed' } });
+            return true;
+          }
+
+          if (!authConfig?.enabled) {
+            writeJson(res, 501, { type: 'error', error: { message: 'Voice call end endpoint requires server auth to be enabled', code: 'not_implemented' } });
+            return true;
+          }
+
+          await assertAuthorizedAndRateLimited(req);
+
+          const callConfigId = String(callPathParts[2]).trim();
+          const callConfig = await store.getConfig(callConfigId);
+          if (!callConfig) {
+            writeJson(res, 404, { type: 'error', error: { message: 'Unknown callConfigId', code: 'not_found' } });
+            return true;
+          }
+
+          const voiceProvider = String((callConfig as any)?.voiceProvider ?? '').trim();
+          if (!voiceProvider) {
+            writeJson(res, 400, { type: 'error', error: { message: 'Missing voiceProvider in call config', code: 'validation_error' } });
+            return true;
+          }
+
+          const providerCallId = String((callConfig as any)?.providerCallId ?? '').trim();
+          if (!providerCallId) {
+            writeJson(res, 409, { type: 'error', error: { message: 'Call is missing providerCallId', code: 'not_ready' } });
+            return true;
+          }
+
+          let providerDefaults: any | undefined;
+          try {
+            const manifest = await providerPlugins.getManifest(voiceProvider);
+            providerDefaults = (manifest as any)?.defaults;
+          } catch {
+            writeJson(res, 400, { type: 'error', error: { message: 'Unknown voiceProvider', code: 'validation_error' } });
+            return true;
+          }
+
+          const compat = await providerPlugins.getCompat(voiceProvider);
+          const endCall = (compat as any)?.endCall;
+          if (typeof endCall !== 'function') {
+            writeJson(res, 501, { type: 'error', error: { message: 'Voice provider does not support call termination', code: 'not_implemented' } });
+            return true;
+          }
+
+          await endCall({ callConfigId, callConfig, voiceProvider, providerCallId, providerDefaults });
+          eventsHub.emit(callConfigId, { type: 'voice.call.end_requested', reason: 'client_request', providerCallId });
+
+          writeJson(res, 200, { ok: true });
+          return true;
+        }
+
+        if (
+          callPathParts.length === 4 &&
+          callPathParts[0] === 'voice' &&
+          callPathParts[1] === 'calls' &&
+          callPathParts[2] &&
+          callPathParts[3] === 'recording'
+        ) {
+          const method = (req.method ?? 'GET').toUpperCase();
+          if (method !== 'GET') {
+            writeJson(res, 405, { type: 'error', error: { message: 'Method not allowed', code: 'method_not_allowed' } });
+            return true;
+          }
+
+          if (!authConfig?.enabled) {
+            writeJson(res, 501, { type: 'error', error: { message: 'Voice recording endpoint requires server auth to be enabled', code: 'not_implemented' } });
+            return true;
+          }
+
+          await assertAuthorizedAndRateLimited(req);
+
+          const callConfigId = String(callPathParts[2]).trim();
+          const callConfig = await store.getConfig(callConfigId);
+          if (!callConfig) {
+            writeJson(res, 404, { type: 'error', error: { message: 'Unknown callConfigId', code: 'not_found' } });
+            return true;
+          }
+
+          const voiceProvider = String((callConfig as any)?.voiceProvider ?? '').trim();
+          if (!voiceProvider) {
+            writeJson(res, 400, { type: 'error', error: { message: 'Missing voiceProvider in call config', code: 'validation_error' } });
+            return true;
+          }
+
+          const recordingCfg = (callConfig as any)?.recording;
+          if (!(recordingCfg && typeof recordingCfg === 'object' && (recordingCfg as any).enabled === true)) {
+            writeJson(res, 409, { type: 'error', error: { message: 'Recording is not enabled for this call', code: 'recording_not_enabled' } });
+            return true;
+          }
+
+          const providerRecording = (recordingCfg as any)?.providerRecording;
+          const hasProviderArtifact = providerRecording && typeof providerRecording === 'object'
+            && (typeof (providerRecording as any).url === 'string' || typeof (providerRecording as any).id === 'string');
+          if (!hasProviderArtifact) {
+            writeJson(res, 409, { type: 'error', error: { message: 'Recording is not ready', code: 'recording_not_ready' } });
+            return true;
+          }
+
+          let providerDefaults: any | undefined;
+          try {
+            const manifest = await providerPlugins.getManifest(voiceProvider);
+            providerDefaults = (manifest as any)?.defaults;
+          } catch {
+            writeJson(res, 400, { type: 'error', error: { message: 'Unknown voiceProvider', code: 'validation_error' } });
+            return true;
+          }
+
+          const compat = await providerPlugins.getCompat(voiceProvider);
+          const getRecordingDownloadRequest = (compat as any)?.getRecordingDownloadRequest;
+          if (typeof getRecordingDownloadRequest !== 'function') {
+            writeJson(res, 501, { type: 'error', error: { message: 'Voice provider does not support recording download', code: 'not_implemented' } });
+            return true;
+          }
+
+          const download = await getRecordingDownloadRequest({ callConfigId, callConfig, voiceProvider, providerDefaults });
+          const downloadUrl = String(download?.url ?? '').trim();
+          if (!downloadUrl) {
+            writeJson(res, 502, { type: 'error', error: { message: 'Voice provider did not return a recording URL', code: 'provider_error' } });
+            return true;
+          }
+
+          const controller = new AbortController();
+          let didClientDisconnect = false;
+          let didTimeout = false;
+
+          const handleClientDisconnect = () => {
+            didClientDisconnect = true;
+            try { controller.abort(); } catch {}
+          };
+          req.on?.('aborted', handleClientDisconnect);
+          req.on?.('close', handleClientDisconnect);
+          res.on?.('close', handleClientDisconnect);
+
+          const timeoutId = setTimeout(() => {
+            didTimeout = true;
+            try { controller.abort(); } catch {}
+          }, recordingProxyTimeoutMs);
+          if (typeof (timeoutId as any)?.unref === 'function') {
+            (timeoutId as any).unref();
+          }
+
+          try {
+            const upstream = await fetch(downloadUrl, {
+              method: 'GET',
+              headers: (download?.headers && typeof download.headers === 'object') ? download.headers : undefined,
+              signal: controller.signal
+            });
+
+            if (!upstream.ok) {
+              const text = await upstream.text().catch(() => '');
+              writeJson(res, 502, { type: 'error', error: { message: `Upstream recording download failed (${upstream.status})`, code: 'provider_error', ...(text ? { detail: text.slice(0, 500) } : {}) } });
+              return true;
+            }
+
+            const contentType = upstream.headers.get('content-type') ?? 'application/octet-stream';
+            const format = (recordingCfg as any)?.format === 'wav' ? 'wav' : 'mp3';
+
+            res.writeHead(200, {
+              'Content-Type': contentType,
+              'Cache-Control': 'no-store',
+              'Content-Disposition': `attachment; filename=\"${callConfigId}.${format}\"`
+            });
+
+            if (!upstream.body) {
+              res.end();
+              return true;
+            }
+
+            const stream = Readable.fromWeb(upstream.body as any);
+            try {
+              await pipeline(stream, res);
+            } catch {
+              try { res.end(); } catch {}
+            }
+            return true;
+          } catch (err: any) {
+            if (didClientDisconnect) return true;
+            if (err?.name === 'AbortError' && didTimeout) {
+              if (!res.headersSent) {
+                writeJson(res, 502, { type: 'error', error: { message: 'Upstream recording download timed out', code: 'provider_error' } });
+              } else {
+                try { res.end(); } catch {}
+              }
+              return true;
+            }
+
+            if (err?.name === 'AbortError') {
+              if (!res.headersSent) {
+                writeJson(res, 502, { type: 'error', error: { message: 'Upstream recording download aborted', code: 'provider_error' } });
+              } else {
+                try { res.end(); } catch {}
+              }
+              return true;
+            }
+
+            const message = err?.message ? String(err.message).slice(0, 200) : 'Upstream recording download failed';
+            writeJson(res, 502, { type: 'error', error: { message, code: 'provider_error' } });
+            return true;
+          } finally {
+            clearTimeout(timeoutId);
+            req.off?.('aborted', handleClientDisconnect);
+            req.off?.('close', handleClientDisconnect);
+            res.off?.('close', handleClientDisconnect);
+          }
+        }
+
         if (pathname === '/voice/calls') {
           const method = (req.method ?? 'GET').toUpperCase();
           if (method !== 'POST') {
@@ -574,6 +1322,18 @@ export async function createVoiceServerRegistration(ctx: {
           const systemPrompt = body?.systemPrompt !== undefined ? String(body.systemPrompt) : undefined;
           const realtimeSpec = body?.realtimeSpec;
           const voiceProvider = String(body?.voiceProvider ?? '').trim();
+          const assistantFirstTurn = normalizeAssistantFirstTurn({
+            raw: body?.assistantFirstTurn,
+            defaults: (voiceDefaults as any)?.assistantFirstTurn
+          });
+          const timeouts = normalizeVoiceCallTimeouts({
+            raw: body?.timeouts,
+            defaults: (voiceDefaults as any)?.timeouts
+          });
+          const recording = normalizeVoiceCallRecording({
+            raw: body?.recording,
+            defaults: (voiceDefaults as any)?.recording
+          });
 
           const ttlSecondsRaw = body?.ttlSeconds;
           const ttlSeconds = ttlSecondsRaw === undefined || ttlSecondsRaw === null ? 900 : Number(ttlSecondsRaw);
@@ -585,6 +1345,11 @@ export async function createVoiceServerRegistration(ctx: {
 
           if (!to || !from || !voiceProvider || !realtimeSpec) {
             writeJson(res, 400, { type: 'error', error: { message: 'Missing required fields', code: 'validation_error' } });
+            return true;
+          }
+
+          if (recording?.enabled && recording.mode === 'adapter') {
+            writeJson(res, 501, { type: 'error', error: { message: 'Adapter-side recording is not implemented', code: 'not_implemented' } });
             return true;
           }
 
@@ -693,7 +1458,10 @@ export async function createVoiceServerRegistration(ctx: {
                 systemPrompt,
                 realtimeSpec,
                 voiceProvider,
-                ...(metadata ? { metadata } : {})
+                ...(metadata ? { metadata } : {}),
+                ...(assistantFirstTurn ? { assistantFirstTurn } : {}),
+                ...(timeouts ? { timeouts } : {}),
+                ...(recording ? { recording } : {})
               } as any,
               { ttlSeconds }
             );
@@ -701,6 +1469,10 @@ export async function createVoiceServerRegistration(ctx: {
             const httpBaseUrl = getPublicHttpBaseUrl(req);
             const token = mintVoiceMediaToken({ callConfigId, voiceProvider });
             const mediaWsUrl = toWsUrl(httpBaseUrl, '/voice/media', { token });
+            const recordingStatusCallbackUrl =
+              recording?.enabled && recording.mode === 'provider'
+                ? new URL(`/voice/webhook/recording?callConfigId=${encodeURIComponent(callConfigId)}`, httpBaseUrl).toString()
+                : undefined;
 
             const compat = await providerPlugins.getCompat(voiceProvider);
             const callConfig = await store.getConfig(callConfigId);
@@ -719,6 +1491,7 @@ export async function createVoiceServerRegistration(ctx: {
                   callConfig,
                   voiceProvider,
                   mediaWsUrl,
+                  ...(recordingStatusCallbackUrl ? { recordingStatusCallbackUrl } : {}),
                   providerDefaults
                 });
               } catch (error: any) {
@@ -732,6 +1505,26 @@ export async function createVoiceServerRegistration(ctx: {
             }
 
             safeLog(logger, 'info', 'voice.calls.queued', { callConfigId, voiceProvider, providerCallId, ...(requestId ? { requestId } : {}) });
+
+            try {
+              const expiresAtMs = Number((callConfig as any)?.expiresAtMs);
+              const ttlRemainingSeconds = Number.isFinite(expiresAtMs) && expiresAtMs > Date.now()
+                ? Math.max(1, Math.ceil((expiresAtMs - Date.now()) / 1000))
+                : ttlSeconds;
+
+              await store.putConfig(
+                { ...(callConfig as any), providerCallId } as any,
+                { ttlSeconds: ttlRemainingSeconds }
+              );
+            } catch (error: any) {
+              safeLog(logger, 'warning', 'voice.calls.persist_provider_call_id_failed', {
+                callConfigId,
+                voiceProvider,
+                providerCallId,
+                message: error?.message ?? String(error),
+                ...(requestId ? { requestId } : {})
+              });
+            }
 
             const response = { callConfigId, providerCallId, status: 'queued' };
               if (idempotencyKeyNormalized) {
@@ -849,6 +1642,11 @@ export async function createVoiceServerRegistration(ctx: {
 
         const logger = await resolveLogger(callConfigId);
         const compat = await providerPlugins.getCompat(voiceProvider);
+        let providerDefaults: any | undefined;
+        try {
+          const manifest = await providerPlugins.getManifest?.(voiceProvider);
+          providerDefaults = (manifest as any)?.defaults;
+        } catch {}
 
         wss.handleUpgrade(req, socket, head, (ws: any) => {
           releasePending();
@@ -881,8 +1679,12 @@ export async function createVoiceServerRegistration(ctx: {
                 callConfig,
                 voiceProvider,
                 registry: ctx.registry,
+                providerDefaults,
                 store,
                 logger,
+                events: {
+                  emit: (event: any) => eventsHub.emit(callConfigId, event)
+                },
                 metrics
               })
             )
