@@ -368,16 +368,16 @@ export default class TwilioVoiceCompat {
       return Math.max(3000, Math.floor(timeoutMs));
     };
 
-	    const scheduleAssistantAudioStartFallback = (timeoutMs: number) => {
-	      if (callEnded) return;
-	      if (!waitingForFirstAssistantAudioEnd) return;
+    const scheduleAssistantAudioStartFallback = (timeoutMs: number) => {
+      if (callEnded) return;
+      if (!waitingForFirstAssistantAudioEnd) return;
 
-	      clearAssistantAudioStartFallback();
-	      const fallbackMs = resolveAssistantAudioStartFallbackMs(timeoutMs);
-	      assistantAudioStartFallbackTimer = setTimeout(() => {
-	        waitingForFirstAssistantAudioEnd = false;
-	        startSilenceTimer(timeoutMs);
-	      }, fallbackMs);
+      clearAssistantAudioStartFallback();
+      const fallbackMs = resolveAssistantAudioStartFallbackMs(timeoutMs);
+      assistantAudioStartFallbackTimer = setTimeout(() => {
+        waitingForFirstAssistantAudioEnd = false;
+        startSilenceTimer(timeoutMs);
+      }, fallbackMs);
       if (typeof (assistantAudioStartFallbackTimer as any)?.unref === 'function') {
         (assistantAudioStartFallbackTimer as any).unref();
       }
