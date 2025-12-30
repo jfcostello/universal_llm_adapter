@@ -603,7 +603,15 @@ export async function createVoiceServerRegistration(ctx: {
     return createVoiceCallEventHub({
       ...(maxActiveCalls !== undefined ? { maxActiveCalls } : {}),
       ...(maxBufferedEventsPerCall !== undefined ? { maxBufferedEventsPerCall } : {}),
-      ...(callTtlMs !== undefined ? { callTtlMs } : {})
+      ...(callTtlMs !== undefined ? { callTtlMs } : {}),
+      onSaturation: ({ callConfigId, maxActiveCalls, activeCalls }) => {
+        void (async () => {
+          try {
+            const logger = await resolveLogger(callConfigId);
+            safeLog(logger, 'warning', 'voice.call_events.saturated', { callConfigId, maxActiveCalls, activeCalls });
+          } catch {}
+        })();
+      }
     });
   })();
 

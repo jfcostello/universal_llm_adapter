@@ -2688,6 +2688,97 @@ describe('extensions/voice: server http handlers', () => {
 	    jest.useRealTimers();
 	  });
 
+  test('/voice/calls/:id/events logs call-events saturation warnings', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_events_sat_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      } as any,
+      { ttlSeconds: 60 }
+    );
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_events_sat_2',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      } as any,
+      { ttlSeconds: 60 }
+    );
+
+    const logger: any = {
+      withCorrelation: () => logger,
+      debug: jest.fn(),
+      info: jest.fn(),
+      warning: jest.fn(),
+      error: jest.fn()
+    };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: { getCompat: jest.fn() } as any,
+      logging: { getLogger: () => logger },
+      httpConfig: {
+        auth: { enabled: true, apiKeys: ['k1'] },
+        extensions: { voice: { events: { maxActiveCalls: 1, keepAliveIntervalMs: 0 } } }
+      }
+    });
+
+    try {
+      const reqA = new EventEmitter() as any;
+      reqA.url = '/voice/calls/cfg_events_sat_1/events';
+      reqA.method = 'GET';
+      reqA.headers = { authorization: 'Bearer k1', host: 'localhost' };
+      reqA.socket = {};
+
+      const resA = createSseRes();
+      await expect(reg.handleHttp(reqA, resA)).resolves.toBe(true);
+      expect(String(resA.writeHead.mock.calls[0][0])).toBe('200');
+
+      const reqB = new EventEmitter() as any;
+      reqB.url = '/voice/calls/cfg_events_sat_2/events';
+      reqB.method = 'GET';
+      reqB.headers = { authorization: 'Bearer k1', host: 'localhost' };
+      reqB.socket = {};
+
+      const resB = createSseRes();
+      await expect(reg.handleHttp(reqB, resB)).resolves.toBe(true);
+      expect(String(resB.writeHead.mock.calls[0][0])).toBe('200');
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(
+        logger.warning.mock.calls.some(
+          ([msg, data]: any[]) =>
+            msg === 'voice.call_events.saturated' && data?.callConfigId === 'cfg_events_sat_2' && data?.maxActiveCalls === 1
+        )
+      ).toBe(true);
+
+      reqA.emit('close');
+      resA.emit('close');
+      reqB.emit('close');
+      resB.emit('close');
+    } finally {
+      await reg.close();
+    }
+  });
+
 	  test('/voice/calls/:id/events ignores empty eventTypes allowlist query param', async () => {
 	    const store = createInMemoryVoiceCallConfigStore();
 	    await store.putConfig(

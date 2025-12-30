@@ -91,6 +91,25 @@ export function createGrokRealtimeCompatSessionWithTransport(
     });
   }
 
+  const READY_FALLBACK_MS = 10_000;
+  let readyFallbackTimer: NodeJS.Timeout | undefined;
+  const clearReadyFallback = () => {
+    if (!readyFallbackTimer) return;
+    clearTimeout(readyFallbackTimer);
+    readyFallbackTimer = undefined;
+  };
+  const scheduleReadyFallback = () => {
+    if (readySent || readyFallbackTimer) return;
+    readyFallbackTimer = setTimeout(() => {
+      readyFallbackTimer = undefined;
+      if (!readySent && !sessionUpdateSent) {
+        sessionUpdateSent = true;
+        try { send(sessionUpdateEvent); } catch {}
+      }
+      emitReadyOnce();
+    }, READY_FALLBACK_MS);
+  };
+
   let pendingCancel: Deferred<void> | undefined;
 
   const send = (event: any): void => {
@@ -100,6 +119,7 @@ export function createGrokRealtimeCompatSessionWithTransport(
   const emitReadyOnce = () => {
     if (readySent) return;
     readySent = true;
+    clearReadyFallback();
     queue.push({
       type: 'ready',
       sessionId,
@@ -112,6 +132,7 @@ export function createGrokRealtimeCompatSessionWithTransport(
   const emitClosedOnce = (reason: Extract<RealtimeEvent, { type: 'closed' }>['reason']) => {
     if (closed) return;
     closed = true;
+    clearReadyFallback();
     queue.push({ type: 'closed', reason });
     queue.close();
   };
@@ -142,6 +163,7 @@ export function createGrokRealtimeCompatSessionWithTransport(
     try {
       for await (const evt of transport.events()) {
         if (evt.type === 'open') {
+          scheduleReadyFallback();
           continue;
         }
 
@@ -271,6 +293,7 @@ export function createGrokRealtimeCompatSessionWithTransport(
       if (closed) return;
       closed = true;
       pendingCancel = undefined;
+      clearReadyFallback();
       try {
         transport.close();
       } catch {}

@@ -16,7 +16,18 @@ describe('extensions/voice', () => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
     });
+    const sockets = new Set<any>();
+    server.on('connection', (socket) => {
+      sockets.add(socket);
+      socket.on('close', () => sockets.delete(socket));
+      if (typeof (socket as any)?.unref === 'function') {
+        (socket as any).unref();
+      }
+    });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    if (typeof (server as any)?.unref === 'function') {
+      (server as any).unref();
+    }
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('Expected server address');
     const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -70,7 +81,19 @@ describe('extensions/voice', () => {
         }
       });
     } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await new Promise<void>((resolve, reject) => {
+        server.close(err => (err ? reject(err) : resolve()));
+        try { (server as any).closeIdleConnections?.(); } catch {}
+        if (typeof (server as any).closeAllConnections === 'function') {
+          try { (server as any).closeAllConnections(); } catch {}
+        }
+        for (const socket of sockets) {
+          try { socket.destroy(); } catch {}
+        }
+      });
+      for (let i = 0; i < 25 && sockets.size > 0; i++) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
     }
 
     expect(exitCodes).toEqual([0]);

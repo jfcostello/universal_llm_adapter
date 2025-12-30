@@ -2,6 +2,7 @@ import baseConfig from './jest.extensions.config.js';
 
 export default {
   ...baseConfig,
+  detectOpenHandles: true,
   testMatch: [
     '<rootDir>/extensions/voice/tests/**/*.test.ts',
     '<rootDir>/plugins/voice-*/**/tests/**/*.test.ts'
@@ -18,4 +19,3 @@ export default {
   ],
   coverageDirectory: '<rootDir>/coverage/extensions/voice'
 };
-

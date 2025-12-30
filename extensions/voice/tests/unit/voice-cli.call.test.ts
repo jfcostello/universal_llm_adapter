@@ -31,7 +31,19 @@ async function startServer(handler: (req: http.IncomingMessage, body: any) => { 
     res.end(JSON.stringify(out.body));
   });
 
+  const sockets = new Set<any>();
+  server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+    if (typeof (socket as any)?.unref === 'function') {
+      (socket as any).unref();
+    }
+  });
+
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  if (typeof (server as any)?.unref === 'function') {
+    (server as any).unref();
+  }
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Expected server address');
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -39,7 +51,19 @@ async function startServer(handler: (req: http.IncomingMessage, body: any) => { 
   return {
     baseUrl,
     close: async () => {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await new Promise<void>((resolve, reject) => {
+        server.close(err => (err ? reject(err) : resolve()));
+        try { (server as any).closeIdleConnections?.(); } catch {}
+        if (typeof (server as any).closeAllConnections === 'function') {
+          try { (server as any).closeAllConnections(); } catch {}
+        }
+        for (const socket of sockets) {
+          try { socket.destroy(); } catch {}
+        }
+      });
+      for (let i = 0; i < 25 && sockets.size > 0; i++) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
     }
   };
 }
@@ -54,7 +78,19 @@ async function startRawServer(handler: (req: http.IncomingMessage, res: http.Ser
     }
   });
 
+  const sockets = new Set<any>();
+  server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+    if (typeof (socket as any)?.unref === 'function') {
+      (socket as any).unref();
+    }
+  });
+
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  if (typeof (server as any)?.unref === 'function') {
+    (server as any).unref();
+  }
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Expected server address');
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -62,7 +98,19 @@ async function startRawServer(handler: (req: http.IncomingMessage, res: http.Ser
   return {
     baseUrl,
     close: async () => {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await new Promise<void>((resolve, reject) => {
+        server.close(err => (err ? reject(err) : resolve()));
+        try { (server as any).closeIdleConnections?.(); } catch {}
+        if (typeof (server as any).closeAllConnections === 'function') {
+          try { (server as any).closeAllConnections(); } catch {}
+        }
+        for (const socket of sockets) {
+          try { socket.destroy(); } catch {}
+        }
+      });
+      for (let i = 0; i < 25 && sockets.size > 0; i++) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
     }
   };
 }
@@ -1026,6 +1074,7 @@ describe('extensions/voice CLI', () => {
     process.exitCode = undefined;
 
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const stderrWriteSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
 
     try {
       await runVoiceCli({
@@ -1037,6 +1086,7 @@ describe('extensions/voice CLI', () => {
       expect(errorSpy).toHaveBeenCalled();
     } finally {
       errorSpy.mockRestore();
+      stderrWriteSpy.mockRestore();
       process.exitCode = previousExitCode;
     }
   });

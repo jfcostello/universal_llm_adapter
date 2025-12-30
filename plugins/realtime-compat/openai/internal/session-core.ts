@@ -91,6 +91,21 @@ export function createOpenAIRealtimeCompatSessionWithTransport(
     });
   }
 
+  const READY_FALLBACK_MS = 10_000;
+  let readyFallbackTimer: NodeJS.Timeout | undefined;
+  const clearReadyFallback = () => {
+    if (!readyFallbackTimer) return;
+    clearTimeout(readyFallbackTimer);
+    readyFallbackTimer = undefined;
+  };
+  const scheduleReadyFallback = () => {
+    if (readySent || readyFallbackTimer) return;
+    readyFallbackTimer = setTimeout(() => {
+      readyFallbackTimer = undefined;
+      emitReadyOnce();
+    }, READY_FALLBACK_MS);
+  };
+
   let pendingCancel: Deferred<void> | undefined;
 
   const send = (event: any): void => {
@@ -100,6 +115,7 @@ export function createOpenAIRealtimeCompatSessionWithTransport(
   const emitReadyOnce = () => {
     if (readySent) return;
     readySent = true;
+    clearReadyFallback();
     queue.push({
       type: 'ready',
       sessionId,
@@ -114,6 +130,7 @@ export function createOpenAIRealtimeCompatSessionWithTransport(
   const emitClosedOnce = () => {
     if (closed) return;
     closed = true;
+    clearReadyFallback();
     queue.push({ type: 'closed', reason: 'provider_close' });
     queue.close();
   };
@@ -139,6 +156,7 @@ export function createOpenAIRealtimeCompatSessionWithTransport(
       for await (const evt of transport.events()) {
         if (evt.type === 'open') {
           send(sessionUpdateEvent);
+          scheduleReadyFallback();
           continue;
         }
 
@@ -258,6 +276,7 @@ export function createOpenAIRealtimeCompatSessionWithTransport(
       if (closed) return;
       closed = true;
       pendingCancel = undefined;
+      clearReadyFallback();
       try {
         transport.close();
       } catch {}

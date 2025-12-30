@@ -722,4 +722,65 @@ describe('realtime-compat/grok — session core', () => {
       expect(closed).toEqual({ type: 'closed', reason: 'error' });
     });
   });
+
+  test('handshake: emits ready if session.updated never arrives (fallback)', async () => {
+    jest.useFakeTimers();
+    const fake = createFakeTransport();
+
+    const session = createGrokRealtimeCompatSessionWithTransport(
+      {
+        provider,
+        spec: { provider: 'grok', transcription: { enabled: true } } as any
+      },
+      fake.transport as any
+    );
+
+    const it = session.events()[Symbol.asyncIterator]();
+    fake.push({ type: 'open' });
+    fake.push({ type: 'open' });
+
+    // Ensure the transport pump has started by flowing through a handshake message.
+    fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created', conversation: { id: 'c1' } }) });
+    for (let i = 0; i < 25 && fake.sent.length === 0; i++) {
+      await Promise.resolve();
+    }
+    expect(fake.sent[0]?.type).toBe('session.update');
+    expect(jest.getTimerCount()).toBe(1);
+    jest.advanceTimersByTime(10_000);
+    const evt = await waitForEvent(it, e => e.type === 'ready');
+    expect(evt.type).toBe('ready');
+
+    await session.close();
+    jest.useRealTimers();
+  });
+
+  test('handshake: fallback sends session.update if conversation.created never arrives', async () => {
+    jest.useFakeTimers();
+    const fake = createFakeTransport();
+
+    const session = createGrokRealtimeCompatSessionWithTransport(
+      {
+        provider,
+        spec: { provider: 'grok', transcription: { enabled: true } } as any
+      },
+      fake.transport as any
+    );
+
+    const it = session.events()[Symbol.asyncIterator]();
+    fake.push({ type: 'open' });
+
+    for (let i = 0; i < 25 && jest.getTimerCount() === 0; i++) {
+      await Promise.resolve();
+    }
+    expect(jest.getTimerCount()).toBe(1);
+
+    jest.advanceTimersByTime(10_000);
+    expect(fake.sent[0]?.type).toBe('session.update');
+    const evt = await waitForEvent(it, e => e.type === 'ready');
+    expect(evt.type).toBe('ready');
+    expect(jest.getTimerCount()).toBe(0);
+
+    await session.close();
+    jest.useRealTimers();
+  });
 });

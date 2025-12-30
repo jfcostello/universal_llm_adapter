@@ -88,6 +88,8 @@ export function createVoiceCallEventHub(options?: {
   callTtlMs?: number;
   sweepEveryOps?: number;
   sweepIntervalMs?: number;
+  onSaturation?: (event: { callConfigId: string; maxActiveCalls: number; activeCalls: number }) => void;
+  saturationLogIntervalMs?: number;
 }): VoiceCallEventHub {
   const maxActiveCalls = (() => {
     const raw = options?.maxActiveCalls;
@@ -122,6 +124,25 @@ export function createVoiceCallEventHub(options?: {
 
   const channels = new LruMap<string, Channel>(maxActiveCalls, { label: 'voice.call_events' });
 
+  const saturationLogIntervalMs = (() => {
+    const raw = options?.saturationLogIntervalMs;
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) return 1000;
+    if (raw <= 0) return 0;
+    return Math.floor(raw);
+  })();
+
+  let lastSaturationLogAtMs = 0;
+  const emitSaturation = (callConfigId: string): void => {
+    const handler = options?.onSaturation;
+    if (typeof handler !== 'function') return;
+    const now = Date.now();
+    if (saturationLogIntervalMs > 0 && now - lastSaturationLogAtMs < saturationLogIntervalMs) return;
+    lastSaturationLogAtMs = now;
+    try {
+      handler({ callConfigId, maxActiveCalls, activeCalls: channels.size });
+    } catch {}
+  };
+
   let ops = 0;
   const sweepExpired = () => {
     if (callTtlMs <= 0) return;
@@ -149,9 +170,24 @@ export function createVoiceCallEventHub(options?: {
     return timer;
   })();
 
-  const getOrCreateChannel = (callConfigId: string): Channel => {
+  const ensureCapacityForNewChannel = (callConfigId: string): boolean => {
+    if (channels.size < maxActiveCalls) return true;
+
+    for (const [existingCallConfigId, channel] of channels.entries()) {
+      if (channels.size < maxActiveCalls) break;
+      if (channel.subscribers.size > 0) continue;
+      channels.delete(existingCallConfigId);
+    }
+
+    if (channels.size < maxActiveCalls) return true;
+    emitSaturation(callConfigId);
+    return false;
+  };
+
+  const getOrCreateChannel = (callConfigId: string): Channel | undefined => {
     const existing = channels.get(callConfigId);
     if (existing) return existing;
+    if (!ensureCapacityForNewChannel(callConfigId)) return undefined;
     const channel: Channel = {
       callConfigId,
       buffered: createRingBuffer(maxBufferedEventsPerCall),
@@ -174,6 +210,7 @@ export function createVoiceCallEventHub(options?: {
     if (!type) return;
 
     const channel = getOrCreateChannel(id);
+    if (!channel) return;
     channel.lastActivityAtMs = Date.now();
     channels.set(id, channel); // refresh recency
 
@@ -220,6 +257,12 @@ export function createVoiceCallEventHub(options?: {
     }
 
     const channel = getOrCreateChannel(id);
+    if (!channel) {
+      return {
+        replay: [],
+        unsubscribe: () => {}
+      };
+    }
     channel.lastActivityAtMs = Date.now();
     channels.set(id, channel); // refresh recency
 

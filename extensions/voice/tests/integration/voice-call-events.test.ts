@@ -18,6 +18,15 @@ async function startHarness(options: { store: any; providerPlugins: any; httpCon
     })();
   });
 
+  const sockets = new Set<any>();
+  server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+    if (typeof (socket as any)?.unref === 'function') {
+      (socket as any).unref();
+    }
+  });
+
   const upgradeRouter = attachUpgradeRouter(server);
 
   const reg = await (voiceExtension as any).registerServer({
@@ -35,6 +44,9 @@ async function startHarness(options: { store: any; providerPlugins: any; httpCon
   const unregister = upgradeRouter.register(reg.handleUpgrade);
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  if (typeof (server as any)?.unref === 'function') {
+    (server as any).unref();
+  }
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Expected TCP address');
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -43,7 +55,19 @@ async function startHarness(options: { store: any; providerPlugins: any; httpCon
     unregister();
     upgradeRouter.close();
     await reg.close?.();
-    await new Promise<void>((resolve, reject) => server.close(err => (err ? reject(err) : resolve())));
+    await new Promise<void>((resolve, reject) => {
+      server.close(err => (err ? reject(err) : resolve()));
+      try { (server as any).closeIdleConnections?.(); } catch {}
+      if (typeof (server as any).closeAllConnections === 'function') {
+        try { (server as any).closeAllConnections(); } catch {}
+      }
+      for (const socket of sockets) {
+        try { socket.destroy(); } catch {}
+      }
+    });
+    for (let i = 0; i < 25 && sockets.size > 0; i++) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
   };
 
   return { baseUrl, close };
@@ -104,7 +128,7 @@ describe('extensions/voice: call events + control endpoints', () => {
     }
   });
 
-		  test('GET /voice/calls/:callConfigId/events replays buffered events and streams deltas when enabled', async () => {
+  test('GET /voice/calls/:callConfigId/events replays buffered events and streams deltas when enabled', async () => {
     const store = createInMemoryVoiceCallConfigStore();
     await store.putConfig(
       {
@@ -132,8 +156,9 @@ describe('extensions/voice: call events + control endpoints', () => {
     });
 
     const controller = new AbortController();
+    let res: Response | undefined;
     try {
-      const res = await fetch(new URL('/voice/calls/cfg_1/events?includeDeltas=1', harness.baseUrl), {
+      res = await fetch(new URL('/voice/calls/cfg_1/events?includeDeltas=1', harness.baseUrl), {
         method: 'GET',
         headers: { Authorization: 'Bearer k1' },
         signal: controller.signal
@@ -156,10 +181,11 @@ describe('extensions/voice: call events + control endpoints', () => {
 
     } finally {
       controller.abort();
+      try { await res?.body?.cancel(); } catch {}
       hub.close();
       await harness.close();
     }
-	  });
+  });
 
   test('GET /voice/calls/:callConfigId/events supports eventTypes allowlist filtering', async () => {
     const store = createInMemoryVoiceCallConfigStore();
@@ -190,8 +216,9 @@ describe('extensions/voice: call events + control endpoints', () => {
     });
 
     const controller = new AbortController();
+    let res: Response | undefined;
     try {
-      const res = await fetch(new URL('/voice/calls/cfg_1/events?eventTypes=user_transcript.final&includeDeltas=1', harness.baseUrl), {
+      res = await fetch(new URL('/voice/calls/cfg_1/events?eventTypes=user_transcript.final&includeDeltas=1', harness.baseUrl), {
         method: 'GET',
         headers: { Authorization: 'Bearer k1' },
         signal: controller.signal
@@ -215,6 +242,7 @@ describe('extensions/voice: call events + control endpoints', () => {
       controller.abort();
     } finally {
       controller.abort();
+      try { await res?.body?.cancel(); } catch {}
       hub.close();
       await harness.close();
     }

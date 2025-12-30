@@ -29,8 +29,23 @@ function openWs(url: string): Promise<{ ws: WebSocket; messages: any[]; closePro
   };
 
   return new Promise((resolve, reject) => {
-    ws.onerror = err => reject(err);
-    ws.onopen = () => resolve({ ws, messages, closePromise });
+    let settled = false;
+    ws.onerror = err => {
+      if (settled) return;
+      settled = true;
+      try { ws.close(); } catch {}
+      const timer: any = setTimeout(() => reject(err), 250);
+      if (typeof timer?.unref === 'function') timer.unref();
+      closePromise.then(() => {
+        try { clearTimeout(timer); } catch {}
+        reject(err);
+      });
+    };
+    ws.onopen = () => {
+      if (settled) return;
+      settled = true;
+      resolve({ ws, messages, closePromise });
+    };
   });
 }
 
@@ -70,6 +85,15 @@ async function startHarness(options: { store: any; providerPlugins?: any; loggin
     })();
   });
 
+  const sockets = new Set<any>();
+  server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+    if (typeof (socket as any)?.unref === 'function') {
+      (socket as any).unref();
+    }
+  });
+
   const upgradeRouter = attachUpgradeRouter(server);
 
   const reg = await (voiceExtension as any).registerServer({
@@ -87,6 +111,9 @@ async function startHarness(options: { store: any; providerPlugins?: any; loggin
   const unregister = upgradeRouter.register(reg.handleUpgrade);
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  if (typeof (server as any)?.unref === 'function') {
+    (server as any).unref();
+  }
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Expected TCP address');
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -95,7 +122,19 @@ async function startHarness(options: { store: any; providerPlugins?: any; loggin
     unregister();
     upgradeRouter.close();
     await reg.close?.();
-    await new Promise<void>((resolve, reject) => server.close(err => (err ? reject(err) : resolve())));
+    await new Promise<void>((resolve, reject) => {
+      server.close(err => (err ? reject(err) : resolve()));
+      try { (server as any).closeIdleConnections?.(); } catch {}
+      if (typeof (server as any).closeAllConnections === 'function') {
+        try { (server as any).closeAllConnections(); } catch {}
+      }
+      for (const socket of sockets) {
+        try { socket.destroy(); } catch {}
+      }
+    });
+    for (let i = 0; i < 25 && sockets.size > 0; i++) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
   };
 
   return { baseUrl, close };
