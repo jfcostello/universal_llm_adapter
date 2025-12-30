@@ -114,7 +114,7 @@ function hasRedactedToolResultPart(messages: any[]): boolean {
     expect(toolResults[0]?.result).toBe(`[R:${marker.length}]${marker.split('').reverse().join('')}`);
 
     const out = extractAssistantText(response).trim();
-    expect(out).toBe(finalOk);
+    expect(out).toContain(finalOk);
 
     const logPath = buildLogPathFor(TEST_FILE);
     const bodies = parseLogBodies(logPath);

@@ -7,7 +7,7 @@ import { createRequire } from 'module';
 
 import { mapErrorToHttp } from '../../../modules/transport/index.js';
 import { createSignedWsToken, verifySignedWsToken } from '../../../modules/security/index.js';
-import { makeHttpError, normalizeFlag, readTrimmedStringProperty, sleep } from '../../../modules/shared/index.js';
+import { calculateBackoffDelay, makeHttpError, normalizeFlag, readTrimmedStringProperty, sleep } from '../../../modules/shared/index.js';
 import {
   applyCors,
   applySecurityHeaders,
@@ -464,13 +464,13 @@ export async function createVoiceServerRegistration(ctx: {
   handleHttp: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<boolean>;
   handleUpgrade: (ctx: { req: http.IncomingMessage; socket: net.Socket; head: Buffer; pathname: string }) => Promise<boolean>;
   close: () => Promise<void>;
-  }> {
-    const storeInit = ctx.store ? { store: ctx.store, close: undefined } : await createVoiceCallConfigStoreFromEnv();
-    const store = storeInit.store;
-    const httpConfig = ctx.httpConfig ?? {};
-    const maxRequestBytes = httpConfig.maxRequestBytes ?? Number.POSITIVE_INFINITY;
-    const bodyReadTimeoutMs = httpConfig.bodyReadTimeoutMs ?? 0;
-    const authConfig = httpConfig.auth ?? { enabled: false };
+}> {
+  const storeInit = ctx.store ? { store: ctx.store, close: undefined } : await createVoiceCallConfigStoreFromEnv();
+  const store = storeInit.store;
+  const httpConfig = ctx.httpConfig ?? {};
+  const maxRequestBytes = httpConfig.maxRequestBytes ?? Number.POSITIVE_INFINITY;
+  const bodyReadTimeoutMs = httpConfig.bodyReadTimeoutMs ?? 0;
+  const authConfig = httpConfig.auth ?? { enabled: false };
   const rateLimitConfig = httpConfig.rateLimit ?? { enabled: false };
   const corsConfig = httpConfig.cors ?? { enabled: false };
   const securityHeadersEnabled = httpConfig.securityHeadersEnabled ?? true;
@@ -504,33 +504,40 @@ export async function createVoiceServerRegistration(ctx: {
     }
   };
 
-    const safeLog = (logger: VoiceLogger | undefined, level: 'debug' | 'info' | 'warning' | 'error', message: string, data?: any): void => {
-      try {
-        const fn = logger?.[level];
-        if (typeof fn === 'function') fn(message, data);
-      } catch {}
-    };
+  const safeLog = (
+    logger: VoiceLogger | undefined,
+    level: 'debug' | 'info' | 'warning' | 'error',
+    message: string,
+    data?: any
+  ): void => {
+    try {
+      const fn = logger?.[level];
+      if (typeof fn === 'function') fn(message, data);
+    } catch {}
+  };
 
-      const providerPlugins = ctx.providerPlugins ?? createVoiceProviderPlugins({
-        pluginsPath: ctx.pluginsPath,
-        logger: {
-          warning: (message: string, data?: any) => {
-            void (async () => {
-              try {
-                const logger = await resolveLogger();
-                safeLog(logger, 'warning', message, data);
-              } catch {}
-            })();
-          }
+  const providerPlugins =
+    ctx.providerPlugins ??
+    createVoiceProviderPlugins({
+      pluginsPath: ctx.pluginsPath,
+      logger: {
+        warning: (message: string, data?: any) => {
+          void (async () => {
+            try {
+              const logger = await resolveLogger();
+              safeLog(logger, 'warning', message, data);
+            } catch {}
+          })();
         }
-      });
+      }
+    });
 
-    const voiceDefaults = readVoiceExtensionDefaults(httpConfig);
+  const voiceDefaults = readVoiceExtensionDefaults(httpConfig);
 
-    const assertAuthorizedAndRateLimited = async (req: http.IncomingMessage): Promise<string | undefined> => {
-      const authIdentity = await assertAuthorized(req, authConfig, authorize as any);
-      const clientIp = getClientIp(req, Boolean(rateLimitConfig?.trustProxyHeaders));
-      const key = authIdentity ?? clientIp ?? 'unknown';
+  const assertAuthorizedAndRateLimited = async (req: http.IncomingMessage): Promise<string | undefined> => {
+    const authIdentity = await assertAuthorized(req, authConfig, authorize as any);
+    const clientIp = getClientIp(req, Boolean(rateLimitConfig?.trustProxyHeaders));
+    const key = authIdentity ?? clientIp ?? 'unknown';
     if (rateLimitConfig?.enabled) {
       if (authConfig?.enabled) {
         rateLimiter.check(key);
@@ -1359,10 +1366,10 @@ export async function createVoiceServerRegistration(ctx: {
           const ttlSecondsRaw = body?.ttlSeconds;
           const ttlSeconds = ttlSecondsRaw === undefined || ttlSecondsRaw === null ? 900 : Number(ttlSecondsRaw);
 
-            const requestIdFromBodyRaw = readTrimmedStringProperty(body?.metadata, 'requestId');
-            const requestIdFromBody = requestIdFromBodyRaw ? normalizeRequestId(requestIdFromBodyRaw) : undefined;
-            const requestIdFromHeader = readRequestId(req);
-            const requestId = requestIdFromBody ?? requestIdFromHeader;
+          const requestIdFromBodyRaw = readTrimmedStringProperty(body?.metadata, 'requestId');
+          const requestIdFromBody = requestIdFromBodyRaw ? normalizeRequestId(requestIdFromBodyRaw) : undefined;
+          const requestIdFromHeader = readRequestId(req);
+          const requestId = requestIdFromBody ?? requestIdFromHeader;
 
           if (!to || !from || !voiceProvider || !realtimeSpec) {
             writeJson(res, 400, { type: 'error', error: { message: 'Missing required fields', code: 'validation_error' } });
@@ -1383,16 +1390,16 @@ export async function createVoiceServerRegistration(ctx: {
           const idempotencyKey =
             (typeof idempotencyKeyHeader === 'string' ? idempotencyKeyHeader : undefined) ??
             (body?.idempotencyKey !== undefined ? String(body.idempotencyKey) : undefined);
-            const idempotencyKeyTrimmed = typeof idempotencyKey === 'string' ? idempotencyKey.trim() : '';
-            const idempotencyKeyNormalized = normalizeIdempotencyKey(idempotencyKeyTrimmed);
+          const idempotencyKeyTrimmed = typeof idempotencyKey === 'string' ? idempotencyKey.trim() : '';
+          const idempotencyKeyNormalized = normalizeIdempotencyKey(idempotencyKeyTrimmed);
 
           let callConfigId: string | undefined;
           let logger: VoiceLogger | undefined;
 
           try {
-              if (idempotencyKeyNormalized) {
-                const existing = await store.getIdempotency(idempotencyKeyNormalized);
-                if (existing) {
+            if (idempotencyKeyNormalized) {
+              const existing = await store.getIdempotency(idempotencyKeyNormalized);
+              if (existing) {
                 callConfigId = String((existing as any)?.callConfigId ?? '').trim();
                 const providerCallId = String((existing as any)?.providerCallId ?? '').trim();
                 logger = await resolveLogger(callConfigId || undefined);
@@ -1405,13 +1412,14 @@ export async function createVoiceServerRegistration(ctx: {
                 return true;
               }
 
-                const lockTtlSeconds = Math.max(1, Math.min(ttlSeconds, idempotencyLockTtlSeconds));
-                const lockOk = await store.consumeNonceOnce(`idem:${idempotencyKeyNormalized}`, { ttlSeconds: lockTtlSeconds });
-                if (!lockOk) {
-                  const start = Date.now();
-                  while (Date.now() - start < idempotencyWaitMs) {
-                    const ready = await store.getIdempotency(idempotencyKeyNormalized);
-                    if (ready) {
+              const lockTtlSeconds = Math.max(1, Math.min(ttlSeconds, idempotencyLockTtlSeconds));
+              const lockOk = await store.consumeNonceOnce(`idem:${idempotencyKeyNormalized}`, { ttlSeconds: lockTtlSeconds });
+              if (!lockOk) {
+                const start = Date.now();
+                let attempt = 0;
+                while (Date.now() - start < idempotencyWaitMs) {
+                  const ready = await store.getIdempotency(idempotencyKeyNormalized);
+                  if (ready) {
                     callConfigId = String((ready as any)?.callConfigId ?? '').trim();
                     const providerCallId = String((ready as any)?.providerCallId ?? '').trim();
                     logger = await resolveLogger(callConfigId || undefined);
@@ -1423,7 +1431,14 @@ export async function createVoiceServerRegistration(ctx: {
                     writeJson(res, 200, ready);
                     return true;
                   }
-                  await sleep(25);
+
+                  const elapsed = Date.now() - start;
+                  const remainingMs = Math.max(0, idempotencyWaitMs - elapsed);
+                  if (remainingMs <= 0) break;
+
+                  const delayMs = Math.min(calculateBackoffDelay(attempt, 25, 250), remainingMs);
+                  attempt += 1;
+                  await sleep(delayMs);
                 }
 
                 logger = await resolveLogger();
@@ -1447,25 +1462,25 @@ export async function createVoiceServerRegistration(ctx: {
 
             callConfigId = `voice_cfg_${crypto.randomBytes(18).toString('base64url')}`;
             logger = logger ?? (await resolveLogger(callConfigId));
-              safeLog(logger, 'info', 'voice.calls.accepted', {
-                callConfigId,
-                voiceProvider,
-                hasIdempotencyKey: Boolean(idempotencyKeyNormalized),
-                ...(requestId ? { requestId } : {})
-              });
+            safeLog(logger, 'info', 'voice.calls.accepted', {
+              callConfigId,
+              voiceProvider,
+              hasIdempotencyKey: Boolean(idempotencyKeyNormalized),
+              ...(requestId ? { requestId } : {})
+            });
 
-              const metadata = (() => {
-                const raw = body?.metadata;
-                const out = raw && typeof raw === 'object' && !Array.isArray(raw)
-                  ? { ...(raw as Record<string, any>) }
-                  : undefined;
+            const metadata = (() => {
+              const raw = body?.metadata;
+              const out = raw && typeof raw === 'object' && !Array.isArray(raw)
+                ? { ...(raw as Record<string, any>) }
+                : undefined;
 
-                const existingRaw = readTrimmedStringProperty(out, 'requestId');
-                const existing = existingRaw ? normalizeRequestId(existingRaw) : undefined;
-                const requestIdToStore = existing ?? requestId;
-                if (!requestIdToStore) return out;
-                return { ...(out ?? {}), requestId: requestIdToStore };
-              })();
+              const existingRaw = readTrimmedStringProperty(out, 'requestId');
+              const existing = existingRaw ? normalizeRequestId(existingRaw) : undefined;
+              const requestIdToStore = existing ?? requestId;
+              if (!requestIdToStore) return out;
+              return { ...(out ?? {}), requestId: requestIdToStore };
+            })();
 
             await store.putConfig(
               {
@@ -1676,8 +1691,8 @@ export async function createVoiceServerRegistration(ctx: {
           return true;
         }
 
-          const requestIdFromConfig = readTrimmedStringProperty((callConfig as any)?.metadata, 'requestId');
-          const requestId = requestIdFromConfig ? normalizeRequestId(requestIdFromConfig) : undefined;
+        const requestIdFromConfig = readTrimmedStringProperty((callConfig as any)?.metadata, 'requestId');
+        const requestId = requestIdFromConfig ? normalizeRequestId(requestIdFromConfig) : undefined;
 
         if (String((callConfig as any).voiceProvider ?? '') !== voiceProvider) {
           const logger = await resolveLogger(callConfigId);

@@ -2049,6 +2049,131 @@ describe('extensions/voice: server http handlers', () => {
     expect(callConfig?.timeouts).toMatchObject({ silenceAssistantAudioStartFallbackMs: 111, silenceAssistantAudioEndFallbackMs: 222 });
   });
 
+  test('POST /voice/calls uses backoff/jitter when idempotency lock is held', async () => {
+    jest.useFakeTimers();
+    const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+    const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0.5);
+
+    try {
+      process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+
+      const store = createInMemoryVoiceCallConfigStore();
+      await store.consumeNonceOnce('idem:idem_locked', { ttlSeconds: 60 });
+
+      const providerPlugins: any = {
+        getManifest: jest.fn(async () => ({ defaults: {} })),
+        getCompat: jest.fn(async () => ({ createOutboundCall: jest.fn() }))
+      };
+
+      const reg = await createVoiceServerRegistration({
+        server: {} as any,
+        registry: {},
+        pluginsPath: './plugins',
+        upgradeRouter: {} as any,
+        store,
+        providerPlugins,
+        httpConfig: {
+          auth: { enabled: true, apiKeys: ['k1'] },
+          idempotencyWaitMs: 200,
+          idempotencyLockTtlSeconds: 60
+        }
+      });
+
+      const res = createMockRes();
+      const promise = reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1', host: 'localhost', 'idempotency-key': 'idem_locked' },
+          body: { to: 'to', from: 'from', realtimeSpec: {}, voiceProvider: 'test' }
+        }),
+        res
+      );
+
+      await jest.runAllTimersAsync();
+      await expect(promise).resolves.toBe(true);
+
+      expect(String(res.writeHead.mock.calls[0][0])).toBe('409');
+      const payload = JSON.parse(String(res.end.mock.calls[0][0]));
+      expect(payload?.error?.code).toBe('idempotency_in_progress');
+
+      const delays = setTimeoutSpy.mock.calls
+        .map((call: any[]) => call?.[1])
+        .filter((ms: any) => typeof ms === 'number' && ms > 0 && ms <= 200);
+      expect(delays.length).toBeGreaterThanOrEqual(2);
+
+      // Old implementation slept 25ms repeatedly; backoff should grow at least once.
+      expect(delays[0]).toBe(25);
+      expect(delays[1]).toBe(50);
+      expect(Math.max(...delays)).toBeGreaterThan(25);
+    } finally {
+      randomSpy.mockRestore();
+      setTimeoutSpy.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  test('POST /voice/calls idempotency wait breaks when budget is exhausted between polls', async () => {
+    jest.useFakeTimers();
+    const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+
+    try {
+      process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+
+      const store = createInMemoryVoiceCallConfigStore();
+      const baseGetIdempotency = store.getIdempotency.bind(store);
+      (store as any).getIdempotency = jest.fn(async (key: string) => {
+        await new Promise(resolve => setTimeout(resolve, 30));
+        return baseGetIdempotency(key);
+      });
+      await store.consumeNonceOnce('idem:idem_slow', { ttlSeconds: 60 });
+
+      const providerPlugins: any = {
+        getManifest: jest.fn(async () => ({ defaults: {} })),
+        getCompat: jest.fn(async () => ({ createOutboundCall: jest.fn() }))
+      };
+
+      const reg = await createVoiceServerRegistration({
+        server: {} as any,
+        registry: {},
+        pluginsPath: './plugins',
+        upgradeRouter: {} as any,
+        store,
+        providerPlugins,
+        httpConfig: {
+          auth: { enabled: true, apiKeys: ['k1'] },
+          idempotencyWaitMs: 25,
+          idempotencyLockTtlSeconds: 60
+        }
+      });
+
+      const res = createMockRes();
+      const promise = reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1', host: 'localhost', 'idempotency-key': 'idem_slow' },
+          body: { to: 'to', from: 'from', realtimeSpec: {}, voiceProvider: 'test' }
+        }),
+        res
+      );
+
+      await jest.runAllTimersAsync();
+      await expect(promise).resolves.toBe(true);
+
+      expect(String(res.writeHead.mock.calls[0][0])).toBe('409');
+      const payload = JSON.parse(String(res.end.mock.calls[0][0]));
+      expect(payload?.error?.code).toBe('idempotency_in_progress');
+
+      const delays = setTimeoutSpy.mock.calls.map((call: any[]) => call?.[1]);
+      expect(delays).toContain(30);
+      expect(delays).not.toContain(25);
+    } finally {
+      setTimeoutSpy.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
   test('POST /voice/calls returns 501 when adapter-side recording is requested', async () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
 
