@@ -990,7 +990,6 @@ export async function createVoiceServerRegistration(ctx: {
           let closed = false;
           let keepAliveTimer: any | undefined;
           let sub: { accepted: boolean; replay: VoiceCallEventEnvelope[]; unsubscribe: () => void } | undefined;
-          let drainListenerAttached = false;
           let drainingWrites = false;
           let inFlightBytes = 0;
           let queuedBytes = 0;
@@ -1005,7 +1004,6 @@ export async function createVoiceServerRegistration(ctx: {
             try { if (keepAliveTimer) clearInterval(keepAliveTimer); } catch {}
             try { sub?.unsubscribe(); } catch {}
             try { res.off?.('drain', onDrain); } catch {}
-            drainListenerAttached = false;
           };
 
           const closeResponse = () => {
@@ -1020,7 +1018,6 @@ export async function createVoiceServerRegistration(ctx: {
           };
 
           const attachDrain = () => {
-            drainListenerAttached = true;
             res.on?.('drain', onDrain);
           };
 
@@ -1057,7 +1054,6 @@ export async function createVoiceServerRegistration(ctx: {
             try {
               res.off?.('drain', onDrain);
             } catch {}
-            drainListenerAttached = false;
             flushQueued();
           }
 
