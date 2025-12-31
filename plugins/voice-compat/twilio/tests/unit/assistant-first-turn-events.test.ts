@@ -55,7 +55,7 @@ describe('plugins/voice-compat/twilio: assistant-first-turn events wrapper', () 
     expect(third.done).toBe(true);
   });
 
-  test('forwards events but does not trigger onReady when the first event is not ready', async () => {
+  test('forwards events but does not trigger onReady when ready is never emitted', async () => {
     const onReady = jest.fn();
     const events = wrapAssistantFirstTurnEvents({
       originalEvents: async function* () {
@@ -71,5 +71,33 @@ describe('plugins/voice-compat/twilio: assistant-first-turn events wrapper', () 
     expect((await it.next()).done).toBe(true);
     expect(onReady).not.toHaveBeenCalled();
   });
-});
 
+  test('triggers onReady after yielding ready when ready is not the first event', async () => {
+    const onReady = jest.fn();
+    const events = wrapAssistantFirstTurnEvents({
+      originalEvents: async function* () {
+        yield { type: 'prelude' };
+        yield { type: 'ready', sessionId: 's1' };
+        yield { type: 'after_ready' };
+      },
+      onReady
+    });
+
+    const it = events()[Symbol.asyncIterator]();
+
+    const first = await it.next();
+    expect(first).toEqual({ done: false, value: { type: 'prelude' } });
+    expect(onReady).not.toHaveBeenCalled();
+
+    const second = await it.next();
+    expect(second).toEqual({ done: false, value: { type: 'ready', sessionId: 's1' } });
+    expect(onReady).not.toHaveBeenCalled();
+
+    const third = await it.next();
+    expect(third).toEqual({ done: false, value: { type: 'after_ready' } });
+    expect(onReady).toHaveBeenCalledTimes(1);
+
+    const fourth = await it.next();
+    expect(fourth.done).toBe(true);
+  });
+});

@@ -3,22 +3,16 @@ export function wrapAssistantFirstTurnEvents(options: {
   onReady: () => void;
 }): () => AsyncIterable<any> {
   return () => (async function* () {
-    const iter = options.originalEvents()[Symbol.asyncIterator]();
-    const first = await iter.next();
-    if (first.done || first.value == null) return;
-
-    const firstEvent = first.value;
-    yield firstEvent;
-
-    if (firstEvent?.type === 'ready') {
-      try {
-        options.onReady();
-      } catch {}
-    }
-
-    for await (const event of { [Symbol.asyncIterator]: () => iter } as AsyncIterable<any>) {
+    let didTriggerReady = false;
+    for await (const event of options.originalEvents()) {
+      if (event == null) return;
       yield event;
+      if (!didTriggerReady && event?.type === 'ready') {
+        didTriggerReady = true;
+        try {
+          options.onReady();
+        } catch {}
+      }
     }
   })();
 }
-
