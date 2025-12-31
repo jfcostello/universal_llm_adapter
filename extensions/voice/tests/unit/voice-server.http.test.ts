@@ -2759,7 +2759,11 @@ describe('extensions/voice: server http handlers', () => {
       { ttlSeconds: 60 }
     );
 
-    const subscribe = jest.fn((_id: string, _opts: any, _onEvent: any) => ({ replay: [{ callConfigId: 'cfg_events', atMs: Date.now(), event: undefined as any }], unsubscribe: jest.fn() }));
+    const subscribe = jest.fn((_id: string, _opts: any, _onEvent: any) => ({
+      accepted: true,
+      replay: [{ callConfigId: 'cfg_events', atMs: Date.now(), event: undefined as any }],
+      unsubscribe: jest.fn()
+    }));
     const eventsHub = { emit: jest.fn(), subscribe, snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })), close: jest.fn() };
 
     const reg = await createVoiceServerRegistration({
@@ -2812,6 +2816,70 @@ describe('extensions/voice: server http handlers', () => {
 	    res.emit('close');
 	    jest.useRealTimers();
 	  });
+
+  test('/voice/calls/:id/events queues events that arrive before SSE headers are written', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_events_preheaders',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      } as any,
+      { ttlSeconds: 60 }
+    );
+
+    const unsubscribe = jest.fn();
+    const subscribe = jest.fn((_id: string, _opts: any, onEvent: any) => {
+      onEvent({
+        callConfigId: 'cfg_events_preheaders',
+        atMs: Date.now(),
+        event: { type: 'assistant_transcript.final', text: 'early' }
+      });
+      return { accepted: true, replay: [], unsubscribe };
+    });
+    const eventsHub = { emit: jest.fn(), subscribe, snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })), close: jest.fn() };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: { getCompat: jest.fn() } as any,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+      eventsHub: eventsHub as any
+    });
+
+    const req = new EventEmitter() as any;
+    req.url = '/voice/calls/cfg_events_preheaders/events';
+    req.method = 'GET';
+    req.headers = { authorization: 'Bearer k1', host: 'localhost' };
+    req.socket = {};
+
+    const res = createSseRes();
+    res.write.mockReturnValue(true);
+
+    try {
+      await expect(reg.handleHttp(req, res)).resolves.toBe(true);
+      expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+
+      const chunks = res.write.mock.calls.map((c: any[]) => String(c[0])).join('');
+      expect(chunks).toContain('event: assistant_transcript.final');
+      expect(chunks).toContain('"text":"early"');
+
+      req.emit('close');
+      res.emit('close');
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+    } finally {
+      await reg.close();
+    }
+  });
 
   test('/voice/calls/:id/events logs call-events saturation warnings', async () => {
     const store = createInMemoryVoiceCallConfigStore();
@@ -2885,7 +2953,11 @@ describe('extensions/voice: server http handlers', () => {
 
       const resB = createSseRes();
       await expect(reg.handleHttp(reqB, resB)).resolves.toBe(true);
-      expect(String(resB.writeHead.mock.calls[0][0])).toBe('200');
+      expect(String(resB.writeHead.mock.calls[0][0])).toBe('503');
+      expect(JSON.parse(String(resB.end.mock.calls[0][0]))).toEqual({
+        type: 'error',
+        error: { message: 'Voice call events hub is saturated', code: 'call_events_saturated' }
+      });
 
       await new Promise(resolve => setTimeout(resolve, 0));
       expect(
@@ -2921,7 +2993,7 @@ describe('extensions/voice: server http handlers', () => {
 	      { ttlSeconds: 60 }
 	    );
 
-	    const subscribe = jest.fn((_id: string, _opts: any, _onEvent: any) => ({ replay: [], unsubscribe: jest.fn() }));
+	    const subscribe = jest.fn((_id: string, _opts: any, _onEvent: any) => ({ accepted: true, replay: [], unsubscribe: jest.fn() }));
 	    const eventsHub = { emit: jest.fn(), subscribe, snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })), close: jest.fn() };
 
 	    const reg = await createVoiceServerRegistration({
@@ -2969,7 +3041,7 @@ describe('extensions/voice: server http handlers', () => {
       { ttlSeconds: 60 }
     );
 
-    const subscribe = jest.fn((_id: string, _opts: any, _onEvent: any) => ({ replay: [], unsubscribe: jest.fn() }));
+    const subscribe = jest.fn((_id: string, _opts: any, _onEvent: any) => ({ accepted: true, replay: [], unsubscribe: jest.fn() }));
     const eventsHub = { emit: jest.fn(), subscribe, snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })), close: jest.fn() };
 
     const reg = await createVoiceServerRegistration({
@@ -3026,7 +3098,7 @@ describe('extensions/voice: server http handlers', () => {
 	        { ttlSeconds: 60 }
 	      );
 	
-	      const subscribe = jest.fn((_id: string, _opts: any, _onEvent: any) => ({ replay: [], unsubscribe: jest.fn() }));
+	      const subscribe = jest.fn((_id: string, _opts: any, _onEvent: any) => ({ accepted: true, replay: [], unsubscribe: jest.fn() }));
 	      const eventsHub = { emit: jest.fn(), subscribe, snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })), close: jest.fn() };
 	
 	      const reg = await createVoiceServerRegistration({
@@ -3093,7 +3165,7 @@ describe('extensions/voice: server http handlers', () => {
 	        { ttlSeconds: 60 }
 	      );
 	
-	      const subscribe = jest.fn((_id: string, _opts: any, _onEvent: any) => ({ replay: [], unsubscribe: jest.fn() }));
+	      const subscribe = jest.fn((_id: string, _opts: any, _onEvent: any) => ({ accepted: true, replay: [], unsubscribe: jest.fn() }));
 	      const eventsHub = { emit: jest.fn(), subscribe, snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })), close: jest.fn() };
 	
 	      const reg = await createVoiceServerRegistration({
@@ -3156,6 +3228,7 @@ describe('extensions/voice: server http handlers', () => {
     const subscribe = jest.fn((_id: string, _opts: any, cb: any) => {
       onEvent = cb;
       return {
+        accepted: true,
         replay: [{ callConfigId: 'cfg_events', atMs: Date.now(), event: { type: 'user_transcript.final', text: 'hi' } }],
         unsubscribe
       };
@@ -3218,6 +3291,7 @@ describe('extensions/voice: server http handlers', () => {
 	    const subscribe = jest.fn((_id: string, _opts: any, cb: any) => {
 	      onEvent = cb;
 	      return {
+	        accepted: true,
 	        replay: [{ callConfigId: 'cfg_events_closed', atMs: Date.now(), event: { type: 'user_transcript.final', text: 'hi' } }],
 	        unsubscribe
 	      };
@@ -3283,6 +3357,7 @@ describe('extensions/voice: server http handlers', () => {
     const subscribe = jest.fn((_id: string, _opts: any, cb: any) => {
       onEvent = cb;
       return {
+        accepted: true,
         replay: [{ callConfigId: 'cfg_events', atMs: Date.now(), event: { type: 'user_transcript.final', text: 'hi' } }],
         unsubscribe
       };
@@ -3352,6 +3427,7 @@ describe('extensions/voice: server http handlers', () => {
     const subscribe = jest.fn((_id: string, _opts: any, cb: any) => {
       onEvent = cb;
       return {
+        accepted: true,
         replay: [{ callConfigId: 'cfg_events', atMs: Date.now(), event: { type: 'user_transcript.final', text: 'hi' } }],
         unsubscribe
       };
@@ -3409,6 +3485,7 @@ describe('extensions/voice: server http handlers', () => {
 
     const unsubscribe = jest.fn();
     const subscribe = jest.fn((_id: string, _opts: any, _cb: any) => ({
+      accepted: true,
       replay: [{ callConfigId: 'cfg_events', atMs: Date.now(), event: { type: 'user_transcript.final', text: 'hi' } }],
       unsubscribe
     }));
@@ -3460,7 +3537,7 @@ describe('extensions/voice: server http handlers', () => {
     let onEvent: any;
     const subscribe = jest.fn((_id: string, _opts: any, cb: any) => {
       onEvent = cb;
-      return { replay: [], unsubscribe };
+      return { accepted: true, replay: [], unsubscribe };
     });
     const eventsHub = { emit: jest.fn(), subscribe, snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })), close: jest.fn() };
 
