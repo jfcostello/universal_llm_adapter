@@ -137,7 +137,12 @@ export default class TwilioVoiceCompat {
 
     const apiBaseUrlRaw = String((defaults as any).apiBaseUrl ?? 'https://api.twilio.com').trim();
     const apiBaseUrl = apiBaseUrlRaw ? apiBaseUrlRaw.replace(/\/+$/g, '') : 'https://api.twilio.com';
-    const allowedOrigin = new URL(apiBaseUrl).origin;
+    let allowedOrigin: string;
+    try {
+      allowedOrigin = new URL(apiBaseUrl).origin;
+    } catch {
+      throw makeProviderConfigError('Invalid apiBaseUrl');
+    }
 
     if (parsed.origin !== allowedOrigin) {
       throw makeHttpError({ message: 'Invalid recordingUrl origin', statusCode: 400, code: 'validation_error' });

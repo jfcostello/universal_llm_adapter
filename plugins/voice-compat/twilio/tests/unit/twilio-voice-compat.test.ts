@@ -1899,6 +1899,16 @@ describe('plugins/voice-compat/twilio', () => {
     });
   });
 
+  test('parseRecordingWebhook throws provider_config_error when apiBaseUrl is invalid', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.parseRecordingWebhook({
+        params: { RecordingSid: 'r1', RecordingUrl: 'https://api.twilio.com/r1' },
+        providerDefaults: { apiBaseUrl: 'not-a-url' }
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 500, code: 'provider_config_error' });
+  });
+
   test('parseRecordingWebhook treats non-object params as missing fields', async () => {
     const compat = new TwilioVoiceCompat();
     await expect(
