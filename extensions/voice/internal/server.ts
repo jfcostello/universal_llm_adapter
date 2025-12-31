@@ -995,6 +995,7 @@ export async function createVoiceServerRegistration(ctx: {
           let inFlightBytes = 0;
           let queuedBytes = 0;
           const queuedChunks: string[] = [];
+          let queuedChunksStart = 0;
           const queuedEnvelopes: VoiceCallEventEnvelope[] = [];
           let canWriteEvents = false;
 
@@ -1024,8 +1025,9 @@ export async function createVoiceServerRegistration(ctx: {
           };
 
           const flushQueued = () => {
-            while (queuedChunks.length > 0) {
-              const chunk = queuedChunks.shift() as string;
+            while (queuedChunksStart < queuedChunks.length) {
+              const chunk = queuedChunks[queuedChunksStart] as string;
+              queuedChunksStart += 1;
               queuedBytes -= Buffer.byteLength(chunk, 'utf8');
               try {
                 const ok = res.write(chunk);
@@ -1040,6 +1042,11 @@ export async function createVoiceServerRegistration(ctx: {
                 closeResponse();
                 return;
               }
+            }
+
+            if (queuedChunksStart > 0) {
+              queuedChunks.length = 0;
+              queuedChunksStart = 0;
             }
           };
 
