@@ -26,6 +26,27 @@ export interface RealtimeTestRun {
  * Use getFilteredTestRuns() or filteredTestRuns to respect LLM_TEST_PROVIDERS filtering.
  */
 export const testRuns: TestRun[] = [
+  // NOTE: Many live test files use `filteredTestRuns[0]` as the default run when no
+  // `LLM_TEST_PROVIDERS` filter is set. Keep the first entry stable and compatible
+  // with the full unfiltered suite (including tests that assert `usage.cost`).
+  {
+    name: 'openrouter',
+    llmPriority: [
+      {
+        provider: 'openrouter',
+        model: 'openai/gpt-oss-120b'
+      }
+    ],
+    settings: {
+      temperature: 0,
+      maxTokens: 60000,
+      provider: {
+        order: ['groq', 'google-vertex', 'sambanova', 'together', 'fireworks'],
+        only: ['groq', 'google-vertex', 'sambanova', 'together', 'fireworks'],
+        allow_fallbacks: false
+      }
+    }
+  },
   {
     name: 'anthropic',
     llmPriority: [
@@ -50,24 +71,6 @@ export const testRuns: TestRun[] = [
     settings: {
       temperature: 0.3,
       maxTokens: 60000
-    }
-  },
-  {
-    name: 'openrouter',
-    llmPriority: [
-      {
-        provider: 'openrouter',
-        model: 'openai/gpt-oss-120b'
-      }
-    ],
-    settings: {
-      temperature: 0,
-      maxTokens: 60000,
-      provider: {
-        order: ['groq', 'google-vertex', 'sambanova', 'together', 'fireworks'],
-        only: ['groq', 'google-vertex', 'sambanova', 'together', 'fireworks'],
-        allow_fallbacks: false
-      }
     }
   },
   {
