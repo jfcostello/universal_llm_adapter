@@ -981,13 +981,6 @@ export async function createVoiceServerRegistration(ctx: {
             return parts.length > 0 ? parts.slice(0, 100) : undefined;
           })();
 
-          res.writeHead(200, {
-            'Content-Type': 'text/event-stream; charset=utf-8',
-            'Cache-Control': 'no-cache, no-transform',
-            Connection: 'keep-alive',
-            'X-Accel-Buffering': 'no'
-          });
-
           const sanitizeEventName = (value: string): string =>
             String(value ?? '')
               .replace(/[\r\n]/g, '')
@@ -996,12 +989,14 @@ export async function createVoiceServerRegistration(ctx: {
 
           let closed = false;
           let keepAliveTimer: any | undefined;
-          let sub: { replay: VoiceCallEventEnvelope[]; unsubscribe: () => void } | undefined;
+          let sub: { accepted: boolean; replay: VoiceCallEventEnvelope[]; unsubscribe: () => void } | undefined;
           let drainListenerAttached = false;
           let drainingWrites = false;
           let inFlightBytes = 0;
           let queuedBytes = 0;
           const queuedChunks: string[] = [];
+          const queuedEnvelopes: VoiceCallEventEnvelope[] = [];
+          let canWriteEvents = false;
 
           const cleanup = () => {
             if (closed) return;
@@ -1083,6 +1078,10 @@ export async function createVoiceServerRegistration(ctx: {
           };
 
           const writeEvent = (envelope: VoiceCallEventEnvelope) => {
+            if (!canWriteEvents) {
+              queuedEnvelopes.push(envelope);
+              return;
+            }
             try {
               const name = sanitizeEventName(envelope.event?.type);
               const data = JSON.stringify(envelope);
@@ -1091,9 +1090,29 @@ export async function createVoiceServerRegistration(ctx: {
           };
 
           sub = eventsHub.subscribe(callConfigId, { includeDeltas, ...(eventTypes ? { eventTypes } : {}) }, (evt) => writeEvent(evt));
+          if (!sub.accepted) {
+            writeJson(res, 503, {
+              type: 'error',
+              error: { message: 'Voice call events hub is saturated', code: 'call_events_saturated' }
+            });
+            return true;
+          }
+
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive',
+            'X-Accel-Buffering': 'no'
+          });
+          canWriteEvents = true;
+
           for (const evt of sub.replay) {
             writeEvent(evt);
           }
+          for (const evt of queuedEnvelopes) {
+            writeEvent(evt);
+          }
+          queuedEnvelopes.length = 0;
 
           if (closed) return true;
 

@@ -248,6 +248,53 @@ describe('extensions/voice: call events + control endpoints', () => {
     }
   });
 
+  test('GET /voice/calls/:callConfigId/events returns 503 when the events hub is saturated', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'outbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const hub = createVoiceCallEventHub({ maxBufferedEventsPerCall: 10, maxActiveCalls: 1, callTtlMs: 0 });
+    const busy = hub.subscribe('busy', { includeDeltas: false }, () => {});
+    expect(busy.accepted).toBe(true);
+
+    const harness = await startHarness({
+      store,
+      providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn() },
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+      eventsHub: hub
+    });
+
+    try {
+      const res = await fetch(new URL('/voice/calls/cfg_1/events', harness.baseUrl), {
+        method: 'GET',
+        headers: { Authorization: 'Bearer k1' }
+      });
+
+      expect(res.status).toBe(503);
+      const body = await res.json();
+      expect(body).toEqual({
+        type: 'error',
+        error: { message: 'Voice call events hub is saturated', code: 'call_events_saturated' }
+      });
+    } finally {
+      busy.unsubscribe();
+      hub.close();
+      await harness.close();
+    }
+  });
+
   test('POST /voice/calls/:callConfigId/end calls provider compat', async () => {
     const store = createInMemoryVoiceCallConfigStore();
     await store.putConfig(

@@ -7,6 +7,7 @@ export type VoiceCallEventEnvelope = {
 };
 
 export type VoiceCallEventSubscription = {
+  accepted: boolean;
   replay: VoiceCallEventEnvelope[];
   unsubscribe: () => void;
 };
@@ -250,6 +251,7 @@ export function createVoiceCallEventHub(options?: {
     const id = String(callConfigId ?? '').trim();
     if (!id) {
       return {
+        accepted: false,
         replay: [],
         unsubscribe: () => {}
       };
@@ -258,6 +260,7 @@ export function createVoiceCallEventHub(options?: {
     const channel = getOrCreateChannel(id);
     if (!channel) {
       return {
+        accepted: false,
         replay: [],
         unsubscribe: () => {}
       };
@@ -308,6 +311,7 @@ export function createVoiceCallEventHub(options?: {
     }
 
     return {
+      accepted: true,
       replay,
       unsubscribe: () => {
         channel.subscribers.delete(subscriber);
