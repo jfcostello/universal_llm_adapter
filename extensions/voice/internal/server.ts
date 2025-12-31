@@ -1590,9 +1590,9 @@ export async function createVoiceServerRegistration(ctx: {
             }
 
             const response = { callConfigId, providerCallId, status: 'queued' };
-              if (idempotencyKeyNormalized) {
-                await store.putIdempotency(idempotencyKeyNormalized, response, { ttlSeconds });
-              }
+            if (idempotencyKeyNormalized) {
+              await store.putIdempotency(idempotencyKeyNormalized, response, { ttlSeconds });
+            }
 
             writeJson(res, 200, response);
             return true;
