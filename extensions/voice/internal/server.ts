@@ -851,6 +851,12 @@ export async function createVoiceServerRegistration(ctx: {
             }
           }
 
+          let providerDefaults: any | undefined;
+          try {
+            const manifest = await providerPlugins.getManifest?.(voiceProvider);
+            providerDefaults = (manifest as any)?.defaults;
+          } catch {}
+
           const compat = await providerPlugins.getCompat(voiceProvider);
           try {
             const validateWebhookRequest = (compat as any)?.validateWebhookRequest;
@@ -865,12 +871,6 @@ export async function createVoiceServerRegistration(ctx: {
             } else {
               const httpBaseUrl = getPublicHttpBaseUrl(req);
               const publicUrl = new URL(`${url.pathname}${url.search}`, httpBaseUrl).toString();
-
-              let providerDefaults: any | undefined;
-              try {
-                const manifest = await providerPlugins.getManifest?.(voiceProvider);
-                providerDefaults = (manifest as any)?.defaults;
-              } catch {}
 
               await validateWebhookRequest({ req, method, url: publicUrl, params, callConfigId, callConfig, voiceProvider, providerDefaults });
             }
@@ -900,7 +900,7 @@ export async function createVoiceServerRegistration(ctx: {
 
           let parsed: any;
           try {
-            parsed = await parseRecordingWebhook({ params, callConfigId, callConfig, voiceProvider });
+            parsed = await parseRecordingWebhook({ params, callConfigId, callConfig, voiceProvider, providerDefaults });
           } catch (error: any) {
             const statusCode = Number(error?.statusCode ?? 500);
             const code = error?.code !== undefined ? String(error.code) : undefined;

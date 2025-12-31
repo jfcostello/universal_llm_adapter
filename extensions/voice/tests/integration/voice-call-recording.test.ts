@@ -92,6 +92,7 @@ describe('extensions/voice: recording webhook + retrieval', () => {
 
     const validateWebhookRequest = jest.fn(async () => {});
     const parseRecordingWebhook = jest.fn(async (options: any) => {
+      expect(options.providerDefaults).toEqual({ ok: true });
       const params = options?.params ?? {};
       return {
         recordingId: String(params.recordingId ?? ''),
