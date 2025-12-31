@@ -355,6 +355,9 @@ export default class TwilioVoiceCompat {
     const startSilenceTimer = (timeoutMs: number) => {
       clearSilenceTimeout();
       silenceTimer = setTimeout(() => void requestEndCallOnce('silence_timeout'), Math.floor(timeoutMs));
+      if (typeof (silenceTimer as any)?.unref === 'function') {
+        try { (silenceTimer as any).unref(); } catch {}
+      }
     };
 
     const resolveAssistantAudioEndFallbackMs = (timeoutMs: number) => {
