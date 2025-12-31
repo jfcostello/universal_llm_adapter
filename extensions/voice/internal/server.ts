@@ -51,6 +51,41 @@ type VoiceLogging = {
   getLogger: (correlationId?: string) => VoiceLogger;
 };
 
+class StringChunkQueue {
+  private readonly chunks: string[] = [];
+  private readonly byteLengths: number[] = [];
+  private start = 0;
+  private totalBytes = 0;
+
+  byteLength(): number {
+    return this.totalBytes;
+  }
+
+  push(chunk: string): void {
+    const bytes = Buffer.byteLength(chunk, 'utf8');
+    this.chunks.push(chunk);
+    this.byteLengths.push(bytes);
+    this.totalBytes += bytes;
+  }
+
+  shift(): { chunk: string; bytes: number } | undefined {
+    if (this.start >= this.chunks.length) return undefined;
+    const chunk = this.chunks[this.start] as string;
+    const bytes = this.byteLengths[this.start] as number;
+    this.start += 1;
+    this.totalBytes -= bytes;
+    if (this.start >= this.chunks.length) this.clear();
+    return { chunk, bytes };
+  }
+
+  clear(): void {
+    this.chunks.length = 0;
+    this.byteLengths.length = 0;
+    this.start = 0;
+    this.totalBytes = 0;
+  }
+}
+
 function parseUrl(rawUrl: string | undefined): URL | null {
   const raw = rawUrl ?? '/';
   try {
@@ -992,9 +1027,7 @@ export async function createVoiceServerRegistration(ctx: {
           let sub: { accepted: boolean; replay: VoiceCallEventEnvelope[]; unsubscribe: () => void } | undefined;
           let drainingWrites = false;
           let inFlightBytes = 0;
-          let queuedBytes = 0;
-          const queuedChunks: string[] = [];
-          let queuedChunksStart = 0;
+          const queuedChunks = new StringChunkQueue();
           const queuedEnvelopes: VoiceCallEventEnvelope[] = [];
           let canWriteEvents = false;
 
@@ -1012,7 +1045,7 @@ export async function createVoiceServerRegistration(ctx: {
           };
 
           const checkQueueLimit = () => {
-            const pendingBytes = inFlightBytes + queuedBytes;
+            const pendingBytes = inFlightBytes + queuedChunks.byteLength();
             if (pendingBytes <= eventsMaxWriteQueueBytes) return;
             closeResponse();
           };
@@ -1022,15 +1055,15 @@ export async function createVoiceServerRegistration(ctx: {
           };
 
           const flushQueued = () => {
-            while (queuedChunksStart < queuedChunks.length) {
-              const chunk = queuedChunks[queuedChunksStart] as string;
-              queuedChunksStart += 1;
-              queuedBytes -= Buffer.byteLength(chunk, 'utf8');
+            while (true) {
+              const next = queuedChunks.shift();
+              if (!next) break;
+              const { chunk, bytes } = next;
               try {
                 const ok = res.write(chunk);
                 if (ok === false) {
                   drainingWrites = true;
-                  inFlightBytes = Buffer.byteLength(chunk, 'utf8');
+                  inFlightBytes = bytes;
                   attachDrain();
                   checkQueueLimit();
                   return;
@@ -1039,11 +1072,6 @@ export async function createVoiceServerRegistration(ctx: {
                 closeResponse();
                 return;
               }
-            }
-
-            if (queuedChunksStart > 0) {
-              queuedChunks.length = 0;
-              queuedChunksStart = 0;
             }
           };
 
@@ -1062,7 +1090,6 @@ export async function createVoiceServerRegistration(ctx: {
 
             if (drainingWrites) {
               queuedChunks.push(chunk);
-              queuedBytes += Buffer.byteLength(chunk, 'utf8');
               checkQueueLimit();
               return;
             }
