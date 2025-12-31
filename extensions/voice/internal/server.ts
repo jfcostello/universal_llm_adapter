@@ -321,13 +321,13 @@ function sanitizeHostHeader(raw: unknown): string | undefined {
   if (/[\r\n\t ]/.test(first)) return undefined;
   if (first.includes('/') || first.includes('\\') || first.includes('@') || first.includes('://')) return undefined;
 
-    try {
-      const parsed = new URL(`http://${first}`);
-      if (parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) return undefined;
-      return parsed.host;
-    } catch {
-      return undefined;
-    }
+  try {
+    const parsed = new URL(`http://${first}`);
+    if (parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) return undefined;
+    return parsed.host;
+  } catch {
+    return undefined;
+  }
 }
 
 function getPublicHttpBaseUrl(req: http.IncomingMessage): string {
@@ -365,21 +365,21 @@ function getWsTokenSecret(): string {
   return raw;
 }
 
-  function getWebhookValidationRequired(): boolean {
-    return normalizeFlag(process.env.LLM_ADAPTER_VOICE_WEBHOOK_VALIDATION_REQUIRED, true);
-  }
+function getWebhookValidationRequired(): boolean {
+  return normalizeFlag(process.env.LLM_ADAPTER_VOICE_WEBHOOK_VALIDATION_REQUIRED, true);
+}
 
-  function getWsTokenTtlSeconds(): number {
-    const maxTtlSeconds = 86400;
-    const raw = String(process.env.LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS ?? '').trim();
-    if (!raw) return 300;
-    const n = Number(raw);
-    const ttlSeconds = Math.floor(n);
-    if (!Number.isFinite(n) || ttlSeconds <= 0 || ttlSeconds > maxTtlSeconds) {
-      throw new Error(`Invalid LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS (max ${maxTtlSeconds})`);
-    }
-    return ttlSeconds;
+function getWsTokenTtlSeconds(): number {
+  const maxTtlSeconds = 86400;
+  const raw = String(process.env.LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS ?? '').trim();
+  if (!raw) return 300;
+  const n = Number(raw);
+  const ttlSeconds = Math.floor(n);
+  if (!Number.isFinite(n) || ttlSeconds <= 0 || ttlSeconds > maxTtlSeconds) {
+    throw new Error(`Invalid LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS (max ${maxTtlSeconds})`);
   }
+  return ttlSeconds;
+}
 
 function getMediaWsMaxMessageBytes(): number {
   const raw = String(process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_MESSAGE_BYTES ?? '').trim();
