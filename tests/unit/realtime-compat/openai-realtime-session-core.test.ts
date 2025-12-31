@@ -70,6 +70,45 @@ describe('realtime-compat/openai — session core', () => {
     metadata: { defaultModel: 'gpt-realtime' }
   };
 
+  test('handshake: unrefs ready fallback timer when supported', async () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const unrefSpy = jest.fn();
+    const setTimeoutSpy = jest
+      .spyOn(globalThis, 'setTimeout')
+      .mockImplementation(((fn: any, ms: any, ...args: any[]) => {
+        const timer: any = originalSetTimeout(fn, ms, ...args);
+        if (timer && typeof timer.unref === 'function') {
+          const originalUnref = timer.unref.bind(timer);
+          timer.unref = (...unrefArgs: any[]) => {
+            unrefSpy();
+            return originalUnref(...unrefArgs);
+          };
+        }
+        return timer;
+      }) as any);
+
+    const fake = createFakeTransport();
+
+    const session = createOpenAIRealtimeCompatSessionWithTransport(
+      {
+        provider,
+        spec: { provider: 'openai', model: 'gpt-realtime', transcription: { enabled: true } } as any
+      } as any,
+      fake.transport as any
+    );
+
+    try {
+      fake.push({ type: 'open' });
+      for (let i = 0; i < 25 && unrefSpy.mock.calls.length === 0; i++) {
+        await Promise.resolve();
+      }
+      expect(unrefSpy).toHaveBeenCalled();
+    } finally {
+      await session.close();
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
   test('handshake: sends session.update on open and emits ready on session.updated', async () => {
     const fake = createFakeTransport();
 

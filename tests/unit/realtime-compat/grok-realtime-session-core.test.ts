@@ -70,6 +70,45 @@ describe('realtime-compat/grok — session core', () => {
     metadata: { defaultVoice: 'ara' }
   };
 
+  test('handshake: unrefs ready fallback timer when supported', async () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const unrefSpy = jest.fn();
+    const setTimeoutSpy = jest
+      .spyOn(globalThis, 'setTimeout')
+      .mockImplementation(((fn: any, ms: any, ...args: any[]) => {
+        const timer: any = originalSetTimeout(fn, ms, ...args);
+        if (timer && typeof timer.unref === 'function') {
+          const originalUnref = timer.unref.bind(timer);
+          timer.unref = (...unrefArgs: any[]) => {
+            unrefSpy();
+            return originalUnref(...unrefArgs);
+          };
+        }
+        return timer;
+      }) as any);
+
+    const fake = createFakeTransport();
+
+    const session = createGrokRealtimeCompatSessionWithTransport(
+      {
+        provider,
+        spec: { provider: 'grok', transcription: { enabled: true } } as any
+      } as any,
+      fake.transport as any
+    );
+
+    try {
+      fake.push({ type: 'open' });
+      for (let i = 0; i < 25 && unrefSpy.mock.calls.length === 0; i++) {
+        await Promise.resolve();
+      }
+      expect(unrefSpy).toHaveBeenCalled();
+    } finally {
+      await session.close();
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
   test('handshake: waits for conversation.created to send session.update and emits ready on session.updated', async () => {
     const fake = createFakeTransport();
 

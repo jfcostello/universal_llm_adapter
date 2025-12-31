@@ -104,6 +104,11 @@ export function createOpenAIRealtimeCompatSessionWithTransport(
       readyFallbackTimer = undefined;
       emitReadyOnce();
     }, READY_FALLBACK_MS);
+    if (typeof (readyFallbackTimer as any)?.unref === 'function') {
+      try {
+        (readyFallbackTimer as any).unref();
+      } catch {}
+    }
   };
 
   let pendingCancel: Deferred<void> | undefined;
