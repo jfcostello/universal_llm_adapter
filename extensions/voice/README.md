@@ -87,6 +87,8 @@ Notes:
 - `events.maxActiveCalls` (default: `20000`): cap on in-memory active call channels for the SSE events hub.
 - `events.maxBufferedEventsPerCall` (default: `200`): number of most-recent non-delta events kept per call for replay (set `0` to disable replay buffering).
 - `events.callTtlMs` (default: `900000`): sweep inactive call channels after this TTL (set `0` to disable TTL-based sweeping).
+- `events.keepAliveIntervalMs` (default: `15000`): interval for SSE keepalive comments (`: keepalive`) to keep intermediaries from timing out idle streams (set `0` to disable keepalives). Can also be overridden via `LLM_ADAPTER_VOICE_EVENTS_KEEPALIVE_INTERVAL_MS`.
+- `events.maxWriteQueueBytes` (default: `262144`): upper bound on buffered SSE response bytes (in-flight + queued). If exceeded, the server closes the stream to avoid unbounded memory growth.
 - `timeouts.silenceAssistantAudioStartFallbackMs` / `timeouts.silenceAssistantAudioEndFallbackMs`: optional fallback windows used by some provider compats when `assistantFirstTurn.enabled=true` to ensure silence timers still arm when assistant-audio boundary events are missing (see the active compat README under `plugins/voice-compat/*`).
 
 ### Provider plugins
