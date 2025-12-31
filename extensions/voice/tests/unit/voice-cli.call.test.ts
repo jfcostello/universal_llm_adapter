@@ -7,6 +7,7 @@ import path from 'path';
 import { jest } from '@jest/globals';
 
 import { runVoiceCli } from '../../internal/cli.js';
+import { closeServerAndSockets, trackServerSockets, unrefServer } from '../helpers/http-server.ts';
 
 function createCaptureStream() {
   let data = '';
@@ -31,19 +32,10 @@ async function startServer(handler: (req: http.IncomingMessage, body: any) => { 
     res.end(JSON.stringify(out.body));
   });
 
-  const sockets = new Set<any>();
-  server.on('connection', (socket) => {
-    sockets.add(socket);
-    socket.on('close', () => sockets.delete(socket));
-    if (typeof (socket as any)?.unref === 'function') {
-      (socket as any).unref();
-    }
-  });
+  const sockets = trackServerSockets(server);
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  if (typeof (server as any)?.unref === 'function') {
-    (server as any).unref();
-  }
+  unrefServer(server);
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Expected server address');
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -51,19 +43,7 @@ async function startServer(handler: (req: http.IncomingMessage, body: any) => { 
   return {
     baseUrl,
     close: async () => {
-      await new Promise<void>((resolve, reject) => {
-        server.close(err => (err ? reject(err) : resolve()));
-        try { (server as any).closeIdleConnections?.(); } catch {}
-        if (typeof (server as any).closeAllConnections === 'function') {
-          try { (server as any).closeAllConnections(); } catch {}
-        }
-        for (const socket of sockets) {
-          try { socket.destroy(); } catch {}
-        }
-      });
-      for (let i = 0; i < 25 && sockets.size > 0; i++) {
-        await new Promise<void>((resolve) => setImmediate(resolve));
-      }
+      await closeServerAndSockets(server, sockets);
     }
   };
 }
@@ -78,19 +58,10 @@ async function startRawServer(handler: (req: http.IncomingMessage, res: http.Ser
     }
   });
 
-  const sockets = new Set<any>();
-  server.on('connection', (socket) => {
-    sockets.add(socket);
-    socket.on('close', () => sockets.delete(socket));
-    if (typeof (socket as any)?.unref === 'function') {
-      (socket as any).unref();
-    }
-  });
+  const sockets = trackServerSockets(server);
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  if (typeof (server as any)?.unref === 'function') {
-    (server as any).unref();
-  }
+  unrefServer(server);
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Expected server address');
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -98,19 +69,7 @@ async function startRawServer(handler: (req: http.IncomingMessage, res: http.Ser
   return {
     baseUrl,
     close: async () => {
-      await new Promise<void>((resolve, reject) => {
-        server.close(err => (err ? reject(err) : resolve()));
-        try { (server as any).closeIdleConnections?.(); } catch {}
-        if (typeof (server as any).closeAllConnections === 'function') {
-          try { (server as any).closeAllConnections(); } catch {}
-        }
-        for (const socket of sockets) {
-          try { socket.destroy(); } catch {}
-        }
-      });
-      for (let i = 0; i < 25 && sockets.size > 0; i++) {
-        await new Promise<void>((resolve) => setImmediate(resolve));
-      }
+      await closeServerAndSockets(server, sockets);
     }
   };
 }

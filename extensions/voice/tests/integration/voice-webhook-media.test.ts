@@ -5,6 +5,7 @@ import * as path from 'path';
 import voiceExtension from '../../index.ts';
 import { createInMemoryVoiceCallConfigStore } from '../../internal/call-config-store/index.js';
 import { attachUpgradeRouter } from '@/modules/server/internal/transport/upgrade-router.ts';
+import { closeServerAndSockets, trackServerSockets, unrefServer } from '../helpers/http-server.ts';
 
 function extractStreamUrl(xml: string): string {
   const match = xml.match(/url=\"([^\"]+)\"/);
@@ -85,14 +86,7 @@ async function startHarness(options: { store: any; providerPlugins?: any; loggin
     })();
   });
 
-  const sockets = new Set<any>();
-  server.on('connection', (socket) => {
-    sockets.add(socket);
-    socket.on('close', () => sockets.delete(socket));
-    if (typeof (socket as any)?.unref === 'function') {
-      (socket as any).unref();
-    }
-  });
+  const sockets = trackServerSockets(server);
 
   const upgradeRouter = attachUpgradeRouter(server);
 
@@ -111,9 +105,7 @@ async function startHarness(options: { store: any; providerPlugins?: any; loggin
   const unregister = upgradeRouter.register(reg.handleUpgrade);
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  if (typeof (server as any)?.unref === 'function') {
-    (server as any).unref();
-  }
+  unrefServer(server);
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Expected TCP address');
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -122,19 +114,7 @@ async function startHarness(options: { store: any; providerPlugins?: any; loggin
     unregister();
     upgradeRouter.close();
     await reg.close?.();
-    await new Promise<void>((resolve, reject) => {
-      server.close(err => (err ? reject(err) : resolve()));
-      try { (server as any).closeIdleConnections?.(); } catch {}
-      if (typeof (server as any).closeAllConnections === 'function') {
-        try { (server as any).closeAllConnections(); } catch {}
-      }
-      for (const socket of sockets) {
-        try { socket.destroy(); } catch {}
-      }
-    });
-    for (let i = 0; i < 25 && sockets.size > 0; i++) {
-      await new Promise<void>((resolve) => setImmediate(resolve));
-    }
+    await closeServerAndSockets(server, sockets);
   };
 
   return { baseUrl, close };
