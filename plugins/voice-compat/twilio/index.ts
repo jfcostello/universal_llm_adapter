@@ -5,6 +5,7 @@ import { ProviderExecutionError } from '../../../kernel/index.js';
 import { makeHttpError } from '../../../modules/shared/index.js';
 import { createRealtimeSession } from '../../../modules/realtime/index.js';
 import { createTwilioMediaStreamsBridge } from '../../voice-modules/twilio-media-streams/index.js';
+import { wrapAssistantFirstTurnEvents } from './internal/assistant-first-turn-events.js';
 
 function escapeXmlAttr(value: string): string {
   return value
@@ -438,13 +439,9 @@ export default class TwilioVoiceCompat {
         }
 
         const originalEvents = session.events.bind(session);
-        session.events = () => (async function* () {
-          const iter = originalEvents()[Symbol.asyncIterator]();
-          const first = await iter.next();
-          const ready = first.value;
-          yield ready;
-
-          if (ready?.type === 'ready') {
+        session.events = wrapAssistantFirstTurnEvents({
+          originalEvents,
+          onReady: () => {
             void (async () => {
               try {
                 if (delayMs > 0) {
@@ -463,11 +460,7 @@ export default class TwilioVoiceCompat {
               }
             })();
           }
-
-          for await (const event of { [Symbol.asyncIterator]: () => iter } as AsyncIterable<any>) {
-            yield event;
-          }
-        })();
+        });
 
         return session;
       },
