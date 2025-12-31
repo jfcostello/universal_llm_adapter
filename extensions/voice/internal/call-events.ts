@@ -125,6 +125,7 @@ export function createVoiceCallEventHub(options?: {
   })();
 
   const channels = new LruMap<string, Channel>(maxActiveCalls, { label: 'voice.call_events' });
+  const evictableChannels = new LruMap<string, true>(maxActiveCalls, { label: 'voice.call_events.evictable' });
 
   const saturationLogIntervalMs = (() => {
     const raw = options?.saturationLogIntervalMs;
@@ -153,6 +154,7 @@ export function createVoiceCallEventHub(options?: {
       if (channel.subscribers.size > 0) continue;
       if (now - channel.lastActivityAtMs > callTtlMs) {
         channels.delete(callConfigId);
+        evictableChannels.delete(callConfigId);
       }
     }
   };
@@ -175,10 +177,11 @@ export function createVoiceCallEventHub(options?: {
   const ensureCapacityForNewChannel = (callConfigId: string): boolean => {
     if (channels.size < maxActiveCalls) return true;
 
-    for (const [existingCallConfigId, channel] of channels.entries()) {
-      if (channels.size < maxActiveCalls) break;
-      if (channel.subscribers.size > 0) continue;
-      channels.delete(existingCallConfigId);
+    while (channels.size >= maxActiveCalls) {
+      const candidate = evictableChannels.keys().next().value as string | undefined;
+      if (!candidate) break;
+      evictableChannels.delete(candidate);
+      channels.delete(candidate);
     }
 
     if (channels.size < maxActiveCalls) return true;
@@ -214,7 +217,11 @@ export function createVoiceCallEventHub(options?: {
     const channel = getOrCreateChannel(id);
     if (!channel) return;
     channel.lastActivityAtMs = Date.now();
-    channels.set(id, channel); // refresh recency
+    if (channel.subscribers.size === 0) {
+      evictableChannels.set(id, true);
+    } else {
+      evictableChannels.delete(id);
+    }
 
     const envelope: VoiceCallEventEnvelope = { callConfigId: id, atMs: Date.now(), event };
     const delta = isDeltaEvent(type);
@@ -266,7 +273,6 @@ export function createVoiceCallEventHub(options?: {
       };
     }
     channel.lastActivityAtMs = Date.now();
-    channels.set(id, channel); // refresh recency
 
     const eventTypes = (() => {
       const raw = options?.eventTypes;
@@ -287,6 +293,7 @@ export function createVoiceCallEventHub(options?: {
       onEvent,
     };
     channel.subscribers.add(subscriber);
+    evictableChannels.delete(id);
 
     const replay = (() => {
       const buffered = ringBufferToArray(channel.buffered);
@@ -319,15 +326,18 @@ export function createVoiceCallEventHub(options?: {
         if (subscriber.routes.kind === 'all') {
           channel.allNoDeltas.delete(subscriber);
           channel.allWithDeltas.delete(subscriber);
-          return;
+        } else {
+          const map = subscriber.includeDeltas ? channel.byTypeWithDeltas : channel.byTypeNoDeltas;
+          for (const t of subscriber.routes.eventTypes) {
+            const set = map.get(t);
+            if (!set) continue;
+            set.delete(subscriber);
+            if (set.size === 0) map.delete(t);
+          }
         }
 
-        const map = subscriber.includeDeltas ? channel.byTypeWithDeltas : channel.byTypeNoDeltas;
-        for (const t of subscriber.routes.eventTypes) {
-          const set = map.get(t);
-          if (!set) continue;
-          set.delete(subscriber);
-          if (set.size === 0) map.delete(t);
+        if (channel.subscribers.size === 0) {
+          evictableChannels.set(id, true);
         }
       }
     };
@@ -347,6 +357,7 @@ export function createVoiceCallEventHub(options?: {
   const close = () => {
     if (sweepTimer) clearInterval(sweepTimer);
     channels.clear();
+    evictableChannels.clear();
   };
 
   return { emit, subscribe, snapshot, close };
