@@ -41,6 +41,20 @@ function basicAuthHeader(username: string, password: string): string {
   return `Basic ${token}`;
 }
 
+function sleepUnref(ms: number): Promise<void> {
+  const durationMs = Number.isFinite(ms) ? Math.max(0, Math.floor(ms)) : 0;
+  if (durationMs === 0) return Promise.resolve();
+
+  return new Promise<void>((resolve) => {
+    const timeoutId: any = setTimeout(resolve, durationMs);
+    if (timeoutId && typeof timeoutId.unref === 'function') {
+      try {
+        timeoutId.unref();
+      } catch {}
+    }
+  });
+}
+
 function makeProviderConfigError(message: string): Error {
   return makeHttpError({ message, statusCode: 500, code: 'provider_config_error' });
 }
@@ -445,7 +459,7 @@ export default class TwilioVoiceCompat {
             void (async () => {
               try {
                 if (delayMs > 0) {
-                  await new Promise(resolve => setTimeout(resolve, Math.floor(delayMs)));
+                  await sleepUnref(delayMs);
                 }
                 await session.sendText({ text: prompt, role });
                 await session.commit();

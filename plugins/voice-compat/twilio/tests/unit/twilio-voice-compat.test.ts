@@ -259,6 +259,58 @@ describe('plugins/voice-compat/twilio', () => {
     await task;
   });
 
+  test('handleMediaConnection unrefs assistantFirstTurn.delayMs timer when supported', async () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const unrefSpy = jest.fn();
+    const setTimeoutSpy = jest
+      .spyOn(globalThis, 'setTimeout')
+      .mockImplementation(((fn: any, ms: any, ...args: any[]) => {
+        const timer: any = originalSetTimeout(fn, ms, ...args);
+        if (timer && typeof timer.unref === 'function') {
+          const originalUnref = timer.unref.bind(timer);
+          timer.unref = (...unrefArgs: any[]) => {
+            unrefSpy();
+            return originalUnref(...unrefArgs);
+          };
+        }
+        return timer;
+      }) as any);
+
+    try {
+      process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+      const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
+
+      const { registry } = createRegistryHarness();
+
+      const compat = new TwilioVoiceCompat();
+      const ws = new MockWebSocket();
+      const task = compat.handleMediaConnection({
+        ws: ws as any,
+        req: { url: `/voice/media?token=${encodeURIComponent(token)}` } as any,
+        callConfigId: 'cfg_1',
+        callConfig: {
+          realtimeSpec: { provider: 'realtime_p1' },
+          assistantFirstTurn: { enabled: true, prompt: 'Say hello briefly.', role: 'user', delayMs: 5 }
+        },
+        voiceProvider: 'twilio',
+        registry
+      });
+
+      ws.emitMessage(startMessage());
+      await flush();
+
+      for (let i = 0; i < 25 && unrefSpy.mock.calls.length === 0; i++) {
+        await Promise.resolve();
+      }
+      expect(unrefSpy).toHaveBeenCalled();
+
+      ws.emitMessage(stopMessage());
+      await task;
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
   test('silence timeout is armed after first assistant audio end when assistantFirstTurn is enabled', async () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
