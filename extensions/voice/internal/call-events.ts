@@ -62,6 +62,7 @@ function createRingBuffer<T>(max: number): RingBuffer<T> {
 }
 
 function ringBufferPush<T>(buffer: RingBuffer<T>, item: T): void {
+  if (buffer.max <= 0) return;
   const idx = (buffer.start + buffer.count) % buffer.max;
   buffer.buf[idx] = item;
   if (buffer.count < buffer.max) {
@@ -237,8 +238,6 @@ export function createVoiceCallEventHub(options?: {
     }
 
     if (delta) return;
-    if (maxBufferedEventsPerCall <= 0) return;
-
     ringBufferPush(channel.buffered, envelope);
   };
 
