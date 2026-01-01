@@ -121,19 +121,20 @@ export async function attachRealtimeWsServer(options: {
     let openSeen = false;
     let closed = false;
 
+    let idleTimeoutMs = options.config.idleTimeoutMs;
     let idleTimer: NodeJS.Timeout | undefined;
     let durationTimer: NodeJS.Timeout | undefined;
     const audioRateLimiter = createAudioRateLimiter(options.config.maxAudioBytesPerSecond);
 
     const scheduleIdleCheck = () => {
       if (idleTimer) clearTimeout(idleTimer);
-      if (!Number.isFinite(options.config.idleTimeoutMs) || options.config.idleTimeoutMs <= 0) {
+      if (!Number.isFinite(idleTimeoutMs) || idleTimeoutMs <= 0) {
         return;
       }
       idleTimer = setTimeout(() => {
         send({ type: 'error', error: { message: 'Realtime WS idle timeout', code: 'ws_idle_timeout' } });
         try { ws.close(); } catch {}
-      }, options.config.idleTimeoutMs);
+      }, idleTimeoutMs);
     };
 
     const send = (env: RealtimeServerEnvelope) => {
@@ -233,6 +234,11 @@ export async function attachRealtimeWsServer(options: {
             if (msg.protocolVersion !== 1) {
               failAndClose('Unsupported protocolVersion', 'unsupported_protocol');
               return;
+            }
+            const specIdleTimeoutMs = Number((msg as any)?.spec?.timeout?.idleTimeoutMs);
+            if (Number.isFinite(specIdleTimeoutMs)) {
+              idleTimeoutMs = Math.max(0, Math.floor(specIdleTimeoutMs));
+              scheduleIdleCheck();
             }
             session = await options.createSession({ registry: options.registry, spec: msg.spec });
             openSeen = true;

@@ -8,8 +8,8 @@ const TEST_FILE = '19-vector-search-locks';
 
 const STORE_ID = 'qdrant-cloud';
 const TOKEN = `VECTOR_LOCKS_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
-const SECRET_HIGH = `VECTOR_LOCKS_SECRET_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
-const SECRET_LOW = `VECTOR_LOCKS_SECRET_LOW_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+const ANSWER_HIGH = 'VECTOR_LOCKS_ANSWER_HIGH_OK';
+const ANSWER_LOW = 'VECTOR_LOCKS_ANSWER_LOW_OK';
 
 function readOpenRouterEmbeddingProviderId(): string {
   const raw = fs.readFileSync(path.join(process.cwd(), 'plugins', 'embeddings', 'openrouter.json'), 'utf-8');
@@ -63,12 +63,12 @@ function extractTextFromMessage(msg: any): string {
           chunks: [
             {
               id: 'fact-high',
-              text: `Token ${TOKEN}: The meaning of life is 42. SecretAnswer: ${SECRET_HIGH}.`,
+              text: `Token ${TOKEN}: The meaning of life is 42. AnswerToken=${ANSWER_HIGH}`,
               metadata: { relevance: 'high' }
             },
             {
               id: 'fact-low',
-              text: `Token ${TOKEN}: The meaning of life is 41. SecretAnswer: ${SECRET_LOW}.`,
+              text: `Token ${TOKEN}: The meaning of life is 41. AnswerToken=${ANSWER_LOW}`,
               metadata: { relevance: 'low' }
             }
           ]
@@ -97,12 +97,13 @@ function extractTextFromMessage(msg: any): string {
         'You are a conformance test agent.',
         `Token: ${TOKEN}.`,
         'You MUST call the vector_search tool exactly once.',
-        'After the tool result arrives, extract the SecretAnswer value and remember it for your final output.',
-        'If you receive a user message that begins with "All tool calls have been consumed", reply with ONLY the remembered SecretAnswer token.',
+        'After the tool result arrives, extract the AnswerToken value (the text after "AnswerToken=") and remember it for your final output.',
+        'If you receive a user message that begins with "All tool calls have been consumed", reply with ONLY the remembered AnswerToken value.',
         'Final output rules:',
-        '- Output EXACTLY the SecretAnswer token',
+        '- Output EXACTLY the AnswerToken value',
         '- No extra whitespace',
         '- No punctuation',
+        '- Do NOT truncate or redact (no ellipses)',
         '- No code blocks',
         '- Do NOT call any tools after the tool result'
       ].join('\n'),
@@ -112,7 +113,7 @@ function extractTextFromMessage(msg: any): string {
           content: [
             {
               type: 'text',
-              text: `Token=${TOKEN}. Use vector_search to answer: What is the meaning of life? Then reply with ONLY the SecretAnswer token from the tool result.`
+              text: `Token=${TOKEN}. Use vector_search to answer: What is the meaning of life? Then reply with ONLY the AnswerToken value from the tool result.`
             }
           ]
         }
@@ -158,7 +159,7 @@ function extractTextFromMessage(msg: any): string {
       .map((p: any) => String(p.text || ''))
       .join('')
       .trim();
-    expect(finalText).toBe(SECRET_HIGH);
+    expect(finalText).toBe(ANSWER_HIGH);
 
     const logPath = buildLogPathFor(TEST_FILE);
     const bodies = parseLogBodies(logPath);
@@ -202,8 +203,8 @@ function extractTextFromMessage(msg: any): string {
     const toolText = extractTextFromMessage(vectorToolMsg);
     expect(toolText).toContain('Found 1 results');
     expect(toolText).toContain('The meaning of life is 42');
-    expect(toolText).toContain(SECRET_HIGH);
+    expect(toolText).toContain(ANSWER_HIGH);
     expect(toolText).not.toContain('The meaning of life is 41');
-    expect(toolText).not.toContain(SECRET_LOW);
+    expect(toolText).not.toContain(ANSWER_LOW);
   }, 240_000);
 });

@@ -219,6 +219,7 @@ Realtime sessions over WebSocket using the same message/envelope contract as `ll
 - `spec.provider` must reference a realtime provider id from `plugins/realtime-providers/*.json`.
 - Authentication must be enabled (`auth.enabled: true`) for this endpoint.
 - Configure limits via the `realtime.*` options (message size, idle timeout, concurrency, audio rate, max duration).
+- The WebSocket idle timeout defaults to `realtime.wsIdleTimeoutMs` and is updated to `spec.timeout.idleTimeoutMs` after `open` (when provided).
 
 ### LLM Run (Non-Streaming)
 

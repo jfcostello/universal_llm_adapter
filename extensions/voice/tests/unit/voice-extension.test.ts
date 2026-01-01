@@ -4,6 +4,7 @@ import { Readable, Writable } from 'stream';
 
 import voiceExtension from '../../index.ts';
 import { attachUpgradeRouter } from '@/modules/server/internal/transport/upgrade-router.ts';
+import { closeServerAndSockets, trackServerSockets, unrefServer } from '../helpers/http-server.ts';
 
 describe('extensions/voice', () => {
   test('exports a stable extension object', async () => {
@@ -16,7 +17,9 @@ describe('extensions/voice', () => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
     });
+    const sockets = trackServerSockets(server);
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    unrefServer(server);
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('Expected server address');
     const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -70,7 +73,7 @@ describe('extensions/voice', () => {
         }
       });
     } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await closeServerAndSockets(server, sockets);
     }
 
     expect(exitCodes).toEqual([0]);

@@ -5,6 +5,7 @@ import * as path from 'path';
 import voiceExtension from '../../index.ts';
 import { createInMemoryVoiceCallConfigStore } from '../../internal/call-config-store/index.js';
 import { attachUpgradeRouter } from '@/modules/server/internal/transport/upgrade-router.ts';
+import { closeServerAndSockets, trackServerSockets, unrefServer } from '../helpers/http-server.ts';
 
 async function startHarness(options: { store: any; providerPlugins: any; httpConfig: any }) {
   let handleHttp: any = async () => false;
@@ -16,6 +17,8 @@ async function startHarness(options: { store: any; providerPlugins: any; httpCon
       res.end('not found');
     })();
   });
+
+  const sockets = trackServerSockets(server);
 
   const upgradeRouter = attachUpgradeRouter(server);
 
@@ -33,6 +36,7 @@ async function startHarness(options: { store: any; providerPlugins: any; httpCon
   const unregister = upgradeRouter.register(reg.handleUpgrade);
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  unrefServer(server);
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Expected TCP address');
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -41,7 +45,7 @@ async function startHarness(options: { store: any; providerPlugins: any; httpCon
     unregister();
     upgradeRouter.close();
     await reg.close?.();
-    await new Promise<void>((resolve, reject) => server.close(err => (err ? reject(err) : resolve())));
+    await closeServerAndSockets(server, sockets);
   };
 
   return { baseUrl, close };
@@ -88,6 +92,7 @@ describe('extensions/voice: recording webhook + retrieval', () => {
 
     const validateWebhookRequest = jest.fn(async () => {});
     const parseRecordingWebhook = jest.fn(async (options: any) => {
+      expect(options.providerDefaults).toEqual({ ok: true });
       const params = options?.params ?? {};
       return {
         recordingId: String(params.recordingId ?? ''),
@@ -144,7 +149,9 @@ describe('extensions/voice: recording webhook + retrieval', () => {
       res.writeHead(200, { 'Content-Type': 'audio/mpeg' });
       res.end('abc');
     });
+    const mediaSockets = trackServerSockets(mediaServer);
     await new Promise<void>((resolve) => mediaServer.listen(0, '127.0.0.1', resolve));
+    unrefServer(mediaServer);
     const address = mediaServer.address();
     if (!address || typeof address === 'string') throw new Error('Expected TCP address');
     const mediaUrl = `http://127.0.0.1:${address.port}/file.mp3`;
@@ -196,7 +203,7 @@ describe('extensions/voice: recording webhook + retrieval', () => {
       );
     } finally {
       await harness.close();
-      await new Promise<void>((resolve, reject) => mediaServer.close(err => (err ? reject(err) : resolve())));
+      await closeServerAndSockets(mediaServer, mediaSockets);
     }
   });
 
@@ -229,7 +236,9 @@ describe('extensions/voice: recording webhook + retrieval', () => {
       res.writeHead(200, { 'Content-Type': 'audio/mpeg' });
       // Keep the connection open until the proxy aborts.
     });
+    const mediaSockets = trackServerSockets(mediaServer);
     await new Promise<void>((resolve) => mediaServer.listen(0, '127.0.0.1', resolve));
+    unrefServer(mediaServer);
     const address = mediaServer.address();
     if (!address || typeof address === 'string') throw new Error('Expected TCP address');
     const mediaUrl = `http://127.0.0.1:${address.port}/file.mp3`;
@@ -275,31 +284,52 @@ describe('extensions/voice: recording webhook + retrieval', () => {
         signal: controller.signal
       });
 
-      await Promise.race([
-        requestSeen,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Expected upstream request')), 1000))
-      ]);
+      let requestTimer: any | undefined;
+      try {
+        await Promise.race([
+          requestSeen,
+          new Promise((_, reject) => {
+            requestTimer = setTimeout(() => reject(new Error('Expected upstream request')), 1000);
+            if (typeof requestTimer?.unref === 'function') requestTimer.unref();
+          })
+        ]);
+      } finally {
+        if (requestTimer) clearTimeout(requestTimer);
+      }
       expect(sawRequest).toBe(true);
 
       controller.abort();
       await expect(fetchPromise).rejects.toBeDefined();
 
-      await Promise.race([
-        abortSeen,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Expected upstream abort')), 1000))
-      ]);
+      let abortTimer: any | undefined;
+      try {
+        await Promise.race([
+          abortSeen,
+          new Promise((_, reject) => {
+            abortTimer = setTimeout(() => reject(new Error('Expected upstream abort')), 1000);
+            if (typeof abortTimer?.unref === 'function') abortTimer.unref();
+          })
+        ]);
+      } finally {
+        if (abortTimer) clearTimeout(abortTimer);
+      }
 
       expect(sawAbort).toBe(true);
       expect(getRecordingDownloadRequest).toHaveBeenCalled();
     } finally {
       controller.abort();
       await harness.close();
-      await new Promise<void>((resolve, reject) => mediaServer.close(err => (err ? reject(err) : resolve())));
+      await closeServerAndSockets(mediaServer, mediaSockets);
     }
   });
 
   test('GET /voice/calls/:callConfigId/recording enforces proxy timeout', async () => {
-    process.env.LLM_ADAPTER_VOICE_RECORDING_PROXY_TIMEOUT_MS = '50';
+    process.env.LLM_ADAPTER_VOICE_RECORDING_PROXY_TIMEOUT_MS = '250';
+
+    let resolveRequest: (() => void) | undefined;
+    let resolveAbort: (() => void) | undefined;
+    const requestSeen = new Promise<void>((resolve) => { resolveRequest = resolve; });
+    const abortSeen = new Promise<void>((resolve) => { resolveAbort = resolve; });
 
     const mediaServer = http.createServer((req, res) => {
       if ((req.url ?? '') !== '/file.mp3') {
@@ -307,13 +337,29 @@ describe('extensions/voice: recording webhook + retrieval', () => {
         res.end('not found');
         return;
       }
+      resolveRequest?.();
+
+      const markAbort = () => resolveAbort?.();
+      req.on('aborted', markAbort);
+      req.on('close', markAbort);
+
       // Delay longer than the proxy timeout.
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         res.writeHead(200, { 'Content-Type': 'audio/mpeg' });
         res.end('abc');
       }, 1000);
+      if (typeof (timer as any)?.unref === 'function') {
+        (timer as any).unref();
+      }
+      const clear = () => {
+        try { clearTimeout(timer); } catch {}
+      };
+      req.on('aborted', clear);
+      req.on('close', clear);
     });
+    const mediaSockets = trackServerSockets(mediaServer);
     await new Promise<void>((resolve) => mediaServer.listen(0, '127.0.0.1', resolve));
+    unrefServer(mediaServer);
     const address = mediaServer.address();
     if (!address || typeof address === 'string') throw new Error('Expected TCP address');
     const mediaUrl = `http://127.0.0.1:${address.port}/file.mp3`;
@@ -352,18 +398,45 @@ describe('extensions/voice: recording webhook + retrieval', () => {
     });
 
     try {
-      const res = await fetch(new URL('/voice/calls/cfg_1/recording', harness.baseUrl), {
+      const fetchPromise = fetch(new URL('/voice/calls/cfg_1/recording', harness.baseUrl), {
         method: 'GET',
         headers: { Authorization: 'Bearer k1' }
       });
 
+      let requestTimer: any | undefined;
+      try {
+        await Promise.race([
+          requestSeen,
+          new Promise((_, reject) => {
+            requestTimer = setTimeout(() => reject(new Error('Expected upstream request')), 1000);
+            if (typeof requestTimer?.unref === 'function') requestTimer.unref();
+          })
+        ]);
+      } finally {
+        if (requestTimer) clearTimeout(requestTimer);
+      }
+
+      const res = await fetchPromise;
       expect(res.status).toBe(502);
       const body = await res.json();
       expect(body?.error?.code ?? body?.type).toBeDefined();
       expect(getRecordingDownloadRequest).toHaveBeenCalled();
+
+      let abortTimer: any | undefined;
+      try {
+        await Promise.race([
+          abortSeen,
+          new Promise((_, reject) => {
+            abortTimer = setTimeout(() => reject(new Error('Expected upstream abort')), 1000);
+            if (typeof abortTimer?.unref === 'function') abortTimer.unref();
+          })
+        ]);
+      } finally {
+        if (abortTimer) clearTimeout(abortTimer);
+      }
     } finally {
       await harness.close();
-      await new Promise<void>((resolve, reject) => mediaServer.close(err => (err ? reject(err) : resolve())));
+      await closeServerAndSockets(mediaServer, mediaSockets);
     }
   });
 });

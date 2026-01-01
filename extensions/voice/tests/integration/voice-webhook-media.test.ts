@@ -5,6 +5,7 @@ import * as path from 'path';
 import voiceExtension from '../../index.ts';
 import { createInMemoryVoiceCallConfigStore } from '../../internal/call-config-store/index.js';
 import { attachUpgradeRouter } from '@/modules/server/internal/transport/upgrade-router.ts';
+import { closeServerAndSockets, trackServerSockets, unrefServer } from '../helpers/http-server.ts';
 
 function extractStreamUrl(xml: string): string {
   const match = xml.match(/url=\"([^\"]+)\"/);
@@ -29,8 +30,23 @@ function openWs(url: string): Promise<{ ws: WebSocket; messages: any[]; closePro
   };
 
   return new Promise((resolve, reject) => {
-    ws.onerror = err => reject(err);
-    ws.onopen = () => resolve({ ws, messages, closePromise });
+    let settled = false;
+    ws.onerror = err => {
+      if (settled) return;
+      settled = true;
+      try { ws.close(); } catch {}
+      const timer: any = setTimeout(() => reject(err), 250);
+      if (typeof timer?.unref === 'function') timer.unref();
+      closePromise.then(() => {
+        try { clearTimeout(timer); } catch {}
+        reject(err);
+      });
+    };
+    ws.onopen = () => {
+      if (settled) return;
+      settled = true;
+      resolve({ ws, messages, closePromise });
+    };
   });
 }
 
@@ -70,6 +86,8 @@ async function startHarness(options: { store: any; providerPlugins?: any; loggin
     })();
   });
 
+  const sockets = trackServerSockets(server);
+
   const upgradeRouter = attachUpgradeRouter(server);
 
   const reg = await (voiceExtension as any).registerServer({
@@ -87,6 +105,7 @@ async function startHarness(options: { store: any; providerPlugins?: any; loggin
   const unregister = upgradeRouter.register(reg.handleUpgrade);
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  unrefServer(server);
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Expected TCP address');
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -95,7 +114,7 @@ async function startHarness(options: { store: any; providerPlugins?: any; loggin
     unregister();
     upgradeRouter.close();
     await reg.close?.();
-    await new Promise<void>((resolve, reject) => server.close(err => (err ? reject(err) : resolve())));
+    await closeServerAndSockets(server, sockets);
   };
 
   return { baseUrl, close };

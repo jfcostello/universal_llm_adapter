@@ -239,7 +239,10 @@ describe('utils/server (integration) transport + timeouts', () => {
     if (!networkAvailable) return;
 
     let runCount = 0;
-    const gate = new Promise<void>(resolve => setTimeout(resolve, 250));
+    let resolveGate: (() => void) | undefined;
+    const gate = new Promise<void>(resolve => {
+      resolveGate = resolve;
+    });
 
     const server = await createServer({
       maxConcurrentRequests: 1,
@@ -273,6 +276,8 @@ describe('utils/server (integration) transport + timeouts', () => {
       delay(30).then(() => 'pending')
     ]);
     expect(raced).toBe('pending');
+
+    resolveGate?.();
 
     const secondRes = await secondPromise;
     await server.close();

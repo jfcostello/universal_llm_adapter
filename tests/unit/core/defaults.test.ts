@@ -97,34 +97,34 @@ describe('core/defaults', () => {
       expect(timeouts.loggerFlush).toBe(2000);
     });
 
-      test('returns correct server defaults', async () => {
-        const { getDefaults } = await import('@/kernel/index.ts');
-        const { server } = getDefaults();
-  
-        expect(server.maxRequestBytes).toBe(25 * 1024 * 1024);
-        expect(server.bodyReadTimeoutMs).toBe(10000);
-        expect(server.requestTimeoutMs).toBe(0);
-        expect(server.streamIdleTimeoutMs).toBe(60000);
-        expect(server.maxConcurrentRequests).toBe(128);
-        expect(server.maxConcurrentStreams).toBe(32);
-        expect(server.maxQueueSize).toBe(1000);
-        expect(server.queueTimeoutMs).toBe(30000);
-        expect(server.maxConcurrentVectorRequests).toBe(128);
-        expect(server.maxConcurrentVectorStreams).toBe(32);
-        expect(server.vectorMaxQueueSize).toBe(1000);
-        expect(server.vectorQueueTimeoutMs).toBe(30000);
-        expect(server.maxConcurrentEmbeddingRequests).toBe(128);
-        expect(server.embeddingMaxQueueSize).toBe(1000);
-        expect(server.embeddingQueueTimeoutMs).toBe(30000);
-        expect(server.auth.enabled).toBe(false);
-        expect(server.auth.allowBearer).toBe(true);
-        expect(server.auth.allowApiKeyHeader).toBe(true);
-	        expect(server.rateLimit.enabled).toBe(false);
-	        expect(server.cors.enabled).toBe(false);
-	        expect(server.securityHeadersEnabled).toBe(true);
-	        expect(server.extensions?.enabled).toEqual([]);
-	        expect(Number((server.extensions as any)?.voice?.events?.keepAliveIntervalMs)).toBe(15000);
-	      });
+    test('returns correct server defaults', async () => {
+      const { getDefaults } = await import('@/kernel/index.ts');
+      const { server } = getDefaults();
+
+      expect(server.maxRequestBytes).toBe(25 * 1024 * 1024);
+      expect(server.bodyReadTimeoutMs).toBe(10000);
+      expect(server.requestTimeoutMs).toBe(0);
+      expect(server.streamIdleTimeoutMs).toBe(60000);
+      expect(server.maxConcurrentRequests).toBe(128);
+      expect(server.maxConcurrentStreams).toBe(32);
+      expect(server.maxQueueSize).toBe(1000);
+      expect(server.queueTimeoutMs).toBe(30000);
+      expect(server.maxConcurrentVectorRequests).toBe(128);
+      expect(server.maxConcurrentVectorStreams).toBe(32);
+      expect(server.vectorMaxQueueSize).toBe(1000);
+      expect(server.vectorQueueTimeoutMs).toBe(30000);
+      expect(server.maxConcurrentEmbeddingRequests).toBe(128);
+      expect(server.embeddingMaxQueueSize).toBe(1000);
+      expect(server.embeddingQueueTimeoutMs).toBe(30000);
+      expect(server.auth.enabled).toBe(false);
+      expect(server.auth.allowBearer).toBe(true);
+      expect(server.auth.allowApiKeyHeader).toBe(true);
+      expect(server.rateLimit.enabled).toBe(false);
+      expect(server.cors.enabled).toBe(false);
+      expect(server.securityHeadersEnabled).toBe(true);
+      expect(server.extensions?.enabled).toEqual([]);
+      expect(Number((server.extensions as any)?.voice?.events?.keepAliveIntervalMs)).toBe(15000);
+    });
 
     test('returns correct paths defaults', async () => {
       const { getDefaults } = await import('@/kernel/index.ts');
@@ -133,31 +133,31 @@ describe('core/defaults', () => {
       expect(paths.plugins).toBe('./plugins');
     });
 
-      test('returns correct observability defaults', async () => {
-        const { getDefaults } = await import('@/kernel/index.ts');
-        const { observability } = getDefaults();
+    test('returns correct observability defaults', async () => {
+      const { getDefaults } = await import('@/kernel/index.ts');
+      const { observability } = getDefaults();
 
-        expect(observability.enabled).toBe(false);
-        expect(observability.provider).toBe('langfuse');
-        expect(observability.flushAt).toBe(10);
-        expect(observability.flushIntervalMs).toBe(5000);
-        expect(observability.maxQueueSize).toBe(1000);
-        expect(observability.maxAttempts).toBe(3);
-          expect(observability.baseDelayMs).toBe(250);
-          expect(observability.maxDelayMs).toBe(30000);
-          expect(observability.timeoutMs).toBe(10000);
-          expect(observability.shutdownTimeoutMs).toBe(5000);
-          expect(observability.maxAttributeValueBytes).toBe(16384);
-          // Capture defaults come from plugins/configs/defaults.json
-          expect((observability as any).captureMessages).toBe('full');
-        expect((observability as any).captureToolArgs).toBe(true);
-        expect((observability as any).captureRequestPayload).toBe(true);
-        expect((observability as any).captureRawResponse).toBe(true);
-        expect((observability as any).sampleRate).toBe(1);
-        expect((observability as any).maxInputTextBytes).toBe(4096);
-        expect((observability as any).maxOutputTextBytes).toBe(4096);
-        expect((observability as any).maxJsonBytes).toBe(8192);
-      });
+      expect(observability.enabled).toBe(false);
+      expect(observability.provider).toBe('langfuse');
+      expect(observability.flushAt).toBe(10);
+      expect(observability.flushIntervalMs).toBe(5000);
+      expect(observability.maxQueueSize).toBe(1000);
+      expect(observability.maxAttempts).toBe(3);
+      expect(observability.baseDelayMs).toBe(250);
+      expect(observability.maxDelayMs).toBe(30000);
+      expect(observability.timeoutMs).toBe(10000);
+      expect(observability.shutdownTimeoutMs).toBe(5000);
+      expect(observability.maxAttributeValueBytes).toBe(16384);
+      // Capture defaults come from plugins/configs/defaults.json
+      expect((observability as any).captureMessages).toBe('full');
+      expect((observability as any).captureToolArgs).toBe(true);
+      expect((observability as any).captureRequestPayload).toBe(true);
+      expect((observability as any).captureRawResponse).toBe(true);
+      expect((observability as any).sampleRate).toBe(1);
+      expect((observability as any).maxInputTextBytes).toBe(4096);
+      expect((observability as any).maxOutputTextBytes).toBe(4096);
+      expect((observability as any).maxJsonBytes).toBe(8192);
+    });
 
     test('caches defaults after first load', async () => {
       const { getDefaults } = await import('@/kernel/index.ts');
@@ -318,32 +318,32 @@ describe('core/defaults', () => {
       expect(typeof vector.defaultCollection).toBe('string');
     });
 
-      test('observability defaults have correct types', async () => {
-        const { getDefaults } = await import('@/kernel/index.ts');
-        const { observability } = getDefaults();
+    test('observability defaults have correct types', async () => {
+      const { getDefaults } = await import('@/kernel/index.ts');
+      const { observability } = getDefaults();
 
-        expect(typeof observability.enabled).toBe('boolean');
-        // provider is optional but should be a string if present
-        if (observability.provider !== undefined) {
-          expect(typeof observability.provider).toBe('string');
-        }
-        expect(typeof observability.flushAt).toBe('number');
-        expect(typeof observability.flushIntervalMs).toBe('number');
-        expect(typeof observability.maxQueueSize).toBe('number');
-        expect(typeof observability.maxAttempts).toBe('number');
-          expect(typeof observability.baseDelayMs).toBe('number');
-          expect(typeof observability.maxDelayMs).toBe('number');
-          expect(typeof observability.timeoutMs).toBe('number');
-          expect(typeof observability.shutdownTimeoutMs).toBe('number');
-          expect(typeof observability.maxAttributeValueBytes).toBe('number');
-          expect(typeof (observability as any).captureMessages).toBe('string');
-          expect(typeof (observability as any).captureToolArgs).toBe('boolean');
-        expect(typeof (observability as any).captureRequestPayload).toBe('boolean');
-        expect(typeof (observability as any).captureRawResponse).toBe('boolean');
-        expect(typeof (observability as any).sampleRate).toBe('number');
-        expect(typeof (observability as any).maxInputTextBytes).toBe('number');
-        expect(typeof (observability as any).maxOutputTextBytes).toBe('number');
-        expect(typeof (observability as any).maxJsonBytes).toBe('number');
-      });
+      expect(typeof observability.enabled).toBe('boolean');
+      // provider is optional but should be a string if present
+      if (observability.provider !== undefined) {
+        expect(typeof observability.provider).toBe('string');
+      }
+      expect(typeof observability.flushAt).toBe('number');
+      expect(typeof observability.flushIntervalMs).toBe('number');
+      expect(typeof observability.maxQueueSize).toBe('number');
+      expect(typeof observability.maxAttempts).toBe('number');
+      expect(typeof observability.baseDelayMs).toBe('number');
+      expect(typeof observability.maxDelayMs).toBe('number');
+      expect(typeof observability.timeoutMs).toBe('number');
+      expect(typeof observability.shutdownTimeoutMs).toBe('number');
+      expect(typeof observability.maxAttributeValueBytes).toBe('number');
+      expect(typeof (observability as any).captureMessages).toBe('string');
+      expect(typeof (observability as any).captureToolArgs).toBe('boolean');
+      expect(typeof (observability as any).captureRequestPayload).toBe('boolean');
+      expect(typeof (observability as any).captureRawResponse).toBe('boolean');
+      expect(typeof (observability as any).sampleRate).toBe('number');
+      expect(typeof (observability as any).maxInputTextBytes).toBe('number');
+      expect(typeof (observability as any).maxOutputTextBytes).toBe('number');
+      expect(typeof (observability as any).maxJsonBytes).toBe('number');
+    });
   });
 });

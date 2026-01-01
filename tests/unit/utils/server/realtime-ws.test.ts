@@ -289,6 +289,41 @@ describe('server/internal/realtime/ws', () => {
     }
   });
 
+  test('respects spec.timeout.idleTimeoutMs after open', async () => {
+    let closeResolve: (() => void) | undefined;
+    const closed = new Promise<void>((resolve) => {
+      closeResolve = resolve;
+    });
+
+    const session = {
+      close: jest.fn().mockImplementation(async () => closeResolve?.()),
+      events: async function* () {
+        await new Promise(res => setTimeout(res, 150));
+        yield { type: 'ready', sessionId: 's' };
+        await closed;
+        yield { type: 'closed', reason: 'client_close' };
+      }
+    };
+
+    const harness = await startHarness({
+      config: { path: '/realtime/ws', maxMessageBytes: 1024 * 1024, idleTimeoutMs: 50, maxConcurrentSessions: 20, maxAudioBytesPerSecond: 256000, maxSessionDurationMs: 0 },
+      createSession: jest.fn().mockResolvedValue(session)
+    });
+
+    try {
+      const { ws, messages, closePromise } = await openWs(toWsUrl(harness.url, '/realtime/ws'));
+      ws.send(JSON.stringify({ type: 'open', protocolVersion: 1, spec: { timeout: { idleTimeoutMs: 500 } } }));
+
+      await waitForMessage(messages, m => m?.type === 'event' && m?.event?.type === 'ready', 2000);
+      expect(messages.some(m => m?.type === 'error' && m?.error?.code === 'ws_idle_timeout')).toBe(false);
+
+      try { ws.close(); } catch {}
+      await closePromise;
+    } finally {
+      await harness.close();
+    }
+  });
+
   test('exchanges v1 protocol messages and forwards events', async () => {
     let closeResolve: (() => void) | undefined;
     const closed = new Promise<void>((resolve) => {

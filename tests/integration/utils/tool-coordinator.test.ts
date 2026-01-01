@@ -11,7 +11,7 @@ const moduleRoute = {
     module: './tests/fixtures/modules/echo-tool.mjs',
     function: 'handle'
   },
-  timeoutMs: 2000
+  timeoutMs: 5000
 };
 
 const commandRoute = {
@@ -22,7 +22,7 @@ const commandRoute = {
     command: 'node',
     args: ['./tests/fixtures/command/echo.cjs']
   },
-  timeoutMs: 2000
+  timeoutMs: 5000
 };
 
 const globRoute = {

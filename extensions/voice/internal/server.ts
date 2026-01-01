@@ -7,7 +7,7 @@ import { createRequire } from 'module';
 
 import { mapErrorToHttp } from '../../../modules/transport/index.js';
 import { createSignedWsToken, verifySignedWsToken } from '../../../modules/security/index.js';
-import { makeHttpError, normalizeFlag, readTrimmedStringProperty, sleep } from '../../../modules/shared/index.js';
+import { calculateBackoffDelay, makeHttpError, normalizeFlag, readTrimmedStringProperty, sleep } from '../../../modules/shared/index.js';
 import {
   applyCors,
   applySecurityHeaders,
@@ -20,7 +20,12 @@ import {
 
 import type { VoiceProviderPlugins } from './provider-plugins.js';
 import { createVoiceProviderPlugins } from './provider-plugins.js';
-import type { VoiceCallConfigStore } from './call-config-store/index.js';
+import type {
+  VoiceAssistantFirstTurnConfig,
+  VoiceCallConfigStore,
+  VoiceCallRecordingConfig,
+  VoiceCallTimeoutsConfig
+} from './call-config-store/index.js';
 import { createVoiceCallConfigStoreFromEnv } from './call-config-store/index.js';
 import { createVoiceCallEventHub, type VoiceCallEventHub, type VoiceCallEventEnvelope } from './call-events.js';
 import { createVoiceMetrics } from './metrics.js';
@@ -45,6 +50,41 @@ type VoiceLogger = {
 type VoiceLogging = {
   getLogger: (correlationId?: string) => VoiceLogger;
 };
+
+class StringChunkQueue {
+  private readonly chunks: string[] = [];
+  private readonly byteLengths: number[] = [];
+  private start = 0;
+  private totalBytes = 0;
+
+  byteLength(): number {
+    return this.totalBytes;
+  }
+
+  push(chunk: string): void {
+    const bytes = Buffer.byteLength(chunk, 'utf8');
+    this.chunks.push(chunk);
+    this.byteLengths.push(bytes);
+    this.totalBytes += bytes;
+  }
+
+  shift(): { chunk: string; bytes: number } | undefined {
+    if (this.start >= this.chunks.length) return undefined;
+    const chunk = this.chunks[this.start] as string;
+    const bytes = this.byteLengths[this.start] as number;
+    this.start += 1;
+    this.totalBytes -= bytes;
+    if (this.start >= this.chunks.length) this.clear();
+    return { chunk, bytes };
+  }
+
+  clear(): void {
+    this.chunks.length = 0;
+    this.byteLengths.length = 0;
+    this.start = 0;
+    this.totalBytes = 0;
+  }
+}
 
 function parseUrl(rawUrl: string | undefined): URL | null {
   const raw = rawUrl ?? '/';
@@ -103,19 +143,6 @@ function readVoiceExtensionDefaults(httpConfig: any): Record<string, any> {
   return voice ?? {};
 }
 
-type AssistantFirstTurnConfig = {
-  enabled: boolean;
-  prompt?: string;
-  role: 'system' | 'user';
-  delayMs: number;
-  missingPromptBehavior: 'reject' | 'skip';
-};
-
-type VoiceCallTimeoutsConfig = {
-  callTimeoutMs?: number;
-  silenceTimeoutMs?: number;
-};
-
 function readPositiveInt(value: unknown, label: string): number {
   const n = typeof value === 'number' ? value : Number(value);
   const out = Math.floor(n);
@@ -135,6 +162,14 @@ function normalizeVoiceCallTimeouts(options: {
 
   const callTimeoutMsRaw = raw?.callTimeoutMs !== undefined ? raw.callTimeoutMs : defaults?.callTimeoutMs;
   const silenceTimeoutMsRaw = raw?.silenceTimeoutMs !== undefined ? raw.silenceTimeoutMs : defaults?.silenceTimeoutMs;
+  const silenceAssistantAudioStartFallbackMsRaw =
+    raw?.silenceAssistantAudioStartFallbackMs !== undefined
+      ? raw.silenceAssistantAudioStartFallbackMs
+      : defaults?.silenceAssistantAudioStartFallbackMs;
+  const silenceAssistantAudioEndFallbackMsRaw =
+    raw?.silenceAssistantAudioEndFallbackMs !== undefined
+      ? raw.silenceAssistantAudioEndFallbackMs
+      : defaults?.silenceAssistantAudioEndFallbackMs;
 
   const out: VoiceCallTimeoutsConfig = {};
   if (callTimeoutMsRaw !== undefined && callTimeoutMsRaw !== null && callTimeoutMsRaw !== '') {
@@ -143,16 +178,29 @@ function normalizeVoiceCallTimeouts(options: {
   if (silenceTimeoutMsRaw !== undefined && silenceTimeoutMsRaw !== null && silenceTimeoutMsRaw !== '') {
     out.silenceTimeoutMs = readPositiveInt(silenceTimeoutMsRaw, 'timeouts.silenceTimeoutMs');
   }
+  if (
+    silenceAssistantAudioStartFallbackMsRaw !== undefined &&
+    silenceAssistantAudioStartFallbackMsRaw !== null &&
+    silenceAssistantAudioStartFallbackMsRaw !== ''
+  ) {
+    out.silenceAssistantAudioStartFallbackMs = readPositiveInt(
+      silenceAssistantAudioStartFallbackMsRaw,
+      'timeouts.silenceAssistantAudioStartFallbackMs'
+    );
+  }
+  if (
+    silenceAssistantAudioEndFallbackMsRaw !== undefined &&
+    silenceAssistantAudioEndFallbackMsRaw !== null &&
+    silenceAssistantAudioEndFallbackMsRaw !== ''
+  ) {
+    out.silenceAssistantAudioEndFallbackMs = readPositiveInt(
+      silenceAssistantAudioEndFallbackMsRaw,
+      'timeouts.silenceAssistantAudioEndFallbackMs'
+    );
+  }
 
   return Object.keys(out).length > 0 ? out : {};
 }
-
-type VoiceCallRecordingConfig = {
-  enabled: boolean;
-  mode: 'provider' | 'adapter';
-  format: 'mp3' | 'wav';
-  channels: 'mono' | 'dual';
-};
 
 function normalizeVoiceCallRecording(options: {
   raw: unknown;
@@ -184,7 +232,7 @@ function normalizeVoiceCallRecording(options: {
 function normalizeAssistantFirstTurn(options: {
   raw: unknown;
   defaults: unknown;
-}): AssistantFirstTurnConfig | undefined {
+}): VoiceAssistantFirstTurnConfig | undefined {
   const raw = asPlainObject(options.raw);
   const defaults = asPlainObject(options.defaults);
   if (!raw && !defaults) return undefined;
@@ -218,7 +266,7 @@ function normalizeAssistantFirstTurn(options: {
       : defaults?.missingPromptBehavior;
   const missingPromptBehavior = missingPromptBehaviorRaw === 'skip' ? 'skip' : 'reject';
 
-  const out: AssistantFirstTurnConfig = {
+  const out: VoiceAssistantFirstTurnConfig = {
     enabled,
     ...(prompt !== undefined ? { prompt } : {}),
     role,
@@ -273,13 +321,13 @@ function sanitizeHostHeader(raw: unknown): string | undefined {
   if (/[\r\n\t ]/.test(first)) return undefined;
   if (first.includes('/') || first.includes('\\') || first.includes('@') || first.includes('://')) return undefined;
 
-    try {
-      const parsed = new URL(`http://${first}`);
-      if (parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) return undefined;
-      return parsed.host;
-    } catch {
-      return undefined;
-    }
+  try {
+    const parsed = new URL(`http://${first}`);
+    if (parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) return undefined;
+    return parsed.host;
+  } catch {
+    return undefined;
+  }
 }
 
 function getPublicHttpBaseUrl(req: http.IncomingMessage): string {
@@ -317,21 +365,21 @@ function getWsTokenSecret(): string {
   return raw;
 }
 
-  function getWebhookValidationRequired(): boolean {
-    return normalizeFlag(process.env.LLM_ADAPTER_VOICE_WEBHOOK_VALIDATION_REQUIRED, true);
-  }
+function getWebhookValidationRequired(): boolean {
+  return normalizeFlag(process.env.LLM_ADAPTER_VOICE_WEBHOOK_VALIDATION_REQUIRED, true);
+}
 
-  function getWsTokenTtlSeconds(): number {
-    const maxTtlSeconds = 86400;
-    const raw = String(process.env.LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS ?? '').trim();
-    if (!raw) return 300;
-    const n = Number(raw);
-    const ttlSeconds = Math.floor(n);
-    if (!Number.isFinite(n) || ttlSeconds <= 0 || ttlSeconds > maxTtlSeconds) {
-      throw new Error(`Invalid LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS (max ${maxTtlSeconds})`);
-    }
-    return ttlSeconds;
+function getWsTokenTtlSeconds(): number {
+  const maxTtlSeconds = 86400;
+  const raw = String(process.env.LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS ?? '').trim();
+  if (!raw) return 300;
+  const n = Number(raw);
+  const ttlSeconds = Math.floor(n);
+  if (!Number.isFinite(n) || ttlSeconds <= 0 || ttlSeconds > maxTtlSeconds) {
+    throw new Error(`Invalid LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS (max ${maxTtlSeconds})`);
   }
+  return ttlSeconds;
+}
 
 function getMediaWsMaxMessageBytes(): number {
   const raw = String(process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_MESSAGE_BYTES ?? '').trim();
@@ -451,13 +499,13 @@ export async function createVoiceServerRegistration(ctx: {
   handleHttp: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<boolean>;
   handleUpgrade: (ctx: { req: http.IncomingMessage; socket: net.Socket; head: Buffer; pathname: string }) => Promise<boolean>;
   close: () => Promise<void>;
-  }> {
-    const storeInit = ctx.store ? { store: ctx.store, close: undefined } : await createVoiceCallConfigStoreFromEnv();
-    const store = storeInit.store;
-    const httpConfig = ctx.httpConfig ?? {};
-    const maxRequestBytes = httpConfig.maxRequestBytes ?? Number.POSITIVE_INFINITY;
-    const bodyReadTimeoutMs = httpConfig.bodyReadTimeoutMs ?? 0;
-    const authConfig = httpConfig.auth ?? { enabled: false };
+}> {
+  const storeInit = ctx.store ? { store: ctx.store, close: undefined } : await createVoiceCallConfigStoreFromEnv();
+  const store = storeInit.store;
+  const httpConfig = ctx.httpConfig ?? {};
+  const maxRequestBytes = httpConfig.maxRequestBytes ?? Number.POSITIVE_INFINITY;
+  const bodyReadTimeoutMs = httpConfig.bodyReadTimeoutMs ?? 0;
+  const authConfig = httpConfig.auth ?? { enabled: false };
   const rateLimitConfig = httpConfig.rateLimit ?? { enabled: false };
   const corsConfig = httpConfig.cors ?? { enabled: false };
   const securityHeadersEnabled = httpConfig.securityHeadersEnabled ?? true;
@@ -491,33 +539,40 @@ export async function createVoiceServerRegistration(ctx: {
     }
   };
 
-    const safeLog = (logger: VoiceLogger | undefined, level: 'debug' | 'info' | 'warning' | 'error', message: string, data?: any): void => {
-      try {
-        const fn = logger?.[level];
-        if (typeof fn === 'function') fn(message, data);
-      } catch {}
-    };
+  const safeLog = (
+    logger: VoiceLogger | undefined,
+    level: 'debug' | 'info' | 'warning' | 'error',
+    message: string,
+    data?: any
+  ): void => {
+    try {
+      const fn = logger?.[level];
+      if (typeof fn === 'function') fn(message, data);
+    } catch {}
+  };
 
-      const providerPlugins = ctx.providerPlugins ?? createVoiceProviderPlugins({
-        pluginsPath: ctx.pluginsPath,
-        logger: {
-          warning: (message: string, data?: any) => {
-            void (async () => {
-              try {
-                const logger = await resolveLogger();
-                safeLog(logger, 'warning', message, data);
-              } catch {}
-            })();
-          }
+  const providerPlugins =
+    ctx.providerPlugins ??
+    createVoiceProviderPlugins({
+      pluginsPath: ctx.pluginsPath,
+      logger: {
+        warning: (message: string, data?: any) => {
+          void (async () => {
+            try {
+              const logger = await resolveLogger();
+              safeLog(logger, 'warning', message, data);
+            } catch {}
+          })();
         }
-      });
+      }
+    });
 
-    const voiceDefaults = readVoiceExtensionDefaults(httpConfig);
+  const voiceDefaults = readVoiceExtensionDefaults(httpConfig);
 
-    const assertAuthorizedAndRateLimited = async (req: http.IncomingMessage): Promise<string | undefined> => {
-      const authIdentity = await assertAuthorized(req, authConfig, authorize as any);
-      const clientIp = getClientIp(req, Boolean(rateLimitConfig?.trustProxyHeaders));
-      const key = authIdentity ?? clientIp ?? 'unknown';
+  const assertAuthorizedAndRateLimited = async (req: http.IncomingMessage): Promise<string | undefined> => {
+    const authIdentity = await assertAuthorized(req, authConfig, authorize as any);
+    const clientIp = getClientIp(req, Boolean(rateLimitConfig?.trustProxyHeaders));
+    const key = authIdentity ?? clientIp ?? 'unknown';
     if (rateLimitConfig?.enabled) {
       if (authConfig?.enabled) {
         rateLimiter.check(key);
@@ -590,7 +645,15 @@ export async function createVoiceServerRegistration(ctx: {
     return createVoiceCallEventHub({
       ...(maxActiveCalls !== undefined ? { maxActiveCalls } : {}),
       ...(maxBufferedEventsPerCall !== undefined ? { maxBufferedEventsPerCall } : {}),
-      ...(callTtlMs !== undefined ? { callTtlMs } : {})
+      ...(callTtlMs !== undefined ? { callTtlMs } : {}),
+      onSaturation: ({ callConfigId, maxActiveCalls, activeCalls }) => {
+        void (async () => {
+          try {
+            const logger = await resolveLogger(callConfigId);
+            safeLog(logger, 'warning', 'voice.call_events.saturated', { callConfigId, maxActiveCalls, activeCalls });
+          } catch {}
+        })();
+      }
     });
   })();
 
@@ -788,6 +851,12 @@ export async function createVoiceServerRegistration(ctx: {
             }
           }
 
+          let providerDefaults: any | undefined;
+          try {
+            const manifest = await providerPlugins.getManifest?.(voiceProvider);
+            providerDefaults = (manifest as any)?.defaults;
+          } catch {}
+
           const compat = await providerPlugins.getCompat(voiceProvider);
           try {
             const validateWebhookRequest = (compat as any)?.validateWebhookRequest;
@@ -802,12 +871,6 @@ export async function createVoiceServerRegistration(ctx: {
             } else {
               const httpBaseUrl = getPublicHttpBaseUrl(req);
               const publicUrl = new URL(`${url.pathname}${url.search}`, httpBaseUrl).toString();
-
-              let providerDefaults: any | undefined;
-              try {
-                const manifest = await providerPlugins.getManifest?.(voiceProvider);
-                providerDefaults = (manifest as any)?.defaults;
-              } catch {}
 
               await validateWebhookRequest({ req, method, url: publicUrl, params, callConfigId, callConfig, voiceProvider, providerDefaults });
             }
@@ -837,7 +900,7 @@ export async function createVoiceServerRegistration(ctx: {
 
           let parsed: any;
           try {
-            parsed = await parseRecordingWebhook({ params, callConfigId, callConfig, voiceProvider });
+            parsed = await parseRecordingWebhook({ params, callConfigId, callConfig, voiceProvider, providerDefaults });
           } catch (error: any) {
             const statusCode = Number(error?.statusCode ?? 500);
             const code = error?.code !== undefined ? String(error.code) : undefined;
@@ -953,13 +1016,6 @@ export async function createVoiceServerRegistration(ctx: {
             return parts.length > 0 ? parts.slice(0, 100) : undefined;
           })();
 
-          res.writeHead(200, {
-            'Content-Type': 'text/event-stream; charset=utf-8',
-            'Cache-Control': 'no-cache, no-transform',
-            Connection: 'keep-alive',
-            'X-Accel-Buffering': 'no'
-          });
-
           const sanitizeEventName = (value: string): string =>
             String(value ?? '')
               .replace(/[\r\n]/g, '')
@@ -968,12 +1024,12 @@ export async function createVoiceServerRegistration(ctx: {
 
           let closed = false;
           let keepAliveTimer: any | undefined;
-          let sub: { replay: VoiceCallEventEnvelope[]; unsubscribe: () => void } | undefined;
-          let drainListenerAttached = false;
+          let sub: { accepted: boolean; replay: VoiceCallEventEnvelope[]; unsubscribe: () => void } | undefined;
           let drainingWrites = false;
           let inFlightBytes = 0;
-          let queuedBytes = 0;
-          const queuedChunks: string[] = [];
+          const queuedChunks = new StringChunkQueue();
+          const queuedEnvelopes: VoiceCallEventEnvelope[] = [];
+          let canWriteEvents = false;
 
           const cleanup = () => {
             if (closed) return;
@@ -981,7 +1037,6 @@ export async function createVoiceServerRegistration(ctx: {
             try { if (keepAliveTimer) clearInterval(keepAliveTimer); } catch {}
             try { sub?.unsubscribe(); } catch {}
             try { res.off?.('drain', onDrain); } catch {}
-            drainListenerAttached = false;
           };
 
           const closeResponse = () => {
@@ -990,25 +1045,25 @@ export async function createVoiceServerRegistration(ctx: {
           };
 
           const checkQueueLimit = () => {
-            const pendingBytes = inFlightBytes + queuedBytes;
+            const pendingBytes = inFlightBytes + queuedChunks.byteLength();
             if (pendingBytes <= eventsMaxWriteQueueBytes) return;
             closeResponse();
           };
 
           const attachDrain = () => {
-            drainListenerAttached = true;
             res.on?.('drain', onDrain);
           };
 
           const flushQueued = () => {
-            while (queuedChunks.length > 0) {
-              const chunk = queuedChunks.shift() as string;
-              queuedBytes -= Buffer.byteLength(chunk, 'utf8');
+            while (true) {
+              const next = queuedChunks.shift();
+              if (!next) break;
+              const { chunk, bytes } = next;
               try {
                 const ok = res.write(chunk);
                 if (ok === false) {
                   drainingWrites = true;
-                  inFlightBytes = Buffer.byteLength(chunk, 'utf8');
+                  inFlightBytes = bytes;
                   attachDrain();
                   checkQueueLimit();
                   return;
@@ -1027,7 +1082,6 @@ export async function createVoiceServerRegistration(ctx: {
             try {
               res.off?.('drain', onDrain);
             } catch {}
-            drainListenerAttached = false;
             flushQueued();
           }
 
@@ -1036,7 +1090,6 @@ export async function createVoiceServerRegistration(ctx: {
 
             if (drainingWrites) {
               queuedChunks.push(chunk);
-              queuedBytes += Buffer.byteLength(chunk, 'utf8');
               checkQueueLimit();
               return;
             }
@@ -1055,6 +1108,10 @@ export async function createVoiceServerRegistration(ctx: {
           };
 
           const writeEvent = (envelope: VoiceCallEventEnvelope) => {
+            if (!canWriteEvents) {
+              queuedEnvelopes.push(envelope);
+              return;
+            }
             try {
               const name = sanitizeEventName(envelope.event?.type);
               const data = JSON.stringify(envelope);
@@ -1063,9 +1120,29 @@ export async function createVoiceServerRegistration(ctx: {
           };
 
           sub = eventsHub.subscribe(callConfigId, { includeDeltas, ...(eventTypes ? { eventTypes } : {}) }, (evt) => writeEvent(evt));
+          if (!sub.accepted) {
+            writeJson(res, 503, {
+              type: 'error',
+              error: { message: 'Voice call events hub is saturated', code: 'call_events_saturated' }
+            });
+            return true;
+          }
+
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive',
+            'X-Accel-Buffering': 'no'
+          });
+          canWriteEvents = true;
+
           for (const evt of sub.replay) {
             writeEvent(evt);
           }
+          for (const evt of queuedEnvelopes) {
+            writeEvent(evt);
+          }
+          queuedEnvelopes.length = 0;
 
           if (closed) return true;
 
@@ -1338,10 +1415,10 @@ export async function createVoiceServerRegistration(ctx: {
           const ttlSecondsRaw = body?.ttlSeconds;
           const ttlSeconds = ttlSecondsRaw === undefined || ttlSecondsRaw === null ? 900 : Number(ttlSecondsRaw);
 
-            const requestIdFromBodyRaw = readTrimmedStringProperty(body?.metadata, 'requestId');
-            const requestIdFromBody = requestIdFromBodyRaw ? normalizeRequestId(requestIdFromBodyRaw) : undefined;
-            const requestIdFromHeader = readRequestId(req);
-            const requestId = requestIdFromBody ?? requestIdFromHeader;
+          const requestIdFromBodyRaw = readTrimmedStringProperty(body?.metadata, 'requestId');
+          const requestIdFromBody = requestIdFromBodyRaw ? normalizeRequestId(requestIdFromBodyRaw) : undefined;
+          const requestIdFromHeader = readRequestId(req);
+          const requestId = requestIdFromBody ?? requestIdFromHeader;
 
           if (!to || !from || !voiceProvider || !realtimeSpec) {
             writeJson(res, 400, { type: 'error', error: { message: 'Missing required fields', code: 'validation_error' } });
@@ -1362,16 +1439,16 @@ export async function createVoiceServerRegistration(ctx: {
           const idempotencyKey =
             (typeof idempotencyKeyHeader === 'string' ? idempotencyKeyHeader : undefined) ??
             (body?.idempotencyKey !== undefined ? String(body.idempotencyKey) : undefined);
-            const idempotencyKeyTrimmed = typeof idempotencyKey === 'string' ? idempotencyKey.trim() : '';
-            const idempotencyKeyNormalized = normalizeIdempotencyKey(idempotencyKeyTrimmed);
+          const idempotencyKeyTrimmed = typeof idempotencyKey === 'string' ? idempotencyKey.trim() : '';
+          const idempotencyKeyNormalized = normalizeIdempotencyKey(idempotencyKeyTrimmed);
 
           let callConfigId: string | undefined;
           let logger: VoiceLogger | undefined;
 
           try {
-              if (idempotencyKeyNormalized) {
-                const existing = await store.getIdempotency(idempotencyKeyNormalized);
-                if (existing) {
+            if (idempotencyKeyNormalized) {
+              const existing = await store.getIdempotency(idempotencyKeyNormalized);
+              if (existing) {
                 callConfigId = String((existing as any)?.callConfigId ?? '').trim();
                 const providerCallId = String((existing as any)?.providerCallId ?? '').trim();
                 logger = await resolveLogger(callConfigId || undefined);
@@ -1384,13 +1461,14 @@ export async function createVoiceServerRegistration(ctx: {
                 return true;
               }
 
-                const lockTtlSeconds = Math.max(1, Math.min(ttlSeconds, idempotencyLockTtlSeconds));
-                const lockOk = await store.consumeNonceOnce(`idem:${idempotencyKeyNormalized}`, { ttlSeconds: lockTtlSeconds });
-                if (!lockOk) {
-                  const start = Date.now();
-                  while (Date.now() - start < idempotencyWaitMs) {
-                    const ready = await store.getIdempotency(idempotencyKeyNormalized);
-                    if (ready) {
+              const lockTtlSeconds = Math.max(1, Math.min(ttlSeconds, idempotencyLockTtlSeconds));
+              const lockOk = await store.consumeNonceOnce(`idem:${idempotencyKeyNormalized}`, { ttlSeconds: lockTtlSeconds });
+              if (!lockOk) {
+                const start = Date.now();
+                let attempt = 0;
+                while (Date.now() - start < idempotencyWaitMs) {
+                  const ready = await store.getIdempotency(idempotencyKeyNormalized);
+                  if (ready) {
                     callConfigId = String((ready as any)?.callConfigId ?? '').trim();
                     const providerCallId = String((ready as any)?.providerCallId ?? '').trim();
                     logger = await resolveLogger(callConfigId || undefined);
@@ -1402,7 +1480,14 @@ export async function createVoiceServerRegistration(ctx: {
                     writeJson(res, 200, ready);
                     return true;
                   }
-                  await sleep(25);
+
+                  const elapsed = Date.now() - start;
+                  const remainingMs = Math.max(0, idempotencyWaitMs - elapsed);
+                  if (remainingMs <= 0) break;
+
+                  const delayMs = Math.min(calculateBackoffDelay(attempt, 25, 250), remainingMs);
+                  attempt += 1;
+                  await sleep(delayMs);
                 }
 
                 logger = await resolveLogger();
@@ -1426,25 +1511,25 @@ export async function createVoiceServerRegistration(ctx: {
 
             callConfigId = `voice_cfg_${crypto.randomBytes(18).toString('base64url')}`;
             logger = logger ?? (await resolveLogger(callConfigId));
-              safeLog(logger, 'info', 'voice.calls.accepted', {
-                callConfigId,
-                voiceProvider,
-                hasIdempotencyKey: Boolean(idempotencyKeyNormalized),
-                ...(requestId ? { requestId } : {})
-              });
+            safeLog(logger, 'info', 'voice.calls.accepted', {
+              callConfigId,
+              voiceProvider,
+              hasIdempotencyKey: Boolean(idempotencyKeyNormalized),
+              ...(requestId ? { requestId } : {})
+            });
 
-              const metadata = (() => {
-                const raw = body?.metadata;
-                const out = raw && typeof raw === 'object' && !Array.isArray(raw)
-                  ? { ...(raw as Record<string, any>) }
-                  : undefined;
+            const metadata = (() => {
+              const raw = body?.metadata;
+              const out = raw && typeof raw === 'object' && !Array.isArray(raw)
+                ? { ...(raw as Record<string, any>) }
+                : undefined;
 
-                const existingRaw = readTrimmedStringProperty(out, 'requestId');
-                const existing = existingRaw ? normalizeRequestId(existingRaw) : undefined;
-                const requestIdToStore = existing ?? requestId;
-                if (!requestIdToStore) return out;
-                return { ...(out ?? {}), requestId: requestIdToStore };
-              })();
+              const existingRaw = readTrimmedStringProperty(out, 'requestId');
+              const existing = existingRaw ? normalizeRequestId(existingRaw) : undefined;
+              const requestIdToStore = existing ?? requestId;
+              if (!requestIdToStore) return out;
+              return { ...(out ?? {}), requestId: requestIdToStore };
+            })();
 
             await store.putConfig(
               {
@@ -1524,12 +1609,39 @@ export async function createVoiceServerRegistration(ctx: {
                 message: error?.message ?? String(error),
                 ...(requestId ? { requestId } : {})
               });
+
+              // This is a first-class reliability problem: without a persisted providerCallId, call control and
+              // recording retrieval may be broken. Attempt best-effort cleanup and fail the request.
+              try {
+                const endCall = (compat as any)?.endCall;
+                if (typeof endCall === 'function') {
+                  await endCall({ callConfigId, callConfig, voiceProvider, providerCallId, providerDefaults });
+                }
+              } catch (endErr: any) {
+                safeLog(logger, 'error', 'voice.calls.cleanup_end_call_failed', {
+                  callConfigId,
+                  voiceProvider,
+                  providerCallId,
+                  message: endErr?.message ?? String(endErr),
+                  ...(requestId ? { requestId } : {})
+                });
+              }
+
+              try {
+                await store.deleteConfig(callConfigId);
+              } catch {}
+
+              throw makeHttpError({
+                message: 'Failed to persist providerCallId for outbound call',
+                statusCode: 500,
+                code: 'provider_call_id_persist_failed'
+              });
             }
 
             const response = { callConfigId, providerCallId, status: 'queued' };
-              if (idempotencyKeyNormalized) {
-                await store.putIdempotency(idempotencyKeyNormalized, response, { ttlSeconds });
-              }
+            if (idempotencyKeyNormalized) {
+              await store.putIdempotency(idempotencyKeyNormalized, response, { ttlSeconds });
+            }
 
             writeJson(res, 200, response);
             return true;
@@ -1628,8 +1740,8 @@ export async function createVoiceServerRegistration(ctx: {
           return true;
         }
 
-          const requestIdFromConfig = readTrimmedStringProperty((callConfig as any)?.metadata, 'requestId');
-          const requestId = requestIdFromConfig ? normalizeRequestId(requestIdFromConfig) : undefined;
+        const requestIdFromConfig = readTrimmedStringProperty((callConfig as any)?.metadata, 'requestId');
+        const requestId = requestIdFromConfig ? normalizeRequestId(requestIdFromConfig) : undefined;
 
         if (String((callConfig as any).voiceProvider ?? '') !== voiceProvider) {
           const logger = await resolveLogger(callConfigId);

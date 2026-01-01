@@ -7,6 +7,7 @@ import path from 'path';
 import { jest } from '@jest/globals';
 
 import { runVoiceCli } from '../../internal/cli.js';
+import { closeServerAndSockets, trackServerSockets, unrefServer } from '../helpers/http-server.ts';
 
 function createCaptureStream() {
   let data = '';
@@ -31,7 +32,10 @@ async function startServer(handler: (req: http.IncomingMessage, body: any) => { 
     res.end(JSON.stringify(out.body));
   });
 
+  const sockets = trackServerSockets(server);
+
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  unrefServer(server);
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Expected server address');
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -39,7 +43,7 @@ async function startServer(handler: (req: http.IncomingMessage, body: any) => { 
   return {
     baseUrl,
     close: async () => {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await closeServerAndSockets(server, sockets);
     }
   };
 }
@@ -54,7 +58,10 @@ async function startRawServer(handler: (req: http.IncomingMessage, res: http.Ser
     }
   });
 
+  const sockets = trackServerSockets(server);
+
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  unrefServer(server);
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Expected server address');
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -62,7 +69,7 @@ async function startRawServer(handler: (req: http.IncomingMessage, res: http.Ser
   return {
     baseUrl,
     close: async () => {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await closeServerAndSockets(server, sockets);
     }
   };
 }
@@ -1026,6 +1033,7 @@ describe('extensions/voice CLI', () => {
     process.exitCode = undefined;
 
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const stderrWriteSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
 
     try {
       await runVoiceCli({
@@ -1037,6 +1045,7 @@ describe('extensions/voice CLI', () => {
       expect(errorSpy).toHaveBeenCalled();
     } finally {
       errorSpy.mockRestore();
+      stderrWriteSpy.mockRestore();
       process.exitCode = previousExitCode;
     }
   });

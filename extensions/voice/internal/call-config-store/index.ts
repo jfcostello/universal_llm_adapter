@@ -1,5 +1,34 @@
 export type VoiceCallDirection = 'inbound' | 'outbound';
 
+export type VoiceAssistantFirstTurnConfig = {
+  enabled: boolean;
+  prompt?: string;
+  role: 'system' | 'user';
+  delayMs: number;
+  missingPromptBehavior: 'reject' | 'skip';
+};
+
+export type VoiceCallTimeoutsConfig = {
+  callTimeoutMs?: number;
+  silenceTimeoutMs?: number;
+  silenceAssistantAudioStartFallbackMs?: number;
+  silenceAssistantAudioEndFallbackMs?: number;
+};
+
+export type VoiceCallRecordingProviderRecording = {
+  id: string;
+  url: string;
+  status?: string;
+};
+
+export type VoiceCallRecordingConfig = {
+  enabled: boolean;
+  mode: 'provider' | 'adapter';
+  format: 'mp3' | 'wav';
+  channels: 'mono' | 'dual';
+  providerRecording?: VoiceCallRecordingProviderRecording;
+};
+
 export interface VoiceCallConfigV1 {
   version: 1;
   callConfigId: string;
@@ -15,6 +44,11 @@ export interface VoiceCallConfigV1 {
 
   voiceProvider: string;
   metadata?: Record<string, any>;
+
+  providerCallId?: string;
+  assistantFirstTurn?: VoiceAssistantFirstTurnConfig;
+  timeouts?: VoiceCallTimeoutsConfig;
+  recording?: VoiceCallRecordingConfig;
 }
 
 export interface VoiceCallConfigStore {

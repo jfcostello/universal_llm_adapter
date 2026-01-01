@@ -5,6 +5,7 @@ import * as path from 'path';
 import voiceExtension from '../../index.ts';
 import { createInMemoryVoiceCallConfigStore } from '../../internal/call-config-store/index.js';
 import { attachUpgradeRouter } from '@/modules/server/internal/transport/upgrade-router.ts';
+import { closeServerAndSockets, trackServerSockets, unrefServer } from '../helpers/http-server.ts';
 
 async function startHarness(options: { store: any; providerPlugins: any; httpConfig: any }) {
   let handleHttp: any = async () => false;
@@ -16,6 +17,8 @@ async function startHarness(options: { store: any; providerPlugins: any; httpCon
       res.end('not found');
     })();
   });
+
+  const sockets = trackServerSockets(server);
 
   const upgradeRouter = attachUpgradeRouter(server);
 
@@ -33,6 +36,7 @@ async function startHarness(options: { store: any; providerPlugins: any; httpCon
   const unregister = upgradeRouter.register(reg.handleUpgrade);
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  unrefServer(server);
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Expected TCP address');
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -41,7 +45,7 @@ async function startHarness(options: { store: any; providerPlugins: any; httpCon
     unregister();
     upgradeRouter.close();
     await reg.close?.();
-    await new Promise<void>((resolve, reject) => server.close(err => (err ? reject(err) : resolve())));
+    await closeServerAndSockets(server, sockets);
   };
 
   return { baseUrl, close };

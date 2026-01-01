@@ -6,6 +6,7 @@ import voiceExtension from '../../index.ts';
 import { createInMemoryVoiceCallConfigStore } from '../../internal/call-config-store/index.js';
 import { createVoiceCallEventHub } from '../../internal/call-events.js';
 import { attachUpgradeRouter } from '@/modules/server/internal/transport/upgrade-router.ts';
+import { closeServerAndSockets, trackServerSockets, unrefServer } from '../helpers/http-server.ts';
 
 async function startHarness(options: { store: any; providerPlugins: any; httpConfig: any; eventsHub?: any }) {
   let handleHttp: any = async () => false;
@@ -17,6 +18,8 @@ async function startHarness(options: { store: any; providerPlugins: any; httpCon
       res.end('not found');
     })();
   });
+
+  const sockets = trackServerSockets(server);
 
   const upgradeRouter = attachUpgradeRouter(server);
 
@@ -35,6 +38,7 @@ async function startHarness(options: { store: any; providerPlugins: any; httpCon
   const unregister = upgradeRouter.register(reg.handleUpgrade);
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  unrefServer(server);
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Expected TCP address');
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -43,7 +47,7 @@ async function startHarness(options: { store: any; providerPlugins: any; httpCon
     unregister();
     upgradeRouter.close();
     await reg.close?.();
-    await new Promise<void>((resolve, reject) => server.close(err => (err ? reject(err) : resolve())));
+    await closeServerAndSockets(server, sockets);
   };
 
   return { baseUrl, close };
@@ -104,7 +108,7 @@ describe('extensions/voice: call events + control endpoints', () => {
     }
   });
 
-		  test('GET /voice/calls/:callConfigId/events replays buffered events and streams deltas when enabled', async () => {
+  test('GET /voice/calls/:callConfigId/events replays buffered events and streams deltas when enabled', async () => {
     const store = createInMemoryVoiceCallConfigStore();
     await store.putConfig(
       {
@@ -132,8 +136,9 @@ describe('extensions/voice: call events + control endpoints', () => {
     });
 
     const controller = new AbortController();
+    let res: Response | undefined;
     try {
-      const res = await fetch(new URL('/voice/calls/cfg_1/events?includeDeltas=1', harness.baseUrl), {
+      res = await fetch(new URL('/voice/calls/cfg_1/events?includeDeltas=1', harness.baseUrl), {
         method: 'GET',
         headers: { Authorization: 'Bearer k1' },
         signal: controller.signal
@@ -156,10 +161,11 @@ describe('extensions/voice: call events + control endpoints', () => {
 
     } finally {
       controller.abort();
+      try { await res?.body?.cancel(); } catch {}
       hub.close();
       await harness.close();
     }
-	  });
+  });
 
   test('GET /voice/calls/:callConfigId/events supports eventTypes allowlist filtering', async () => {
     const store = createInMemoryVoiceCallConfigStore();
@@ -190,8 +196,9 @@ describe('extensions/voice: call events + control endpoints', () => {
     });
 
     const controller = new AbortController();
+    let res: Response | undefined;
     try {
-      const res = await fetch(new URL('/voice/calls/cfg_1/events?eventTypes=user_transcript.final&includeDeltas=1', harness.baseUrl), {
+      res = await fetch(new URL('/voice/calls/cfg_1/events?eventTypes=user_transcript.final&includeDeltas=1', harness.baseUrl), {
         method: 'GET',
         headers: { Authorization: 'Bearer k1' },
         signal: controller.signal
@@ -215,6 +222,54 @@ describe('extensions/voice: call events + control endpoints', () => {
       controller.abort();
     } finally {
       controller.abort();
+      try { await res?.body?.cancel(); } catch {}
+      hub.close();
+      await harness.close();
+    }
+  });
+
+  test('GET /voice/calls/:callConfigId/events returns 503 when the events hub is saturated', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'outbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const hub = createVoiceCallEventHub({ maxBufferedEventsPerCall: 10, maxActiveCalls: 1, callTtlMs: 0 });
+    const busy = hub.subscribe('busy', { includeDeltas: false }, () => {});
+    expect(busy.accepted).toBe(true);
+
+    const harness = await startHarness({
+      store,
+      providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn() },
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+      eventsHub: hub
+    });
+
+    try {
+      const res = await fetch(new URL('/voice/calls/cfg_1/events', harness.baseUrl), {
+        method: 'GET',
+        headers: { Authorization: 'Bearer k1' }
+      });
+
+      expect(res.status).toBe(503);
+      const body = await res.json();
+      expect(body).toEqual({
+        type: 'error',
+        error: { message: 'Voice call events hub is saturated', code: 'call_events_saturated' }
+      });
+    } finally {
+      busy.unsubscribe();
       hub.close();
       await harness.close();
     }

@@ -70,6 +70,45 @@ describe('realtime-compat/grok — session core', () => {
     metadata: { defaultVoice: 'ara' }
   };
 
+  test('handshake: unrefs ready fallback timer when supported', async () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const unrefSpy = jest.fn();
+    const setTimeoutSpy = jest
+      .spyOn(globalThis, 'setTimeout')
+      .mockImplementation(((fn: any, ms: any, ...args: any[]) => {
+        const timer: any = originalSetTimeout(fn, ms, ...args);
+        if (timer && typeof timer.unref === 'function') {
+          const originalUnref = timer.unref.bind(timer);
+          timer.unref = (...unrefArgs: any[]) => {
+            unrefSpy();
+            return originalUnref(...unrefArgs);
+          };
+        }
+        return timer;
+      }) as any);
+
+    const fake = createFakeTransport();
+
+    const session = createGrokRealtimeCompatSessionWithTransport(
+      {
+        provider,
+        spec: { provider: 'grok', transcription: { enabled: true } } as any
+      } as any,
+      fake.transport as any
+    );
+
+    try {
+      fake.push({ type: 'open' });
+      for (let i = 0; i < 25 && unrefSpy.mock.calls.length === 0; i++) {
+        await Promise.resolve();
+      }
+      expect(unrefSpy).toHaveBeenCalled();
+    } finally {
+      await session.close();
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
   test('handshake: waits for conversation.created to send session.update and emits ready on session.updated', async () => {
     const fake = createFakeTransport();
 
@@ -721,5 +760,96 @@ describe('realtime-compat/grok — session core', () => {
       const closed = await waitForEvent(it, e => e.type === 'closed');
       expect(closed).toEqual({ type: 'closed', reason: 'error' });
     });
+  });
+
+  test('handshake: emits ready if session.updated never arrives (fallback)', async () => {
+    jest.useFakeTimers();
+    const fake = createFakeTransport();
+
+    const session = createGrokRealtimeCompatSessionWithTransport(
+      {
+        provider,
+        spec: { provider: 'grok', transcription: { enabled: true } } as any
+      },
+      fake.transport as any
+    );
+
+    const it = session.events()[Symbol.asyncIterator]();
+    fake.push({ type: 'open' });
+    fake.push({ type: 'open' });
+
+    // Ensure the transport pump has started by flowing through a handshake message.
+    fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created', conversation: { id: 'c1' } }) });
+    for (let i = 0; i < 25 && fake.sent.length === 0; i++) {
+      await Promise.resolve();
+    }
+    expect(fake.sent[0]?.type).toBe('session.update');
+    expect(jest.getTimerCount()).toBe(1);
+    jest.advanceTimersByTime(10_000);
+    const evt = await waitForEvent(it, e => e.type === 'ready');
+    expect(evt.type).toBe('ready');
+
+    await session.close();
+    jest.useRealTimers();
+  });
+
+  test('handshake: fallback sends session.update if conversation.created never arrives', async () => {
+    jest.useFakeTimers();
+    const fake = createFakeTransport();
+
+    const session = createGrokRealtimeCompatSessionWithTransport(
+      {
+        provider,
+        spec: { provider: 'grok', transcription: { enabled: true } } as any
+      },
+      fake.transport as any
+    );
+
+    const it = session.events()[Symbol.asyncIterator]();
+    fake.push({ type: 'open' });
+
+    for (let i = 0; i < 25 && jest.getTimerCount() === 0; i++) {
+      await Promise.resolve();
+    }
+    expect(jest.getTimerCount()).toBe(1);
+
+    jest.advanceTimersByTime(10_000);
+    expect(fake.sent[0]?.type).toBe('session.update');
+    const evt = await waitForEvent(it, e => e.type === 'ready');
+    expect(evt.type).toBe('ready');
+    expect(jest.getTimerCount()).toBe(0);
+
+    await session.close();
+    jest.useRealTimers();
+  });
+
+  test('handshake: ready fallback delay is configurable via spec.handshake.readyFallbackMs', async () => {
+    jest.useFakeTimers();
+    const fake = createFakeTransport();
+
+    const session = createGrokRealtimeCompatSessionWithTransport(
+      {
+        provider,
+        spec: { provider: 'grok', transcription: { enabled: true }, handshake: { readyFallbackMs: 123 } } as any
+      },
+      fake.transport as any
+    );
+
+    const it = session.events()[Symbol.asyncIterator]();
+    fake.push({ type: 'open' });
+
+    for (let i = 0; i < 25 && jest.getTimerCount() === 0; i++) {
+      await Promise.resolve();
+    }
+    expect(jest.getTimerCount()).toBe(1);
+
+    jest.advanceTimersByTime(123);
+    expect(fake.sent[0]?.type).toBe('session.update');
+    const evt = await waitForEvent(it, e => e.type === 'ready');
+    expect(evt.type).toBe('ready');
+    expect(jest.getTimerCount()).toBe(0);
+
+    await session.close();
+    jest.useRealTimers();
   });
 });
