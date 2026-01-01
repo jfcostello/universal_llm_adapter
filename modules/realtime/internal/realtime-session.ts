@@ -65,6 +65,16 @@ type RealtimeSessionLogger = {
   error: (message: string, data?: any) => void;
 };
 
+function estimateBase64Bytes(value: string): number {
+  const text = typeof value === 'string' ? value : '';
+  const len = text.length;
+  if (len === 0) return 0;
+  let padding = 0;
+  if (text.endsWith('==')) padding = 2;
+  else if (text.endsWith('=')) padding = 1;
+  return Math.max(0, Math.floor((len * 3) / 4) - padding);
+}
+
 class RealtimeSessionController implements RealtimeSession {
   private readonly queue = new AsyncQueue<RealtimeEvent>();
   private maxBufferedEvents: number | undefined;
@@ -100,6 +110,11 @@ class RealtimeSessionController implements RealtimeSession {
     requestTimestampMs: number;
     toolCalls: Array<{ id: string; name: string; arguments?: any }>;
   }> = [];
+
+  private audioSent = {
+    frames: 0,
+    bytes: 0
+  };
 
   constructor(private options: RealtimeSessionControllerOptions) {
     this.observability = options.observability;
@@ -411,7 +426,17 @@ class RealtimeSessionController implements RealtimeSession {
   async sendAudio(frame: RealtimeAudioFrame): Promise<void> {
     this.ensureOpen();
     this.onActivity();
-    this.safeLog('debug', 'realtime.send_audio', { frame });
+    this.audioSent.frames += 1;
+    this.audioSent.bytes += estimateBase64Bytes(String((frame as any)?.dataBase64 ?? ''));
+
+    if (process.env.LLM_ADAPTER_REALTIME_LOG_AUDIO_FRAMES === '1') {
+      this.safeLog('debug', 'realtime.send_audio', {
+        format: frame.format,
+        sampleRateHz: frame.sampleRateHz,
+        channels: frame.channels,
+        bytes: estimateBase64Bytes(frame.dataBase64)
+      });
+    }
     await this.options.compatSession.sendAudio(frame);
   }
 
@@ -696,6 +721,9 @@ class RealtimeSessionController implements RealtimeSession {
     this.clearIdleTimer();
 
     this.safeLog('info', 'realtime.session.closing', { reason: options.reason });
+    if (this.audioSent.frames > 0) {
+      this.safeLog('info', 'realtime.audio.sent', { ...this.audioSent });
+    }
 
     if (this.pendingTurns.length > 0) {
       // Ensure pending turns are closed out so traces aren't left dangling.

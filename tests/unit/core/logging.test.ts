@@ -124,6 +124,29 @@ describe('core/logging', () => {
           }
         });
 
+        const consoleFormattedWithMetaCorrelation = consoleFormatter({
+          timestamp: '2025-10-18T10:00:00.000Z',
+          level: 123,
+          message: 'hello',
+          correlationId: ['meta-1', 'meta-2'],
+          extra: 'value'
+        } as any);
+
+        const metaParsed = JSON.parse(consoleFormattedWithMetaCorrelation);
+        expect(metaParsed.level).toBe('123');
+        expect(metaParsed.correlationId).toEqual(['meta-1', 'meta-2']);
+
+        const consoleFormattedWithInvalidCorrelation = consoleFormatter({
+          timestamp: '2025-10-18T10:00:00.000Z',
+          level: 'info',
+          message: 'hello',
+          correlationId: ['meta-1', 2],
+          extra: 'value'
+        } as any);
+
+        const invalidParsed = JSON.parse(consoleFormattedWithInvalidCorrelation);
+        expect(invalidParsed.correlationId).toBe('corr-file');
+
         logger.debug('dbg');
         expect(mocks.logger.debug).toHaveBeenCalledWith('dbg', {});
 
@@ -203,8 +226,40 @@ describe('core/logging', () => {
     expect(correlated).not.toBe(primary);
 
     correlated.info('message');
-    expect(mocks.createLogger).toHaveBeenCalledTimes(2);
-    expect(mocks.logger.info).toHaveBeenCalledWith('message', {});
+    expect(mocks.createLogger).toHaveBeenCalledTimes(1);
+    expect(mocks.logger.info).toHaveBeenCalledWith('message', { correlationId: 'corr-secondary' });
+  });
+
+  test('correlation child logger wraps non-object metadata and does not override explicit correlationId', async () => {
+    const { module, mocks } = await setupLoggingTestHarness({ disableFileLogs: true });
+    const { getLogger } = module;
+
+    const primary = getLogger();
+    const correlated = primary.withCorrelation('corr-secondary');
+
+    correlated.info('string-meta', 'hello' as any);
+    expect(mocks.logger.info).toHaveBeenCalledWith('string-meta', { data: 'hello', correlationId: 'corr-secondary' });
+
+    mocks.logger.info.mockClear();
+    correlated.info('explicit-corr', { correlationId: 'explicit', extra: true });
+    expect(mocks.logger.info).toHaveBeenCalledWith('explicit-corr', { correlationId: 'explicit', extra: true });
+
+    await expect(correlated.close()).resolves.toBeUndefined();
+  });
+
+  test('correlation child logger with empty array id passes through metadata', async () => {
+    const { module, mocks } = await setupLoggingTestHarness({ disableFileLogs: true });
+    const { getLogger } = module;
+
+    const primary = getLogger();
+    const correlated = primary.withCorrelation([]);
+
+    correlated.info('meta-present', { extra: true });
+    expect(mocks.logger.info).toHaveBeenCalledWith('meta-present', { extra: true });
+
+    mocks.logger.info.mockClear();
+    correlated.info('meta-missing');
+    expect(mocks.logger.info).toHaveBeenCalledWith('meta-missing', {});
   });
 
   test('getEmbeddingLogger/getVectorLogger/getVoiceLogger/getRealtimeLogger return correlated instances and closeLogger closes all singletons', async () => {
@@ -1433,17 +1488,10 @@ describe('core/logging', () => {
 
     expect(correlated).not.toBe(primary);
 
-    // Verify the formatter receives the array
-    const formatters = mocks.getAllPrintfFormatters();
-    const consoleFormatter = formatters[formatters.length - 1];
-    const formatted = consoleFormatter({
-      timestamp: '2025-10-18T10:00:00.000Z',
-      level: 'info',
-      message: 'test'
+    correlated.info('test');
+    expect(mocks.logger.info).toHaveBeenCalledWith('test', {
+      correlationId: ['session-abc', 'thread-123', 'request-456']
     });
-
-    const parsed = JSON.parse(formatted);
-    expect(parsed.correlationId).toEqual(['session-abc', 'thread-123', 'request-456']);
   });
 
   test('empty array correlationId omits correlationId field', async () => {

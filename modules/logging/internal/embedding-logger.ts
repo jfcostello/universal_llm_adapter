@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import {
   BaseAdapterLogger,
+  type AdapterLoggerOptions,
   LogLevel,
   createIsoFilenameStamp,
   createIsoTimestamp,
@@ -18,8 +19,8 @@ export class EmbeddingLogger extends BaseAdapterLogger {
   private embeddingRetentionApplied = false;
   private initialized = false;
 
-  constructor(level: LogLevel = LogLevel.INFO, correlationId?: string | string[]) {
-    super(level, correlationId);
+  constructor(level: LogLevel = LogLevel.INFO, correlationId?: string | string[], options: AdapterLoggerOptions = {}) {
+    super(level, correlationId, options);
   }
 
   logEmbeddingRequest(data: {
@@ -152,4 +153,3 @@ export class EmbeddingLogger extends BaseAdapterLogger {
     this.embeddingRetentionApplied = true;
   }
 }
-

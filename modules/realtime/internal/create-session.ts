@@ -35,12 +35,19 @@ export async function createRealtimeSession(
     compat.createSession({ provider, spec, tools }) as unknown as RealtimeCompatSession
   );
 
-  const logger = await (async () => {
+  const { logger, adapterLogger } = await (async () => {
     try {
-      const { getRealtimeLogger } = await import('../../logging/index.js');
-      return getRealtimeLogger(spec.metadata?.correlationId as any);
+      const logging = await import('../../logging/index.js');
+      return {
+        logger: typeof (logging as any).getRealtimeLogger === 'function'
+          ? (logging as any).getRealtimeLogger(spec.metadata?.correlationId as any)
+          : undefined,
+        adapterLogger: typeof (logging as any).getLogger === 'function'
+          ? (logging as any).getLogger(spec.metadata?.correlationId as any)
+          : undefined
+      };
     } catch {
-      return undefined;
+      return { logger: undefined, adapterLogger: undefined };
     }
   })();
 
@@ -51,17 +58,9 @@ export async function createRealtimeSession(
         try {
           const { createObservabilityRuntime } = await import('../../observability/index.js');
 
-          let logger: any = undefined;
-          try {
-            const { getLogger } = await import('../../logging/index.js');
-            logger = getLogger(spec.metadata?.correlationId as any);
-          } catch {
-            // best-effort
-          }
-
           return await createObservabilityRuntime(registry as any, spec.observability, {
             metadata: spec.metadata,
-            logger,
+            logger: adapterLogger,
             // Realtime sessions commonly use correlationId/session metadata instead of batch ids.
             sessionIdFallback: 'correlation'
           });
@@ -70,6 +69,20 @@ export async function createRealtimeSession(
         }
       })()
     : undefined;
+
+  if (
+    spec.observability?.enabled === true &&
+    !observability &&
+    (spec.observability.sampleRate ?? observabilityDefaults.sampleRate) >= 1
+  ) {
+    try {
+      (logger ?? adapterLogger)?.warning?.('realtime.observability.unavailable', {
+        message: 'Observability is enabled for this realtime session but could not be initialized'
+      });
+    } catch {
+      // best-effort
+    }
+  }
 
   return createRealtimeSessionController({
     registry,

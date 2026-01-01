@@ -184,11 +184,222 @@ describe('modules/realtime createRealtimeSession (public API)', () => {
     expect(registry.getTools).not.toHaveBeenCalled();
     expect(compat.createSession).toHaveBeenCalledWith({ provider, spec: expect.any(Object), tools: undefined });
   });
+
+  test('does not call getTools when functionToolNames is omitted', async () => {
+    const provider = { id: 'p', compat: 'rt' };
+
+    const closed = createDeferred<void>();
+    const compatSession: RealtimeCompatSession = {
+      sendText: jest.fn(),
+      injectContext: jest.fn(),
+      sendAudio: jest.fn(),
+      commit: jest.fn(),
+      interrupt: jest.fn(),
+      sendToolResult: jest.fn(),
+      close: jest.fn().mockImplementation(() => closed.resolve()),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+        await closed.promise;
+      }
+    };
+
+    const compat = { createSession: jest.fn().mockResolvedValue(compatSession) };
+
+    const registry = {
+      getRealtimeProvider: jest.fn().mockResolvedValue(provider),
+      getRealtimeCompat: jest.fn().mockResolvedValue(compat),
+      getTools: jest.fn(),
+      getProcessRoutes: jest.fn().mockResolvedValue([])
+    };
+
+    const session = await createRealtimeSession(registry as any, { provider: 'p' } as any);
+    await session.close();
+
+    expect(registry.getTools).not.toHaveBeenCalled();
+    expect(compat.createSession).toHaveBeenCalledWith({ provider, spec: expect.any(Object), tools: undefined });
+  });
 });
 
 describe('modules/realtime/internal/realtime-session', () => {
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  test('uses default timeout settings when not specified and clears timers on close', async () => {
+    const closed = createDeferred<void>();
+
+    const compat: RealtimeCompatSession = {
+      sendText: jest.fn(),
+      injectContext: jest.fn(),
+      sendAudio: jest.fn(),
+      commit: jest.fn(),
+      interrupt: jest.fn(),
+      sendToolResult: jest.fn(),
+      close: jest.fn().mockImplementation(async () => closed.resolve()),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+        await closed.promise;
+      }
+    };
+
+    const session = createRealtimeSessionController({
+      registry: { getProcessRoutes: jest.fn().mockResolvedValue([]) },
+      provider: { id: 'p' } as any,
+      spec: { provider: 'p' },
+      compatSession: compat
+    });
+
+    const events = session.events()[Symbol.asyncIterator]();
+    await expect(events.next()).resolves.toMatchObject({ value: { type: 'ready' }, done: false });
+
+    await session.close();
+    expect(compat.close).toHaveBeenCalledTimes(1);
+  });
+
+  test('sendAudio does not emit per-frame logs by default and logs a summary on close', async () => {
+    const closed = createDeferred<void>();
+
+    const logger = {
+      withCorrelation: () => logger,
+      debug: jest.fn(),
+      info: jest.fn(),
+      warning: jest.fn(),
+      error: jest.fn()
+    };
+
+    const compat: RealtimeCompatSession = {
+      sendText: jest.fn(),
+      injectContext: jest.fn(),
+      sendAudio: jest.fn(),
+      commit: jest.fn(),
+      interrupt: jest.fn(),
+      sendToolResult: jest.fn(),
+      close: jest.fn().mockImplementation(async () => closed.resolve()),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+        await closed.promise;
+      }
+    };
+
+    const session = createRealtimeSessionController({
+      registry: { getProcessRoutes: jest.fn().mockResolvedValue([]) },
+      provider: { id: 'p' } as any,
+      spec: { provider: 'p', timeout: { maxDurationMs: 0, idleTimeoutMs: 0, onTimeout: 'close' } },
+      compatSession: compat,
+      logger: logger as any
+    });
+
+    const events = session.events()[Symbol.asyncIterator]();
+    await expect(events.next()).resolves.toMatchObject({ value: { type: 'ready' }, done: false });
+
+    await session.sendAudio({ format: 'pcm16', sampleRateHz: 24000, channels: 1, dataBase64: 'AA==' });
+    await session.sendAudio({ format: 'pcm16', sampleRateHz: 24000, channels: 1, dataBase64: 'AAA=' });
+    await session.close();
+
+    expect(logger.debug.mock.calls.some(([m]) => m === 'realtime.send_audio')).toBe(false);
+
+    const audioSummary = logger.info.mock.calls.find(([m]) => m === 'realtime.audio.sent');
+    expect(audioSummary?.[1]).toEqual({ frames: 2, bytes: 3 });
+  });
+
+  test('sendAudio counts bytes safely when frame has no dataBase64', async () => {
+    const closed = createDeferred<void>();
+
+    const logger = {
+      withCorrelation: () => logger,
+      debug: jest.fn(),
+      info: jest.fn(),
+      warning: jest.fn(),
+      error: jest.fn()
+    };
+
+    const compat: RealtimeCompatSession = {
+      sendText: jest.fn(),
+      injectContext: jest.fn(),
+      sendAudio: jest.fn(),
+      commit: jest.fn(),
+      interrupt: jest.fn(),
+      sendToolResult: jest.fn(),
+      close: jest.fn().mockImplementation(async () => closed.resolve()),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+        await closed.promise;
+      }
+    };
+
+    const session = createRealtimeSessionController({
+      registry: { getProcessRoutes: jest.fn().mockResolvedValue([]) },
+      provider: { id: 'p' } as any,
+      spec: { provider: 'p', timeout: { maxDurationMs: 0, idleTimeoutMs: 0, onTimeout: 'close' } },
+      compatSession: compat,
+      logger: logger as any
+    });
+
+    const events = session.events()[Symbol.asyncIterator]();
+    await expect(events.next()).resolves.toMatchObject({ value: { type: 'ready' }, done: false });
+
+    await session.sendAudio({ format: 'pcm16', sampleRateHz: 24000, channels: 1 } as any);
+    await session.close();
+
+    const audioSummary = logger.info.mock.calls.find(([m]) => m === 'realtime.audio.sent');
+    expect(audioSummary?.[1]).toEqual({ frames: 1, bytes: 0 });
+  });
+
+  test('sendAudio emits per-frame logs only when explicitly enabled', async () => {
+    const original = process.env.LLM_ADAPTER_REALTIME_LOG_AUDIO_FRAMES;
+    process.env.LLM_ADAPTER_REALTIME_LOG_AUDIO_FRAMES = '1';
+
+    const closed = createDeferred<void>();
+
+    const logger = {
+      withCorrelation: () => logger,
+      debug: jest.fn(),
+      info: jest.fn(),
+      warning: jest.fn(),
+      error: jest.fn()
+    };
+
+    const compat: RealtimeCompatSession = {
+      sendText: jest.fn(),
+      injectContext: jest.fn(),
+      sendAudio: jest.fn(),
+      commit: jest.fn(),
+      interrupt: jest.fn(),
+      sendToolResult: jest.fn(),
+      close: jest.fn().mockImplementation(async () => closed.resolve()),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+        await closed.promise;
+      }
+    };
+
+    const session = createRealtimeSessionController({
+      registry: { getProcessRoutes: jest.fn().mockResolvedValue([]) },
+      provider: { id: 'p' } as any,
+      spec: { provider: 'p', timeout: { maxDurationMs: 0, idleTimeoutMs: 0, onTimeout: 'close' } },
+      compatSession: compat,
+      logger: logger as any
+    });
+
+    const events = session.events()[Symbol.asyncIterator]();
+    await expect(events.next()).resolves.toMatchObject({ value: { type: 'ready' }, done: false });
+
+    await session.sendAudio({ format: 'pcm16', sampleRateHz: 24000, channels: 1, dataBase64: 'AAA=' });
+    await session.sendAudio({ format: 'pcm16', sampleRateHz: 24000, channels: 1, dataBase64: 123 } as any);
+    await session.close();
+
+    const perFrames = logger.debug.mock.calls.filter(([m]) => m === 'realtime.send_audio');
+    expect(perFrames).toHaveLength(2);
+
+    const withBytes2 = perFrames.find(([, data]) => (data as any)?.bytes === 2);
+    expect(withBytes2?.[1]).toEqual({ format: 'pcm16', sampleRateHz: 24000, channels: 1, bytes: 2 });
+    expect(JSON.stringify(withBytes2?.[1])).not.toContain('AAA=');
+
+    const withBytes0 = perFrames.find(([, data]) => (data as any)?.bytes === 0);
+    expect(withBytes0?.[1]).toEqual({ format: 'pcm16', sampleRateHz: 24000, channels: 1, bytes: 0 });
+
+    if (original === undefined) delete process.env.LLM_ADAPTER_REALTIME_LOG_AUDIO_FRAMES;
+    else process.env.LLM_ADAPTER_REALTIME_LOG_AUDIO_FRAMES = original;
   });
 
   test('events() can only be consumed once', async () => {

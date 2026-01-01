@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { ProviderExecutionError } from '../../../kernel/index.js';
-import { makeHttpError } from '../../../modules/shared/index.js';
+import { calculateBackoffDelay, makeHttpError } from '../../../modules/shared/index.js';
 import { createRealtimeSession } from '../../../modules/realtime/index.js';
 import { createTwilioMediaStreamsBridge } from '../../voice-modules/twilio-media-streams/index.js';
 import { wrapAssistantFirstTurnEvents } from './internal/assistant-first-turn-events.js';
@@ -99,6 +99,36 @@ function computeRequestSignature(authToken: string, url: string, params: Record<
 }
 
 export default class TwilioVoiceCompat {
+  private async fetchJsonWithRetry(options: {
+    url: string;
+    headers: Record<string, string>;
+    maxRetries: number;
+    baseDelayMs: number;
+    maxDelayMs: number;
+  }): Promise<any> {
+    const maxRetries = Math.max(0, Math.floor(options.maxRetries));
+    const baseDelayMs = Math.max(0, Math.floor(options.baseDelayMs));
+    const maxDelayMs = Math.max(0, Math.floor(options.maxDelayMs));
+
+    let attempt = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      try {
+        return await this.fetchJson(options.url, options.headers);
+      } catch (err: any) {
+        const status = typeof err?.status === 'number' ? err.status : undefined;
+        const retryable = status === 429 || (typeof status === 'number' && status >= 500 && status < 600);
+        if (!retryable || attempt >= maxRetries) {
+          throw err;
+        }
+
+        const delayMs = calculateBackoffDelay(attempt, baseDelayMs, maxDelayMs);
+        await (sleepUnref(delayMs) ?? Promise.resolve());
+        attempt += 1;
+      }
+    }
+  }
+
   private async fetchJson(url: string, headers: Record<string, string>): Promise<any> {
     const res = await fetch(url, { method: 'GET', headers });
     if (!res.ok) {
@@ -123,14 +153,32 @@ export default class TwilioVoiceCompat {
     initialUrl: string;
     headers: Record<string, string>;
     apiBaseUrl: string;
+    maxPages: number;
+    retry: { maxRetries: number; baseDelayMs: number; maxDelayMs: number };
   }): Promise<{ pages: any[] }> {
     const pages: any[] = [];
     let url: string | null = options.initialUrl;
+    const maxPages = Math.max(1, Math.floor(options.maxPages));
+    const seen = new Set<string>();
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
       if (!url) break;
-      const json = await this.fetchJson(url, options.headers);
+
+      if (pages.length >= maxPages) {
+        break;
+      }
+
+      if (seen.has(url)) {
+        break;
+      }
+      seen.add(url);
+
+      const json = await this.fetchJsonWithRetry({
+        url,
+        headers: options.headers,
+        ...options.retry
+      });
       pages.push(json);
 
       const nextRaw = (json as any)?.next_page_uri;
@@ -194,6 +242,29 @@ export default class TwilioVoiceCompat {
     const recordingsUrl = `${apiBaseUrl}/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Calls/${encodeURIComponent(providerCallId)}/Recordings.json`;
     const debuggerEventsUrl = `${apiBaseUrl}/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Calls/${encodeURIComponent(providerCallId)}/Debugger/Events.json`;
 
+    const maxPages = (() => {
+      const raw = process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_MAX_PAGES;
+      const n = raw === undefined || raw === null || raw === '' ? NaN : Number(raw);
+      return Number.isFinite(n) && n > 0 ? Math.floor(n) : 25;
+    })();
+    const retry = {
+      maxRetries: (() => {
+        const raw = process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_MAX_RETRIES;
+        const n = raw === undefined || raw === null || raw === '' ? NaN : Number(raw);
+        return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 2;
+      })(),
+      baseDelayMs: (() => {
+        const raw = process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_RETRY_BASE_DELAY_MS;
+        const n = raw === undefined || raw === null || raw === '' ? NaN : Number(raw);
+        return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 250;
+      })(),
+      maxDelayMs: (() => {
+        const raw = process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_RETRY_MAX_DELAY_MS;
+        const n = raw === undefined || raw === null || raw === '' ? NaN : Number(raw);
+        return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 2000;
+      })()
+    };
+
     const safeLog = (level: 'debug' | 'info' | 'warning' | 'error', message: string, data?: any) => {
       try {
         const fn = options.logger?.[level];
@@ -225,15 +296,15 @@ export default class TwilioVoiceCompat {
       }
     };
 
-    await capture('call', async () => await this.fetchJson(callUrl, headers));
+    await capture('call', async () => await this.fetchJsonWithRetry({ url: callUrl, headers, ...retry }));
     await capture('events', async () =>
-      await this.fetchPaginatedJson({ initialUrl: eventsUrl, headers, apiBaseUrl })
+      await this.fetchPaginatedJson({ initialUrl: eventsUrl, headers, apiBaseUrl, maxPages, retry })
     );
     await capture('recordings', async () =>
-      await this.fetchPaginatedJson({ initialUrl: recordingsUrl, headers, apiBaseUrl })
+      await this.fetchPaginatedJson({ initialUrl: recordingsUrl, headers, apiBaseUrl, maxPages, retry })
     );
     await capture('debugger-events', async () =>
-      await this.fetchPaginatedJson({ initialUrl: debuggerEventsUrl, headers, apiBaseUrl })
+      await this.fetchPaginatedJson({ initialUrl: debuggerEventsUrl, headers, apiBaseUrl, maxPages, retry })
     );
 
     // Apply retention parity (best-effort).

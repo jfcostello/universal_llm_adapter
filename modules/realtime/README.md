@@ -70,6 +70,10 @@ When `modules/logging` is available, realtime sessions emit JSONL file logs unde
 Retention (in addition to the global `LLM_ADAPTER_LOG_*` defaults):
 - `LLM_ADAPTER_REALTIME_LOG_MAX_FILES`
 - `LLM_ADAPTER_REALTIME_LOG_MAX_AGE_DAYS`
+- `LLM_ADAPTER_REALTIME_LOG_MAX_BYTES` (batch mode only)
+
+Optional debug:
+- `LLM_ADAPTER_REALTIME_LOG_AUDIO_FRAMES=1`: emit per-audio-frame metadata logs (no base64 audio payloads).
 
 ---
 

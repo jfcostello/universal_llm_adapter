@@ -46,6 +46,46 @@ describe('modules/realtime/internal/create-session (optional deps)', () => {
     });
   });
 
+  test('continues when logging module is available but does not expose logger factories', async () => {
+    await jest.isolateModulesAsync(async () => {
+      let captured: any;
+
+      jest.unstable_mockModule('../../../modules/realtime/internal/realtime-session.js', () => ({
+        createRealtimeSessionController: (options: any) => {
+          captured = options;
+          return {
+            sendText: async () => {},
+            injectContext: async () => {},
+            sendDTMF: async () => {},
+            sendAudio: async () => {},
+            commit: async () => {},
+            interrupt: async () => {},
+            close: async () => {},
+            events: async function* () {}
+          };
+        }
+      }));
+
+      jest.unstable_mockModule('../../../modules/logging/index.js', () => ({
+        getLogger: undefined,
+        getRealtimeLogger: undefined
+      }));
+
+      const { createRealtimeSession } = await import('@/modules/realtime/index.ts');
+
+      const registry = {
+        getRealtimeProvider: jest.fn().mockResolvedValue({ id: 'p', compat: 'rt' }),
+        getRealtimeCompat: jest.fn().mockResolvedValue({ createSession: jest.fn().mockResolvedValue({}) }),
+        getTools: jest.fn(),
+        getProcessRoutes: jest.fn().mockResolvedValue([])
+      };
+
+      const session = await createRealtimeSession(registry as any, { provider: 'p', observability: { enabled: false } } as any);
+      expect(session).toBeDefined();
+      expect(captured?.logger).toBeUndefined();
+    });
+  });
+
   test('passes observability runtime and swallows getLogger import failures', async () => {
     await jest.isolateModulesAsync(async () => {
       let captured: any;
@@ -229,5 +269,38 @@ describe('modules/realtime/internal/create-session (optional deps)', () => {
       expect(captured?.observability).toBe(runtime);
     });
   });
-});
 
+  test('warns when observability is explicitly enabled but cannot be initialized', async () => {
+    await jest.isolateModulesAsync(async () => {
+      const warning = jest.fn();
+
+      jest.unstable_mockModule('../../../modules/logging/index.js', () => ({
+        getLogger: jest.fn(() => ({ warning })),
+        getRealtimeLogger: jest.fn(() => ({ warning }))
+      }));
+
+      jest.unstable_mockModule('../../../modules/observability/index.js', () => {
+        throw new Error('observability module missing');
+      });
+
+      const { createRealtimeSession } = await import('@/modules/realtime/index.ts');
+
+      const registry = {
+        getRealtimeProvider: jest.fn().mockResolvedValue({ id: 'p', compat: 'rt' }),
+        getRealtimeCompat: jest.fn().mockResolvedValue({ createSession: jest.fn().mockResolvedValue({}) }),
+        getTools: jest.fn(),
+        getProcessRoutes: jest.fn().mockResolvedValue([])
+      };
+
+      await createRealtimeSession(registry as any, {
+        provider: 'p',
+        observability: { enabled: true, sampleRate: 1 }
+      } as any);
+
+      expect(warning).toHaveBeenCalledWith(
+        'realtime.observability.unavailable',
+        expect.objectContaining({ message: expect.any(String) })
+      );
+    });
+  });
+});
