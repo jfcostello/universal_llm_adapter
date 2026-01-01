@@ -272,6 +272,18 @@ describe('realtime-compat/gemini — event mapper', () => {
     expect(events.find(e => e.type === 'user_transcript.delta')).toEqual({ type: 'user_transcript.delta', textDelta: 'hello' });
   });
 
+  test('supports alternative outputTranscription field names', () => {
+    const state = makeState();
+    const events = mapGeminiLiveServerMessage({ serverContent: { outputTranscription: { transcript: 'hi' } } }, state);
+    expect(events.find(e => e.type === 'assistant_transcript.delta')).toEqual({ type: 'assistant_transcript.delta', textDelta: 'hi' });
+  });
+
+  test('supports outputTranscription.value', () => {
+    const state = makeState();
+    const events = mapGeminiLiveServerMessage({ serverContent: { outputTranscription: { value: 'hi' } } }, state);
+    expect(events.find(e => e.type === 'assistant_transcript.delta')).toEqual({ type: 'assistant_transcript.delta', textDelta: 'hi' });
+  });
+
   test('maps interrupted to playback.clear_requested and resets output buffers', () => {
     const state = makeState();
     state.assistantTranscript = 'x';

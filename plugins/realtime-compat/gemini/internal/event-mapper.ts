@@ -132,7 +132,7 @@ export function mapGeminiLiveServerMessage(message: any, state: GeminiRealtimeMa
     }
 
     if (sc.outputTranscription && typeof sc.outputTranscription === 'object') {
-      const next = safeString(sc.outputTranscription.text);
+      const next = safeString(sc.outputTranscription.text ?? sc.outputTranscription.transcript ?? sc.outputTranscription.value);
       const delta = diffAsDelta(state.assistantTranscriptRaw, next);
       state.assistantTranscriptRaw = next;
       if (delta) {

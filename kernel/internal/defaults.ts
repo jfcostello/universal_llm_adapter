@@ -34,6 +34,7 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
     includeVector: false,
     defaultCollection: 'default',
     queryConstruction: {
+      includeSystemPrompt: 'if-in-range',
       includeAssistantMessages: true,
       messagesToInclude: 1
     }

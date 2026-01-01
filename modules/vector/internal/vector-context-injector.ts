@@ -225,17 +225,18 @@ export class VectorContextInjector {
     // Get query construction settings with defaults
     const defaults = getVectorDefaults().queryConstruction;
     const settings: QueryConstructionSettings = {
+      includeSystemPrompt: config.queryConstruction?.includeSystemPrompt ?? defaults.includeSystemPrompt,
       includeAssistantMessages: config.queryConstruction?.includeAssistantMessages ?? defaults.includeAssistantMessages,
       messagesToInclude: config.queryConstruction?.messagesToInclude ?? defaults.messagesToInclude
     };
 
     // Separate system message from other messages
-    const systemMessages: Message[] = [];
-    const nonSystemMessages: Message[] = [];
+    let systemMessage: Message | null = null;
+    let nonSystemMessages: Message[] = [];
 
     for (const msg of messages) {
       if (msg.role === Role.SYSTEM) {
-        systemMessages.push(msg);
+        systemMessage = msg;
       } else {
         nonSystemMessages.push(msg);
       }
@@ -259,11 +260,25 @@ export class VectorContextInjector {
       return false;
     });
 
+    // Determine if system prompt should be included
+    let includeSystem = false;
+    if (systemMessage) {
+      if (settings.includeSystemPrompt === 'always') {
+        includeSystem = true;
+      } else if (settings.includeSystemPrompt === 'if-in-range') {
+        // Include if total messages (including system) <= messagesToInclude
+        // Or if messagesToInclude is 0 (all messages)
+        const totalMessages = messages.length;
+        includeSystem = settings.messagesToInclude === 0 || totalMessages <= settings.messagesToInclude;
+      }
+      // 'never' means includeSystem stays false
+    }
+
     // Build the query text
     const queryParts: string[] = [];
 
-    // Always include system message(s) first
-    for (const systemMessage of systemMessages) {
+    // Add system message first if included
+    if (includeSystem && systemMessage) {
       const systemText = this.extractTextFromMessage(systemMessage);
       if (systemText) {
         queryParts.push(systemText);

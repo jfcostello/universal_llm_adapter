@@ -730,10 +730,26 @@ Feature: Retrieval (RAG) using vector context injection
     And the rendered template is injected into the prompt
 
   # Modules: vector, embeddings, llm, messages
-  Scenario: Auto-inject query construction includes the system prompt in the retrieval query
+  Scenario: Auto-inject query construction can include the system prompt in the retrieval query
     Given vector context is configured in auto mode
+    And queryConstruction.includeSystemPrompt is always
     When retrieval executes
     Then the retrieval query includes the system prompt text
+
+  # Modules: vector, embeddings, llm, messages
+  Scenario: Auto-inject query construction can exclude the system prompt in the retrieval query
+    Given vector context is configured in auto mode
+    And queryConstruction.includeSystemPrompt is never
+    When retrieval executes
+    Then the retrieval query does not include the system prompt text
+
+  # Modules: vector, embeddings, llm, messages
+  Scenario: Auto-inject query construction includeSystemPrompt if-in-range is applied deterministically
+    Given vector context is configured in auto mode
+    And queryConstruction.includeSystemPrompt is if-in-range
+    When retrieval executes
+    Then the system prompt is included only when messagesToInclude is 0 or total message count is less than or equal to messagesToInclude
+    And otherwise the system prompt is excluded from the retrieval query
 
   # Modules: vector, embeddings, llm, messages
   Scenario: Auto-inject query construction can include assistant messages when enabled

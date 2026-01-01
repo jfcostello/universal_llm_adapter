@@ -786,7 +786,8 @@ describe('utils/vector/vector-context-injector', () => {
         mode: 'auto',
         queryConstruction: {
           messagesToInclude: 3,
-          includeAssistantMessages: true
+          includeAssistantMessages: true,
+          includeSystemPrompt: 'never'
         }
       };
 
@@ -827,7 +828,8 @@ describe('utils/vector/vector-context-injector', () => {
         mode: 'auto',
         queryConstruction: {
           messagesToInclude: 0, // 0 means all
-          includeAssistantMessages: true
+          includeAssistantMessages: true,
+          includeSystemPrompt: 'never'
         }
       };
 
@@ -867,7 +869,8 @@ describe('utils/vector/vector-context-injector', () => {
         mode: 'auto',
         queryConstruction: {
           messagesToInclude: 0, // all
-          includeAssistantMessages: false
+          includeAssistantMessages: false,
+          includeSystemPrompt: 'never'
         }
       };
 
@@ -879,7 +882,7 @@ describe('utils/vector/vector-context-injector', () => {
       expect(result.query).toContain('Second question');
     });
 
-    test('includes system prompt when present', async () => {
+    test('includes system prompt when includeSystemPrompt is always', async () => {
       const embeddingCompat = {
         embed: jest.fn().mockResolvedValue({
           vectors: [[0.1]],
@@ -906,7 +909,8 @@ describe('utils/vector/vector-context-injector', () => {
         mode: 'auto',
         queryConstruction: {
           messagesToInclude: 1, // only last message
-          includeAssistantMessages: true
+          includeAssistantMessages: true,
+          includeSystemPrompt: 'always'
         }
       };
 
@@ -917,7 +921,7 @@ describe('utils/vector/vector-context-injector', () => {
       expect(result.query).toContain('User question');
     });
 
-    test('includes multiple system messages in order', async () => {
+    test('excludes system prompt when includeSystemPrompt is never', async () => {
       const embeddingCompat = {
         embed: jest.fn().mockResolvedValue({
           vectors: [[0.1]],
@@ -935,8 +939,7 @@ describe('utils/vector/vector-context-injector', () => {
 
       const injector = new VectorContextInjector({ registry });
       const messages: Message[] = [
-        { role: Role.SYSTEM, content: [{ type: 'text', text: 'System instructions 1' }] },
-        { role: Role.SYSTEM, content: [{ type: 'text', text: 'System instructions 2' }] },
+        { role: Role.SYSTEM, content: [{ type: 'text', text: 'You are a helpful assistant' }] },
         { role: Role.USER, content: [{ type: 'text', text: 'User question' }] }
       ];
 
@@ -944,19 +947,100 @@ describe('utils/vector/vector-context-injector', () => {
         stores: ['test-store'],
         mode: 'auto',
         queryConstruction: {
-          messagesToInclude: 1, // only last message
-          includeAssistantMessages: true
+          messagesToInclude: 0, // all messages
+          includeAssistantMessages: true,
+          includeSystemPrompt: 'never'
         }
       };
 
       const result = await injector.injectContext(messages, config);
 
-      const idx1 = result.query.indexOf('System instructions 1');
-      const idx2 = result.query.indexOf('System instructions 2');
-      const idxUser = result.query.indexOf('User question');
-      expect(idx1).toBeGreaterThanOrEqual(0);
-      expect(idx2).toBeGreaterThan(idx1);
-      expect(idxUser).toBeGreaterThan(idx2);
+      // System prompt should NOT be included
+      expect(result.query).not.toContain('You are a helpful assistant');
+      expect(result.query).toContain('User question');
+    });
+
+    test('includes system prompt if-in-range when messagesToInclude covers it', async () => {
+      const embeddingCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1]],
+          model: 'test',
+          dimensions: 1
+        }),
+        getDimensions: jest.fn()
+      };
+      const vectorCompat = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([])
+      };
+      const registry = createMockRegistry({ embeddingCompat, vectorCompat });
+
+      const injector = new VectorContextInjector({ registry });
+      const messages: Message[] = [
+        { role: Role.SYSTEM, content: [{ type: 'text', text: 'System instructions' }] },
+        { role: Role.USER, content: [{ type: 'text', text: 'Only user message' }] }
+      ];
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        queryConstruction: {
+          messagesToInclude: 5, // More than total messages, so system is in range
+          includeAssistantMessages: true,
+          includeSystemPrompt: 'if-in-range'
+        }
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      // System prompt should be included because total messages (2) <= messagesToInclude (5)
+      expect(result.query).toContain('System instructions');
+      expect(result.query).toContain('Only user message');
+    });
+
+    test('excludes system prompt if-in-range when messagesToInclude does not cover it', async () => {
+      const embeddingCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1]],
+          model: 'test',
+          dimensions: 1
+        }),
+        getDimensions: jest.fn()
+      };
+      const vectorCompat = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([])
+      };
+      const registry = createMockRegistry({ embeddingCompat, vectorCompat });
+
+      const injector = new VectorContextInjector({ registry });
+      const messages: Message[] = [
+        { role: Role.SYSTEM, content: [{ type: 'text', text: 'System instructions' }] },
+        { role: Role.USER, content: [{ type: 'text', text: 'First question' }] },
+        { role: Role.ASSISTANT, content: [{ type: 'text', text: 'First answer' }] },
+        { role: Role.USER, content: [{ type: 'text', text: 'Second question' }] },
+        { role: Role.ASSISTANT, content: [{ type: 'text', text: 'Second answer' }] },
+        { role: Role.USER, content: [{ type: 'text', text: 'Third question' }] }
+      ];
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        queryConstruction: {
+          messagesToInclude: 2, // Only last 2 messages
+          includeAssistantMessages: true,
+          includeSystemPrompt: 'if-in-range'
+        }
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      // System prompt should NOT be included because total messages (6) > messagesToInclude (2)
+      expect(result.query).not.toContain('System instructions');
+      expect(result.query).toContain('Second answer');
+      expect(result.query).toContain('Third question');
     });
 
     test('uses default queryConstruction settings when not specified', async () => {
@@ -1054,7 +1138,8 @@ describe('utils/vector/vector-context-injector', () => {
         mode: 'auto',
         queryConstruction: {
           messagesToInclude: 3,
-          includeAssistantMessages: true
+          includeAssistantMessages: true,
+          includeSystemPrompt: 'never'
         }
       };
 
