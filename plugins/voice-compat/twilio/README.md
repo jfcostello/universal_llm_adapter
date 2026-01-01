@@ -80,3 +80,16 @@ The download request is authenticated upstream using the configured `accountSid`
 To harden against SSRF, the recording URL received from the webhook is validated before being stored:
 - `https:` only
 - must match the origin of `defaults.apiBaseUrl` (default: `https://api.twilio.com`)
+
+### Provider call log capture
+
+After a call ends, this compat attempts to fetch and persist Twilio-side call artifacts under:
+- `logs/voice/twilio/call-<CallSid>-<timestamp>/`
+
+Artifacts are best-effort (permissions vary by account/project). When available, the compat writes:
+- `call.json` (call resource)
+- `events.json` (call events; paginated)
+- `recordings.json` (recordings list; paginated)
+- `debugger-events.json` (debugger events; may be unavailable / 403)
+
+Retention is applied using the same max-files / max-age policy as other voice logs.

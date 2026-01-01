@@ -282,7 +282,7 @@ MCP server configurations live in `plugins/mcp/*.json`:
 
 ### Observability (Optional)
 
-Observability enables export of LLM call telemetry to platforms like Langfuse. It is disabled by default, and capture is intentionally minimal unless you opt in.
+Observability enables export of LLM call **and realtime session** telemetry to platforms like Langfuse. It is disabled by default, and capture is intentionally minimal unless you opt in.
 
 **Global Configuration** (`plugins/configs/defaults.json`):
 
@@ -644,12 +644,14 @@ await server.close();
 ## Logging
 
 ```typescript
-import { getLLMLogger, getEmbeddingLogger, getVectorLogger, closeLogger } from 'llm-adapter/logging';
+import { getLLMLogger, getEmbeddingLogger, getVectorLogger, getVoiceLogger, getRealtimeLogger, closeLogger } from 'llm-adapter/logging';
 
 // Get loggers
 const llmLogger = getLLMLogger();
 const embeddingLogger = getEmbeddingLogger();
 const vectorLogger = getVectorLogger();
+const voiceLogger = getVoiceLogger();
+const realtimeLogger = getRealtimeLogger();
 
 // With correlation ID
 const logger = getLLMLogger().withCorrelation('request-123');
@@ -658,6 +660,8 @@ logger.info('Processing request');
 // Close all loggers (call on shutdown)
 await closeLogger();
 ```
+
+File logs are written under `./logs/` (for example: `logs/llm/`, `logs/embedding/`, `logs/vector/`, `logs/voice/`, `logs/realtime/`).
 
 ## Testing
 

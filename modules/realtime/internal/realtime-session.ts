@@ -1,5 +1,9 @@
+import { randomUUID } from 'crypto';
+
 import type {
+  ContentPart,
   JsonValue,
+  Message,
   ProcessRouteManifest,
   RealtimeProviderManifest,
   RealtimeAudioFrame,
@@ -9,7 +13,15 @@ import type {
   RealtimeSessionSpec,
   UnifiedTool
 } from '../../../kernel/index.js';
-import { AsyncQueue } from '../../../kernel/index.js';
+import { AsyncQueue, Role } from '../../../kernel/index.js';
+import type { ObservabilityRuntime } from '../../observability/index.js';
+import {
+  filterContentForObservability,
+  filterMessagesForObservability,
+  logObservabilityEvent,
+  monotonicElapsedMs,
+  monotonicNowNs
+} from '../../shared/index.js';
 
 export interface RealtimeSession {
   sendText: (options: { text: string; role?: 'system' | 'user' }) => Promise<void>;
@@ -28,6 +40,8 @@ export interface RealtimeSessionControllerOptions {
   spec: RealtimeSessionSpec;
   compatSession: RealtimeCompatSession;
   tools?: UnifiedTool[];
+  observability?: ObservabilityRuntime;
+  logger?: RealtimeSessionLogger;
 }
 
 const DEFAULT_MAX_DURATION_MS = 10 * 60 * 1000;
@@ -41,6 +55,14 @@ type ToolCoordinatorLike = {
     args: any,
     context: { provider: string; model: string; metadata?: any; logger?: any; callProgress?: any }
   ) => Promise<any>;
+};
+
+type RealtimeSessionLogger = {
+  withCorrelation: (correlationId: string | string[]) => RealtimeSessionLogger;
+  debug: (message: string, data?: any) => void;
+  info: (message: string, data?: any) => void;
+  warning: (message: string, data?: any) => void;
+  error: (message: string, data?: any) => void;
 };
 
 class RealtimeSessionController implements RealtimeSession {
@@ -67,7 +89,22 @@ class RealtimeSessionController implements RealtimeSession {
   private dtmfBuffer = '';
   private dtmfBargedInThisBuffer = false;
 
+  private readonly observability: ObservabilityRuntime | undefined;
+  private readonly logger: RealtimeSessionLogger | undefined;
+  private conversationMessages: Message[] = [];
+  private observabilityTurn = 0;
+  private pendingTurns: Array<{
+    traceId: string;
+    generationId: string;
+    startTimeMonoNs: bigint;
+    requestTimestampMs: number;
+    toolCalls: Array<{ id: string; name: string; arguments?: any }>;
+  }> = [];
+
   constructor(private options: RealtimeSessionControllerOptions) {
+    this.observability = options.observability;
+    this.logger = options.logger as any;
+
     const timeoutCfg = options.spec.timeout ?? {};
     this.maxDurationMs = timeoutCfg.maxDurationMs ?? DEFAULT_MAX_DURATION_MS;
     this.idleTimeoutMs = timeoutCfg.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
@@ -88,7 +125,180 @@ class RealtimeSessionController implements RealtimeSession {
       this.enabledToolNames = new Set(options.spec.functionToolNames);
     }
 
+    this.conversationMessages = this.buildInitialConversationMessages();
+    this.safeLog('info', 'realtime.session.created', {
+      provider: this.options.spec.provider,
+      model: this.options.spec.model ?? this.options.spec.provider,
+      systemPrompt: this.options.spec.systemPrompt,
+      history: this.options.spec.history,
+      metadata: this.options.spec.metadata
+    });
     this.start();
+  }
+
+  private safeLog(level: 'debug' | 'info' | 'warning' | 'error', message: string, data?: any): void {
+    try {
+      const fn = this.logger?.[level];
+      if (typeof fn === 'function') fn(message, data);
+    } catch {}
+  }
+
+  private buildInitialConversationMessages(): Message[] {
+    const out: Message[] = [];
+
+    const systemPrompt = this.options.spec.systemPrompt;
+    if (systemPrompt !== undefined && systemPrompt !== null) {
+      const text = String(systemPrompt);
+      if (text) {
+        out.push({ role: Role.SYSTEM, content: [{ type: 'text', text }] });
+      }
+    }
+
+    const history = this.options.spec.history;
+    if (Array.isArray(history) && history.length > 0) {
+      for (const item of history) {
+        const roleRaw = String((item as any)?.role ?? '').toLowerCase();
+        const text = String((item as any)?.text ?? '');
+        if (!text) continue;
+
+        const role =
+          roleRaw === 'system'
+            ? Role.SYSTEM
+            : roleRaw === 'assistant'
+              ? Role.ASSISTANT
+              : Role.USER;
+
+        out.push({ role, content: [{ type: 'text', text }] });
+      }
+    }
+
+    return out;
+  }
+
+  private pushConversationMessage(options: { role: Message['role']; text: string }): void {
+    const text = String(options.text ?? '');
+    if (!text) return;
+    this.conversationMessages.push({
+      role: options.role,
+      content: [{ type: 'text', text }]
+    });
+  }
+
+  private deriveTurnTraceId(turn: number): string {
+    const base = String(this.observability?.baseTraceId ?? '');
+    if (!base) return '';
+    if (turn <= 1) return base;
+    return `${base}:${turn}`;
+  }
+
+  private async logLiveObservabilityEvent(payload: {
+    eventType: 'LLM_REQUEST' | 'LLM_RESPONSE';
+    traceId?: string;
+    generationId?: string;
+    event: unknown;
+  }): Promise<void> {
+    if (process.env.LLM_LIVE !== '1') return;
+
+    try {
+      logObservabilityEvent(payload as any, this.options.spec.metadata);
+    } catch {
+      // best-effort
+    }
+  }
+
+  private recordObservabilityRequest(): void {
+    const obs = this.observability;
+    if (!obs) return;
+
+    this.observabilityTurn += 1;
+    const turn = this.observabilityTurn;
+    const traceId = this.deriveTurnTraceId(turn);
+    if (!traceId) return;
+
+    const generationId = randomUUID();
+    const timestampMs = Date.now();
+    const startTimeMonoNs = monotonicNowNs();
+    const captureMessages = (obs.captureMessages ?? 'full') as any;
+
+    const requestEvent = {
+      traceId,
+      generationId,
+      sessionId: obs.sessionId,
+      timestampMs,
+      provider: this.options.spec.provider,
+      model: this.options.spec.model ?? this.options.spec.provider,
+      messages: filterMessagesForObservability(this.conversationMessages, captureMessages),
+      metadata: obs.metadata ?? this.options.spec.metadata,
+      settings: this.options.spec.settings,
+      tools: this.options.tools?.map(t => ({ name: t.name, description: t.description })) ?? []
+    };
+
+    try {
+      obs.exporter.recordLLMRequest(requestEvent as any);
+    } catch {
+      // Observability must never throw
+    }
+
+    void this.logLiveObservabilityEvent({
+      eventType: 'LLM_REQUEST',
+      traceId,
+      generationId,
+      event: requestEvent
+    });
+
+    this.pendingTurns.push({
+      traceId,
+      generationId,
+      startTimeMonoNs,
+      requestTimestampMs: timestampMs,
+      toolCalls: []
+    });
+  }
+
+  private recordObservabilityResponse(options: { content?: ContentPart[]; error?: { message: string; code?: string } }): void {
+    const obs = this.observability;
+    const pending = this.pendingTurns[0];
+    if (!obs || !pending) return;
+
+    const timestampMs = Date.now();
+    const durationMs = monotonicElapsedMs(pending.startTimeMonoNs);
+    const captureMessages = (obs.captureMessages ?? 'full') as any;
+    const captureToolArgs = Boolean(obs.captureToolArgs);
+
+    const responseEvent: any = {
+      traceId: pending.traceId,
+      generationId: pending.generationId,
+      sessionId: obs.sessionId,
+      timestampMs,
+      provider: this.options.spec.provider,
+      model: this.options.spec.model ?? this.options.spec.provider,
+      content: filterContentForObservability(options.content ?? [], captureMessages),
+      metadata: obs.metadata ?? this.options.spec.metadata,
+      durationMs,
+      ...(options.error ? { error: options.error } : {})
+    };
+
+    if (pending.toolCalls.length > 0) {
+      responseEvent.toolCalls = pending.toolCalls.map(tc => {
+        if (!captureToolArgs) return { id: tc.id, name: tc.name };
+        return { id: tc.id, name: tc.name, ...(tc.arguments !== undefined ? { arguments: tc.arguments } : {}) };
+      });
+    }
+
+    try {
+      obs.exporter.recordLLMResponse(responseEvent as any);
+    } catch {
+      // Observability must never throw
+    }
+
+    void this.logLiveObservabilityEvent({
+      eventType: 'LLM_RESPONSE',
+      traceId: pending.traceId,
+      generationId: pending.generationId,
+      event: responseEvent
+    });
+
+    this.pendingTurns.shift();
   }
 
   events(): AsyncIterable<RealtimeEvent> {
@@ -131,12 +341,28 @@ class RealtimeSessionController implements RealtimeSession {
   async sendText(options: { text: string; role?: 'system' | 'user' }): Promise<void> {
     this.ensureOpen();
     this.onActivity();
+    const role = options.role === 'system' ? Role.SYSTEM : Role.USER;
+    this.pushConversationMessage({ role, text: options.text });
+    this.safeLog('info', 'realtime.send_text', { role: options.role ?? 'user', text: options.text });
     await this.options.compatSession.sendText(options);
   }
 
   async injectContext(items: RealtimeHistoryItem[]): Promise<void> {
     this.ensureOpen();
     this.onActivity();
+    if (Array.isArray(items)) {
+      for (const item of items) {
+        const roleRaw = String((item as any)?.role ?? '').toLowerCase();
+        const role =
+          roleRaw === 'system'
+            ? Role.SYSTEM
+            : roleRaw === 'assistant'
+              ? Role.ASSISTANT
+              : Role.USER;
+        this.pushConversationMessage({ role, text: String((item as any)?.text ?? '') });
+      }
+    }
+    this.safeLog('info', 'realtime.inject_context', { items });
     await this.options.compatSession.injectContext(items);
   }
 
@@ -185,18 +411,24 @@ class RealtimeSessionController implements RealtimeSession {
   async sendAudio(frame: RealtimeAudioFrame): Promise<void> {
     this.ensureOpen();
     this.onActivity();
+    this.safeLog('debug', 'realtime.send_audio', { frame });
     await this.options.compatSession.sendAudio(frame);
   }
 
   async commit(): Promise<void> {
     this.ensureOpen();
     this.onActivity();
+    this.safeLog('info', 'realtime.commit', { turn: this.observabilityTurn + 1 });
+    this.recordObservabilityRequest();
     await this.options.compatSession.commit();
+    // Give the async event pump a chance to process any immediate assistant events before the next turn.
+    await Promise.resolve();
   }
 
   async interrupt(_options: { reason?: string } = {}): Promise<void> {
     this.ensureOpen();
     this.onActivity();
+    this.safeLog('info', 'realtime.interrupt', { reason: _options.reason });
     await this.options.compatSession.interrupt({ reason: _options.reason });
     this.pushEvent({
       type: 'playback.clear_requested',
@@ -342,6 +574,18 @@ class RealtimeSessionController implements RealtimeSession {
     if (this.closed) return;
     this.onActivity();
 
+    const eventType = String((event as any)?.type ?? '');
+    if (
+      eventType === 'ready' ||
+      eventType === 'closed' ||
+      eventType === 'timeout' ||
+      eventType === 'error' ||
+      eventType.endsWith('.final') ||
+      eventType.startsWith('tool_call.')
+    ) {
+      this.safeLog('info', 'realtime.event', { event });
+    }
+
     if (event.type === 'user_speech.started') {
       await this.maybeBargeIn('user_speech.started');
     } else if (event.type === 'user_transcript.delta') {
@@ -349,6 +593,18 @@ class RealtimeSessionController implements RealtimeSession {
     }
 
     this.pushEvent(event);
+
+    if (event.type === 'assistant_text.final' || event.type === 'assistant_transcript.final') {
+      const text = String((event as any).text ?? '');
+      this.pushConversationMessage({ role: Role.ASSISTANT, text });
+      this.recordObservabilityResponse({ content: [{ type: 'text', text }] });
+    }
+
+    if (event.type === 'error') {
+      this.recordObservabilityResponse({
+        error: { message: String((event as any).message ?? 'error'), code: (event as any).code ? String((event as any).code) : undefined }
+      });
+    }
 
     if (event.type === 'tool_call.end') {
       await this.handleToolCallEnd(event);
@@ -397,6 +653,15 @@ class RealtimeSessionController implements RealtimeSession {
       return;
     }
 
+    const pending = this.pendingTurns[0];
+    if (pending) {
+      pending.toolCalls.push({
+        id: event.toolCallId,
+        name: event.name,
+        arguments: event.arguments
+      });
+    }
+
     const coordinator = await this.ensureToolCoordinator();
     try {
       const result = await coordinator.routeAndInvoke(
@@ -405,7 +670,8 @@ class RealtimeSessionController implements RealtimeSession {
         event.arguments,
         {
           provider: this.options.spec.provider,
-          model: this.options.spec.model ?? this.options.spec.provider
+          model: this.options.spec.model ?? this.options.spec.provider,
+          metadata: this.options.spec.metadata ?? {}
         }
       );
       await this.options.compatSession.sendToolResult({
@@ -429,12 +695,27 @@ class RealtimeSessionController implements RealtimeSession {
     this.clearMaxTimer();
     this.clearIdleTimer();
 
+    this.safeLog('info', 'realtime.session.closing', { reason: options.reason });
+
+    if (this.pendingTurns.length > 0) {
+      // Ensure pending turns are closed out so traces aren't left dangling.
+      while (this.pendingTurns.length > 0) {
+        this.recordObservabilityResponse({
+          error: { message: `Realtime session closed before assistant response (${String(options.reason)})` }
+        });
+      }
+    }
+
     if (options.emitClosedEvent !== false) {
       this.queue.push({ type: 'closed', reason: options.reason });
     }
 
     try {
       await this.options.compatSession.close();
+    } catch {}
+
+    try {
+      await this.observability?.exporter.flush();
     } catch {}
 
     this.queue.close();

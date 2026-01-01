@@ -1,6 +1,6 @@
 import { describe, expect, test } from '@jest/globals';
 import { Role } from '@/kernel/index.ts';
-import { filterContentForObservability, filterMessagesForObservability } from '@/modules/llm/internal/observability-capture.ts';
+import { filterContentForObservability, filterMessagesForObservability } from '@/modules/shared/index.ts';
 
 describe('modules/llm/internal/observability-capture', () => {
   test('filterMessagesForObservability: full returns original messages array', () => {
@@ -58,4 +58,3 @@ describe('modules/llm/internal/observability-capture', () => {
     expect(filterContentForObservability(null as any, 'text')).toEqual([]);
   });
 });
-

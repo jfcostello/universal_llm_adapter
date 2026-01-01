@@ -454,6 +454,7 @@ llm-adapter realtime [options]
 
 - The first emitted event must be `{ "type": "ready", ... }`.
 - The `spec` field is passed through to the realtime session factory and is treated as an opaque object by the CLI.
+- When enabled via `spec.observability`, the session exports per-commit observability events (and writes JSONL logs under `logs/realtime/` when file logging is enabled).
 
 ### `llm-adapter realtime client-secret`
 
@@ -847,8 +848,7 @@ When using LLM calls with vector stores for RAG:
     "overrideEmbeddingQuery": "exact query to use",
     "queryConstruction": {
       "messagesToInclude": 1,
-      "includeAssistantMessages": true,
-      "includeSystemPrompt": "if-in-range"
+      "includeAssistantMessages": true
     },
 
     // Auto-inject config (auto/both modes)
@@ -1047,6 +1047,10 @@ llm-adapter stream --file my-spec.json
 | `LLM_ADAPTER_BATCH_DIR` | Use batch-based directories | "1" or "0" |
 | `LLM_ADAPTER_DISABLE_FILE_LOGS` | Disable file logging | "1" or unset |
 | `LLM_ADAPTER_DISABLE_CONSOLE_LOGS` | Disable console logging | "1" or unset |
+| `LLM_ADAPTER_VOICE_LOG_MAX_FILES` | Max retained voice log files | integer |
+| `LLM_ADAPTER_VOICE_LOG_MAX_AGE_DAYS` | Max age of voice log files | float |
+| `LLM_ADAPTER_REALTIME_LOG_MAX_FILES` | Max retained realtime log files | integer |
+| `LLM_ADAPTER_REALTIME_LOG_MAX_AGE_DAYS` | Max age of realtime log files | float |
 
 ### Provider API Keys
 
@@ -1060,7 +1064,7 @@ export VECTOR_STORE_API_KEY=...
 
 ### Observability (Optional)
 
-For LLM call telemetry export to Langfuse (capture is minimal unless you opt in):
+For LLM call and realtime session telemetry export to Langfuse (capture is minimal unless you opt in):
 
 ```bash
 export LANGFUSE_SECRET_KEY=sk-lf-...

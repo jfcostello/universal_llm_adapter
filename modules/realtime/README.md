@@ -58,6 +58,18 @@ Types are re-exported from this module for convenience:
 - Core is provider-agnostic and loads the provider-specific realtime compat lazily via `registry.getRealtimeCompat(kind)`.
 - Provider-specific realtime implementations live under `plugins/realtime-compat/*`.
 - Tool execution is lazy-loaded and only activated when tools are enabled via `spec.functionToolNames`.
+- Observability export is lazy-loaded and only activated when enabled via `spec.observability`.
+
+---
+
+## Logging
+
+When `modules/logging` is available, realtime sessions emit JSONL file logs under:
+- `logs/realtime/`
+
+Retention (in addition to the global `LLM_ADAPTER_LOG_*` defaults):
+- `LLM_ADAPTER_REALTIME_LOG_MAX_FILES`
+- `LLM_ADAPTER_REALTIME_LOG_MAX_AGE_DAYS`
 
 ---
 
@@ -75,6 +87,9 @@ Key fields:
   - `onRemoteStream`: callback invoked with the remote media stream for playback.
   - `dataChannelLabel`: override the data-channel label used for JSON events.
 - `systemPrompt`: optional system prompt for the session.
+- `observability`: optional observability config for the session (same schema as LLM calls).
+  - Records one `LLM_REQUEST`/`LLM_RESPONSE` pair per `commit()`.
+  - Uses a stable `sessionId` for grouping (defaults to `metadata.correlationId` for realtime sessions).
 - `settings`: optional, provider-agnostic session settings surface (support varies by compat).
   - Common keys: `temperature` (number), `voice` (string), `maxOutputTokens` (positive integer; alias: `maxTokens`).
   - Unknown/invalid keys are ignored and surfaced as non-fatal `error` events:

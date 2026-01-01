@@ -43,3 +43,4 @@ export function filterContentForObservability(
     .filter(isTextPart)
     .map(p => ({ type: 'text' as const, text: p.text }));
 }
+

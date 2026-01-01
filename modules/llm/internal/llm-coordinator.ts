@@ -13,8 +13,7 @@ import type {
   AdapterLogger,
   LoggingDeps,
   RunContext,
-  ObservabilityContext,
-  ObservabilitySpec
+  ObservabilityContext
 } from '../../../kernel/index.js';
 import {
   Role,
@@ -23,9 +22,8 @@ import {
   getDefaults,
   resolveLoggingDeps
 } from '../../../kernel/index.js';
-import { randomUUID } from 'crypto';
 import { LLMManager } from './llm-manager.js';
-import { normalizeFlag, readTrimmedStringProperty } from '../../shared/index.js';
+import { normalizeFlag } from '../../shared/index.js';
 import { pruneToolResults, pruneReasoning } from '../../context/index.js';
 import { partitionSettings, mergeProviderSettings } from '../../settings/index.js';
 import { prepareMessages, appendAssistantToolCalls, appendToolResult } from '../../messages/index.js';
@@ -155,94 +153,21 @@ export class LLMCoordinator {
       return undefined;
     }
 
-    const normalizeCaptureMessages = (
-      value: unknown,
-      fallback: 'none' | 'text' | 'full'
-    ): 'none' | 'text' | 'full' => {
-      const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
-      if (raw === 'none' || raw === 'text' || raw === 'full') return raw;
-      return fallback;
-    };
+    const { createObservabilityRuntime } = await import('../../observability/index.js');
+    const runtimeObs = await createObservabilityRuntime(this.registry, obsSpec, {
+      metadata: spec.metadata,
+      runtime,
+      // Use the base logger (no correlation) because the exporter can be shared across many calls.
+      logger: this.logger,
+      sessionIdFallback: 'batch'
+    });
 
-    const normalizeBool = (value: unknown, fallback: boolean): boolean => {
-      return typeof value === 'boolean' ? value : fallback;
-    };
-
-    const normalizeNumber = (value: unknown): number | null => {
-      if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-      if (typeof value === 'string') {
-        const parsed = Number(value);
-        return Number.isFinite(parsed) ? parsed : null;
-      }
-      return null;
-    };
-
-    const clampInt = (value: unknown, fallback: number, min: number, max: number): number => {
-      const normalized = normalizeNumber(value);
-      const asInt = Number.isFinite(normalized as any) ? Math.floor(normalized as number) : Math.floor(fallback);
-      return Math.min(max, Math.max(min, asInt));
-    };
-
-    const clampRate = (value: unknown, fallback: number): number => {
-      const normalized = normalizeNumber(value);
-      const asNum = Number.isFinite(normalized as any) ? (normalized as number) : fallback;
-      return Math.min(1, Math.max(0, asNum));
-    };
-
-    const captureMessages = normalizeCaptureMessages(obsSpec?.captureMessages, defaults.captureMessages);
-    const captureToolArgs = normalizeBool(obsSpec?.captureToolArgs, defaults.captureToolArgs);
-    const captureRequestPayload = normalizeBool(obsSpec?.captureRequestPayload, defaults.captureRequestPayload);
-    const captureRawResponse = normalizeBool(obsSpec?.captureRawResponse, defaults.captureRawResponse);
-    const sampleRate = clampRate(obsSpec?.sampleRate, defaults.sampleRate);
-    const maxInputTextBytes = clampInt(obsSpec?.maxInputTextBytes, defaults.maxInputTextBytes, 0, 1_000_000);
-    const maxOutputTextBytes = clampInt(obsSpec?.maxOutputTextBytes, defaults.maxOutputTextBytes, 0, 1_000_000);
-    const maxJsonBytes = clampInt(obsSpec?.maxJsonBytes, defaults.maxJsonBytes, 0, 5_000_000);
-
-    // If sampling is disabled or this call is not selected, skip observability entirely.
-    if (sampleRate <= 0) return undefined;
-    if (sampleRate < 1 && Math.random() >= sampleRate) return undefined;
-
-    // Use the base logger (no correlation) because the exporter can be shared across many calls.
-    const obsLogger = this.logger;
-
-    // Lazy-load observability module
-    const { createObservabilityDeps } = await import('../../observability/index.js');
-    const obsDeps = await createObservabilityDeps(this.registry, obsSpec, obsLogger);
-
-    // If observability couldn't be initialized, return undefined
-    if (!obsDeps.isEnabled()) {
+    if (!runtimeObs) {
       return undefined;
     }
 
-    const exporter = obsDeps.getExporter();
-
-	    // Determine trace ID: spec override > correlation ID > generated UUID
-	    const traceId = obsSpec?.traceId ??
-	      (spec.metadata?.correlationId as string | undefined) ??
-	      randomUUID();
-
-	    // Determine session ID: spec override > metadata.batchId > runtime/env batchId
-	    const metadataBatchId = readTrimmedStringProperty(spec.metadata, 'batchId');
-	    const envBatchId = readTrimmedStringProperty(process.env, 'LLM_ADAPTER_BATCH_ID');
-	    const sessionId = obsSpec?.sessionId ??
-	      metadataBatchId ??
-	      (runtime.batchId ? String(runtime.batchId) : undefined) ??
-	      envBatchId;
-
-	    return {
-	      exporter,
-	      traceId,
-      sessionId,
-      metadata: spec.metadata,
-      captureMessages,
-      captureToolArgs,
-      captureRequestPayload,
-      captureRawResponse,
-      sampleRate,
-      maxInputTextBytes,
-      maxOutputTextBytes,
-      maxJsonBytes
-    };
+    const { baseTraceId, ...rest } = runtimeObs;
+    return { ...rest, traceId: baseTraceId };
   }
 
   async run(spec: LLMCallSpec): Promise<LLMResponse> {

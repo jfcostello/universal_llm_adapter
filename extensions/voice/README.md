@@ -25,6 +25,17 @@ CLI:
 - `llm-adapter voice end`
 - `llm-adapter voice recording`
 
+## Logging
+
+When `modules/logging` is available, the voice extension emits JSONL file logs under:
+- `logs/voice/`
+
+If the active voice compat supports it, provider-side artifacts may also be persisted under nested subdirectories (for example: `logs/voice/twilio/...`).
+
+Retention:
+- `LLM_ADAPTER_VOICE_LOG_MAX_FILES`
+- `LLM_ADAPTER_VOICE_LOG_MAX_AGE_DAYS`
+
 ## Enabling
 
 Enable the voice extension on the server via:

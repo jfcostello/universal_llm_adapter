@@ -982,6 +982,7 @@ describe('modules/realtime/internal/realtime-session', () => {
         provider: 'p',
         model: 'm',
         functionToolNames: ['echo'],
+        metadata: { testKey: 'testValue' },
         timeout: { maxDurationMs: 0, idleTimeoutMs: 0, onTimeout: 'close' }
       },
       compatSession: compat
@@ -997,7 +998,7 @@ describe('modules/realtime/internal/realtime-session', () => {
           echoed: 'Tokyo',
           provider: 'p',
           model: 'm',
-          metadata: {}
+          metadata: { testKey: 'testValue' }
         }
       }
     });

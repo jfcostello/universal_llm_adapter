@@ -207,9 +207,9 @@ describe('core/logging', () => {
     expect(mocks.logger.info).toHaveBeenCalledWith('message', {});
   });
 
-  test('getEmbeddingLogger/getVectorLogger return correlated instances and closeLogger closes all singletons', async () => {
+  test('getEmbeddingLogger/getVectorLogger/getVoiceLogger/getRealtimeLogger return correlated instances and closeLogger closes all singletons', async () => {
     const { module } = await setupLoggingTestHarness({ disableFileLogs: true });
-    const { getLLMLogger, getEmbeddingLogger, getVectorLogger, closeLogger } = module;
+    const { getLLMLogger, getEmbeddingLogger, getVectorLogger, getVoiceLogger, getRealtimeLogger, closeLogger } = module;
 
     const llm = getLLMLogger();
     const llmCorr = getLLMLogger('corr-llm');
@@ -223,15 +223,27 @@ describe('core/logging', () => {
     const vecCorr = getVectorLogger('corr-vec');
     expect(vecCorr).not.toBe(vec);
 
+    const voice = getVoiceLogger();
+    const voiceCorr = getVoiceLogger('corr-voice');
+    expect(voiceCorr).not.toBe(voice);
+
+    const rt = getRealtimeLogger();
+    const rtCorr = getRealtimeLogger('corr-rt');
+    expect(rtCorr).not.toBe(rt);
+
     const llmClose = jest.spyOn(llm, 'close').mockResolvedValue();
     const embClose = jest.spyOn(emb, 'close').mockResolvedValue();
     const vecClose = jest.spyOn(vec, 'close').mockResolvedValue();
+    const voiceClose = jest.spyOn(voice, 'close').mockResolvedValue();
+    const rtClose = jest.spyOn(rt, 'close').mockResolvedValue();
 
     await closeLogger();
 
     expect(llmClose).toHaveBeenCalledTimes(1);
     expect(embClose).toHaveBeenCalledTimes(1);
     expect(vecClose).toHaveBeenCalledTimes(1);
+    expect(voiceClose).toHaveBeenCalledTimes(1);
+    expect(rtClose).toHaveBeenCalledTimes(1);
   });
 
   test('AdapterLogger skips console transport when console logging disabled', async () => {

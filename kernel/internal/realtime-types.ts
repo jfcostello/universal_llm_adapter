@@ -1,4 +1,5 @@
 import type { JsonObject, JsonValue, RealtimeProviderManifest, UnifiedTool, ToolChoice } from './types.js';
+import type { ObservabilitySpec } from './observability-spec-types.js';
 
 // ============================================================
 // REALTIME (provider-agnostic) types
@@ -185,6 +186,14 @@ export interface RealtimeSessionSpec {
    * Each realtime compat is responsible for mapping supported keys to its provider protocol.
    */
   settings?: RealtimeSessionSettings;
+
+  /**
+   * Optional observability export configuration for realtime turns.
+   *
+   * When enabled, the adapter records LLM request/response telemetry per turn and
+   * exports via the configured observability provider (e.g. Langfuse).
+   */
+  observability?: ObservabilitySpec;
 
   metadata?: Record<string, any>;
 }

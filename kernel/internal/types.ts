@@ -1090,14 +1090,6 @@ export interface ToolDefaults {
  */
 export interface QueryConstructionSettings {
   /**
-   * Whether to include the system prompt in the embedding query.
-   * - 'always': Always include system prompt
-   * - 'never': Never include system prompt
-   * - 'if-in-range': Include only if messagesToInclude covers the system message
-   */
-  includeSystemPrompt: 'always' | 'never' | 'if-in-range';
-
-  /**
    * Whether to include assistant messages in the embedding query.
    */
   includeAssistantMessages: boolean;
