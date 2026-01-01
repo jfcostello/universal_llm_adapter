@@ -196,6 +196,42 @@ describe('plugins/voice-modules/twilio-media-streams (bridge integration)', () =
     expect(session.close).toHaveBeenCalled();
   });
 
+  test('strips voiceMediaToken from call metadata customParameters', async () => {
+    const secret = 'secret';
+    const token = makeToken(secret);
+
+    const session = new MockRealtimeSession();
+    session.push({ type: 'ready', sessionId: 's1' });
+
+    const onCallStart = jest.fn();
+    const bridge = createTwilioMediaStreamsBridge({
+      createSession: async () => session,
+      security: { tokenSecret: secret },
+      limits: { startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0 },
+      audio: { pacing: { enabled: false } },
+      callbacks: { onCallStart }
+    });
+
+    const ws = new MockWebSocket();
+    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+    ws.emitMessage(startMessage({
+      customParameters: {
+        from: '+15551234567',
+        to: '+15557654321',
+        direction: 'inbound',
+        voiceMediaToken: 'abc'
+      }
+    }));
+    await flush();
+
+    expect(onCallStart).toHaveBeenCalledTimes(1);
+    const metadata = onCallStart.mock.calls[0]![0];
+    expect(metadata?.customParameters?.voiceMediaToken).toBeUndefined();
+
+    ws.emitMessage(stopMessage({}));
+    await task;
+  });
+
   test('drops in-flight audio after playback.clear_requested', async () => {
     const secret = 'secret';
     const token = makeToken(secret);

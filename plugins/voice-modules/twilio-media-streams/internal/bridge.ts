@@ -113,6 +113,7 @@ function sanitizeCustomParameters(value: any): Record<string, string> {
   if (!value || typeof value !== 'object') return {};
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(value)) {
+    if (String(k).toLowerCase() === 'voicemediatoken') continue;
     if (typeof v === 'string') out[String(k)] = v;
     else if (v === null || v === undefined) continue;
     else out[String(k)] = String(v);

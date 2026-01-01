@@ -144,7 +144,10 @@ describe('plugins/voice-compat/twilio', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers['Content-Type']).toContain('text/xml');
-    expect(res.body).toContain('voice/media?token=abc');
+    expect(res.body).toContain('voice/media');
+    expect(res.body).not.toContain('token=');
+    expect(res.body).toContain('name=\"voiceMediaToken\"');
+    expect(res.body).toContain('value=\"abc\"');
     expect(res.body).toContain('callConfigId');
     expect(res.body).toContain('cfg_1');
     expect(res.body).toContain('direction');
@@ -178,6 +181,36 @@ describe('plugins/voice-compat/twilio', () => {
 
     expect(res.body).toContain('callConfigId');
     expect(res.body).toContain('cfg_1');
+  });
+
+  test('createWebhookResponse tolerates invalid mediaWsUrl and omits voiceMediaToken', async () => {
+    const compat = new TwilioVoiceCompat();
+    const res = await compat.createWebhookResponse({
+      req: new http.IncomingMessage(null as any),
+      callConfigId: 'cfg_1',
+      callConfig: { to: '+1', from: '+2', direction: 'inbound' },
+      voiceProvider: 'twilio',
+      mediaWsUrl: 'not-a-url'
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('url=\"not-a-url\"');
+    expect(res.body).not.toContain('name=\"voiceMediaToken\"');
+  });
+
+  test('createWebhookResponse omits voiceMediaToken when mediaWsUrl has no token param', async () => {
+    const compat = new TwilioVoiceCompat();
+    const res = await compat.createWebhookResponse({
+      req: new http.IncomingMessage(null as any),
+      callConfigId: 'cfg_1',
+      callConfig: { to: '+1', from: '+2', direction: 'inbound' },
+      voiceProvider: 'twilio',
+      mediaWsUrl: 'wss://example.test/voice/media'
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('url=\"wss://example.test/voice/media\"');
+    expect(res.body).not.toContain('name=\"voiceMediaToken\"');
   });
 
   test('handleMediaConnection merges systemPrompt + metadata and bridges start/stop', async () => {
@@ -1657,7 +1690,10 @@ describe('plugins/voice-compat/twilio', () => {
       expect(body.get('To')).toBe('+15551234567');
       expect(body.get('From')).toBe('+15557654321');
       expect(body.get('Url')).toBeNull();
-      expect(String(body.get('Twiml'))).toContain('voice/media?token=abc');
+      expect(String(body.get('Twiml'))).toContain('voice/media');
+      expect(String(body.get('Twiml'))).not.toContain('token=');
+      expect(String(body.get('Twiml'))).toContain('name=\"voiceMediaToken\"');
+      expect(String(body.get('Twiml'))).toContain('value=\"abc\"');
       expect(String(body.get('Twiml'))).toContain('cfg_1');
       expect(String(body.get('Twiml'))).toContain('outbound');
     } finally {

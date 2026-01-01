@@ -125,6 +125,7 @@ Notes:
 - `callSid` / `accountSid` are read from the Twilio `start` payload (if missing they default to `""`).
 - `from`, `to`, and `direction` are best provided via TwiML `<Parameter>` values (Twilio places them under `start.customParameters`).
 - `direction` accepts `direction` or `callDirection` (case-insensitive). Any value other than `"outbound"` is treated as `"inbound"`.
+- `voiceMediaToken` is treated as a reserved custom parameter and is stripped from `customParameters` before metadata is surfaced.
 
 ---
 
