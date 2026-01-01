@@ -43,7 +43,8 @@ if (filteredRealtimeTestRuns.length === 0) {
   for (const runCfg of filteredRealtimeTestRuns) {
     describeLive(`${TEST_FILE} — ${runCfg.name}`, () => {
       test('toolChoice=single executes tool and emits tool events', async () => {
-        const token = `ECHO_${runCfg.name}_${Date.now()}_${Math.random().toString(16).slice(2, 6)}`;
+        // Keep the token copy-safe across providers (avoid long numeric sequences that can be mis-copied).
+        const token = `ECHO_${runCfg.name}_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 10)}`;
 
         const result = await runRealtimeScenario({
           pluginsPath,
@@ -103,7 +104,7 @@ if (filteredRealtimeTestRuns.length === 0) {
       }, 180_000);
 
       test('toolChoice=none disables tool execution (no tool events)', async () => {
-        const token = `NO_TOOL_${runCfg.name}_${Date.now()}_${Math.random().toString(16).slice(2, 6)}`;
+        const token = `NO_TOOL_${runCfg.name}_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 10)}`;
 
         const result = await runRealtimeScenario({
           pluginsPath,

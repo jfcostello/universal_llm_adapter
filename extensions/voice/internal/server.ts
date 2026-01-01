@@ -29,6 +29,7 @@ import type {
 import { createVoiceCallConfigStoreFromEnv } from './call-config-store/index.js';
 import { createVoiceCallEventHub, type VoiceCallEventHub, type VoiceCallEventEnvelope } from './call-events.js';
 import { createVoiceMetrics } from './metrics.js';
+import { StringChunkQueue } from './string-chunk-queue.js';
 
 type VoiceMediaTokenPayload = {
   iat: number;
@@ -50,41 +51,6 @@ type VoiceLogger = {
 type VoiceLogging = {
   getLogger: (correlationId?: string) => VoiceLogger;
 };
-
-class StringChunkQueue {
-  private readonly chunks: string[] = [];
-  private readonly byteLengths: number[] = [];
-  private start = 0;
-  private totalBytes = 0;
-
-  byteLength(): number {
-    return this.totalBytes;
-  }
-
-  push(chunk: string): void {
-    const bytes = Buffer.byteLength(chunk, 'utf8');
-    this.chunks.push(chunk);
-    this.byteLengths.push(bytes);
-    this.totalBytes += bytes;
-  }
-
-  shift(): { chunk: string; bytes: number } | undefined {
-    if (this.start >= this.chunks.length) return undefined;
-    const chunk = this.chunks[this.start] as string;
-    const bytes = this.byteLengths[this.start] as number;
-    this.start += 1;
-    this.totalBytes -= bytes;
-    if (this.start >= this.chunks.length) this.clear();
-    return { chunk, bytes };
-  }
-
-  clear(): void {
-    this.chunks.length = 0;
-    this.byteLengths.length = 0;
-    this.start = 0;
-    this.totalBytes = 0;
-  }
-}
 
 function parseUrl(rawUrl: string | undefined): URL | null {
   const raw = rawUrl ?? '/';
