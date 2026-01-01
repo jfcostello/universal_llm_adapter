@@ -8,7 +8,7 @@ function getLogFilePath(testFileName: string): string {
   return path.join(process.cwd(), 'tests', 'live', 'logs', `${dateOnly}-${testFileName}.log`);
 }
 
-describe('modules/llm/internal/live-test-logger', () => {
+describe('modules/shared/internal/live-test-logger', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
@@ -24,7 +24,7 @@ describe('modules/llm/internal/live-test-logger', () => {
     process.env.LLM_LIVE_TRANSPORT = 'server';
 
     await withTempCwd('live-test-logger-server-existing', async () => {
-      const { logRequest } = await import('@/modules/llm/internal/live-test-logger.ts');
+      const { logRequest } = await import('@/modules/shared/internal/live-test-logger.ts');
 
       const logFile = getLogFilePath('server-existing');
       fs.mkdirSync(path.dirname(logFile), { recursive: true });
@@ -57,7 +57,7 @@ describe('modules/llm/internal/live-test-logger', () => {
     process.env.LLM_LIVE_TRANSPORT = 'server';
 
     await withTempCwd('live-test-logger-server-missing', async () => {
-      const { logResponse } = await import('@/modules/llm/internal/live-test-logger.ts');
+      const { logResponse } = await import('@/modules/shared/internal/live-test-logger.ts');
 
       const logFile = getLogFilePath('server-missing');
       expect(fs.existsSync(logFile)).toBe(false);
@@ -82,7 +82,7 @@ describe('modules/llm/internal/live-test-logger', () => {
     delete process.env.LLM_LIVE_TRANSPORT;
 
     await withTempCwd('live-test-logger-circular', async () => {
-      const { logRequest, logResponse } = await import('@/modules/llm/internal/live-test-logger.ts');
+      const { logRequest, logResponse } = await import('@/modules/shared/internal/live-test-logger.ts');
 
       const circular: any = {};
       circular.self = circular;
@@ -119,7 +119,7 @@ describe('modules/llm/internal/live-test-logger', () => {
     delete process.env.LLM_LIVE_TRANSPORT;
 
     await withTempCwd('live-test-logger-observability', async () => {
-      const { logObservabilityEvent } = await import('@/modules/llm/internal/live-test-logger.ts');
+      const { logObservabilityEvent } = await import('@/modules/shared/internal/live-test-logger.ts');
 
       logObservabilityEvent(
         {
@@ -151,7 +151,7 @@ describe('modules/llm/internal/live-test-logger', () => {
     delete process.env.LLM_LIVE_TRANSPORT;
 
     await withTempCwd('live-test-logger-observability-missing', async () => {
-      const { logObservabilityEvent } = await import('@/modules/llm/internal/live-test-logger.ts');
+      const { logObservabilityEvent } = await import('@/modules/shared/internal/live-test-logger.ts');
 
       logObservabilityEvent({
         eventType: 'LLM_REQUEST',

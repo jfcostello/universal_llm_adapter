@@ -17,11 +17,14 @@ export interface LiveTestLogContext {
   testName?: string;
 }
 
-const logsDir = path.join(process.cwd(), 'tests', 'live', 'logs');
 const initializedLogFiles = new Set<string>();
 
+function resolveLogsDir(): string {
+  return path.join(process.cwd(), 'tests', 'live', 'logs');
+}
+
 function ensureLogsDir(): void {
-  fs.mkdirSync(logsDir, { recursive: true });
+  fs.mkdirSync(resolveLogsDir(), { recursive: true });
 }
 
 function isServerTransport(): boolean {
@@ -34,7 +37,7 @@ function resolveLogTarget(
   const testFileName = String(context?.testFile || process.env.TEST_FILE || 'unknown-test');
   const testName = String(context?.testName || process.env.LLM_TEST_NAME || 'unknown-test-name');
   const dateOnly = new Date().toISOString().split('T')[0];
-  const logFile = path.join(logsDir, `${dateOnly}-${testFileName}.log`);
+  const logFile = path.join(resolveLogsDir(), `${dateOnly}-${testFileName}.log`);
   return { logFile, testFileName, testName };
 }
 

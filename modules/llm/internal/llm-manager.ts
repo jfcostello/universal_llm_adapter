@@ -14,9 +14,17 @@ import type {
 import { ProviderExecutionError, getDefaults } from '../../../kernel/index.js';
 import { aggregateSystemMessages } from '../../messages/index.js';
 import { redactJsonCredentials } from '../../security/index.js';
-import { deriveObservabilityModel, monotonicElapsedMs, monotonicNowNs } from '../../shared/index.js';
+import {
+  deriveObservabilityModel,
+  filterContentForObservability,
+  filterMessagesForObservability,
+  logObservabilityEvent,
+  logRequest,
+  logResponse,
+  monotonicElapsedMs,
+  monotonicNowNs
+} from '../../shared/index.js';
 import { buildFinalPayload } from './payload/payload-builder.js';
-import { filterContentForObservability, filterMessagesForObservability } from './observability-capture.js';
 
 function redactUnsupportedExtraValue(field: string, value: any): unknown {
   if (value === undefined || value === null) return value;
@@ -176,7 +184,6 @@ export class LLMManager {
     }
   ): Promise<void> {
     try {
-      const { logObservabilityEvent } = await import('./live-test-logger.js');
       logObservabilityEvent(payload as any, context.metadata);
     } catch {
       // ignore
@@ -241,7 +248,6 @@ export class LLMManager {
       // Log raw request for live tests
       if (shouldLogLive) {
         try {
-          const { logRequest } = await import('./live-test-logger.js');
           logRequest({
             url: `SDK:${provider.id}/${model}`,
             method: 'SDK_CALL',
@@ -283,7 +289,6 @@ export class LLMManager {
         // Log raw response for live tests
         if (shouldLogLive) {
           try {
-            const { logResponse } = await import('./live-test-logger.js');
             logResponse({
               status: 200,
               statusText: 'SDK_SUCCESS',
@@ -441,7 +446,6 @@ export class LLMManager {
         // Log raw request for live tests (always on when LLM_LIVE=1)
         if (shouldLogLive) {
           try {
-            const { logRequest } = await import('./live-test-logger.js');
             logRequest(
               {
                 url: `NORMALIZED:${provider.id}/${model}`,
@@ -500,7 +504,6 @@ export class LLMManager {
       // Log raw response for live tests (always on when LLM_LIVE=1)
       if (shouldLogLive) {
         try {
-          const { logResponse } = await import('./live-test-logger.js');
           logResponse({
             status: response.status,
             statusText: response.statusText,
@@ -541,7 +544,6 @@ export class LLMManager {
 
           if (shouldLogLive) {
             try {
-              const { logResponse } = await import('./live-test-logger.js');
               logResponse(
                 {
                   status: response.status,
@@ -587,7 +589,6 @@ export class LLMManager {
 
           if (shouldLogLive) {
             try {
-              const { logResponse } = await import('./live-test-logger.js');
               logResponse(
                 {
                   status: response.status,
@@ -812,7 +813,6 @@ export class LLMManager {
       // Log raw request for live tests
       if (process.env.LLM_LIVE === '1') {
         try {
-          const { logRequest } = await import('./live-test-logger.js');
           logRequest({
             url: `SDK:${provider.id}/${model}`,
             method: 'SDK_STREAM',
@@ -847,7 +847,6 @@ export class LLMManager {
         // Log the complete streamed response for live tests
         if (shouldLogLive) {
           try {
-            const { logResponse } = await import('./live-test-logger.js');
             logResponse({
               status: 200,
               statusText: 'SDK_SUCCESS',
@@ -900,7 +899,6 @@ export class LLMManager {
     // Log raw request for live tests (always on when LLM_LIVE=1)
     if (process.env.LLM_LIVE === '1') {
       try {
-        const { logRequest } = await import('./live-test-logger.js');
         logRequest(
           {
             url: `NORMALIZED:${provider.id}/${model}`,
@@ -1038,7 +1036,6 @@ export class LLMManager {
     // Log the complete streamed response for live tests
     if (shouldLogLive) {
       try {
-        const { logResponse } = await import('./live-test-logger.js');
         logResponse({
           status: response.status,
           statusText: response.statusText,

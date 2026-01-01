@@ -1430,7 +1430,7 @@ describe('plugins/voice-compat/twilio', () => {
     }
   });
 
-  test('handleMediaConnection logs bridge errors without leaking systemPrompt or media payload', async () => {
+  test('handleMediaConnection logs bridge errors including systemPrompt (but not media payload)', async () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
 
@@ -1465,7 +1465,7 @@ describe('plugins/voice-compat/twilio', () => {
     expect(errorCalls.some(([msg]) => msg === 'voice.media.bridge_error')).toBe(true);
 
     const serialized = JSON.stringify({ info: logger.info.mock.calls, error: logger.error.mock.calls });
-    expect(serialized).not.toContain('TOP_SECRET');
+    expect(serialized).toContain('TOP_SECRET');
     expect(serialized).not.toContain('QUJD');
 
     expect(metrics.compatError).toHaveBeenCalledWith('media_bridge', 'twilio');
@@ -1503,7 +1503,7 @@ describe('plugins/voice-compat/twilio', () => {
     expect(JSON.stringify(bridgeError?.[1] ?? {})).not.toContain('providerStreamId');
 
     const serialized = JSON.stringify({ info: logger.info.mock.calls, error: logger.error.mock.calls });
-    expect(serialized).not.toContain('TOP_SECRET');
+    expect(serialized).toContain('TOP_SECRET');
     expect(serialized).not.toContain('QUJD');
   });
 

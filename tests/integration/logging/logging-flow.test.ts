@@ -27,7 +27,7 @@ describe('integration/logging/logging-flow', () => {
 
     try {
       correlated.info('testing', { extra: true });
-      expect(infoSpy).toHaveBeenCalledWith('testing', { extra: true });
+      expect(infoSpy).toHaveBeenCalledWith('testing', { extra: true, correlationId: 'corr-123' });
     } finally {
       infoSpy.mockRestore();
     }

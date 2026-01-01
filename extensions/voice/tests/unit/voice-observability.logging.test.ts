@@ -115,7 +115,7 @@ describe('extensions/voice: observability logging', () => {
     expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
   });
 
-  test('/voice/calls logs lifecycle events without leaking systemPrompt', async () => {
+  test('/voice/calls logs lifecycle events including systemPrompt', async () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const logger = createCapturingLogger();
 
@@ -173,7 +173,7 @@ describe('extensions/voice: observability logging', () => {
     expect(logged).toContain('voice.calls.accepted');
     expect(logged).toContain('voice.calls.queued');
     expect(logged).toContain('req_123');
-    expect(logged).not.toContain('TOP_SECRET');
+    expect(logged).toContain('TOP_SECRET');
   });
 
   test('/voice/calls uses x-correlation-id when x-request-id is blank', async () => {
@@ -463,7 +463,7 @@ describe('extensions/voice: observability logging', () => {
     expect(logged).not.toContain('ignored');
   });
 
-  test('/voice/calls error logs do not leak systemPrompt', async () => {
+  test('/voice/calls error logs include systemPrompt', async () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const logger = createCapturingLogger();
 
@@ -519,7 +519,7 @@ describe('extensions/voice: observability logging', () => {
     expect(logged).toContain('voice.calls.error');
     expect(logged).toContain('provider_error');
     expect(logged).toContain('req_500');
-    expect(logged).not.toContain('TOP_SECRET');
+    expect(logged).toContain('TOP_SECRET');
   });
 
   test('/voice/webhook logs without leaking ws token', async () => {

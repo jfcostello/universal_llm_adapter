@@ -77,6 +77,31 @@ function getTransport(env: NodeJS.ProcessEnv | undefined): Transport {
   return raw === 'server' ? 'server' : 'cli';
 }
 
+function injectLiveTestMetadata(spec: any, env: NodeJS.ProcessEnv | undefined): any {
+  if (!spec || typeof spec !== 'object') return spec;
+  const isLive = String(env?.LLM_LIVE || process.env.LLM_LIVE || '').trim() === '1';
+  if (!isLive) return spec;
+
+  const testFile = String(env?.TEST_FILE || process.env.TEST_FILE || '').trim();
+  const testName = String(env?.LLM_TEST_NAME || process.env.LLM_TEST_NAME || '').trim();
+  if (!testFile && !testName) return spec;
+
+  const baseMetadata = (spec as any).metadata;
+  const metadata =
+    baseMetadata && typeof baseMetadata === 'object' && !Array.isArray(baseMetadata)
+      ? baseMetadata
+      : {};
+
+  return {
+    ...spec,
+    metadata: {
+      ...metadata,
+      ...(testFile ? { testFile } : {}),
+      ...(testName ? { testName } : {})
+    }
+  };
+}
+
 function withDefaultRealtimeModel(spec: any, env: NodeJS.ProcessEnv | undefined): any {
   if (!spec || typeof spec !== 'object') return spec;
   if (typeof spec.model === 'string' && spec.model.trim()) return spec;
@@ -162,7 +187,7 @@ async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealti
   const script = getUnifiedCliScript();
   const args = ['realtime', '--plugins', options.pluginsPath ?? './plugins'];
   const env = options.env || process.env;
-  const spec = withDefaultRealtimeModel(options.spec, env);
+  const spec = injectLiveTestMetadata(withDefaultRealtimeModel(options.spec, env), env);
 
   const child = spawn(process.execPath, [script, ...args], {
     cwd: options.cwd || DIST_DIR,
@@ -365,7 +390,7 @@ async function runViaServer(options: RunRealtimeScenarioOptions): Promise<RunRea
   let stderr = '';
 
   const timeoutMs = options.timeoutMs ?? 30000;
-  const spec = withDefaultRealtimeModel(options.spec, env);
+  const spec = injectLiveTestMetadata(withDefaultRealtimeModel(options.spec, env), env);
 
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`Timed out connecting to ${wsUrl}`)), timeoutMs);

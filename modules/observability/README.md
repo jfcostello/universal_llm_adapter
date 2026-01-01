@@ -2,16 +2,17 @@
 
 The observability module provides optional export of LLM call telemetry to external observability platforms (via provider/compat plugins). This enables tracking, debugging, and analyzing LLM usage across your application.
 
-## Features (v1 - LLM Calls Only)
+## Features
 
-In version 1, observability supports:
+Observability supports:
 - Recording LLM request events (prompt, model, tools, settings)
 - Recording LLM response events (content, usage, duration, errors)
+- Recording realtime session request/response events per turn (one trace per `commit()`)
 - Recording request/response payloads when enabled (`requestPayload` / `rawResponse`)
 - Trace and session correlation
 - Non-blocking async export with retry
 
-**Not yet supported:** Embedding calls, vector operations, real-time sessions, tool execution telemetry.
+**Not yet supported:** Embedding calls, vector operations, tool execution telemetry.
 
 ## How to Enable
 
@@ -80,6 +81,23 @@ const spec = {
   }
 };
 ```
+
+## Realtime Sessions
+
+Realtime observability is implemented in the provider-agnostic realtime session controller (`modules/realtime`).
+
+When `spec.observability.enabled=true`, the controller records:
+- `LLM_REQUEST` on every `commit()` (includes accumulated conversation messages up to that turn)
+- `LLM_RESPONSE` when the assistant produces a final transcript/text event (or a best-effort error response if the session closes mid-turn)
+
+Trace/session ids:
+- `baseTraceId`: resolved once for the session (`spec.observability.traceId` → `metadata.correlationId` → UUID)
+- Per-turn `traceId`: `baseTraceId` for turn 1, then `${baseTraceId}:${turn}` for turn N
+- `sessionId`: defaults to `metadata.correlationId` for realtime sessions (can be overridden via `spec.observability.sessionId`)
+
+Tool calls:
+- When tool calling is enabled, tool invocations for a pending turn are attached to the next `LLM_RESPONSE` event.
+- `captureToolArgs` controls whether arguments are included.
 
 ## IDs and Metadata
 

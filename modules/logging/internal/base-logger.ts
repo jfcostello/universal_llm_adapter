@@ -16,6 +16,8 @@ export const logDir = path.join(process.cwd(), 'logs');
 export const llmLogDir = path.join(logDir, 'llm');
 export const embeddingLogDir = path.join(logDir, 'embedding');
 export const vectorLogDir = path.join(logDir, 'vector');
+export const voiceLogDir = path.join(logDir, 'voice');
+export const realtimeLogDir = path.join(logDir, 'realtime');
 
 // Retention configuration (env overrides)
 const DEFAULT_MAX_FILES = readEnvInt('LLM_ADAPTER_LOG_MAX_FILES', 50);
@@ -33,6 +35,14 @@ export const EMBEDDING_MAX_AGE_DAYS = readEnvFloat('LLM_ADAPTER_EMBEDDING_LOG_MA
 
 export const VECTOR_MAX_FILES = readEnvInt('LLM_ADAPTER_VECTOR_LOG_MAX_FILES', DEFAULT_MAX_FILES);
 export const VECTOR_MAX_AGE_DAYS = readEnvFloat('LLM_ADAPTER_VECTOR_LOG_MAX_AGE_DAYS', DEFAULT_MAX_AGE_DAYS);
+
+export const VOICE_MAX_FILES = readEnvInt('LLM_ADAPTER_VOICE_LOG_MAX_FILES', DEFAULT_MAX_FILES);
+export const VOICE_MAX_AGE_DAYS = readEnvFloat('LLM_ADAPTER_VOICE_LOG_MAX_AGE_DAYS', DEFAULT_MAX_AGE_DAYS);
+export const VOICE_MAX_BYTES = readEnvInt('LLM_ADAPTER_VOICE_LOG_MAX_BYTES', 0);
+
+export const REALTIME_MAX_FILES = readEnvInt('LLM_ADAPTER_REALTIME_LOG_MAX_FILES', DEFAULT_MAX_FILES);
+export const REALTIME_MAX_AGE_DAYS = readEnvFloat('LLM_ADAPTER_REALTIME_LOG_MAX_AGE_DAYS', DEFAULT_MAX_AGE_DAYS);
+export const REALTIME_MAX_BYTES = readEnvInt('LLM_ADAPTER_REALTIME_LOG_MAX_BYTES', 0);
 
 const BATCH_FILE_MAX_SIZE_BYTES = 5 * 1024 * 1024;
 const BATCH_FILE_MAX_FILES = ADAPTER_BATCH_MAX_FILES;
@@ -94,10 +104,24 @@ export enum LogLevel {
   ERROR = 'error'
 }
 
+export type AdapterLoggerOptions = {
+  /**
+   * When provided, this instance reuses an existing winston logger (and its transports)
+   * instead of creating new transports. Used for correlated logger instances.
+   */
+  sharedLogger?: winston.Logger;
+};
+
 function hasCorrelationId(correlationId?: string | string[]): boolean {
   if (!correlationId) return false;
   if (Array.isArray(correlationId)) return correlationId.length > 0;
   return true;
+}
+
+function readCorrelationId(value: unknown): string | string[] | undefined {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value) && value.every(v => typeof v === 'string')) return value as string[];
+  return undefined;
 }
 
 function createAdapterFileFormat(
@@ -153,10 +177,17 @@ export class BaseAdapterLogger {
   protected logger: winston.Logger;
   protected correlationId?: string | string[];
   protected level: LogLevel;
+  private ownsWinstonLogger: boolean;
 
-  constructor(level: LogLevel = LogLevel.INFO, correlationId?: string | string[]) {
+  constructor(level: LogLevel = LogLevel.INFO, correlationId?: string | string[], options: AdapterLoggerOptions = {}) {
     this.level = level;
     this.correlationId = correlationId;
+    this.ownsWinstonLogger = !options.sharedLogger;
+
+    if (options.sharedLogger) {
+      this.logger = options.sharedLogger;
+      return;
+    }
 
     const transports: winston.transport[] = [];
     const jsonReplacer = (key: string, value: any) => this.jsonReplacer(key, value);
@@ -183,10 +214,20 @@ export class BaseAdapterLogger {
       const consoleTransport = new FlushingConsoleTransport({
         level: level,
         stderrLevels: ['error', 'warn'],
-        format: winston.format.printf(({ level: lvl, message, ...data }) => {
+        format: winston.format.printf((info: TransformableInfo) => {
+          const { level: rawLevel, message, correlationId: rawCorrelationId, ...data } = info as TransformableInfo & {
+            level: unknown;
+            correlationId?: unknown;
+          };
+          const lvl = typeof rawLevel === 'string' ? rawLevel : String(rawLevel);
           const timestamp = createIsoTimestamp();
           const logObj: any = { type: 'log', timestamp, level: lvl, message };
-          if (hasCorrelationId(this.correlationId)) logObj.correlationId = this.correlationId;
+          const infoCorrelationId = readCorrelationId(rawCorrelationId);
+          const resolvedCorrelationId =
+            hasCorrelationId(infoCorrelationId)
+              ? infoCorrelationId
+              : (hasCorrelationId(this.correlationId) ? this.correlationId : undefined);
+          if (resolvedCorrelationId !== undefined) logObj.correlationId = resolvedCorrelationId;
           if (Object.keys(data).length > 0) logObj.data = data;
           return JSON.stringify(logObj, jsonReplacer);
         })
@@ -199,8 +240,24 @@ export class BaseAdapterLogger {
   }
 
   withCorrelation(correlationId: string | string[]): this {
-    const ctor = this.constructor as new (level?: LogLevel, correlationId?: string | string[]) => this;
-    return new ctor(this.level, correlationId);
+    const ctor = this.constructor as new (
+      level?: LogLevel,
+      correlationId?: string | string[],
+      options?: AdapterLoggerOptions
+    ) => this;
+    return new ctor(this.level, correlationId, { sharedLogger: this.logger });
+  }
+
+  private withWinstonCorrelation(data: any): any {
+    if (this.ownsWinstonLogger) return data || {};
+    if (!hasCorrelationId(this.correlationId)) return data || {};
+
+    const base = data || {};
+    if (!base || typeof base !== 'object' || Array.isArray(base)) {
+      return { data: base, correlationId: this.correlationId };
+    }
+    if ((base as any).correlationId !== undefined) return base;
+    return { ...base, correlationId: this.correlationId };
   }
 
   /**
@@ -217,29 +274,30 @@ export class BaseAdapterLogger {
   }
 
   debug(message: string, data?: any): void {
-    this.logger.debug(message, data || {});
+    this.logger.debug(message, this.withWinstonCorrelation(data));
   }
 
   debugRaw(payload: any): void {
     const serialized = typeof payload === 'string'
       ? payload
       : JSON.stringify(payload, (key, value) => this.jsonReplacer(key, value));
-    this.logger.debug('Raw payload', { raw: serialized });
+    this.logger.debug('Raw payload', this.withWinstonCorrelation({ raw: serialized }));
   }
 
   info(message: string, data?: any): void {
-    this.logger.info(message, data || {});
+    this.logger.info(message, this.withWinstonCorrelation(data));
   }
 
   warning(message: string, data?: any): void {
-    this.logger.warn(message, data || {});
+    this.logger.warn(message, this.withWinstonCorrelation(data));
   }
 
   error(message: string, data?: any): void {
-    this.logger.error(message, this.normalizeErrorPayload(data));
+    this.logger.error(message, this.withWinstonCorrelation(this.normalizeErrorPayload(data)));
   }
 
   async close(): Promise<void> {
+    if (!this.ownsWinstonLogger) return;
     return new Promise<void>((resolve) => {
       const done = () => {
         this.performPostCloseRetention();

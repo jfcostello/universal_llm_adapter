@@ -1,8 +1,10 @@
 import crypto from 'crypto';
 import type http from 'http';
+import fs from 'fs';
+import path from 'path';
 
 import { ProviderExecutionError } from '../../../kernel/index.js';
-import { makeHttpError } from '../../../modules/shared/index.js';
+import { calculateBackoffDelay, makeHttpError } from '../../../modules/shared/index.js';
 import { createRealtimeSession } from '../../../modules/realtime/index.js';
 import { createTwilioMediaStreamsBridge } from '../../voice-modules/twilio-media-streams/index.js';
 import { wrapAssistantFirstTurnEvents } from './internal/assistant-first-turn-events.js';
@@ -53,6 +55,10 @@ function basicAuthHeader(username: string, password: string): string {
   return `Basic ${token}`;
 }
 
+function sanitizeFsToken(value: string): string {
+  return String(value).replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 128);
+}
+
 function sleepUnref(ms: number): Promise<void> | undefined {
   const durationMs = Math.max(0, Math.floor(ms));
   if (durationMs <= 0) return undefined;
@@ -93,6 +99,229 @@ function computeRequestSignature(authToken: string, url: string, params: Record<
 }
 
 export default class TwilioVoiceCompat {
+  private async fetchJsonWithRetry(options: {
+    url: string;
+    headers: Record<string, string>;
+    maxRetries: number;
+    baseDelayMs: number;
+    maxDelayMs: number;
+  }): Promise<any> {
+    const maxRetries = Math.max(0, Math.floor(options.maxRetries));
+    const baseDelayMs = Math.max(0, Math.floor(options.baseDelayMs));
+    const maxDelayMs = Math.max(0, Math.floor(options.maxDelayMs));
+
+    let attempt = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      try {
+        return await this.fetchJson(options.url, options.headers);
+      } catch (err: any) {
+        const status = typeof err?.status === 'number' ? err.status : undefined;
+        const retryable = status === 429 || (typeof status === 'number' && status >= 500 && status < 600);
+        if (!retryable || attempt >= maxRetries) {
+          throw err;
+        }
+
+        const delayMs = calculateBackoffDelay(attempt, baseDelayMs, maxDelayMs);
+        await (sleepUnref(delayMs) ?? Promise.resolve());
+        attempt += 1;
+      }
+    }
+  }
+
+  private async fetchJson(url: string, headers: Record<string, string>): Promise<any> {
+    const res = await fetch(url, { method: 'GET', headers });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      const error: any = new Error(`Request failed (${res.status})`);
+      error.status = res.status;
+      error.body = text;
+      throw error;
+    }
+
+    try {
+      return await res.json();
+    } catch (err: any) {
+      const error: any = new Error('Malformed response: invalid JSON');
+      error.status = res.status;
+      error.cause = err;
+      throw error;
+    }
+  }
+
+  private async fetchPaginatedJson(options: {
+    initialUrl: string;
+    headers: Record<string, string>;
+    apiBaseUrl: string;
+    maxPages: number;
+    retry: { maxRetries: number; baseDelayMs: number; maxDelayMs: number };
+  }): Promise<{ pages: any[] }> {
+    const pages: any[] = [];
+    let url: string | null = options.initialUrl;
+    const maxPages = Math.max(1, Math.floor(options.maxPages));
+    const seen = new Set<string>();
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      if (!url) break;
+
+      if (pages.length >= maxPages) {
+        break;
+      }
+
+      if (seen.has(url)) {
+        break;
+      }
+      seen.add(url);
+
+      const json = await this.fetchJsonWithRetry({
+        url,
+        headers: options.headers,
+        ...options.retry
+      });
+      pages.push(json);
+
+      const nextRaw = (json as any)?.next_page_uri;
+      const next = typeof nextRaw === 'string' ? nextRaw.trim() : '';
+      if (!next) break;
+
+      url = next.startsWith('http://') || next.startsWith('https://')
+        ? next
+        : `${options.apiBaseUrl.replace(/\/+$/g, '')}${next.startsWith('/') ? '' : '/'}${next}`;
+    }
+
+    return { pages };
+  }
+
+  private writeJsonFile(filePath: string, data: any): void {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  }
+
+  async persistCallLogs(options: {
+    callConfigId: string;
+    providerCallId: string;
+    providerDefaults?: any;
+    logger?: any;
+  }): Promise<void> {
+    const providerCallId = String(options.providerCallId ?? '').trim();
+    if (!providerCallId) return;
+
+    const defaultsRaw = options.providerDefaults;
+    const defaults =
+      defaultsRaw && typeof defaultsRaw === 'object' && !Array.isArray(defaultsRaw)
+        ? defaultsRaw
+        : {};
+
+    const accountSid = String((defaults as any).accountSid ?? '').trim();
+    const authToken = String((defaults as any).authToken ?? '').trim();
+    if (!accountSid || !authToken) {
+      // Best-effort: if credentials are missing, skip call log capture.
+      return;
+    }
+
+    const apiBaseUrlRaw = String((defaults as any).apiBaseUrl ?? 'https://api.twilio.com').trim();
+    const apiBaseUrl = apiBaseUrlRaw ? apiBaseUrlRaw.replace(/\/+$/g, '') : 'https://api.twilio.com';
+
+    const headers = { Authorization: basicAuthHeader(accountSid, authToken) };
+
+    let stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    try {
+      const { createIsoFilenameStamp } = await import('../../../modules/logging/index.js');
+      stamp = createIsoFilenameStamp();
+    } catch {
+      // best-effort
+    }
+
+    const dirName = `call-${sanitizeFsToken(providerCallId)}-${stamp}`;
+    const callDir = path.join(process.cwd(), 'logs', 'voice', 'twilio', dirName);
+    fs.mkdirSync(callDir, { recursive: true });
+
+    const callUrl = `${apiBaseUrl}/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Calls/${encodeURIComponent(providerCallId)}.json`;
+    const eventsUrl = `${apiBaseUrl}/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Calls/${encodeURIComponent(providerCallId)}/Events.json`;
+    const recordingsUrl = `${apiBaseUrl}/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Calls/${encodeURIComponent(providerCallId)}/Recordings.json`;
+    const debuggerEventsUrl = `${apiBaseUrl}/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Calls/${encodeURIComponent(providerCallId)}/Debugger/Events.json`;
+
+    const maxPages = (() => {
+      const raw = process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_MAX_PAGES;
+      const n = raw === undefined || raw === null || raw === '' ? NaN : Number(raw);
+      return Number.isFinite(n) && n > 0 ? Math.floor(n) : 25;
+    })();
+    const retry = {
+      maxRetries: (() => {
+        const raw = process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_MAX_RETRIES;
+        const n = raw === undefined || raw === null || raw === '' ? NaN : Number(raw);
+        return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 2;
+      })(),
+      baseDelayMs: (() => {
+        const raw = process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_RETRY_BASE_DELAY_MS;
+        const n = raw === undefined || raw === null || raw === '' ? NaN : Number(raw);
+        return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 250;
+      })(),
+      maxDelayMs: (() => {
+        const raw = process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_RETRY_MAX_DELAY_MS;
+        const n = raw === undefined || raw === null || raw === '' ? NaN : Number(raw);
+        return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 2000;
+      })()
+    };
+
+    const safeLog = (level: 'debug' | 'info' | 'warning' | 'error', message: string, data?: any) => {
+      try {
+        const fn = options.logger?.[level];
+        if (typeof fn === 'function') fn(message, data);
+      } catch {}
+    };
+
+    const capture = async (name: string, fn: () => Promise<any>): Promise<void> => {
+      try {
+        const result = await fn();
+        this.writeJsonFile(path.join(callDir, `${name}.json`), result);
+      } catch (err: any) {
+        // Best-effort: persist the failure so debugging is still possible.
+        const status = typeof err?.status === 'number' ? err.status : undefined;
+        this.writeJsonFile(path.join(callDir, `${name}.json`), {
+          error: {
+            message: err?.message ?? String(err),
+            ...(status ? { status } : {}),
+            ...(err?.body ? { body: String(err.body).slice(0, 10_000) } : {})
+          }
+        });
+
+        safeLog('warning', `voice.twilio.call_logs.${name}_failed`, {
+          callConfigId: String(options.callConfigId ?? ''),
+          providerCallId,
+          ...(status ? { status } : {}),
+          message: err?.message ?? String(err)
+        });
+      }
+    };
+
+    await capture('call', async () => await this.fetchJsonWithRetry({ url: callUrl, headers, ...retry }));
+    await capture('events', async () =>
+      await this.fetchPaginatedJson({ initialUrl: eventsUrl, headers, apiBaseUrl, maxPages, retry })
+    );
+    await capture('recordings', async () =>
+      await this.fetchPaginatedJson({ initialUrl: recordingsUrl, headers, apiBaseUrl, maxPages, retry })
+    );
+    await capture('debugger-events', async () =>
+      await this.fetchPaginatedJson({ initialUrl: debuggerEventsUrl, headers, apiBaseUrl, maxPages, retry })
+    );
+
+    // Apply retention parity (best-effort).
+    try {
+      const { applyRetentionOnce, VOICE_MAX_FILES, VOICE_MAX_AGE_DAYS } = await import('../../../modules/logging/index.js');
+      applyRetentionOnce(path.join(process.cwd(), 'logs', 'voice', 'twilio'), {
+        includeDirs: true,
+        match: (d: any) => d.isDirectory() && d.name.startsWith('call-'),
+        maxFiles: VOICE_MAX_FILES,
+        maxAgeDays: VOICE_MAX_AGE_DAYS,
+        exclude: [callDir]
+      });
+    } catch {
+      // best-effort
+    }
+  }
+
   async validateWebhookRequest(options: {
     req: http.IncomingMessage;
     url: string;
@@ -252,6 +481,7 @@ export default class TwilioVoiceCompat {
     const baseFields = {
       callConfigId: String(options.callConfigId),
       voiceProvider: String(options.voiceProvider),
+      ...(systemPrompt !== undefined ? { systemPrompt: String(systemPrompt) } : {}),
       ...(requestId ? { requestId } : {})
     };
 
@@ -588,6 +818,23 @@ export default class TwilioVoiceCompat {
       await bridge.handleConnection(options.ws, options.req);
     } finally {
       clearAllTimers();
+
+      if (providerCallId) {
+        try {
+          await this.persistCallLogs({
+            callConfigId: String(options.callConfigId),
+            providerCallId,
+            providerDefaults: options.providerDefaults,
+            logger
+          });
+        } catch (error: any) {
+          safeLog('warning', 'voice.twilio.call_logs.persist_failed', {
+            ...baseFields,
+            providerCallId,
+            message: error?.message ?? String(error)
+          });
+        }
+      }
     }
   }
 

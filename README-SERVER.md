@@ -1033,6 +1033,10 @@ for line in response.iter_lines():
 | `LLM_ADAPTER_BATCH_DIR` | Use batch-based directories ("1" or "0") |
 | `LLM_ADAPTER_DISABLE_FILE_LOGS` | Disable file logging ("1") |
 | `LLM_ADAPTER_DISABLE_CONSOLE_LOGS` | Disable console logging ("1") |
+| `LLM_ADAPTER_VOICE_LOG_MAX_FILES` | Max retained voice log files |
+| `LLM_ADAPTER_VOICE_LOG_MAX_AGE_DAYS` | Max age of voice log files |
+| `LLM_ADAPTER_REALTIME_LOG_MAX_FILES` | Max retained realtime log files |
+| `LLM_ADAPTER_REALTIME_LOG_MAX_AGE_DAYS` | Max age of realtime log files |
 | `LLM_API_KEY` | LLM provider API key |
 | `EMBEDDINGS_API_KEY` | Embedding provider API key |
 | `VECTOR_STORE_API_KEY` | Vector store API key |
@@ -1041,7 +1045,7 @@ for line in response.iter_lines():
 
 ### Observability (Optional)
 
-Enable LLM call telemetry export in your request body:
+Enable LLM call and realtime session telemetry export in your request body/spec:
 
 ```json
 {

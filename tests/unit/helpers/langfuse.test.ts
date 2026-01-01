@@ -108,7 +108,7 @@ describe('helpers/langfuse', () => {
     const testFileBase = 'unit-observability';
 
     await withTempCwd('langfuse-assert-logged-ok', async () => {
-      const { logObservabilityEvent } = await import('@/modules/llm/internal/live-test-logger.ts');
+      const { logObservabilityEvent } = await import('@/modules/shared/internal/live-test-logger.ts');
 
       const ctx = { testFile: testFileBase, testName: 'unit', correlationId: traceId };
       logObservabilityEvent(
@@ -194,7 +194,7 @@ describe('helpers/langfuse', () => {
     const testFileBase = 'unit-observability-missing';
 
     await withTempCwd('langfuse-assert-logged-missing', async () => {
-      const { logObservabilityEvent } = await import('@/modules/llm/internal/live-test-logger.ts');
+      const { logObservabilityEvent } = await import('@/modules/shared/internal/live-test-logger.ts');
 
       const ctx = { testFile: testFileBase, testName: 'unit', correlationId: traceId };
       logObservabilityEvent(

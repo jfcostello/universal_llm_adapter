@@ -62,7 +62,7 @@
     "test:extensions:voice": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config jest.extensions.voice.config.js",
     "test:all": "tsx tests/live/run-all.ts",
     "test:live": "tsx tests/live/run-live.ts",
-    "test:live:realtime": "tsx tests/live/run-live.ts --testPathPattern=realtime",
+    "test:live:realtime": "tsx tests/live/run-live.ts --testPathPattern=tests[\\\\/]live[\\\\/]test-files[\\\\/][0-9]+-realtime",
     "test:live:anthropic": "tsx tests/live/run-live.ts anthropic",
     "test:live:openai": "tsx tests/live/run-live.ts openai-responses",
     "test:live:openrouter": "tsx tests/live/run-live.ts openrouter",

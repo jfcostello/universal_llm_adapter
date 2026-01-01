@@ -532,7 +532,7 @@ export async function createVoiceServerRegistration(ctx: {
 
   const rateLimiter = createRateLimiter(rateLimitConfig);
 
-  let cachedLoggingModule: { getLogger: (correlationId?: string) => VoiceLogger } | undefined;
+  let cachedLoggingModule: { getVoiceLogger: (correlationId?: string) => VoiceLogger } | undefined;
   const resolveLogger = async (correlationId?: string): Promise<VoiceLogger | undefined> => {
     if (ctx.logging?.getLogger) {
       try {
@@ -546,7 +546,7 @@ export async function createVoiceServerRegistration(ctx: {
       if (!cachedLoggingModule) {
         cachedLoggingModule = await import('../../../modules/logging/index.js');
       }
-      return cachedLoggingModule.getLogger(correlationId);
+      return cachedLoggingModule.getVoiceLogger(correlationId);
     } catch {
       return undefined;
     }
@@ -1539,7 +1539,8 @@ export async function createVoiceServerRegistration(ctx: {
               callConfigId,
               voiceProvider,
               hasIdempotencyKey: Boolean(idempotencyKeyNormalized),
-              ...(requestId ? { requestId } : {})
+              ...(requestId ? { requestId } : {}),
+              ...(systemPrompt !== undefined ? { systemPrompt } : {})
             });
 
             const metadata = (() => {
@@ -1613,7 +1614,13 @@ export async function createVoiceServerRegistration(ctx: {
               throw makeHttpError({ message: 'Voice provider did not return providerCallId', statusCode: 502, code: 'provider_error' });
             }
 
-            safeLog(logger, 'info', 'voice.calls.queued', { callConfigId, voiceProvider, providerCallId, ...(requestId ? { requestId } : {}) });
+            safeLog(logger, 'info', 'voice.calls.queued', {
+              callConfigId,
+              voiceProvider,
+              providerCallId,
+              ...(requestId ? { requestId } : {}),
+              ...(systemPrompt !== undefined ? { systemPrompt } : {})
+            });
 
             try {
               const expiresAtMs = Number((callConfig as any)?.expiresAtMs);
@@ -1677,7 +1684,14 @@ export async function createVoiceServerRegistration(ctx: {
               fallbackLogger,
               statusCode >= 500 ? 'error' : 'warning',
               'voice.calls.error',
-              { ...(callConfigId ? { callConfigId } : {}), voiceProvider, statusCode, ...(code ? { code } : {}), ...(requestId ? { requestId } : {}) }
+              {
+                ...(callConfigId ? { callConfigId } : {}),
+                voiceProvider,
+                statusCode,
+                ...(code ? { code } : {}),
+                ...(requestId ? { requestId } : {}),
+                ...(systemPrompt !== undefined ? { systemPrompt } : {})
+              }
             );
             throw error;
           }

@@ -9,12 +9,12 @@ import type {
   ObservabilityContext
 } from '../../../kernel/index.js';
 import { StreamEventType, ToolCallEventType, getDefaults, safeJsonParse } from '../../../kernel/index.js';
-import { deriveObservabilityModel, monotonicElapsedMs, monotonicNowNs, normalizeFlag } from '../../shared/index.js';
+import { deriveObservabilityModel, logObservabilityEvent, monotonicElapsedMs, monotonicNowNs, normalizeFlag } from '../../shared/index.js';
 import { partitionSettings } from '../../settings/index.js';
 import { usageStatsToJson } from '../../usage/index.js';
 import { redactJsonCredentials } from '../../security/index.js';
 import { randomUUID } from 'crypto';
-import { filterContentForObservability, filterMessagesForObservability } from './observability-capture.js';
+import { filterContentForObservability, filterMessagesForObservability } from '../../shared/index.js';
 
 interface StreamingContext {
   provider: string;
@@ -77,7 +77,6 @@ export class StreamCoordinator {
 
         if (process.env.LLM_LIVE === '1') {
           try {
-            const { logObservabilityEvent } = await import('./live-test-logger.js');
             logObservabilityEvent(
               {
                 eventType: 'LLM_REQUEST',
@@ -417,15 +416,14 @@ export class StreamCoordinator {
           metadata: context.observability.metadata
         };
 
-        context.observability.exporter.recordLLMResponse(event as any);
+          context.observability.exporter.recordLLMResponse(event as any);
 
-        if (process.env.LLM_LIVE === '1') {
-          try {
-            const { logObservabilityEvent } = await import('./live-test-logger.js');
-            logObservabilityEvent(
-              {
-                eventType: 'LLM_RESPONSE',
-                traceId: event.traceId,
+          if (process.env.LLM_LIVE === '1') {
+            try {
+              logObservabilityEvent(
+                {
+                  eventType: 'LLM_RESPONSE',
+                  traceId: event.traceId,
                 generationId: event.generationId,
                 event
               },
