@@ -161,6 +161,35 @@ describe('realtime-compat/openai — session core', () => {
     jest.useRealTimers();
   });
 
+  test('handshake: ready fallback delay is configurable via spec.handshake.readyFallbackMs', async () => {
+    jest.useFakeTimers();
+    const fake = createFakeTransport();
+
+    const session = createOpenAIRealtimeCompatSessionWithTransport(
+      {
+        provider,
+        spec: { provider: 'openai', model: 'gpt-realtime', handshake: { readyFallbackMs: 123 } } as any
+      } as any,
+      fake.transport as any
+    );
+
+    const it = session.events()[Symbol.asyncIterator]();
+    fake.push({ type: 'open' });
+
+    // Allow the transport pump to process `open` (and schedule the fallback timer).
+    for (let i = 0; i < 25 && fake.sent.length === 0; i++) {
+      await Promise.resolve();
+    }
+    expect(fake.sent[0]?.type).toBe('session.update');
+
+    jest.advanceTimersByTime(123);
+    const evt = await waitForEvent(it, e => e.type === 'ready');
+    expect(evt.type).toBe('ready');
+
+    await session.close();
+    jest.useRealTimers();
+  });
+
   test('handshake: ignores duplicate open events when fallback is already scheduled', async () => {
     jest.useFakeTimers();
     const fake = createFakeTransport();

@@ -5,7 +5,7 @@ import type {
   RealtimeEvent,
   RealtimeSessionSpec
 } from '../../../../kernel/index.js';
-import { AsyncQueue, LruMap, resolveRealtimeToolCallTrackingMaxEntries } from '../../../../kernel/index.js';
+import { AsyncQueue, LruMap, resolveRealtimeReadyFallbackMs, resolveRealtimeToolCallTrackingMaxEntries } from '../../../../kernel/index.js';
 import { createDeferred, type Deferred } from '../../../../modules/shared/index.js';
 
 import {
@@ -91,7 +91,7 @@ export function createGrokRealtimeCompatSessionWithTransport(
     });
   }
 
-  const READY_FALLBACK_MS = 10_000;
+  const readyFallbackMs = resolveRealtimeReadyFallbackMs(spec);
   let readyFallbackTimer: NodeJS.Timeout | undefined;
   const clearReadyFallback = () => {
     if (!readyFallbackTimer) return;
@@ -107,7 +107,7 @@ export function createGrokRealtimeCompatSessionWithTransport(
         try { send(sessionUpdateEvent); } catch {}
       }
       emitReadyOnce();
-    }, READY_FALLBACK_MS);
+    }, readyFallbackMs);
     if (typeof (readyFallbackTimer as any)?.unref === 'function') {
       try {
         (readyFallbackTimer as any).unref();

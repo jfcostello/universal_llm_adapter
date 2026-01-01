@@ -134,6 +134,15 @@ export interface RealtimeEventBufferConfig {
   maxEvents?: number;
 }
 
+export interface RealtimeHandshakeConfig {
+  /**
+   * Fallback window for emitting `ready` if the provider doesn't acknowledge the session update.
+   *
+   * Defaults to 10 seconds.
+   */
+  readyFallbackMs?: number;
+}
+
 export type RealtimeSessionSettings = Record<string, any>;
 
 export interface RealtimeSessionSpec {
@@ -143,6 +152,8 @@ export interface RealtimeSessionSpec {
 
   transport?: RealtimeTransportConfig;
   webrtc?: RealtimeWebrtcConfig;
+
+  handshake?: RealtimeHandshakeConfig;
 
   // prompt/context
   systemPrompt?: string;

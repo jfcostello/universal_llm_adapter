@@ -822,4 +822,34 @@ describe('realtime-compat/grok — session core', () => {
     await session.close();
     jest.useRealTimers();
   });
+
+  test('handshake: ready fallback delay is configurable via spec.handshake.readyFallbackMs', async () => {
+    jest.useFakeTimers();
+    const fake = createFakeTransport();
+
+    const session = createGrokRealtimeCompatSessionWithTransport(
+      {
+        provider,
+        spec: { provider: 'grok', transcription: { enabled: true }, handshake: { readyFallbackMs: 123 } } as any
+      },
+      fake.transport as any
+    );
+
+    const it = session.events()[Symbol.asyncIterator]();
+    fake.push({ type: 'open' });
+
+    for (let i = 0; i < 25 && jest.getTimerCount() === 0; i++) {
+      await Promise.resolve();
+    }
+    expect(jest.getTimerCount()).toBe(1);
+
+    jest.advanceTimersByTime(123);
+    expect(fake.sent[0]?.type).toBe('session.update');
+    const evt = await waitForEvent(it, e => e.type === 'ready');
+    expect(evt.type).toBe('ready');
+    expect(jest.getTimerCount()).toBe(0);
+
+    await session.close();
+    jest.useRealTimers();
+  });
 });

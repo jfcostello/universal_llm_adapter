@@ -41,9 +41,9 @@ function basicAuthHeader(username: string, password: string): string {
   return `Basic ${token}`;
 }
 
-function sleepUnref(ms: number): Promise<void> {
-  const durationMs = Number.isFinite(ms) ? Math.max(0, Math.floor(ms)) : 0;
-  if (durationMs === 0) return Promise.resolve();
+function sleepUnref(ms: number): Promise<void> | undefined {
+  const durationMs = Math.max(0, Math.floor(ms));
+  if (durationMs <= 0) return undefined;
 
   return new Promise<void>((resolve) => {
     const timeoutId: any = setTimeout(resolve, durationMs);
@@ -458,9 +458,8 @@ export default class TwilioVoiceCompat {
           onReady: () => {
             void (async () => {
               try {
-                if (delayMs > 0) {
-                  await sleepUnref(delayMs);
-                }
+                const delay = sleepUnref(delayMs);
+                if (delay) await delay;
                 await session.sendText({ text: prompt, role });
                 await session.commit();
                 if (silenceTimeoutMs) scheduleAssistantAudioStartFallback(silenceTimeoutMs);

@@ -8,8 +8,8 @@ const TEST_FILE = '19-vector-search-locks';
 
 const STORE_ID = 'qdrant-cloud';
 const TOKEN = `VECTOR_LOCKS_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
-const ANSWER_HIGH = `VECTOR_LOCKS_ANSWER_HIGH_${Math.random().toString(16).slice(2, 10)}`;
-const ANSWER_LOW = `VECTOR_LOCKS_ANSWER_LOW_${Math.random().toString(16).slice(2, 10)}`;
+const ANSWER_HIGH = 'VECTOR_LOCKS_ANSWER_HIGH_OK';
+const ANSWER_LOW = 'VECTOR_LOCKS_ANSWER_LOW_OK';
 
 function readOpenRouterEmbeddingProviderId(): string {
   const raw = fs.readFileSync(path.join(process.cwd(), 'plugins', 'embeddings', 'openrouter.json'), 'utf-8');
@@ -63,12 +63,12 @@ function extractTextFromMessage(msg: any): string {
           chunks: [
             {
               id: 'fact-high',
-              text: `Token ${TOKEN}: The meaning of life is 42. AnswerToken: ${ANSWER_HIGH}.`,
+              text: `Token ${TOKEN}: The meaning of life is 42. AnswerToken=${ANSWER_HIGH}`,
               metadata: { relevance: 'high' }
             },
             {
               id: 'fact-low',
-              text: `Token ${TOKEN}: The meaning of life is 41. AnswerToken: ${ANSWER_LOW}.`,
+              text: `Token ${TOKEN}: The meaning of life is 41. AnswerToken=${ANSWER_LOW}`,
               metadata: { relevance: 'low' }
             }
           ]
@@ -97,7 +97,7 @@ function extractTextFromMessage(msg: any): string {
         'You are a conformance test agent.',
         `Token: ${TOKEN}.`,
         'You MUST call the vector_search tool exactly once.',
-        'After the tool result arrives, extract the AnswerToken value and remember it for your final output.',
+        'After the tool result arrives, extract the AnswerToken value (the text after "AnswerToken=") and remember it for your final output.',
         'If you receive a user message that begins with "All tool calls have been consumed", reply with ONLY the remembered AnswerToken value.',
         'Final output rules:',
         '- Output EXACTLY the AnswerToken value',

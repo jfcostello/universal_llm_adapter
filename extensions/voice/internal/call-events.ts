@@ -52,18 +52,23 @@ function isDeltaEvent(type: string): boolean {
 
 type RingBuffer<T> = {
   max: number;
-  buf: Array<T | undefined>;
+  buf?: Array<T | undefined>;
   start: number;
   count: number;
 };
 
 function createRingBuffer<T>(max: number): RingBuffer<T> {
   const size = Math.max(0, Math.floor(max));
-  return { max: size, buf: size > 0 ? new Array(size) : [], start: 0, count: 0 };
+  // Lazily allocate the backing array on first push to avoid eagerly allocating
+  // `maxBufferedEventsPerCall` slots for every call channel.
+  return { max: size, start: 0, count: 0 };
 }
 
 function ringBufferPush<T>(buffer: RingBuffer<T>, item: T): void {
   if (buffer.max <= 0) return;
+  if (!buffer.buf) {
+    buffer.buf = new Array(buffer.max);
+  }
   const idx = (buffer.start + buffer.count) % buffer.max;
   buffer.buf[idx] = item;
   if (buffer.count < buffer.max) {
@@ -74,7 +79,7 @@ function ringBufferPush<T>(buffer: RingBuffer<T>, item: T): void {
 }
 
 function ringBufferToArray<T>(buffer: RingBuffer<T>): T[] {
-  if (buffer.count <= 0) return [];
+  if (buffer.count <= 0 || !buffer.buf) return [];
   const out: T[] = [];
   for (let i = 0; i < buffer.count; i += 1) {
     const idx = (buffer.start + i) % buffer.max;
