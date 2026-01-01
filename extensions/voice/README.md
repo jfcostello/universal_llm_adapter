@@ -71,6 +71,10 @@ Enable the voice extension on the server via:
 - `LLM_ADAPTER_VOICE_EVENTS_KEEPALIVE_INTERVAL_MS` (default: `15000`)
   - Overrides the default SSE keepalive interval (`server.extensions.voice.events.keepAliveIntervalMs`). Set to `0` to disable keepalives.
 
+- `LLM_ADAPTER_VOICE_MEDIA_WS_TOKEN_FROM_MESSAGE_TIMEOUT_MS` (default: `5000`)
+  - Enables accepting the signed `WS /voice/media` token via the first WebSocket message (JSON key: `voiceMediaToken`) when URL query parameters can’t be preserved.
+  - Set to `0` to disable and require `?token=...` in the URL.
+
 ### Server defaults (optional)
 
 The voice extension supports server-side defaults and settings under `server.extensions.voice`:
@@ -91,6 +95,9 @@ Notes:
 - `events.keepAliveIntervalMs` (default: `15000`): interval for SSE keepalive comments (`: keepalive`) to keep intermediaries from timing out idle streams (set `0` to disable keepalives). Can also be overridden via `LLM_ADAPTER_VOICE_EVENTS_KEEPALIVE_INTERVAL_MS`.
 - `events.maxWriteQueueBytes` (default: `262144`): upper bound on buffered SSE response bytes (in-flight + queued). If exceeded, the server closes the stream to avoid unbounded memory growth.
 - `timeouts.silenceAssistantAudioStartFallbackMs` / `timeouts.silenceAssistantAudioEndFallbackMs`: optional fallback windows used by some provider compats when `assistantFirstTurn.enabled=true` to ensure silence timers still arm when assistant-audio boundary events are missing (see the active compat README under `plugins/voice-compat/*`).
+
+Media WS settings:
+- `mediaWs`: `{ tokenFromMessageTimeoutMs }`
 
 ### Provider plugins
 
@@ -127,7 +134,7 @@ If you run behind a reverse proxy/load balancer, ensure it forwards those header
 
 1. Client calls `POST /voice/calls` (server-side) to create a call config and request an outbound call.
 2. Provider places the outbound call and hits `GET|POST /voice/webhook?callConfigId=<id>`.
-3. The webhook response instructs the provider to connect to `WS /voice/media?token=<...>`.
+3. The webhook response instructs the provider to connect to `WS /voice/media` with a signed token (usually as `?token=...`, or provided in the first WS message when query params can’t be preserved).
 4. The provider streams audio over the media WS; the compat bridges into the core realtime session APIs.
 
 Notes:
@@ -142,6 +149,14 @@ Inbound calls require a pre-existing `callConfigId` and stored call config (e.g.
 1. Your system stores a call config under a stable `callConfigId`.
 2. Your telephony provider is configured to call `GET|POST /voice/webhook?callConfigId=<id>` for inbound calls.
 3. The provider connects to `WS /voice/media` using the minted token returned in the webhook response.
+
+#### Media WS token delivery
+
+By default, the token is included in the `WS /voice/media` URL query as `?token=...`.
+
+If your provider cannot preserve WebSocket URL query parameters, the server can instead accept the token from the first WS message. Send a JSON message containing a `voiceMediaToken` string immediately after connect.
+
+This behavior is controlled by `server.extensions.voice.mediaWs.tokenFromMessageTimeoutMs` (default: `5000`). Set it to `0` to require `?token=...` in the URL.
 
 ## Examples
 

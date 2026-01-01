@@ -11,6 +11,16 @@ This directory is provider-specific by design and may reference provider convent
 - Enforce media WS token binding (purpose + identifiers) before bridging.
 - Initiate outbound calls.
 
+## Media WS token delivery
+
+The voice extension requires a signed token for `WS /voice/media`.
+
+Twilio Media Streams may drop query parameters on the WebSocket URL. This compat passes the token via TwiML `<Parameter>` (name: `voiceMediaToken`) attached to the `<Stream>` element.
+
+This requires token-in-message support to be enabled on the voice extension (`server.extensions.voice.mediaWs.tokenFromMessageTimeoutMs > 0`, default: `5000`).
+
+For safety, `voiceMediaToken` is treated as a reserved custom parameter and is stripped before call metadata is surfaced to the realtime session.
+
 ## Configuration
 
 This compat reads provider defaults from the voice provider manifest (see `plugins/voice-providers/twilio.json`).

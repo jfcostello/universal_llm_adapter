@@ -1,9 +1,11 @@
 import { jest } from '@jest/globals';
+import crypto from 'crypto';
 import http from 'http';
 import * as path from 'path';
 
 import voiceExtension from '../../index.ts';
 import { createInMemoryVoiceCallConfigStore } from '../../internal/call-config-store/index.js';
+import { createSignedWsToken } from '@/modules/security/index.ts';
 import { attachUpgradeRouter } from '@/modules/server/internal/transport/upgrade-router.ts';
 import { closeServerAndSockets, trackServerSockets, unrefServer } from '../helpers/http-server.ts';
 
@@ -15,11 +17,32 @@ function extractStreamUrl(xml: string): string {
   return match[1];
 }
 
-function openWs(url: string): Promise<{ ws: WebSocket; messages: any[]; closePromise: Promise<void> }> {
+function toWsUrl(httpBaseUrl: string, pathname: string): string {
+  const url = new URL(pathname, httpBaseUrl);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return url.toString();
+}
+
+function mintVoiceMediaToken(payload: { callConfigId: string; voiceProvider: string }): string {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  return createSignedWsToken({
+    secret: 'secret',
+    payload: {
+      iat: nowSeconds,
+      exp: nowSeconds + 60,
+      nonce: crypto.randomBytes(18).toString('base64url'),
+      purpose: 'voice_media',
+      callConfigId: payload.callConfigId,
+      voiceProvider: payload.voiceProvider
+    } as any
+  });
+}
+
+function openWs(url: string): Promise<{ ws: WebSocket; messages: any[]; closePromise: Promise<{ code: number; reason: string }> }> {
   const ws = new WebSocket(url);
   const messages: any[] = [];
-  const closePromise = new Promise<void>((resolve) => {
-    ws.onclose = () => resolve();
+  const closePromise = new Promise<{ code: number; reason: string }>((resolve) => {
+    ws.onclose = (evt: any) => resolve({ code: Number(evt?.code ?? 0), reason: String(evt?.reason ?? '') });
   });
 
   ws.onmessage = (evt: any) => {
@@ -75,7 +98,7 @@ async function waitForMessage(messages: any[], predicate: (m: any) => boolean, t
   throw new Error('Timed out waiting for WS message');
 }
 
-async function startHarness(options: { store: any; providerPlugins?: any; logging?: any; httpConfig?: any }) {
+async function startHarness(options: { store: any; providerPlugins?: any; logging?: any; httpConfig?: any; preUpgradeHandlers?: any[] }) {
   let handleHttp: any = async () => false;
   const server = http.createServer((req, res) => {
     void (async () => {
@@ -89,6 +112,7 @@ async function startHarness(options: { store: any; providerPlugins?: any; loggin
   const sockets = trackServerSockets(server);
 
   const upgradeRouter = attachUpgradeRouter(server);
+  const preUnregister: Array<() => void> = [];
 
   const reg = await (voiceExtension as any).registerServer({
     server,
@@ -102,6 +126,11 @@ async function startHarness(options: { store: any; providerPlugins?: any; loggin
   });
 
   handleHttp = reg.handleHttp;
+  for (const handler of options.preUpgradeHandlers ?? []) {
+    if (typeof handler === 'function') {
+      preUnregister.push(upgradeRouter.register(handler));
+    }
+  }
   const unregister = upgradeRouter.register(reg.handleUpgrade);
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -112,6 +141,9 @@ async function startHarness(options: { store: any; providerPlugins?: any; loggin
 
   const close = async () => {
     unregister();
+    for (const fn of preUnregister) {
+      try { fn(); } catch {}
+    }
     upgradeRouter.close();
     await reg.close?.();
     await closeServerAndSockets(server, sockets);
@@ -195,6 +227,547 @@ describe('extensions/voice: webhook + media wiring', () => {
 
       // Token replay should fail (nonce is consume-once).
       await expect(openWs(wsUrl)).rejects.toBeDefined();
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('end-to-end: /voice/media accepts token via first WS message when URL query is missing (replay rejected)', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const harness = await startHarness({
+      store,
+      httpConfig: { extensions: { voice: { mediaWs: { tokenFromMessageTimeoutMs: 250 } } } }
+    });
+    try {
+      const res = await fetch(new URL('/voice/webhook?callConfigId=cfg_1', harness.baseUrl), {
+        headers: { 'x-test-signature': 'ok' }
+      });
+      expect(res.status).toBe(200);
+      const xml = await res.text();
+
+      const wsUrlWithToken = new URL(extractStreamUrl(xml));
+      const token = String(wsUrlWithToken.searchParams.get('token') ?? '').trim();
+      expect(token).toBeTruthy();
+      wsUrlWithToken.searchParams.delete('token');
+      const wsUrlWithoutToken = wsUrlWithToken.toString();
+      expect(wsUrlWithoutToken).toContain('/voice/media');
+      expect(wsUrlWithoutToken).not.toContain('token=');
+
+      const first = await openWs(wsUrlWithoutToken);
+      first.ws.send(JSON.stringify({ voiceMediaToken: token }));
+      const ready = await waitForMessage(first.messages, m => m?.type === 'ready');
+      expect(ready.callConfigId).toBe('cfg_1');
+      await first.closePromise;
+
+      const second = await openWs(wsUrlWithoutToken);
+      second.ws.send(JSON.stringify({ voiceMediaToken: token }));
+      const closeInfo = await second.closePromise;
+      expect(closeInfo.code).toBe(1008);
+      expect(second.messages.some(m => m?.type === 'ready')).toBe(false);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('end-to-end: token can be found deep in JSON and buffered messages are replayed to the compat', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_proxy_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'p_proxy'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    let resolvePing: (() => void) | undefined;
+    const pingSeen = new Promise<void>((resolve) => {
+      resolvePing = resolve;
+    });
+
+    const providerPlugins = {
+      getManifest: async () => ({ defaults: {} }),
+      getCompat: async () => ({
+        handleMediaConnection: async ({ ws, callConfigId }: any) => {
+          const messagesSeen: string[] = [];
+          const handler1 = (data: any) => {
+            const text = typeof data === 'string' ? data : Buffer.from(data).toString('utf-8');
+            messagesSeen.push(text);
+            if (text.includes('clientPing')) {
+              resolvePing?.();
+            }
+          };
+
+          const handler2 = jest.fn();
+          const handlerThrow = () => {
+            throw new Error('boom');
+          };
+
+          // Exercise the buffered WS proxy behavior.
+          ws.on('message', handler1);
+          ws.on('message', handler2);
+          ws.off('message', handler2);
+          ws.on('message', handlerThrow);
+          ws.once('message', jest.fn());
+
+          const onClose = jest.fn();
+          ws.on('close', onClose);
+          ws.off('close', onClose);
+          ws.once('close', jest.fn());
+
+          const state = Number(ws.readyState);
+          ws.send(JSON.stringify({ type: 'ready', callConfigId, readyState: state, bufferedCount: messagesSeen.length }));
+
+          const timeout = setTimeout(() => resolvePing?.(), 2000);
+          if (typeof (timeout as any)?.unref === 'function') {
+            (timeout as any).unref();
+          }
+          await pingSeen;
+          clearTimeout(timeout);
+
+          ws.emit('message', Buffer.from(JSON.stringify({ serverEmitted: true })));
+          ws.emit('error', new Error('boom'));
+          ws.emit('error');
+          ws.close();
+          ws.terminate?.();
+        }
+      })
+    };
+
+    const harness = await startHarness({
+      store,
+      providerPlugins,
+      httpConfig: { extensions: { voice: { mediaWs: { tokenFromMessageTimeoutMs: 500 } } } }
+    });
+
+    try {
+      const wsUrl = toWsUrl(harness.baseUrl, '/voice/media');
+      const token = mintVoiceMediaToken({ callConfigId: 'cfg_proxy_1', voiceProvider: 'p_proxy' });
+
+      const client = await openWs(wsUrl);
+      client.ws.send('not-json');
+      client.ws.send(JSON.stringify({ foo: [1, 2, 3], bar: { baz: true } }));
+      const deep: any = {};
+      let cursor = deep;
+      for (let i = 0; i < 12; i++) {
+        cursor.n = {};
+        cursor = cursor.n;
+      }
+      client.ws.send(JSON.stringify(deep));
+      client.ws.send(JSON.stringify({ start: { customParameters: [{ voiceMediaToken: token }] } }));
+
+      const ready = await waitForMessage(client.messages, m => m?.type === 'ready');
+      expect(ready.callConfigId).toBe('cfg_proxy_1');
+
+      client.ws.send(JSON.stringify({ clientPing: true }));
+      await client.closePromise;
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('end-to-end: closes when token is not provided within the configured timeout', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_timeout_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'p_timeout'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const harness = await startHarness({
+      store,
+      httpConfig: { extensions: { voice: { mediaWs: { tokenFromMessageTimeoutMs: 25 } } } }
+    });
+
+    try {
+      const wsUrl = toWsUrl(harness.baseUrl, '/voice/media');
+      const client = await openWs(wsUrl);
+      const closeInfo = await client.closePromise;
+      expect(closeInfo.code).toBe(1008);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('end-to-end: closes with 1009 when pre-auth buffered messages exceed limit', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_big_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'p_big'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const harness = await startHarness({
+      store,
+      httpConfig: { extensions: { voice: { mediaWs: { tokenFromMessageTimeoutMs: 500 } } } }
+    });
+
+    try {
+      const wsUrl = toWsUrl(harness.baseUrl, '/voice/media');
+      const client = await openWs(wsUrl);
+      client.ws.send('x'.repeat(300000));
+      const closeInfo = await client.closePromise;
+      expect(closeInfo.code).toBe(1009);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('end-to-end: rejects upgrade with 503 when media WS capacity is reached (token-in-message path)', async () => {
+    process.env.LLM_ADAPTER_VOICE_MEDIA_WS_MAX_CONCURRENT_SESSIONS = '1';
+
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_busy_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'p_busy'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const providerPlugins = {
+      getManifest: async () => ({ defaults: {} }),
+      getCompat: async () => ({
+        handleMediaConnection: async ({ ws, callConfigId }: any) => {
+          try {
+            ws.send(JSON.stringify({ type: 'ready', callConfigId }));
+          } catch {}
+          // keep open until the client closes
+        }
+      })
+    };
+
+    const harness = await startHarness({
+      store,
+      providerPlugins,
+      httpConfig: { extensions: { voice: { mediaWs: { tokenFromMessageTimeoutMs: 500 } } } }
+    });
+
+    try {
+      const wsUrl = toWsUrl(harness.baseUrl, '/voice/media');
+      const token = mintVoiceMediaToken({ callConfigId: 'cfg_busy_1', voiceProvider: 'p_busy' });
+
+      const first = await openWs(wsUrl);
+      first.ws.send(JSON.stringify({ voiceMediaToken: token }));
+      await waitForMessage(first.messages, m => m?.type === 'ready');
+
+      await expect(openWs(wsUrl)).rejects.toBeDefined();
+
+      first.ws.close();
+      await first.closePromise;
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('end-to-end: closes when token payload refers to unknown callConfigId or mismatched voiceProvider', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_known_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'p_known'
+      },
+      { ttlSeconds: 60 }
+    );
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_missing_provider_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: undefined
+      } as any,
+      { ttlSeconds: 60 }
+    );
+
+    const providerPlugins = {
+      getManifest: async () => ({ defaults: {} }),
+      getCompat: async () => ({
+        handleMediaConnection: async () => {
+          // should not be reached
+        }
+      })
+    };
+
+    const harness = await startHarness({
+      store,
+      providerPlugins,
+      httpConfig: { extensions: { voice: { mediaWs: { tokenFromMessageTimeoutMs: 500 } } } }
+    });
+
+    try {
+      const wsUrl = toWsUrl(harness.baseUrl, '/voice/media');
+
+      // Unknown call config
+      const unknownToken = mintVoiceMediaToken({ callConfigId: 'missing_cfg', voiceProvider: 'p_known' });
+      const a = await openWs(wsUrl);
+      a.ws.send(JSON.stringify({ voiceMediaToken: unknownToken }));
+      const closedA = await a.closePromise;
+      expect(closedA.code).toBe(1008);
+
+      // Voice provider mismatch
+      const mismatchToken = mintVoiceMediaToken({ callConfigId: 'cfg_known_1', voiceProvider: 'other' });
+      const b = await openWs(wsUrl);
+      b.ws.send(JSON.stringify({ voiceMediaToken: mismatchToken }));
+      const closedB = await b.closePromise;
+      expect(closedB.code).toBe(1008);
+
+      // Missing voiceProvider in call config (nullish coalescing branch)
+      const missingProviderToken = mintVoiceMediaToken({ callConfigId: 'cfg_missing_provider_1', voiceProvider: 'p_known' });
+      const c = await openWs(wsUrl);
+      c.ws.send(JSON.stringify({ voiceMediaToken: missingProviderToken }));
+      const closedC = await c.closePromise;
+      expect(closedC.code).toBe(1008);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('end-to-end: token-in-message recovers when req.url becomes invalid before token injection', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_req_mutate_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'p_req_mutate'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    let seenReqUrl: string | undefined;
+    let upgradeReq: any;
+
+    const providerPlugins = {
+      getCompat: async () => ({
+        handleMediaConnection: async ({ ws, req }: any) => {
+          seenReqUrl = String(req?.url ?? '');
+          try {
+            ws.send(JSON.stringify({ type: 'ready' }));
+          } catch {}
+          try { ws.close(); } catch {}
+        }
+      })
+    };
+
+    const harness = await startHarness({
+      store,
+      providerPlugins,
+      httpConfig: { extensions: { voice: { mediaWs: { tokenFromMessageTimeoutMs: 500 } } } },
+      preUpgradeHandlers: [
+        ({ req, pathname }: any) => {
+          if (pathname === '/voice/media') upgradeReq = req;
+          return false;
+        }
+      ]
+    });
+
+    try {
+      const wsUrl = toWsUrl(harness.baseUrl, '/voice/media');
+      const token = mintVoiceMediaToken({ callConfigId: 'cfg_req_mutate_1', voiceProvider: 'p_req_mutate' });
+
+      const client = await openWs(wsUrl);
+      upgradeReq.url = 'http://%';
+      client.ws.send(JSON.stringify({ voiceMediaToken: token }));
+
+      await waitForMessage(client.messages, m => m?.type === 'ready');
+      await client.closePromise;
+
+      expect(seenReqUrl).toContain('/voice/media?token=');
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('end-to-end: closes when token in first message is invalid', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_bad_token_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'p_bad_token'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const providerPlugins = {
+      getCompat: async () => ({
+        handleMediaConnection: async () => {
+          // should not be reached
+        }
+      })
+    };
+
+    const harness = await startHarness({
+      store,
+      providerPlugins,
+      httpConfig: { extensions: { voice: { mediaWs: { tokenFromMessageTimeoutMs: 500 } } } }
+    });
+
+    try {
+      const wsUrl = toWsUrl(harness.baseUrl, '/voice/media');
+      const client = await openWs(wsUrl);
+      client.ws.send(JSON.stringify({ voiceMediaToken: 'bad' }));
+      const closeInfo = await client.closePromise;
+      expect(closeInfo.code).toBe(1008);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('end-to-end: token-in-message works without provider manifest defaults and preserves requestId', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_reqid_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'p_reqid',
+        metadata: { requestId: 'req_1' }
+      } as any,
+      { ttlSeconds: 60 }
+    );
+
+    const providerPlugins = {
+      getCompat: async () => ({
+        handleMediaConnection: async ({ ws, callConfigId }: any) => {
+          try {
+            ws.send(JSON.stringify({ type: 'ready', callConfigId }));
+          } catch {}
+          try { ws.close(); } catch {}
+        }
+      })
+    };
+
+    const harness = await startHarness({
+      store,
+      providerPlugins,
+      httpConfig: { extensions: { voice: { mediaWs: { tokenFromMessageTimeoutMs: 500 } } } }
+    });
+
+    try {
+      const wsUrl = toWsUrl(harness.baseUrl, '/voice/media');
+      const token = mintVoiceMediaToken({ callConfigId: 'cfg_reqid_1', voiceProvider: 'p_reqid' });
+      const client = await openWs(wsUrl);
+      client.ws.send(JSON.stringify({ voiceMediaToken: token }));
+      const ready = await waitForMessage(client.messages, m => m?.type === 'ready');
+      expect(ready.callConfigId).toBe('cfg_reqid_1');
+      await client.closePromise;
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('end-to-end: closes with 1011 when the compat lookup fails in token-in-message flow', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_err_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'p_err'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const providerPlugins = {
+      getCompat: async () => {
+        throw new Error('boom');
+      }
+    };
+
+    const harness = await startHarness({
+      store,
+      providerPlugins,
+      httpConfig: { extensions: { voice: { mediaWs: { tokenFromMessageTimeoutMs: 500 } } } }
+    });
+
+    try {
+      const wsUrl = toWsUrl(harness.baseUrl, '/voice/media');
+      const token = mintVoiceMediaToken({ callConfigId: 'cfg_err_1', voiceProvider: 'p_err' });
+
+      const client = await openWs(wsUrl);
+      client.ws.send(JSON.stringify({ voiceMediaToken: token }));
+      const closeInfo = await client.closePromise;
+      expect(closeInfo.code).toBe(1011);
     } finally {
       await harness.close();
     }

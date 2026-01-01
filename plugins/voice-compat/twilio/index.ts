@@ -16,6 +16,18 @@ function escapeXmlAttr(value: string): string {
     .replace(/'/g, '&apos;');
 }
 
+function splitMediaWsUrl(mediaWsUrl: string): { wsUrl: string; token: string } {
+  const raw = String(mediaWsUrl);
+  try {
+    const url = new URL(raw);
+    const token = String(url.searchParams.get('token') ?? '').trim();
+    url.searchParams.delete('token');
+    return { wsUrl: url.toString(), token };
+  } catch {
+    return { wsUrl: raw, token: '' };
+  }
+}
+
 function buildTwiMLConnectStream(options: { wsUrl: string; parameters: Record<string, string> }): string {
   const wsUrl = escapeXmlAttr(String(options.wsUrl));
 
@@ -184,13 +196,16 @@ export default class TwilioVoiceCompat {
     const from = typeof callConfig.from === 'string' ? callConfig.from : '';
     const direction = String(callConfig.direction ?? '');
 
+    const split = splitMediaWsUrl(String(options.mediaWsUrl));
+
     const xml = buildTwiMLConnectStream({
-      wsUrl: String(options.mediaWsUrl),
+      wsUrl: split.wsUrl,
       parameters: {
         callConfigId,
         to,
         from,
-        direction
+        direction,
+        voiceMediaToken: split.token
       }
     });
 
@@ -660,9 +675,10 @@ export default class TwilioVoiceCompat {
       url.searchParams.set('callConfigId', callConfigId);
       form.set('Url', url.toString());
     } else if (mode === 'twiml') {
+      const split = splitMediaWsUrl(String(options.mediaWsUrl));
       const twiml = buildTwiMLConnectStream({
-        wsUrl: String(options.mediaWsUrl),
-        parameters: { callConfigId, to, from, direction: 'outbound' }
+        wsUrl: split.wsUrl,
+        parameters: { callConfigId, to, from, direction: 'outbound', voiceMediaToken: split.token }
       });
       form.set('Twiml', twiml);
     } else {

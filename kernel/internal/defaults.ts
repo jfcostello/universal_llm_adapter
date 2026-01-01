@@ -97,6 +97,9 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
       voice: {
         events: {
           keepAliveIntervalMs: 15000
+        },
+        mediaWs: {
+          tokenFromMessageTimeoutMs: 5000
         }
       }
     }

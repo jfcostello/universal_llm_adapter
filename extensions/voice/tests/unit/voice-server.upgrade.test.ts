@@ -89,7 +89,8 @@ describe('extensions/voice: server upgrade handler', () => {
       pluginsPath: './plugins',
       upgradeRouter: {} as any,
       store,
-      providerPlugins: { getCompat: jest.fn() } as any
+      providerPlugins: { getCompat: jest.fn() } as any,
+      httpConfig: { extensions: { voice: { mediaWs: { tokenFromMessageTimeoutMs: 0 } } } }
     });
 
     const socketA = makeSocket();
@@ -202,6 +203,53 @@ describe('extensions/voice: server upgrade handler', () => {
     const socket = makeSocket();
     await expect(reg.handleUpgrade({ req: { url: '/voice/media?token=bad' } as any, socket, head: Buffer.alloc(0), pathname: '/voice/media' })).resolves.toBe(true);
     expect(extractStatusLine(socket)).toContain('503 Service Unavailable');
+    expect(socket.destroy).toHaveBeenCalled();
+  });
+
+  test('tokenFromMessageTimeoutMs falls back for invalid config values', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    const common = {
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: { getCompat: jest.fn() } as any
+    };
+
+    const regA = await createVoiceServerRegistration({
+      ...common,
+      httpConfig: { extensions: { voice: { mediaWs: { tokenFromMessageTimeoutMs: 'nope' } } } }
+    });
+    await regA.close();
+
+    const regB = await createVoiceServerRegistration({
+      ...common,
+      httpConfig: { extensions: { voice: { mediaWs: { tokenFromMessageTimeoutMs: -1 } } } }
+    });
+    await regB.close();
+  });
+
+  test('gracefully handles early errors before reserving pending capacity', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins: { getCompat: jest.fn() } as any
+    });
+
+    const socket = makeSocket();
+    const req = {
+      get url() {
+        throw new Error('boom');
+      }
+    } as any;
+
+    await expect(reg.handleUpgrade({ req, socket, head: Buffer.alloc(0), pathname: '/voice/media' })).resolves.toBe(true);
+    expect(extractStatusLine(socket)).toContain('500 Internal Server Error');
     expect(socket.destroy).toHaveBeenCalled();
   });
 
