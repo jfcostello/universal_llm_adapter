@@ -60,6 +60,8 @@ Pass extended settings via `spec.settings`. All settings support both camelCase 
 | `enableXSearch` | boolean | Enable Grok's built-in X (Twitter) search tool |
 | `enableFileSearch` | boolean | Enable Grok's built-in file search tool |
 
+Note: `int` values are parsed as **positive integers (>0)**.
+
 Example:
 ```ts
 const session = await createRealtimeSession(registry, {
@@ -79,6 +81,8 @@ const session = await createRealtimeSession(registry, {
 ```
 
 When built-in tools are enabled, they are automatically added to the session tools array alongside any function tools you provide.
+
+Note: `toolChoice.allowed` filtering applies only to function tools. Built-in tools enabled via `spec.settings` are always added.
 
 ## Provider event logging (debug)
 

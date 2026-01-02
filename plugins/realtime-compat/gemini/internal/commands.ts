@@ -7,6 +7,22 @@ type SessionAudioConfig = {
   output: Omit<RealtimeAudioFrame, 'dataBase64' | 'timestampMs'>;
 };
 
+const GEMINI_SESSION_SETTINGS_DEFINITIONS = {
+  temperature: { type: 'number' },
+  maxOutputTokens: { type: 'int', aliases: ['maxTokens', 'max_output_tokens'] },
+  voice: { type: 'string' },
+  topP: { type: 'number', aliases: ['top_p'] },
+  topK: { type: 'int', aliases: ['top_k'] },
+  enableAffectiveDialog: { type: 'boolean', aliases: ['enable_affective_dialog'] },
+  proactiveAudio: { type: 'boolean', aliases: ['proactive_audio'] },
+  thinkingBudget: { type: 'int', aliases: ['thinking_budget'] },
+  includeThoughts: { type: 'boolean', aliases: ['include_thoughts'] },
+  startOfSpeechSensitivity: { type: 'string', aliases: ['start_of_speech_sensitivity'] },
+  endOfSpeechSensitivity: { type: 'string', aliases: ['end_of_speech_sensitivity'] },
+  vadPrefixPaddingMs: { type: 'int', aliases: ['vad_prefix_padding_ms'] },
+  vadSilenceDurationMs: { type: 'int', aliases: ['vad_silence_duration_ms'] }
+} as const;
+
 function renderHistoryForSystemInstruction(history: NonNullable<RealtimeSessionSpec['history']>): string {
   const lines = history.map(item => `${String(item.role).toUpperCase()}: ${String(item.text)}`);
   return ['--- Injected conversation history (for context) ---', ...lines, '--- End injected conversation history ---'].join('\n');
@@ -49,21 +65,10 @@ export function buildGeminiSetupMessage(options: {
 
   const tools = filterToolsForSpec(options.spec, options.tools);
 
-  const { values: settingsValues, unknownKeys, invalidKeys } = parseRealtimeSessionSettings(options.spec.settings, {
-    temperature: { type: 'number' },
-    maxOutputTokens: { type: 'int', aliases: ['maxTokens', 'max_output_tokens'] },
-    voice: { type: 'string' },
-    topP: { type: 'number', aliases: ['top_p'] },
-    topK: { type: 'int', aliases: ['top_k'] },
-    enableAffectiveDialog: { type: 'boolean', aliases: ['enable_affective_dialog'] },
-    proactiveAudio: { type: 'boolean', aliases: ['proactive_audio'] },
-    thinkingBudget: { type: 'int', aliases: ['thinking_budget'] },
-    includeThoughts: { type: 'boolean', aliases: ['include_thoughts'] },
-    startOfSpeechSensitivity: { type: 'string', aliases: ['start_of_speech_sensitivity'] },
-    endOfSpeechSensitivity: { type: 'string', aliases: ['end_of_speech_sensitivity'] },
-    vadPrefixPaddingMs: { type: 'int', aliases: ['vad_prefix_padding_ms'] },
-    vadSilenceDurationMs: { type: 'int', aliases: ['vad_silence_duration_ms'] }
-  });
+  const { values: settingsValues, unknownKeys, invalidKeys } = parseRealtimeSessionSettings(
+    options.spec.settings,
+    GEMINI_SESSION_SETTINGS_DEFINITIONS
+  );
 
   const temperature = typeof settingsValues.temperature === 'number' ? settingsValues.temperature : undefined;
   const maxOutputTokens =

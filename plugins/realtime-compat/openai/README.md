@@ -87,6 +87,8 @@ Pass extended settings via `spec.settings`. All settings support both camelCase 
 | `vadIdleTimeoutMs` | int | Idle timeout before auto-response (server_vad only) |
 | `vadEagerness` | string | Interruption eagerness: `"low"`, `"medium"`, `"high"`, `"auto"` (semantic_vad only) |
 
+Note: `int` values are parsed as **positive integers (>0)**.
+
 Example:
 ```ts
 const session = await createRealtimeSession(registry, {

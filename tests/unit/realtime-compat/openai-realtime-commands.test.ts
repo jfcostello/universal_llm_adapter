@@ -386,6 +386,44 @@ describe('realtime-compat/openai — commands', () => {
     expect(event.session.audio.input.noise_reduction).toEqual({ type: 'near_field' });
   });
 
+  test('buildSessionUpdateEvent reports invalid vadType values and defaults to server_vad', () => {
+    const { event, settingsWarnings } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        turnDetection: { mode: 'server_vad' },
+        settings: { vad_type: 'nope' } as any
+      }
+    });
+
+    expect(event.session.audio.input.turn_detection.type).toBe('server_vad');
+    expect(settingsWarnings.invalidKeys).toEqual(['vad_type']);
+  });
+
+  test('buildSessionUpdateEvent falls back to canonical invalid key when settings key is missing post-parse', () => {
+    const settings: any = {};
+    Object.defineProperty(settings, 'vad_type', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        delete settings.vad_type;
+        return 'nope';
+      }
+    });
+
+    const { event, settingsWarnings } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        turnDetection: { mode: 'server_vad' },
+        settings
+      } as any
+    });
+
+    expect(event.session.audio.input.turn_detection.type).toBe('server_vad');
+    expect(settingsWarnings.invalidKeys).toEqual(['vadType']);
+  });
+
   test('buildSessionUpdateEvent supports semantic_vad with eagerness setting', () => {
     const { event } = buildSessionUpdateEvent({
       spec: {
@@ -403,6 +441,21 @@ describe('realtime-compat/openai — commands', () => {
     // Threshold/padding should not be present for semantic_vad
     expect(event.session.audio.input.turn_detection.threshold).toBeUndefined();
     expect(event.session.audio.input.turn_detection.prefix_padding_ms).toBeUndefined();
+  });
+
+  test('buildSessionUpdateEvent reports invalid vadEagerness values and omits eagerness', () => {
+    const { event, settingsWarnings } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        turnDetection: { mode: 'server_vad' },
+        settings: { vad_type: 'semantic_vad', vad_eagerness: 'nope' } as any
+      }
+    });
+
+    expect(event.session.audio.input.turn_detection.type).toBe('semantic_vad');
+    expect(event.session.audio.input.turn_detection.eagerness).toBeUndefined();
+    expect(settingsWarnings.invalidKeys).toEqual(['vad_eagerness']);
   });
 
   test('buildSessionUpdateEvent supports semantic_vad without eagerness setting', () => {

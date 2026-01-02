@@ -140,6 +140,18 @@ describe('kernel/realtime-session-settings', () => {
     const { values: v5, invalidKeys: i5 } = parseRealtimeSessionSettings({ enabled: ['array'] }, defs);
     expect(v5.enabled).toBeUndefined();
     expect(i5).toEqual(['enabled']);
+
+    // Non-finite numbers are invalid
+    const { values: v6, invalidKeys: i6 } = parseRealtimeSessionSettings({ enabled: NaN }, defs);
+    expect(v6.enabled).toBeUndefined();
+    expect(i6).toEqual(['enabled']);
+
+    const { values: v7, invalidKeys: i7 } = parseRealtimeSessionSettings({ enabled: Infinity }, defs);
+    expect(v7.enabled).toBeUndefined();
+    expect(i7).toEqual(['enabled']);
+
+    const { values: v8, invalidKeys: i8 } = parseRealtimeSessionSettings({ enabled: -Infinity }, defs);
+    expect(v8.enabled).toBeUndefined();
+    expect(i8).toEqual(['enabled']);
   });
 });
-

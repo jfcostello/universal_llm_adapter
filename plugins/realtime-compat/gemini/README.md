@@ -96,6 +96,8 @@ Pass extended settings via `spec.settings`. All settings support both camelCase 
 | `vadPrefixPaddingMs` | int | Audio padding before speech detection |
 | `vadSilenceDurationMs` | int | Silence duration to end turn |
 
+Note: `int` values are parsed as **positive integers (>0)**.
+
 Example:
 ```ts
 const session = await createRealtimeSession(registry, {

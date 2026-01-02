@@ -3,6 +3,17 @@ import { parseRealtimeSessionSettings } from '../../../../kernel/index.js';
 
 type GrokRealtimeClientEvent = Record<string, any>;
 
+const GROK_SESSION_SETTINGS_DEFINITIONS = {
+  temperature: { type: 'number' },
+  voice: { type: 'string' },
+  vadThreshold: { type: 'number', aliases: ['vad_threshold'] },
+  vadPrefixPaddingMs: { type: 'int', aliases: ['vad_prefix_padding_ms'] },
+  vadSilenceDurationMs: { type: 'int', aliases: ['vad_silence_duration_ms'] },
+  enableWebSearch: { type: 'boolean', aliases: ['enable_web_search'] },
+  enableXSearch: { type: 'boolean', aliases: ['enable_x_search'] },
+  enableFileSearch: { type: 'boolean', aliases: ['enable_file_search'] }
+} as const;
+
 function toProviderToolName(originalName: string, used: Set<string>): string {
   const base = String(originalName).replace(/[^a-zA-Z0-9_-]/g, '_');
   const normalized = base.length > 0 ? base : 'tool';
@@ -114,16 +125,10 @@ export function buildSessionUpdateEvent(options: {
   settingsWarnings: { unknownKeys: string[]; invalidKeys: string[] };
 } {
   const audio = resolveAudioConfig(options.spec);
-  const { values: settingsValues, unknownKeys, invalidKeys } = parseRealtimeSessionSettings(options.spec.settings, {
-    temperature: { type: 'number' },
-    voice: { type: 'string' },
-    vadThreshold: { type: 'number', aliases: ['vad_threshold'] },
-    vadPrefixPaddingMs: { type: 'int', aliases: ['vad_prefix_padding_ms'] },
-    vadSilenceDurationMs: { type: 'int', aliases: ['vad_silence_duration_ms'] },
-    enableWebSearch: { type: 'boolean', aliases: ['enable_web_search'] },
-    enableXSearch: { type: 'boolean', aliases: ['enable_x_search'] },
-    enableFileSearch: { type: 'boolean', aliases: ['enable_file_search'] }
-  });
+  const { values: settingsValues, unknownKeys, invalidKeys } = parseRealtimeSessionSettings(
+    options.spec.settings,
+    GROK_SESSION_SETTINGS_DEFINITIONS
+  );
 
   const voiceFromSettings = typeof settingsValues.voice === 'string' ? settingsValues.voice : undefined;
   const voice = voiceFromSettings ?? resolveVoice(options.spec, options.defaultVoice);
