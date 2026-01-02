@@ -51,12 +51,41 @@ export function buildGeminiSetupMessage(options: {
 
   const { values: settingsValues, unknownKeys, invalidKeys } = parseRealtimeSessionSettings(options.spec.settings, {
     temperature: { type: 'number' },
-    maxOutputTokens: { type: 'int', aliases: ['maxTokens'] }
+    maxOutputTokens: { type: 'int', aliases: ['maxTokens', 'max_output_tokens'] },
+    voice: { type: 'string' },
+    topP: { type: 'number', aliases: ['top_p'] },
+    topK: { type: 'int', aliases: ['top_k'] },
+    enableAffectiveDialog: { type: 'boolean', aliases: ['enable_affective_dialog'] },
+    proactiveAudio: { type: 'boolean', aliases: ['proactive_audio'] },
+    thinkingBudget: { type: 'int', aliases: ['thinking_budget'] },
+    includeThoughts: { type: 'boolean', aliases: ['include_thoughts'] },
+    startOfSpeechSensitivity: { type: 'string', aliases: ['start_of_speech_sensitivity'] },
+    endOfSpeechSensitivity: { type: 'string', aliases: ['end_of_speech_sensitivity'] },
+    vadPrefixPaddingMs: { type: 'int', aliases: ['vad_prefix_padding_ms'] },
+    vadSilenceDurationMs: { type: 'int', aliases: ['vad_silence_duration_ms'] }
   });
 
   const temperature = typeof settingsValues.temperature === 'number' ? settingsValues.temperature : undefined;
   const maxOutputTokens =
     typeof settingsValues.maxOutputTokens === 'number' ? Math.floor(settingsValues.maxOutputTokens) : undefined;
+  const voice = typeof settingsValues.voice === 'string' ? settingsValues.voice : undefined;
+  const topP = typeof settingsValues.topP === 'number' ? settingsValues.topP : undefined;
+  const topK = typeof settingsValues.topK === 'number' ? settingsValues.topK : undefined;
+  const enableAffectiveDialog =
+    typeof settingsValues.enableAffectiveDialog === 'boolean' ? settingsValues.enableAffectiveDialog : undefined;
+  const proactiveAudio =
+    typeof settingsValues.proactiveAudio === 'boolean' ? settingsValues.proactiveAudio : undefined;
+  const thinkingBudget = typeof settingsValues.thinkingBudget === 'number' ? settingsValues.thinkingBudget : undefined;
+  const includeThoughts =
+    typeof settingsValues.includeThoughts === 'boolean' ? settingsValues.includeThoughts : undefined;
+  const startOfSpeechSensitivity =
+    typeof settingsValues.startOfSpeechSensitivity === 'string' ? settingsValues.startOfSpeechSensitivity : undefined;
+  const endOfSpeechSensitivity =
+    typeof settingsValues.endOfSpeechSensitivity === 'string' ? settingsValues.endOfSpeechSensitivity : undefined;
+  const vadPrefixPaddingMs =
+    typeof settingsValues.vadPrefixPaddingMs === 'number' ? settingsValues.vadPrefixPaddingMs : undefined;
+  const vadSilenceDurationMs =
+    typeof settingsValues.vadSilenceDurationMs === 'number' ? settingsValues.vadSilenceDurationMs : undefined;
 
   const setup: any = {
     model: normalizeModel(options.model),
@@ -67,6 +96,36 @@ export function buildGeminiSetupMessage(options: {
 
   if (temperature !== undefined) setup.generationConfig.temperature = temperature;
   if (maxOutputTokens !== undefined) setup.generationConfig.maxOutputTokens = maxOutputTokens;
+  if (topP !== undefined) setup.generationConfig.topP = topP;
+  if (topK !== undefined) setup.generationConfig.topK = topK;
+
+  // Apply voice config
+  if (voice) {
+    setup.speechConfig = {
+      voiceConfig: {
+        prebuiltVoiceConfig: {
+          voiceName: voice
+        }
+      }
+    };
+  }
+
+  // Apply affective dialog
+  if (enableAffectiveDialog !== undefined) {
+    setup.enableAffectiveDialog = enableAffectiveDialog;
+  }
+
+  // Apply proactive audio
+  if (proactiveAudio !== undefined) {
+    setup.proactivity = { proactiveAudio };
+  }
+
+  // Apply thinking config
+  if (thinkingBudget !== undefined || includeThoughts !== undefined) {
+    setup.thinkingConfig = {};
+    if (thinkingBudget !== undefined) setup.thinkingConfig.thinkingBudget = thinkingBudget;
+    if (includeThoughts !== undefined) setup.thinkingConfig.includeThoughts = includeThoughts;
+  }
 
   const history = Array.isArray(options.spec.history) ? options.spec.history : [];
   const systemPromptText = options.spec.systemPrompt ? String(options.spec.systemPrompt) : '';
@@ -87,6 +146,23 @@ export function buildGeminiSetupMessage(options: {
     setup.realtimeInputConfig = {
       automaticActivityDetection: { disabled: true }
     };
+  } else if (mode === 'server_vad') {
+    // Only configure automaticActivityDetection if any VAD settings are provided
+    const hasVadSettings =
+      startOfSpeechSensitivity !== undefined ||
+      endOfSpeechSensitivity !== undefined ||
+      vadPrefixPaddingMs !== undefined ||
+      vadSilenceDurationMs !== undefined;
+
+    if (hasVadSettings) {
+      const aadConfig: any = { disabled: false };
+      if (startOfSpeechSensitivity !== undefined) aadConfig.startOfSpeechSensitivity = startOfSpeechSensitivity;
+      if (endOfSpeechSensitivity !== undefined) aadConfig.endOfSpeechSensitivity = endOfSpeechSensitivity;
+      if (vadPrefixPaddingMs !== undefined) aadConfig.prefixPaddingMs = vadPrefixPaddingMs;
+      if (vadSilenceDurationMs !== undefined) aadConfig.silenceDurationMs = vadSilenceDurationMs;
+
+      setup.realtimeInputConfig = { automaticActivityDetection: aadConfig };
+    }
   }
 
   if (options.spec.transcription?.enabled) {

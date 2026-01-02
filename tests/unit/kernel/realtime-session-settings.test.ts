@@ -73,5 +73,73 @@ describe('kernel/realtime-session-settings', () => {
     expect(unknownKeys).toEqual(['mut']);
     expect(invalidKeys).toEqual([]);
   });
+
+  test('parses boolean settings with various truthy/falsy string values', () => {
+    const defs = {
+      enabled: { type: 'boolean' as const },
+      active: { type: 'boolean' as const, aliases: ['isActive'] },
+      flag: { type: 'boolean' as const }
+    };
+
+    // Test truthy string values
+    for (const truthy of ['true', 'TRUE', 'True', '1', 'yes', 'YES', 'y', 'Y', 'on', 'ON']) {
+      const { values } = parseRealtimeSessionSettings({ enabled: truthy }, defs);
+      expect(values.enabled).toBe(true);
+    }
+
+    // Test falsy string values
+    for (const falsy of ['false', 'FALSE', 'False', '0', 'no', 'NO', 'n', 'N', 'off', 'OFF']) {
+      const { values } = parseRealtimeSessionSettings({ enabled: falsy }, defs);
+      expect(values.enabled).toBe(false);
+    }
+
+    // Test actual booleans
+    expect(parseRealtimeSessionSettings({ enabled: true }, defs).values.enabled).toBe(true);
+    expect(parseRealtimeSessionSettings({ enabled: false }, defs).values.enabled).toBe(false);
+
+    // Test numbers (0 = false, non-zero = true)
+    expect(parseRealtimeSessionSettings({ enabled: 0 }, defs).values.enabled).toBe(false);
+    expect(parseRealtimeSessionSettings({ enabled: 1 }, defs).values.enabled).toBe(true);
+    expect(parseRealtimeSessionSettings({ enabled: -1 }, defs).values.enabled).toBe(true);
+    expect(parseRealtimeSessionSettings({ enabled: 42 }, defs).values.enabled).toBe(true);
+
+    // Test aliases
+    expect(parseRealtimeSessionSettings({ isActive: 'yes' }, defs).values.active).toBe(true);
+  });
+
+  test('reports invalid boolean values and ignores blank values', () => {
+    const defs = {
+      enabled: { type: 'boolean' as const },
+      active: { type: 'boolean' as const }
+    };
+
+    // Invalid string values
+    const { values: v1, invalidKeys: i1 } = parseRealtimeSessionSettings({ enabled: 'maybe' }, defs);
+    expect(v1.enabled).toBeUndefined();
+    expect(i1).toEqual(['enabled']);
+
+    const { values: v2, invalidKeys: i2 } = parseRealtimeSessionSettings({ enabled: 'nope' }, defs);
+    expect(v2.enabled).toBeUndefined();
+    expect(i2).toEqual(['enabled']);
+
+    // Blank values are silently ignored
+    expect(parseRealtimeSessionSettings({ enabled: '' }, defs).invalidKeys).toEqual([]);
+    expect(parseRealtimeSessionSettings({ enabled: null }, defs).invalidKeys).toEqual([]);
+    expect(parseRealtimeSessionSettings({ enabled: undefined }, defs).invalidKeys).toEqual([]);
+
+    // Whitespace-only string is invalid
+    const { values: v3, invalidKeys: i3 } = parseRealtimeSessionSettings({ enabled: '   ' }, defs);
+    expect(v3.enabled).toBeUndefined();
+    expect(i3).toEqual(['enabled']);
+
+    // Objects/arrays are invalid for boolean type
+    const { values: v4, invalidKeys: i4 } = parseRealtimeSessionSettings({ enabled: { key: 'value' } }, defs);
+    expect(v4.enabled).toBeUndefined();
+    expect(i4).toEqual(['enabled']);
+
+    const { values: v5, invalidKeys: i5 } = parseRealtimeSessionSettings({ enabled: ['array'] }, defs);
+    expect(v5.enabled).toBeUndefined();
+    expect(i5).toEqual(['enabled']);
+  });
 });
 

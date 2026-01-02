@@ -110,17 +110,6 @@ export function buildSessionUpdateEvent(options: {
   const language = options.spec.transcription?.language;
 
   const turnMode = options.spec.turnDetection?.mode ?? 'manual_commit';
-  const turnDetection =
-    turnMode === 'server_vad'
-      ? {
-          type: 'server_vad',
-          // Provider auto-creates responses when speech stops in server_vad mode so callers do
-          // not need to explicitly invoke `session.commit()` for audio turns.
-          create_response: true,
-          // Keep provider-side interruption off; core owns barge-in semantics.
-          interrupt_response: false
-        }
-      : null;
 
   const { toolsForSession: allToolsForSession, toolNameByProviderName, providerNameByToolName } = serializeTools(options.tools);
 
@@ -158,11 +147,66 @@ export function buildSessionUpdateEvent(options: {
 
   const { values: settingsValues, unknownKeys, invalidKeys } = parseRealtimeSessionSettings(options.spec.settings, {
     temperature: { type: 'number' },
-    voice: { type: 'string' }
+    voice: { type: 'string' },
+    speed: { type: 'number' },
+    maxResponseOutputTokens: { type: 'string', aliases: ['max_response_output_tokens'] },
+    transcriptionModel: { type: 'string', aliases: ['transcription_model'] },
+    noiseReduction: { type: 'string', aliases: ['noise_reduction'] },
+    vadType: { type: 'string', aliases: ['vad_type'] },
+    vadThreshold: { type: 'number', aliases: ['vad_threshold'] },
+    vadPrefixPaddingMs: { type: 'int', aliases: ['vad_prefix_padding_ms'] },
+    vadSilenceDurationMs: { type: 'int', aliases: ['vad_silence_duration_ms'] },
+    vadIdleTimeoutMs: { type: 'int', aliases: ['vad_idle_timeout_ms'] },
+    vadEagerness: { type: 'string', aliases: ['vad_eagerness'] }
   });
 
   const voice = typeof settingsValues.voice === 'string' ? settingsValues.voice : undefined;
   const temperature = typeof settingsValues.temperature === 'number' ? settingsValues.temperature : undefined;
+  const speed = typeof settingsValues.speed === 'number' ? settingsValues.speed : undefined;
+  const maxResponseOutputTokens =
+    typeof settingsValues.maxResponseOutputTokens === 'string' ? settingsValues.maxResponseOutputTokens : undefined;
+  const transcriptionModel =
+    typeof settingsValues.transcriptionModel === 'string' ? settingsValues.transcriptionModel : undefined;
+  const noiseReduction = typeof settingsValues.noiseReduction === 'string' ? settingsValues.noiseReduction : undefined;
+  const vadType = typeof settingsValues.vadType === 'string' ? settingsValues.vadType : undefined;
+  const vadThreshold = typeof settingsValues.vadThreshold === 'number' ? settingsValues.vadThreshold : undefined;
+  const vadPrefixPaddingMs =
+    typeof settingsValues.vadPrefixPaddingMs === 'number' ? settingsValues.vadPrefixPaddingMs : undefined;
+  const vadSilenceDurationMs =
+    typeof settingsValues.vadSilenceDurationMs === 'number' ? settingsValues.vadSilenceDurationMs : undefined;
+  const vadIdleTimeoutMs =
+    typeof settingsValues.vadIdleTimeoutMs === 'number' ? settingsValues.vadIdleTimeoutMs : undefined;
+  const vadEagerness = typeof settingsValues.vadEagerness === 'string' ? settingsValues.vadEagerness : undefined;
+
+  // Build turn detection config based on mode and settings
+  let turnDetection: any = null;
+  if (turnMode === 'server_vad') {
+    const resolvedVadType = vadType === 'semantic_vad' ? 'semantic_vad' : 'server_vad';
+
+    if (resolvedVadType === 'semantic_vad') {
+      // Semantic VAD uses eagerness instead of threshold/padding
+      turnDetection = {
+        type: 'semantic_vad',
+        create_response: true,
+        interrupt_response: false,
+        ...(vadEagerness ? { eagerness: vadEagerness } : {})
+      };
+    } else {
+      // Server VAD uses threshold/padding settings
+      turnDetection = {
+        type: 'server_vad',
+        create_response: true,
+        interrupt_response: false,
+        ...(vadThreshold !== undefined ? { threshold: vadThreshold } : {}),
+        ...(vadPrefixPaddingMs !== undefined ? { prefix_padding_ms: vadPrefixPaddingMs } : {}),
+        ...(vadSilenceDurationMs !== undefined ? { silence_duration_ms: vadSilenceDurationMs } : {}),
+        ...(vadIdleTimeoutMs !== undefined ? { idle_timeout_ms: vadIdleTimeoutMs } : {})
+      };
+    }
+  }
+
+  // Build noise reduction config if specified
+  const noiseReductionConfig = noiseReduction ? { type: noiseReduction } : undefined;
 
   const event: OpenAIRealtimeClientEvent = {
     type: 'session.update',
@@ -172,13 +216,16 @@ export function buildSessionUpdateEvent(options: {
       output_modalities: ['audio'],
       ...(voice ? { voice } : {}),
       ...(temperature !== undefined ? { temperature } : {}),
+      ...(speed !== undefined ? { speed } : {}),
+      ...(maxResponseOutputTokens ? { max_response_output_tokens: maxResponseOutputTokens } : {}),
       audio: {
         input: {
           format: toOpenAIAudioFormat(audio.input.format),
+          ...(noiseReductionConfig ? { noise_reduction: noiseReductionConfig } : {}),
           ...(transcriptionEnabled
             ? {
                 transcription: {
-                  model: 'whisper-1',
+                  model: transcriptionModel ?? 'whisper-1',
                   ...(language ? { language } : {})
                 }
               }

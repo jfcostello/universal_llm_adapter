@@ -68,6 +68,42 @@ When `spec.turnDetection.mode === 'server_vad'`, this compat enables provider-si
 
 In this mode, `session.commit()` is only needed for explicit **text turns** (typed input / DTMF). For audio turns, the provider will begin the response automatically when speech stops.
 
+## Extended session settings
+
+Pass extended settings via `spec.settings`. All settings support both camelCase and snake_case aliases.
+
+| Setting | Type | Description |
+|---------|------|-------------|
+| `voice` | string | Voice identifier for audio output |
+| `temperature` | number | Sampling temperature (0.0-2.0) |
+| `speed` | number | Audio playback speed multiplier |
+| `maxResponseOutputTokens` | string | Max output tokens (e.g., `"4096"` or `"inf"`) |
+| `transcriptionModel` | string | Transcription model (default: `whisper-1`) |
+| `noiseReduction` | string | Noise reduction type (e.g., `"near_field"`) |
+| `vadType` | string | VAD type: `"server_vad"` (default) or `"semantic_vad"` |
+| `vadThreshold` | number | VAD activation threshold (0.0-1.0, server_vad only) |
+| `vadPrefixPaddingMs` | int | Audio padding before speech detection (server_vad only) |
+| `vadSilenceDurationMs` | int | Silence duration to end turn (server_vad only) |
+| `vadIdleTimeoutMs` | int | Idle timeout before auto-response (server_vad only) |
+| `vadEagerness` | string | Interruption eagerness: `"low"`, `"medium"`, `"high"`, `"auto"` (semantic_vad only) |
+
+Example:
+```ts
+const session = await createRealtimeSession(registry, {
+  provider: 'openai',
+  model: 'gpt-realtime',
+  turnDetection: { mode: 'server_vad' },
+  settings: {
+    voice: 'marin',
+    temperature: 0.8,
+    transcription_model: 'gpt-4o-transcribe',
+    noise_reduction: 'near_field',
+    vad_type: 'semantic_vad',
+    vad_eagerness: 'low'
+  }
+});
+```
+
 ## History injection
 
 This compat supports seeding and injecting text-only history items via `conversation.item.create`.
