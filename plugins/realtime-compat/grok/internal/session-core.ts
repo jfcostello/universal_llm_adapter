@@ -91,7 +91,16 @@ export function createGrokRealtimeCompatSessionWithTransport(
   let pendingTextTurn = false;
 
   const providerEventLogWindowMs = readEnvPositiveInt('LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS');
+  const providerEventLogMaxQueue = Math.min(
+    Math.max(readEnvPositiveInt('LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MAX_QUEUE') ?? 200, 1),
+    1000
+  );
+  const providerEventLogBatchSize = Math.min(
+    Math.max(readEnvPositiveInt('LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_BATCH_SIZE') ?? 25, 1),
+    providerEventLogMaxQueue
+  );
   let providerEventLogUntilMs: number | undefined;
+  let providerEventLogExpiryTimer: NodeJS.Timeout | undefined;
   let providerEventLogger: any | undefined;
   let providerEventLoggerLoading: Promise<any> | undefined;
   const getProviderEventLogger = async (): Promise<any | undefined> => {
@@ -112,10 +121,40 @@ export function createGrokRealtimeCompatSessionWithTransport(
   };
 
   const providerEventLogQueue: any[] = [];
-  const providerEventLogMaxQueue = 200;
-  const providerEventLogBatchSize = 25;
+  let providerEventLogDroppedDueToQueue = 0;
+  let providerEventLogDroppedDueToExpiry = 0;
+  let providerEventLogDroppedWarned = false;
   let providerEventLogDrainScheduled = false;
   let providerEventLogDrainInFlight = false;
+
+  const clearProviderEventLogExpiryTimer = () => {
+    if (!providerEventLogExpiryTimer) return;
+    clearTimeout(providerEventLogExpiryTimer);
+    providerEventLogExpiryTimer = undefined;
+  };
+
+  const expireProviderEventLogWindow = () => {
+    if (!providerEventLogUntilMs) return;
+    providerEventLogUntilMs = undefined;
+    clearProviderEventLogExpiryTimer();
+    if (providerEventLogQueue.length > 0) {
+      providerEventLogDroppedDueToExpiry += providerEventLogQueue.length;
+      providerEventLogQueue.splice(0, providerEventLogQueue.length);
+    }
+  };
+
+  const startProviderEventLogWindow = () => {
+    if (!providerEventLogWindowMs) return;
+    providerEventLogUntilMs = Date.now() + providerEventLogWindowMs;
+    clearProviderEventLogExpiryTimer();
+    providerEventLogExpiryTimer = setUnrefTimeout(() => {
+      providerEventLogExpiryTimer = undefined;
+      expireProviderEventLogWindow();
+      if (!providerEventLogDroppedWarned && providerEventLogDroppedDueToQueue + providerEventLogDroppedDueToExpiry > 0) {
+        scheduleProviderEventDrain();
+      }
+    }, providerEventLogWindowMs);
+  };
 
   const scheduleProviderEventDrain = () => {
     if (providerEventLogDrainScheduled || providerEventLogDrainInFlight) return;
@@ -126,17 +165,54 @@ export function createGrokRealtimeCompatSessionWithTransport(
     });
   };
 
+  const maybeWarnDroppedProviderEvents = (logger: any) => {
+    if (providerEventLogDroppedWarned) return;
+    const droppedTotal = providerEventLogDroppedDueToQueue + providerEventLogDroppedDueToExpiry;
+    if (droppedTotal <= 0) return;
+
+    providerEventLogDroppedWarned = true;
+    const warn = typeof logger?.warn === 'function' ? logger.warn : logger.info;
+    try {
+      warn.call(logger, 'realtime.provider_event.dropped', {
+        sessionId,
+        droppedTotal,
+        droppedDueToQueue: providerEventLogDroppedDueToQueue,
+        droppedDueToExpiry: providerEventLogDroppedDueToExpiry,
+        maxQueue: providerEventLogMaxQueue,
+        batchSize: providerEventLogBatchSize
+      });
+    } catch {
+      // best-effort
+    }
+  };
+
   const drainProviderEventLogs = async (): Promise<void> => {
     providerEventLogDrainInFlight = true;
     try {
       const logger = await getProviderEventLogger();
-      if (!logger?.info) {
+      if (typeof logger?.info !== 'function') {
         providerEventLogQueue.splice(0, providerEventLogQueue.length);
         return;
       }
 
+      const until = providerEventLogUntilMs;
+      if (until && Date.now() > until) {
+        expireProviderEventLogWindow();
+      }
+
+      maybeWarnDroppedProviderEvents(logger);
+
+      if (!providerEventLogUntilMs) return;
+
       let drained = 0;
       while (providerEventLogQueue.length > 0 && drained < providerEventLogBatchSize) {
+        const currentUntil = providerEventLogUntilMs!;
+        if (Date.now() > currentUntil) {
+          expireProviderEventLogWindow();
+          maybeWarnDroppedProviderEvents(logger);
+          break;
+        }
+
         const next = providerEventLogQueue.shift();
         try {
           logger.info('realtime.provider_event', { providerEvent: next });
@@ -161,11 +237,20 @@ export function createGrokRealtimeCompatSessionWithTransport(
     if (!until) return;
     const now = Date.now();
     if (now > until) {
-      providerEventLogUntilMs = undefined;
+      expireProviderEventLogWindow();
+      if (!providerEventLogDroppedWarned && providerEventLogDroppedDueToQueue + providerEventLogDroppedDueToExpiry > 0) {
+        scheduleProviderEventDrain();
+      }
       return;
     }
 
-    if (providerEventLogQueue.length >= providerEventLogMaxQueue) return;
+    if (providerEventLogQueue.length >= providerEventLogMaxQueue) {
+      providerEventLogDroppedDueToQueue += 1;
+      void getProviderEventLogger();
+      scheduleProviderEventDrain();
+      return;
+    }
+    void getProviderEventLogger();
     providerEventLogQueue.push(sanitizeProviderEventForLog(event));
     scheduleProviderEventDrain();
   };
@@ -217,9 +302,7 @@ export function createGrokRealtimeCompatSessionWithTransport(
     if (readySent) return;
     readySent = true;
     clearReadyFallback();
-    if (providerEventLogWindowMs && !providerEventLogUntilMs) {
-      providerEventLogUntilMs = Date.now() + providerEventLogWindowMs;
-    }
+    startProviderEventLogWindow();
     queue.push({
       type: 'ready',
       sessionId,
@@ -233,6 +316,7 @@ export function createGrokRealtimeCompatSessionWithTransport(
     if (closed) return;
     closed = true;
     clearReadyFallback();
+    expireProviderEventLogWindow();
     queue.push({ type: 'closed', reason });
     queue.close();
   };
@@ -399,6 +483,7 @@ export function createGrokRealtimeCompatSessionWithTransport(
       closed = true;
       pendingCancel = undefined;
       clearReadyFallback();
+      expireProviderEventLogWindow();
       try {
         transport.close();
       } catch {}

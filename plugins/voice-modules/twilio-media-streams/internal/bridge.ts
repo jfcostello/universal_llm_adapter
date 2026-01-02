@@ -1,6 +1,7 @@
 import type { RealtimeAudioFrame, RealtimeEvent } from '../../../../kernel/index.js';
 import type { RealtimeSession } from '../../../../modules/realtime/index.js';
 import { AudioPacer, base64ToBytes, bytesToBase64, durationMsForBytes } from '../../../../modules/audio/index.js';
+import { setUnrefTimeout } from '../../../../modules/shared/index.js';
 import { verifySignedWsToken } from '../../../../modules/security/index.js';
 import { createAudioRateLimiter } from '../../../../modules/server/index.js';
 
@@ -478,7 +479,7 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
             const scheduleCommitAfterGrace = () => {
               const delay = Math.max(0, firstTurnGraceEndsAtMs - Date.now());
               clearTimeout(firstTurnGraceTimer);
-              firstTurnGraceTimer = setTimeout(() => {
+              firstTurnGraceTimer = setUnrefTimeout(() => {
                 firstTurnGraceTimer = undefined;
                 void (async () => {
                   try {
@@ -490,11 +491,6 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
                   }
                 })();
               }, delay);
-              if (typeof (firstTurnGraceTimer as any)?.unref === 'function') {
-                try {
-                  (firstTurnGraceTimer as any).unref();
-                } catch {}
-              }
             };
 
             for await (const event of { [Symbol.asyncIterator]: () => iter } as AsyncIterable<RealtimeEvent>) {
