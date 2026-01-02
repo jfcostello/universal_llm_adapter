@@ -6,7 +6,7 @@ import type {
   RealtimeSessionSpec
 } from '../../../../kernel/index.js';
 import { AsyncQueue, LruMap, resolveRealtimeReadyFallbackMs, resolveRealtimeToolCallTrackingMaxEntries } from '../../../../kernel/index.js';
-import { createDeferred, type Deferred } from '../../../../modules/shared/index.js';
+import { createDeferred, setUnrefTimeout, type Deferred } from '../../../../modules/shared/index.js';
 
 import {
   buildConversationItemCreateEvent,
@@ -100,15 +100,10 @@ export function createOpenAIRealtimeCompatSessionWithTransport(
   };
   const scheduleReadyFallback = () => {
     if (readySent || readyFallbackTimer) return;
-    readyFallbackTimer = setTimeout(() => {
+    readyFallbackTimer = setUnrefTimeout(() => {
       readyFallbackTimer = undefined;
       emitReadyOnce();
     }, readyFallbackMs);
-    if (typeof (readyFallbackTimer as any)?.unref === 'function') {
-      try {
-        (readyFallbackTimer as any).unref();
-      } catch {}
-    }
   };
 
   let pendingCancel: Deferred<void> | undefined;

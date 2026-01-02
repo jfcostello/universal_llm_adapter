@@ -49,6 +49,11 @@ If a tool choice is supplied by the session controller, it is forwarded as `resp
 
 Set `LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS=<ms>` to log raw provider events for the first N milliseconds after the session becomes `ready`.
 
+Optional tuning:
+- `LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MAX_QUEUE=<n>` (default: 200, max: 1000)
+- `LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_BATCH_SIZE=<n>` (default: 25, capped to `MAX_QUEUE`)
+
 Notes:
 - Logging is best-effort; failures to initialize logging are ignored.
+- Logging is non-blocking and bounded. If the queue is overwhelmed or the log window expires while backlogged, provider-event logs may be dropped and a one-time `realtime.provider_event.dropped` warning is emitted with drop counts.
 - Base64 audio payloads in `response.output_audio.delta` events are redacted (`[REDACTED_BASE64]`), but other fields (including transcripts) are logged as-is.

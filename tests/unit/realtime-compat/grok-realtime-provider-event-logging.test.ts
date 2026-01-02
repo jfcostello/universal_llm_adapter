@@ -57,6 +57,19 @@ async function waitForEvent<T extends RealtimeEvent = RealtimeEvent>(
 
 async function flush(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setImmediate(resolve));
+}
+
+async function flushMicrotasks(): Promise<void> {
+  await new Promise<void>(resolve => process.nextTick(resolve));
+  await new Promise<void>(resolve => process.nextTick(resolve));
+}
+
+function busyWaitMs(ms: number): void {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    // spin
+  }
 }
 
 function readRealtimeLogLines(cwd: string): any[] {
@@ -109,7 +122,8 @@ describe('realtime-compat/grok — provider event logging', () => {
         fake.push({ type: 'open' });
         fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created' }) });
         fake.push({ type: 'message', data: JSON.stringify({ type: 'session.updated' }) });
-        await waitForEvent(it, e => e.type === 'ready');
+        const ready = await waitForEvent(it, e => e.type === 'ready');
+        const sessionId = (ready as any).sessionId;
 
         fake.push({ type: 'message', data: JSON.stringify({ type: 'response.output_audio.delta', delta: 'AA==' }) });
         await flush();
@@ -125,7 +139,7 @@ describe('realtime-compat/grok — provider event logging', () => {
   test('redacts audio payloads and stops logging after the configured window', async () => {
     await withTempCwd('grok-rt-provider-log-enabled', async (cwd) => {
       process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '0';
-      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS = '20';
+      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS = '200';
 
       await jest.isolateModulesAsync(async () => {
         const { createGrokRealtimeCompatSessionWithTransport } = await import(
@@ -142,12 +156,17 @@ describe('realtime-compat/grok — provider event logging', () => {
         fake.push({ type: 'open' });
         fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created' }) });
         fake.push({ type: 'message', data: JSON.stringify({ type: 'session.updated' }) });
-        await waitForEvent(it, e => e.type === 'ready');
+        const ready = await waitForEvent(it, e => e.type === 'ready');
+        const sessionId = (ready as any).sessionId;
 
         fake.push({ type: 'message', data: JSON.stringify({ type: 'response.output_audio.delta', delta: 'AA==' }) });
         await flush();
 
-        await new Promise(resolve => setTimeout(resolve, 30));
+        // Give the background drain time to log before the window expires.
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        // Wait past the configured window so subsequent provider events are not logged.
+        await new Promise(resolve => setTimeout(resolve, 220));
         fake.push({ type: 'message', data: JSON.stringify({ type: 'response.output_audio.delta', delta: 'BB==' }) });
         await flush();
         fake.push({ type: 'message', data: JSON.stringify({ type: 'response.output_audio.delta', delta: 'CC==' }) });
@@ -194,7 +213,8 @@ describe('realtime-compat/grok — provider event logging', () => {
         fake.push({ type: 'open' });
         fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created' }) });
         fake.push({ type: 'message', data: JSON.stringify({ type: 'session.updated' }) });
-        await waitForEvent(it, e => e.type === 'ready');
+        const ready = await waitForEvent(it, e => e.type === 'ready');
+        const sessionId = (ready as any).sessionId;
 
         fake.push({ type: 'message', data: JSON.stringify('hi') });
         fake.push({ type: 'message', data: JSON.stringify([1, 2, 3]) });
@@ -241,12 +261,431 @@ describe('realtime-compat/grok — provider event logging', () => {
         fake.push({ type: 'open' });
         fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created' }) });
         fake.push({ type: 'message', data: JSON.stringify({ type: 'session.updated' }) });
-        await waitForEvent(it, e => e.type === 'ready');
+        const ready = await waitForEvent(it, e => e.type === 'ready');
+        const sessionId = (ready as any).sessionId;
 
         fake.push({ type: 'message', data: JSON.stringify({ type: 'input_audio_buffer.speech_started' }) });
         await waitForEvent(it, e => e.type === 'user_speech.started');
 
+        // Provider-event logging runs async; allow the background drain to attempt logger init.
+        await flush();
         expect(getRealtimeLogger).toHaveBeenCalled();
+
+        await session.close();
+      });
+    });
+  });
+
+  test('non-blocking: logger init hang does not stall the transport loop', async () => {
+    await withTempCwd('grok-rt-provider-log-non-blocking', async () => {
+      process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';
+      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS = '500';
+
+      await jest.isolateModulesAsync(async () => {
+        jest.unstable_mockModule('../../../modules/logging/index.js', () => ({
+          getRealtimeLogger: jest.fn(async () => await new Promise(() => {}))
+        }));
+
+        const { createGrokRealtimeCompatSessionWithTransport } = await import(
+          '@/plugins/realtime-compat/grok/internal/session-core.ts'
+        );
+
+        const fake = createFakeTransport();
+        const session = createGrokRealtimeCompatSessionWithTransport(
+          { provider, spec: { provider: 'grok' } as any } as any,
+          fake.transport as any
+        );
+
+        const it = session.events()[Symbol.asyncIterator]();
+        fake.push({ type: 'open' });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created' }) });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'session.updated' }) });
+        const ready = await waitForEvent(it, e => e.type === 'ready');
+        const sessionId = (ready as any).sessionId;
+
+        // First event triggers provider-event logging (logger init hangs).
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'response.output_audio.delta', delta: 'AA==' }) });
+        // Second event should still be processed and mapped immediately.
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'input_audio_buffer.speech_started' }) });
+
+        await waitForEvent(it, e => e.type === 'user_speech.started', 200);
+
+        await session.close();
+      });
+    });
+  });
+
+  test('expiry: drain drops queued provider events when time exceeds until (without relying on timers)', async () => {
+    await withTempCwd('grok-rt-provider-log-expiry-drain-check', async () => {
+      process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';
+      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS = '1000';
+
+      await jest.isolateModulesAsync(async () => {
+        const logger = { info: jest.fn(), warn: jest.fn() };
+        jest.unstable_mockModule('../../../modules/logging/index.js', () => ({
+          getRealtimeLogger: jest.fn(() => logger)
+        }));
+
+        const baseNow = Date.now();
+        const now = jest.spyOn(Date, 'now').mockImplementation(() => baseNow);
+
+        const { createGrokRealtimeCompatSessionWithTransport } = await import(
+          '@/plugins/realtime-compat/grok/internal/session-core.ts'
+        );
+
+        const fake = createFakeTransport();
+        const session = createGrokRealtimeCompatSessionWithTransport(
+          { provider, spec: { provider: 'grok' } as any } as any,
+          fake.transport as any
+        );
+
+        const it = session.events()[Symbol.asyncIterator]();
+        fake.push({ type: 'open' });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created' }) });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'session.updated' }) });
+        const ready = await waitForEvent(it, e => e.type === 'ready');
+        const sessionId = (ready as any).sessionId;
+
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'response.output_audio.delta', delta: 'AA==' }) });
+        await flushMicrotasks();
+
+        // Force the drain to observe "now > until" without waiting for the expiry timer.
+        now.mockImplementation(() => baseNow + 5000);
+
+        await flush();
+        await flush();
+
+        const providerEventCalls = (logger.info as any).mock.calls.filter((c: any[]) => c[0] === 'realtime.provider_event');
+        expect(providerEventCalls).toHaveLength(0);
+
+        const warnCalls = (logger.warn as any).mock.calls.filter(
+          (c: any[]) => c[0] === 'realtime.provider_event.dropped' && c?.[1]?.sessionId === sessionId
+        );
+        expect(warnCalls).toHaveLength(1);
+        expect(warnCalls[0]?.[1]).toEqual(
+          expect.objectContaining({
+            droppedTotal: expect.any(Number),
+            droppedDueToExpiry: expect.any(Number)
+          })
+        );
+        expect(warnCalls[0]?.[1]?.droppedDueToExpiry).toBeGreaterThan(0);
+
+        await session.close();
+      });
+    });
+  });
+
+  test('expiry: mid-drain window expiry stops logging and emits a drop warning', async () => {
+    await withTempCwd('grok-rt-provider-log-expiry-mid-drain', async () => {
+      process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';
+      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS = '1000';
+
+      await jest.isolateModulesAsync(async () => {
+        const baseNow = Date.now();
+        const now = jest.spyOn(Date, 'now').mockImplementation(() => baseNow);
+        const logger = {
+          info: jest.fn(() => {
+            // Force the drain loop to observe an expired window on the next iteration.
+            now.mockImplementation(() => baseNow + 5000);
+          }),
+          warn: jest.fn()
+        };
+
+        jest.unstable_mockModule('../../../modules/logging/index.js', () => ({
+          getRealtimeLogger: jest.fn(() => logger)
+        }));
+
+        const { createGrokRealtimeCompatSessionWithTransport } = await import(
+          '@/plugins/realtime-compat/grok/internal/session-core.ts'
+        );
+
+        const fake = createFakeTransport();
+        const session = createGrokRealtimeCompatSessionWithTransport(
+          { provider, spec: { provider: 'grok' } as any } as any,
+          fake.transport as any
+        );
+
+        const it = session.events()[Symbol.asyncIterator]();
+        fake.push({ type: 'open' });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created' }) });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'session.updated' }) });
+        const ready = await waitForEvent(it, e => e.type === 'ready');
+        const sessionId = (ready as any).sessionId;
+
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'response.output_audio.delta', delta: 'AA==' }) });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'response.output_audio.delta', delta: 'BB==' }) });
+        await flush();
+        await flush();
+
+        const providerEventCalls = (logger.info as any).mock.calls.filter((c: any[]) => c[0] === 'realtime.provider_event');
+        expect(providerEventCalls).toHaveLength(1);
+
+        const warnCalls = (logger.warn as any).mock.calls.filter(
+          (c: any[]) => c[0] === 'realtime.provider_event.dropped' && c?.[1]?.sessionId === sessionId
+        );
+        expect(warnCalls).toHaveLength(1);
+        expect(warnCalls[0]?.[1]).toEqual(expect.objectContaining({ droppedDueToExpiry: expect.any(Number) }));
+        expect(warnCalls[0]?.[1]?.droppedDueToExpiry).toBeGreaterThan(0);
+
+        await session.close();
+      });
+    });
+  });
+
+  test('expiry: transport loop expires window without scheduling drain when no events were queued', async () => {
+    await withTempCwd('grok-rt-provider-log-expiry-no-drops', async () => {
+      process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';
+      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS = '10';
+
+      await jest.isolateModulesAsync(async () => {
+        const getRealtimeLogger = jest.fn();
+        jest.unstable_mockModule('../../../modules/logging/index.js', () => ({
+          getRealtimeLogger
+        }));
+
+        const { createGrokRealtimeCompatSessionWithTransport } = await import(
+          '@/plugins/realtime-compat/grok/internal/session-core.ts'
+        );
+
+        const fake = createFakeTransport();
+        const session = createGrokRealtimeCompatSessionWithTransport(
+          { provider, spec: { provider: 'grok' } as any } as any,
+          fake.transport as any
+        );
+
+        const it = session.events()[Symbol.asyncIterator]();
+        fake.push({ type: 'open' });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created' }) });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'session.updated' }) });
+        const ready = await waitForEvent(it, e => e.type === 'ready');
+        const sessionId = (ready as any).sessionId;
+
+        // Block timers so the expiry handler can't run yet.
+        busyWaitMs(25);
+
+        // First provider event arrives after the window; the session should expire the window without
+        // loading the logger (since there are no queued events/drops to flush).
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'response.output_audio.delta', delta: 'AA==' }) });
+        await flushMicrotasks();
+
+        expect(getRealtimeLogger).not.toHaveBeenCalled();
+
+        await session.close();
+      });
+    });
+  });
+
+  test('expiry: transport loop expires window and attempts to schedule a drop-warning drain when drops exist', async () => {
+    await withTempCwd('grok-rt-provider-log-expiry-transport-schedules-drain', async () => {
+      process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';
+      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS = '10';
+      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MAX_QUEUE = '1';
+
+      await jest.isolateModulesAsync(async () => {
+        const logger = { info: jest.fn(), warn: jest.fn() };
+        jest.unstable_mockModule('../../../modules/logging/index.js', () => ({
+          getRealtimeLogger: jest.fn(async () => {
+            await new Promise(resolve => setTimeout(resolve, 80));
+            return logger;
+          })
+        }));
+
+        const { createGrokRealtimeCompatSessionWithTransport } = await import(
+          '@/plugins/realtime-compat/grok/internal/session-core.ts'
+        );
+
+        const fake = createFakeTransport();
+        const session = createGrokRealtimeCompatSessionWithTransport(
+          { provider, spec: { provider: 'grok' } as any } as any,
+          fake.transport as any
+        );
+
+        const it = session.events()[Symbol.asyncIterator]();
+        fake.push({ type: 'open' });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created' }) });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'session.updated' }) });
+        const ready = await waitForEvent(it, e => e.type === 'ready');
+        const sessionId = (ready as any).sessionId;
+
+        // Fill the queue (1) and create a dropped-event counter (2nd event).
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'response.output_audio.delta', delta: 'AA==' }) });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'response.output_audio.delta', delta: 'BB==' }) });
+        await flushMicrotasks();
+
+        // Block timers so expiry doesn't run until we're ready to send the post-expiry event.
+        busyWaitMs(25);
+
+        // This provider event arrives after the window; it should trigger the transport-loop expiry path,
+        // which attempts to schedule a drain so the dropped-event warning can be emitted once the logger
+        // becomes available.
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'response.output_audio.delta', delta: 'CC==' }) });
+        await flushMicrotasks();
+
+        await new Promise(resolve => setTimeout(resolve, 140));
+        await flush();
+        await flush();
+
+        const warnCalls = (logger.warn as any).mock.calls.filter(
+          (c: any[]) => c[0] === 'realtime.provider_event.dropped' && c?.[1]?.sessionId === sessionId
+        );
+        expect(warnCalls).toHaveLength(1);
+        expect(warnCalls[0]?.[1]?.droppedTotal).toBeGreaterThan(0);
+
+        await session.close();
+      });
+    });
+  });
+
+  test('expiry: drops queued provider-event logs when the window ends (even if drain is backlogged)', async () => {
+    await withTempCwd('grok-rt-provider-log-expiry-backlog', async () => {
+      process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';
+      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS = '20';
+
+      await jest.isolateModulesAsync(async () => {
+        const logger = { info: jest.fn(), warn: jest.fn() };
+        jest.unstable_mockModule('../../../modules/logging/index.js', () => ({
+          getRealtimeLogger: jest.fn(async () => {
+            await new Promise(resolve => setTimeout(resolve, 60));
+            return logger;
+          })
+        }));
+
+        const { createGrokRealtimeCompatSessionWithTransport } = await import(
+          '@/plugins/realtime-compat/grok/internal/session-core.ts'
+        );
+
+        const fake = createFakeTransport();
+        const session = createGrokRealtimeCompatSessionWithTransport(
+          { provider, spec: { provider: 'grok' } as any } as any,
+          fake.transport as any
+        );
+
+        const it = session.events()[Symbol.asyncIterator]();
+        fake.push({ type: 'open' });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created' }) });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'session.updated' }) });
+        await waitForEvent(it, e => e.type === 'ready');
+
+        for (let i = 0; i < 200; i++) {
+          fake.push({
+            type: 'message',
+            data: JSON.stringify({ type: 'response.output_audio.delta', delta: `${i}` })
+          });
+        }
+
+        // Wait for logger init to resolve (after the log window expires) and allow drains to run.
+        await new Promise(resolve => setTimeout(resolve, 90));
+        await flush();
+        await flush();
+
+        const providerEventCalls = (logger.info as any).mock.calls.filter((c: any[]) => c[0] === 'realtime.provider_event');
+        expect(providerEventCalls).toHaveLength(0);
+
+        await session.close();
+      });
+    });
+  });
+
+  test('tunables: respects max queue and emits one dropped-event warning per session', async () => {
+    await withTempCwd('grok-rt-provider-log-tunables', async () => {
+      process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';
+      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS = '500';
+      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MAX_QUEUE = '5';
+      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_BATCH_SIZE = '2';
+
+      await jest.isolateModulesAsync(async () => {
+        const logger = { info: jest.fn(), warn: jest.fn() };
+        jest.unstable_mockModule('../../../modules/logging/index.js', () => ({
+          getRealtimeLogger: jest.fn(async () => {
+            await new Promise(resolve => setTimeout(resolve, 40));
+            return logger;
+          })
+        }));
+
+        const { createGrokRealtimeCompatSessionWithTransport } = await import(
+          '@/plugins/realtime-compat/grok/internal/session-core.ts'
+        );
+
+        const fake = createFakeTransport();
+        const session = createGrokRealtimeCompatSessionWithTransport(
+          { provider, spec: { provider: 'grok' } as any } as any,
+          fake.transport as any
+        );
+
+        const it = session.events()[Symbol.asyncIterator]();
+        fake.push({ type: 'open' });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created' }) });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'session.updated' }) });
+        const ready = await waitForEvent(it, e => e.type === 'ready');
+        const sessionId = (ready as any).sessionId;
+
+        for (let i = 0; i < 100; i++) {
+          fake.push({
+            type: 'message',
+            data: JSON.stringify({ type: 'response.output_audio.delta', delta: `${i}` })
+          });
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 120));
+        await flush();
+        await flush();
+
+        const providerEventCalls = (logger.info as any).mock.calls.filter((c: any[]) => c[0] === 'realtime.provider_event');
+        expect(providerEventCalls.length).toBeLessThanOrEqual(5);
+
+        const droppedWarnCalls = (logger.warn as any).mock.calls.filter(
+          (c: any[]) => c[0] === 'realtime.provider_event.dropped' && c?.[1]?.sessionId === sessionId
+        );
+        expect(droppedWarnCalls).toHaveLength(1);
+        expect(droppedWarnCalls[0]?.[1]).toEqual(expect.objectContaining({ droppedTotal: expect.any(Number) }));
+        expect(droppedWarnCalls[0]?.[1]?.droppedTotal).toBeGreaterThan(0);
+
+        await session.close();
+      });
+    });
+  });
+
+  test('bounded: drops provider-event logs when overwhelmed', async () => {
+    await withTempCwd('grok-rt-provider-log-bounded', async () => {
+      process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';
+      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS = '500';
+
+      await jest.isolateModulesAsync(async () => {
+        const logger = { info: jest.fn() };
+        jest.unstable_mockModule('../../../modules/logging/index.js', () => ({
+          getRealtimeLogger: jest.fn(() => logger)
+        }));
+
+        const { createGrokRealtimeCompatSessionWithTransport } = await import(
+          '@/plugins/realtime-compat/grok/internal/session-core.ts'
+        );
+
+        const fake = createFakeTransport();
+        const session = createGrokRealtimeCompatSessionWithTransport(
+          { provider, spec: { provider: 'grok' } as any } as any,
+          fake.transport as any
+        );
+
+        const it = session.events()[Symbol.asyncIterator]();
+        fake.push({ type: 'open' });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created' }) });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'session.updated' }) });
+        await waitForEvent(it, e => e.type === 'ready');
+
+        const eventCount = 5000;
+        for (let i = 0; i < eventCount; i++) {
+          fake.push({
+            type: 'message',
+            data: JSON.stringify({ type: 'response.output_audio.delta', delta: `${i}` })
+          });
+        }
+
+        // Allow background drains to run.
+        await flush();
+        await flush();
+
+        expect(logger.info).toHaveBeenCalled();
+        expect((logger.info as any).mock.calls.length).toBeLessThan(eventCount);
 
         await session.close();
       });

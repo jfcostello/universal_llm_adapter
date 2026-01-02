@@ -1,6 +1,7 @@
 import type { RealtimeAudioFrame, RealtimeEvent } from '../../../../kernel/index.js';
 import type { RealtimeSession } from '../../../../modules/realtime/index.js';
 import { AudioPacer, base64ToBytes, bytesToBase64, durationMsForBytes } from '../../../../modules/audio/index.js';
+import { setUnrefTimeout } from '../../../../modules/shared/index.js';
 import { verifySignedWsToken } from '../../../../modules/security/index.js';
 import { createAudioRateLimiter } from '../../../../modules/server/index.js';
 
@@ -478,7 +479,7 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
             const scheduleCommitAfterGrace = () => {
               const delay = Math.max(0, firstTurnGraceEndsAtMs - Date.now());
               clearTimeout(firstTurnGraceTimer);
-              firstTurnGraceTimer = setTimeout(() => {
+              firstTurnGraceTimer = setUnrefTimeout(() => {
                 firstTurnGraceTimer = undefined;
                 void (async () => {
                   try {
@@ -490,11 +491,6 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
                   }
                 })();
               }, delay);
-              if (typeof (firstTurnGraceTimer as any)?.unref === 'function') {
-                try {
-                  (firstTurnGraceTimer as any).unref();
-                } catch {}
-              }
             };
 
             for await (const event of { [Symbol.asyncIterator]: () => iter } as AsyncIterable<RealtimeEvent>) {
@@ -603,30 +599,13 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
         const bytesApprox = approxBytesFromBase64(msg.payloadBase64);
         rateLimiter.charge(bytesApprox);
 
-        if (!sessionReadyAudioInput) {
-          // Buffer until ready, up to a limit.
-          const nextFrame: RealtimeAudioFrame = {
-            format: 'g711_ulaw',
-            sampleRateHz: 8000,
-            channels: 1,
-            dataBase64: msg.payloadBase64
-          };
-          inboundAudioQueue.push(nextFrame);
-          return;
-        }
-
-        const inputBytes = base64ToBytes(msg.payloadBase64);
-        const converted = convertAudioBytes({
-          input: inputBytes,
-          inputSpec: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1 },
-          outputSpec: sessionReadyAudioInput
-        });
-        const outBase64 = bytesToBase64(converted);
+        // Always enqueue Twilio frames as g711_ulaw; the inbound pump will convert
+        // to the negotiated session audio.input spec only when needed.
         inboundAudioQueue.push({
-          format: sessionReadyAudioInput.format as any,
-          sampleRateHz: sessionReadyAudioInput.sampleRateHz,
-          channels: sessionReadyAudioInput.channels,
-          dataBase64: outBase64
+          format: 'g711_ulaw',
+          sampleRateHz: 8000,
+          channels: 1,
+          dataBase64: msg.payloadBase64
         });
       };
 
