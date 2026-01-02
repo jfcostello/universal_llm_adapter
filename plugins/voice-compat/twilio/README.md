@@ -55,6 +55,9 @@ This is **dynamic** (LLM-generated) and does not use pre-recorded audio. The pro
   - applied to the outbound call via Twilio `TimeLimit` (seconds).
 - `callConfig.timeouts.silenceTimeoutMs`:
   - enforced adapter-side during the media bridge (hang up after no user input for the configured duration).
+- `callConfig.timeouts.firstTurnGraceMs` (optional, non-negative):
+  - forwarded to the Twilio media-streams bridge as `limits.firstTurnGraceMs` (see `plugins/voice-modules/twilio-media-streams/README.md`).
+  - When omitted, this compat defaults to `500` only when `callConfig.realtimeSpec.provider === "grok"`; otherwise it is disabled.
 - `callConfig.timeouts.silenceAssistantAudioEndFallbackMs` (optional):
   - when `assistantFirstTurn.enabled=true`, treats assistant audio as ended this many milliseconds after the first `assistant_audio.chunk` if `assistant_audio.end` is never emitted.
   - default: `min(2000, max(500, silenceTimeoutMs))`.
@@ -85,6 +88,8 @@ To harden against SSRF, the recording URL received from the webhook is validated
 
 After a call ends, this compat attempts to fetch and persist Twilio-side call artifacts under:
 - `logs/voice/twilio/call-<CallSid>-<timestamp>/`
+
+This is best-effort and non-blocking; capture runs asynchronously and does not delay media WS cleanup.
 
 Artifacts are best-effort (permissions vary by account/project). When available, the compat writes:
 - `call.json` (call resource)

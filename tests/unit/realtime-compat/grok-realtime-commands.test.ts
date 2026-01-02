@@ -318,8 +318,13 @@ describe('realtime-compat/grok — commands', () => {
   });
 
   test('buildResponseCreateEvent includes tool_choice when provided', () => {
-    expect(buildResponseCreateEvent().response).toBeUndefined();
-    expect(buildResponseCreateEvent({ toolChoice: 'required' }).response.tool_choice).toBe('required');
+    const base = buildResponseCreateEvent();
+    expect(base.response?.modalities).toEqual(['text', 'audio']);
+    expect(base.response?.tool_choice).toBeUndefined();
+
+    const forced = buildResponseCreateEvent({ toolChoice: 'required' });
+    expect(forced.response?.modalities).toEqual(['text', 'audio']);
+    expect(forced.response?.tool_choice).toBe('required');
   });
 
   test('buildToolResultItemCreateEvent serializes string and JSON results', () => {

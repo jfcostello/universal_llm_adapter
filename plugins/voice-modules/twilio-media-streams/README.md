@@ -48,7 +48,8 @@ const bridge = createTwilioMediaStreamsBridge({
     maxSessionDurationMs: 3600000,
     startTimeoutMs: 5000,
     maxPendingInboundFrames: 200,
-    maxPendingOutboundAudioMs: 10000
+    maxPendingOutboundAudioMs: 10000,
+    firstTurnGraceMs: 0
   },
   audio: {
     frameMs: 20,
@@ -161,7 +162,7 @@ In `digit` mode, each key press is injected as a user turn and committed immedia
 
 - Twilio inbound audio is assumed to be **g711_ulaw @ 8000 Hz mono** (the common Media Streams format).
 - Before the realtime session is `ready`, inbound frames are buffered (bounded by `maxPendingInboundFrames`).
-- After `ready`, inbound frames are converted to the session’s negotiated `audio.input` spec if needed, then forwarded via `session.sendAudio(...)`.
+- After `ready`, inbound frames (including any buffered pre-ready frames) are converted to the session’s negotiated `audio.input` spec if needed, then forwarded via `session.sendAudio(...)`.
 
 ### Outbound (session → caller)
 
@@ -200,6 +201,16 @@ In practice, `playback.clear_requested` is emitted when:
 - a session timeout/error requests playback to stop
 
 ---
+
+## First-turn grace window (optional)
+
+Telephony bridges often auto-commit on `user_speech.stopped`, but some realtime providers emit transcript deltas before a proper `user_speech.started` boundary. `limits.firstTurnGraceMs` provides a short “settling” window immediately after the realtime session becomes `ready`:
+
+- During the grace window, `user_transcript.delta` / `user_transcript.final` events are suppressed until the first `user_speech.started`.
+- When a `user_speech.stopped` arrives during the grace window, the bridge schedules the first `session.commit()` for the end of the grace window instead of committing immediately.
+- If the user starts speaking again during the grace window, any scheduled grace commit is cancelled; the turn will commit on the next `user_speech.stopped` after the grace window.
+
+Default: `0` (disabled).
 
 ## TwiML examples (inbound/outbound)
 

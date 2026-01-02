@@ -13,6 +13,7 @@ export type VoiceCallTimeoutsConfig = {
   silenceTimeoutMs?: number;
   silenceAssistantAudioStartFallbackMs?: number;
   silenceAssistantAudioEndFallbackMs?: number;
+  firstTurnGraceMs?: number;
 };
 
 export type VoiceCallRecordingProviderRecording = {

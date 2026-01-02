@@ -2049,6 +2049,119 @@ describe('extensions/voice: server http handlers', () => {
     expect(callConfig?.timeouts).toMatchObject({ silenceAssistantAudioStartFallbackMs: 111, silenceAssistantAudioEndFallbackMs: 222 });
   });
 
+  test('POST /voice/calls rejects negative timeouts.firstTurnGraceMs', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+
+    const store = createInMemoryVoiceCallConfigStore();
+
+    const providerPlugins: any = {
+      getManifest: jest.fn(async () => ({ defaults: {} })),
+      getCompat: jest.fn(async () => ({ createOutboundCall: jest.fn(async () => ({ providerCallId: 'pc_1' })) }))
+    };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+    });
+
+    const res = createMockRes();
+    await expect(
+      reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1', host: 'localhost' },
+          body: {
+            to: 'to',
+            from: 'from',
+            realtimeSpec: {},
+            voiceProvider: 'test',
+            timeouts: { firstTurnGraceMs: -1 }
+          }
+        }),
+        res
+      )
+    ).resolves.toBe(true);
+
+    expect(String(res.writeHead.mock.calls[0][0])).toBe('400');
+  });
+
+  test('POST /voice/calls accepts timeouts.firstTurnGraceMs (including 0) and persists it to the call config', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+
+    const store = createInMemoryVoiceCallConfigStore();
+
+    const createOutboundCall = jest.fn(async () => ({ providerCallId: 'pc_1' }));
+    const providerPlugins: any = {
+      getManifest: jest.fn(async () => ({ defaults: {} })),
+      getCompat: jest.fn(async () => ({ createOutboundCall }))
+    };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+    });
+
+    const resZero = createMockRes();
+    await expect(
+      reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1', host: 'localhost' },
+          body: {
+            to: 'to',
+            from: 'from',
+            realtimeSpec: {},
+            voiceProvider: 'test',
+            timeouts: { firstTurnGraceMs: 0 }
+          }
+        }),
+        resZero
+      )
+    ).resolves.toBe(true);
+
+    expect(String(resZero.writeHead.mock.calls[0][0])).toBe('200');
+    expect(createOutboundCall).toHaveBeenCalled();
+    const responseZero = JSON.parse(String(resZero.end.mock.calls[0][0]));
+    const callConfigZero = await store.getConfig(String(responseZero.callConfigId));
+    expect(callConfigZero?.timeouts).toMatchObject({ firstTurnGraceMs: 0 });
+
+    const resPositive = createMockRes();
+    await expect(
+      reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1', host: 'localhost' },
+          body: {
+            to: 'to',
+            from: 'from',
+            realtimeSpec: {},
+            voiceProvider: 'test',
+            timeouts: { firstTurnGraceMs: '250' }
+          }
+        }),
+        resPositive
+      )
+    ).resolves.toBe(true);
+
+    expect(String(resPositive.writeHead.mock.calls[0][0])).toBe('200');
+    const responsePositive = JSON.parse(String(resPositive.end.mock.calls[0][0]));
+    const callConfigPositive = await store.getConfig(String(responsePositive.callConfigId));
+    expect(callConfigPositive?.timeouts).toMatchObject({ firstTurnGraceMs: 250 });
+  });
+
   test('POST /voice/calls uses backoff/jitter when idempotency lock is held', async () => {
     jest.useFakeTimers();
     const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
