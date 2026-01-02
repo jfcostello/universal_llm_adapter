@@ -12,6 +12,8 @@ export { createDeferred } from './internal/deferred.js';
 
 export { sleep, sleepWithSignal } from './internal/sleep.js';
 
+export { setUnrefTimeout } from './internal/unref-timeout.js';
+
 export { monotonicNowNs, monotonicElapsedMs } from './internal/monotonic.js';
 
 export { calculateBackoffDelay } from './internal/calculate-backoff-delay.js';

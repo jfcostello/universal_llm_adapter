@@ -57,6 +57,7 @@ async function waitForEvent<T extends RealtimeEvent = RealtimeEvent>(
 
 async function flush(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setImmediate(resolve));
 }
 
 function readRealtimeLogLines(cwd: string): any[] {
@@ -246,7 +247,94 @@ describe('realtime-compat/grok — provider event logging', () => {
         fake.push({ type: 'message', data: JSON.stringify({ type: 'input_audio_buffer.speech_started' }) });
         await waitForEvent(it, e => e.type === 'user_speech.started');
 
+        // Provider-event logging runs async; allow the background drain to attempt logger init.
+        await flush();
         expect(getRealtimeLogger).toHaveBeenCalled();
+
+        await session.close();
+      });
+    });
+  });
+
+  test('non-blocking: logger init hang does not stall the transport loop', async () => {
+    await withTempCwd('grok-rt-provider-log-non-blocking', async () => {
+      process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';
+      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS = '500';
+
+      await jest.isolateModulesAsync(async () => {
+        jest.unstable_mockModule('../../../modules/logging/index.js', () => ({
+          getRealtimeLogger: jest.fn(async () => await new Promise(() => {}))
+        }));
+
+        const { createGrokRealtimeCompatSessionWithTransport } = await import(
+          '@/plugins/realtime-compat/grok/internal/session-core.ts'
+        );
+
+        const fake = createFakeTransport();
+        const session = createGrokRealtimeCompatSessionWithTransport(
+          { provider, spec: { provider: 'grok' } as any } as any,
+          fake.transport as any
+        );
+
+        const it = session.events()[Symbol.asyncIterator]();
+        fake.push({ type: 'open' });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created' }) });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'session.updated' }) });
+        await waitForEvent(it, e => e.type === 'ready');
+
+        // First event triggers provider-event logging (logger init hangs).
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'response.output_audio.delta', delta: 'AA==' }) });
+        // Second event should still be processed and mapped immediately.
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'input_audio_buffer.speech_started' }) });
+
+        await waitForEvent(it, e => e.type === 'user_speech.started', 200);
+
+        await session.close();
+      });
+    });
+  });
+
+  test('bounded: drops provider-event logs when overwhelmed', async () => {
+    await withTempCwd('grok-rt-provider-log-bounded', async () => {
+      process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';
+      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS = '500';
+
+      await jest.isolateModulesAsync(async () => {
+        const logger = { info: jest.fn() };
+        jest.unstable_mockModule('../../../modules/logging/index.js', () => ({
+          getRealtimeLogger: jest.fn(() => logger)
+        }));
+
+        const { createGrokRealtimeCompatSessionWithTransport } = await import(
+          '@/plugins/realtime-compat/grok/internal/session-core.ts'
+        );
+
+        const fake = createFakeTransport();
+        const session = createGrokRealtimeCompatSessionWithTransport(
+          { provider, spec: { provider: 'grok' } as any } as any,
+          fake.transport as any
+        );
+
+        const it = session.events()[Symbol.asyncIterator]();
+        fake.push({ type: 'open' });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created' }) });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'session.updated' }) });
+        await waitForEvent(it, e => e.type === 'ready');
+
+        const eventCount = 5000;
+        for (let i = 0; i < eventCount; i++) {
+          fake.push({
+            type: 'message',
+            data: JSON.stringify({ type: 'response.output_audio.delta', delta: `${i}` })
+          });
+        }
+
+        // Allow background drains to run.
+        await flush();
+        await flush();
+
+        expect(logger.info).toHaveBeenCalled();
+        expect((logger.info as any).mock.calls.length).toBeLessThan(eventCount);
 
         await session.close();
       });

@@ -102,6 +102,18 @@ const completed = await sleepWithSignal(5000, abortController.signal);
 // completed === false if aborted before 5s elapses
 ```
 
+### `setUnrefTimeout(callback, ms)`
+
+Sets a timeout and (when supported) calls `.unref()` so it won’t keep the Node.js process alive.
+
+```typescript
+import { setUnrefTimeout } from '../shared/index.js';
+
+setUnrefTimeout(() => {
+  // ...
+}, 1000);
+```
+
 ### `monotonicNowNs()` / `monotonicElapsedMs(startNs, endNs?)`
 
 Monotonic timing helpers for duration deltas. Use epoch timestamps (`Date.now()`) for `timestampMs` fields and monotonic deltas for `durationMs`/`duration` fields.

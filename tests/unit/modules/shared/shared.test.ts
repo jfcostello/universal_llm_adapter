@@ -8,6 +8,7 @@ import {
 	  calculateBackoffDelay,
 	  sleep,
 	  sleepWithSignal,
+    setUnrefTimeout,
   monotonicNowNs,
   monotonicElapsedMs,
   deriveObservabilityModel,
@@ -183,6 +184,44 @@ describe('modules/shared', () => {
     test('does not double-prefix when model already includes upstream provider', () => {
       expect(deriveObservabilityModel({ provider: 'proxy', model: 'upstream/m', providerHint: { provider: 'upstream' } }))
         .toBe('upstream/m');
+    });
+  });
+
+  describe('setUnrefTimeout', () => {
+    const originalSetTimeout = globalThis.setTimeout;
+
+    afterEach(() => {
+      globalThis.setTimeout = originalSetTimeout;
+    });
+
+    test('calls unref() when available', () => {
+      const unref = jest.fn();
+      const fakeTimeout: any = { unref };
+      globalThis.setTimeout = jest.fn(() => fakeTimeout) as any;
+
+      const out = setUnrefTimeout(() => {}, 10);
+      expect(out).toBe(fakeTimeout);
+      expect(unref).toHaveBeenCalledTimes(1);
+    });
+
+    test('ignores missing unref()', () => {
+      const fakeTimeout: any = {};
+      globalThis.setTimeout = jest.fn(() => fakeTimeout) as any;
+
+      const out = setUnrefTimeout(() => {}, 10);
+      expect(out).toBe(fakeTimeout);
+    });
+
+    test('ignores unref() exceptions', () => {
+      const unref = jest.fn(() => {
+        throw new Error('boom');
+      });
+      const fakeTimeout: any = { unref };
+      globalThis.setTimeout = jest.fn(() => fakeTimeout) as any;
+
+      const out = setUnrefTimeout(() => {}, 10);
+      expect(out).toBe(fakeTimeout);
+      expect(unref).toHaveBeenCalledTimes(1);
     });
   });
 

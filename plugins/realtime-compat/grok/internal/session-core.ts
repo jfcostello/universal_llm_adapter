@@ -6,7 +6,7 @@ import type {
   RealtimeSessionSpec
 } from '../../../../kernel/index.js';
 import { AsyncQueue, LruMap, resolveRealtimeReadyFallbackMs, resolveRealtimeToolCallTrackingMaxEntries } from '../../../../kernel/index.js';
-import { createDeferred, type Deferred } from '../../../../modules/shared/index.js';
+import { createDeferred, setUnrefTimeout, type Deferred } from '../../../../modules/shared/index.js';
 
 import {
   buildConversationItemCreateEvent,
@@ -110,7 +110,52 @@ export function createGrokRealtimeCompatSessionWithTransport(
     }
     return providerEventLogger;
   };
-  const maybeLogProviderEvent = async (event: any): Promise<void> => {
+
+  const providerEventLogQueue: any[] = [];
+  const providerEventLogMaxQueue = 200;
+  const providerEventLogBatchSize = 25;
+  let providerEventLogDrainScheduled = false;
+  let providerEventLogDrainInFlight = false;
+
+  const scheduleProviderEventDrain = () => {
+    if (providerEventLogDrainScheduled || providerEventLogDrainInFlight) return;
+    providerEventLogDrainScheduled = true;
+    setImmediate(() => {
+      providerEventLogDrainScheduled = false;
+      void drainProviderEventLogs();
+    });
+  };
+
+  const drainProviderEventLogs = async (): Promise<void> => {
+    providerEventLogDrainInFlight = true;
+    try {
+      const logger = await getProviderEventLogger();
+      if (!logger?.info) {
+        providerEventLogQueue.splice(0, providerEventLogQueue.length);
+        return;
+      }
+
+      let drained = 0;
+      while (providerEventLogQueue.length > 0 && drained < providerEventLogBatchSize) {
+        const next = providerEventLogQueue.shift();
+        try {
+          logger.info('realtime.provider_event', { providerEvent: next });
+        } catch {
+          // best-effort
+        }
+        drained += 1;
+      }
+    } catch {
+      // best-effort
+    } finally {
+      providerEventLogDrainInFlight = false;
+      if (providerEventLogQueue.length > 0) {
+        scheduleProviderEventDrain();
+      }
+    }
+  };
+
+  const maybeLogProviderEvent = (event: any): void => {
     if (!providerEventLogWindowMs) return;
     const until = providerEventLogUntilMs;
     if (!until) return;
@@ -119,12 +164,10 @@ export function createGrokRealtimeCompatSessionWithTransport(
       providerEventLogUntilMs = undefined;
       return;
     }
-    try {
-      const logger = await getProviderEventLogger();
-      logger?.info?.('realtime.provider_event', { providerEvent: sanitizeProviderEventForLog(event) });
-    } catch {
-      // best-effort
-    }
+
+    if (providerEventLogQueue.length >= providerEventLogMaxQueue) return;
+    providerEventLogQueue.push(sanitizeProviderEventForLog(event));
+    scheduleProviderEventDrain();
   };
 
   const commitMode = spec.turnDetection?.mode ?? 'manual_commit';
@@ -154,7 +197,7 @@ export function createGrokRealtimeCompatSessionWithTransport(
   };
   const scheduleReadyFallback = () => {
     if (readySent || readyFallbackTimer) return;
-    readyFallbackTimer = setTimeout(() => {
+    readyFallbackTimer = setUnrefTimeout(() => {
       readyFallbackTimer = undefined;
       if (!readySent && !sessionUpdateSent) {
         sessionUpdateSent = true;
@@ -162,11 +205,6 @@ export function createGrokRealtimeCompatSessionWithTransport(
       }
       emitReadyOnce();
     }, readyFallbackMs);
-    if (typeof (readyFallbackTimer as any)?.unref === 'function') {
-      try {
-        (readyFallbackTimer as any).unref();
-      } catch {}
-    }
   };
 
   let pendingCancel: Deferred<void> | undefined;
@@ -268,7 +306,7 @@ export function createGrokRealtimeCompatSessionWithTransport(
         }
 
         if (readyAlreadySent) {
-          await maybeLogProviderEvent(parsed);
+          maybeLogProviderEvent(parsed);
         }
 
         if (msgType === 'input_audio_buffer.committed') {
