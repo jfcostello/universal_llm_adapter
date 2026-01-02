@@ -30,7 +30,7 @@ CLI:
 When `modules/logging` is available, the voice extension emits JSONL file logs under:
 - `logs/voice/`
 
-If the active voice compat supports it, provider-side artifacts may also be persisted under nested subdirectories (for example: `logs/voice/twilio/...`).
+If the active voice compat supports it, provider-side artifacts may also be persisted under nested subdirectories (for example: `logs/voice/<voiceProvider>/...`).
 
 Retention:
 - `LLM_ADAPTER_VOICE_LOG_MAX_FILES`

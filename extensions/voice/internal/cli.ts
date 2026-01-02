@@ -347,13 +347,16 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
             out.maxWaitMs = ms;
           }
 
-	          if (options.cancelOnUserSpeech !== undefined) {
-	            const raw = String(options.cancelOnUserSpeech).trim().toLowerCase();
-	            if (!raw) {
-	              // ignore
-	            } else if (['true', '1', 'yes', 'y', 'on'].includes(raw) || ['false', '0', 'no', 'n', 'off'].includes(raw)) {
-	              out.cancelOnUserSpeech = normalizeFlag(raw, false);
-	            } else {
+          if (options.cancelOnUserSpeech !== undefined) {
+            const raw = String(options.cancelOnUserSpeech).trim().toLowerCase();
+            if (!raw) {
+              // ignore
+            } else if (
+              ['true', '1', 'yes', 'y', 'on'].includes(raw) ||
+              ['false', '0', 'no', 'n', 'off'].includes(raw)
+            ) {
+              out.cancelOnUserSpeech = normalizeFlag(raw, false);
+            } else {
               throw makeHttpError({ message: 'Invalid cancelOnUserSpeech', statusCode: 400, code: 'validation_error' });
             }
           }
