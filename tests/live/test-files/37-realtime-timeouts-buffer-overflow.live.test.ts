@@ -9,14 +9,14 @@ const TEST_FILE = '37-realtime-timeouts-buffer-overflow';
 
 if (filteredRealtimeTestRuns.length === 0) {
   describeLive(`${TEST_FILE} — provider selection`, () => {
-    test('requires a realtime provider selection', () => {
-      throw new Error(
-        'No realtime live test runs are selected. ' +
-          'Set LLM_TEST_PROVIDERS=openai|google|grok (or unset it to run all realtime providers).'
-      );
+      test('requires a realtime provider selection', () => {
+        throw new Error(
+          'No realtime live test runs are selected. ' +
+          'Set LLM_TEST_PROVIDERS=openai|google|grok|vapi (or unset it to run all realtime providers).'
+        );
+      });
     });
-  });
-} else {
+  } else {
   for (const runCfg of filteredRealtimeTestRuns) {
     describeLive(`${TEST_FILE} — ${runCfg.name}`, () => {
       test('idle timeout emits timeout + playback.clear_requested(timeout) and closes', async () => {

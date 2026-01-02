@@ -107,6 +107,11 @@ export const realtimeTestRuns: RealtimeTestRun[] = [
     name: 'grok',
     provider: 'grok',
     model: 'realtime'
+  },
+  {
+    name: 'vapi',
+    provider: 'vapi',
+    model: 'gpt-4o-mini'
   }
 ];
 

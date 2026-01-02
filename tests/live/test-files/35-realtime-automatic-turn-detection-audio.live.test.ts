@@ -46,14 +46,14 @@ function getFinalTranscript(events: any[], who: 'user' | 'assistant'): string {
 
 if (filteredRealtimeTestRuns.length === 0) {
   describeLive(`${TEST_FILE} — provider selection`, () => {
-    test('requires a realtime provider selection', () => {
-      throw new Error(
-        'No realtime live test runs are selected. ' +
-          'Set LLM_TEST_PROVIDERS=openai|google|grok (or unset it to run all realtime providers).'
-      );
+      test('requires a realtime provider selection', () => {
+        throw new Error(
+          'No realtime live test runs are selected. ' +
+          'Set LLM_TEST_PROVIDERS=openai|google|grok|vapi (or unset it to run all realtime providers).'
+        );
+      });
     });
-  });
-} else {
+  } else {
   for (const runCfg of filteredRealtimeTestRuns) {
     describeLive(`${TEST_FILE} — ${runCfg.name}`, () => {
       test('server_vad mode triggers response without explicit commit', async () => {

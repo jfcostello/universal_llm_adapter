@@ -1,0 +1,14 @@
+{
+  "id": "vapi",
+  "compat": "vapi",
+  "endpoint": {
+    "urlTemplate": "https://api.vapi.ai/call",
+    "headers": {
+      "Authorization": "Bearer ${VAPI_API_KEY}"
+    }
+  },
+  "metadata": {
+    "defaultModel": "gpt-4o-mini",
+    "defaultVoice": "alloy"
+  }
+}

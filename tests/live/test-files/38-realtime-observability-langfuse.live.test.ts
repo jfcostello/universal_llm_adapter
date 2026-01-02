@@ -10,14 +10,14 @@ const TEST_FILE = '38-realtime-observability-langfuse';
 
 if (filteredRealtimeTestRuns.length === 0) {
   describeLive(`${TEST_FILE} — provider selection`, () => {
-    test('requires a realtime provider selection', () => {
-      throw new Error(
-        'No realtime live test runs are selected. ' +
-          'Set LLM_TEST_PROVIDERS=openai|google|grok (or unset it to run all realtime providers).'
-      );
+      test('requires a realtime provider selection', () => {
+        throw new Error(
+          'No realtime live test runs are selected. ' +
+          'Set LLM_TEST_PROVIDERS=openai|google|grok|vapi (or unset it to run all realtime providers).'
+        );
+      });
     });
-  });
-} else {
+  } else {
   for (const runCfg of filteredRealtimeTestRuns) {
     describeLive(`${TEST_FILE} — ${runCfg.name}`, () => {
       test('exports per-turn observability to Langfuse (traceId = first turn, grouped by sessionId)', async () => {
@@ -71,4 +71,3 @@ if (filteredRealtimeTestRuns.length === 0) {
     });
   }
 }
-

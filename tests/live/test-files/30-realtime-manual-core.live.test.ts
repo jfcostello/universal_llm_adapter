@@ -15,22 +15,40 @@ function getAssistantFinals(events: any[]): string[] {
   return finals;
 }
 
+const WORD_TOKENS = [
+  'mango',
+  'papaya',
+  'kiwi',
+  'peach',
+  'plum',
+  'apricot',
+  'banana',
+  'orange',
+  'grape',
+  'melon',
+  'guava',
+  'lychee',
+  'persimmon',
+  'kumquat'
+];
+
 if (filteredRealtimeTestRuns.length === 0) {
   describeLive(`${TEST_FILE} — provider selection`, () => {
-    test('requires a realtime provider selection', () => {
-      throw new Error(
-        'No realtime live test runs are selected. ' +
-          'Set LLM_TEST_PROVIDERS=openai|google|grok (or unset it to run all realtime providers).'
-      );
+      test('requires a realtime provider selection', () => {
+        throw new Error(
+          'No realtime live test runs are selected. ' +
+          'Set LLM_TEST_PROVIDERS=openai|google|grok|vapi (or unset it to run all realtime providers).'
+        );
+      });
     });
-  });
-} else {
+  } else {
   for (const runCfg of filteredRealtimeTestRuns) {
     describeLive(`${TEST_FILE} — ${runCfg.name}`, () => {
       test('manual commit: history is visible and earlier turns persist', async () => {
-        const suffix = `${String(runCfg.name).replace(/[^a-zA-Z0-9]/g, '').toUpperCase()}${Date.now().toString().slice(-4)}`;
-        const tokenHistory = `HISTORYTOKEN${suffix}`;
-        const tokenTurn = `TURNTOKEN${suffix}`;
+        const pick = () => WORD_TOKENS[Math.floor(Math.random() * WORD_TOKENS.length)]!;
+        const tokenHistory = pick();
+        let tokenTurn = pick();
+        while (tokenTurn === tokenHistory) tokenTurn = pick();
 
         const result = await runRealtimeScenario({
           pluginsPath,
@@ -40,8 +58,11 @@ if (filteredRealtimeTestRuns.length === 0) {
             provider: runCfg.provider,
             model: runCfg.model,
             systemPrompt: [
-              'You are a realtime conformance test agent.',
-              'When asked to output a token, output the exact token and nothing else.'
+              'You MUST follow the rules exactly.',
+              'Rules:',
+              '1) Do not greet.',
+              '2) When asked for a token, reply with the token only.',
+              '3) Do not add extra words.'
             ].join('\n'),
             history: [{ role: 'user', text: `My history token is ${tokenHistory}. Remember it.` }],
             transcription: { enabled: true },
@@ -56,7 +77,7 @@ if (filteredRealtimeTestRuns.length === 0) {
             { type: 'send_text', text: 'What token did I mention in the history? Reply with the token only.', role: 'user' },
             { type: 'commit' },
             { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 30000 },
-            { type: 'send_text', text: `My second token is ${tokenTurn}. Reply OK.`, role: 'user' },
+            { type: 'send_text', text: `My second token is ${tokenTurn}. Reply with the token only.`, role: 'user' },
             { type: 'commit' },
             { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 30000 },
             { type: 'send_text', text: 'What is my second token? Reply with the token only.', role: 'user' },

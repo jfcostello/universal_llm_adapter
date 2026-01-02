@@ -18,24 +18,41 @@ function getFinalAssistantText(events: any[]): string {
   return '';
 }
 
+const WORD_TOKENS = [
+  'mango',
+  'papaya',
+  'kiwi',
+  'peach',
+  'plum',
+  'apricot',
+  'banana',
+  'orange',
+  'grape',
+  'melon',
+  'guava',
+  'lychee',
+  'persimmon',
+  'kumquat'
+];
+
 if (filteredRealtimeTestRuns.length === 0) {
   describeLive(`${TEST_FILE} — provider selection`, () => {
-    test('requires a realtime provider selection', () => {
-      throw new Error(
-        'No realtime live test runs are selected. ' +
-          'Set LLM_TEST_PROVIDERS=openai|google|grok (or unset it to run all realtime providers).'
-      );
+      test('requires a realtime provider selection', () => {
+        throw new Error(
+          'No realtime live test runs are selected. ' +
+          'Set LLM_TEST_PROVIDERS=openai|google|grok|vapi (or unset it to run all realtime providers).'
+        );
+      });
     });
-  });
-} else {
+  } else {
   for (const runCfg of filteredRealtimeTestRuns) {
     describeLive(`${TEST_FILE} — ${runCfg.name}`, () => {
       test('concurrent sessions are isolated (no cross-talk)', async () => {
-        // Realtime transcript normalization can be aggressive (punctuation/underscores/spaces), so keep tokens
-        // as a single alphanumeric "word" to ensure deterministic matching across providers.
-        const suffix = `${String(runCfg.name).replace(/[^a-zA-Z0-9]/g, '').toUpperCase()}${Date.now().toString().slice(-6)}${Math.random().toString(16).slice(2, 6).toUpperCase()}`;
-        const tokenA = `TOKENA${suffix}`;
-        const tokenB = `TOKENB${suffix}`;
+        // Prefer simple, speech-friendly tokens to avoid STT altering random strings.
+        const pick = () => WORD_TOKENS[Math.floor(Math.random() * WORD_TOKENS.length)]!;
+        const tokenA = pick();
+        let tokenB = pick();
+        while (tokenB === tokenA) tokenB = pick();
 
         const baseSpec = {
           provider: runCfg.provider,

@@ -117,14 +117,15 @@ export async function attachRealtimeWsServer(options: {
   wss.on('connection', (ws: any) => {
     const release: (() => void) = (ws as any).__realtimeRelease as () => void;
 
-    let session: any | undefined;
-    let openSeen = false;
-    let closed = false;
+	    let session: any | undefined;
+	    let openSeen = false;
+	    let closed = false;
 
-    let idleTimeoutMs = options.config.idleTimeoutMs;
-    let idleTimer: NodeJS.Timeout | undefined;
-    let durationTimer: NodeJS.Timeout | undefined;
-    const audioRateLimiter = createAudioRateLimiter(options.config.maxAudioBytesPerSecond);
+	    let idleTimeoutMs = options.config.idleTimeoutMs;
+	    let specIdleTimeoutAfterReadyMs: number | undefined;
+	    let idleTimer: NodeJS.Timeout | undefined;
+	    let durationTimer: NodeJS.Timeout | undefined;
+	    const audioRateLimiter = createAudioRateLimiter(options.config.maxAudioBytesPerSecond);
 
     const scheduleIdleCheck = () => {
       if (idleTimer) clearTimeout(idleTimer);
@@ -154,26 +155,30 @@ export async function attachRealtimeWsServer(options: {
       }
     };
 
-    const startEventPump = async () => {
-      if (!session?.events) {
-        throw new Error('Session missing events()');
-      }
-      const iterator = (session.events() as AsyncIterable<any>)[Symbol.asyncIterator]();
-      const first = await iterator.next();
-      if (first.done) {
-        failAndClose('Realtime session closed before ready', 'closed_before_ready');
-        return;
-      }
-      if (first.value?.type !== 'ready') {
-        failAndClose('Realtime session did not emit ready first', 'missing_ready');
-        return;
-      }
-      send({ type: 'event', event: first.value });
+	    const startEventPump = async () => {
+	      if (!session?.events) {
+	        throw new Error('Session missing events()');
+	      }
+	      const iterator = (session.events() as AsyncIterable<any>)[Symbol.asyncIterator]();
+	      const first = await iterator.next();
+	      if (first.done) {
+	        failAndClose('Realtime session closed before ready', 'closed_before_ready');
+	        return;
+	      }
+	      if (first.value?.type !== 'ready') {
+	        failAndClose('Realtime session did not emit ready first', 'missing_ready');
+	        return;
+	      }
+	      send({ type: 'event', event: first.value });
+	      if (specIdleTimeoutAfterReadyMs !== undefined) {
+	        idleTimeoutMs = specIdleTimeoutAfterReadyMs;
+	        scheduleIdleCheck();
+	      }
 
-      for await (const event of { [Symbol.asyncIterator]: () => iterator } as AsyncIterable<any>) {
-        send({ type: 'event', event });
-      }
-    };
+	      for await (const event of { [Symbol.asyncIterator]: () => iterator } as AsyncIterable<any>) {
+	        send({ type: 'event', event });
+	      }
+	    };
 
     const closeAll = async () => {
       if (closed) return;
@@ -226,27 +231,30 @@ export async function attachRealtimeWsServer(options: {
 
       try {
         switch (msg.type) {
-          case 'open': {
-            if (openSeen) {
-              failAndClose('Session already open', 'already_open');
-              return;
-            }
-            if (msg.protocolVersion !== 1) {
-              failAndClose('Unsupported protocolVersion', 'unsupported_protocol');
-              return;
-            }
-            const specIdleTimeoutMs = Number((msg as any)?.spec?.timeout?.idleTimeoutMs);
-            if (Number.isFinite(specIdleTimeoutMs)) {
-              idleTimeoutMs = Math.max(0, Math.floor(specIdleTimeoutMs));
-              scheduleIdleCheck();
-            }
-            session = await options.createSession({ registry: options.registry, spec: msg.spec });
-            openSeen = true;
-            startEventPump()
-              .catch(err => failAndClose(err?.message ?? String(err), err?.code))
-              .finally(() => closeAll());
-            return;
-          }
+	          case 'open': {
+	            if (openSeen) {
+	              failAndClose('Session already open', 'already_open');
+	              return;
+	            }
+	            if (msg.protocolVersion !== 1) {
+	              failAndClose('Unsupported protocolVersion', 'unsupported_protocol');
+	              return;
+	            }
+	            const specIdleTimeoutMs = Number((msg as any)?.spec?.timeout?.idleTimeoutMs);
+	            if (Number.isFinite(specIdleTimeoutMs)) {
+	              specIdleTimeoutAfterReadyMs = Math.max(0, Math.floor(specIdleTimeoutMs));
+	            }
+	            if (idleTimer) {
+	              clearTimeout(idleTimer);
+	              idleTimer = undefined;
+	            }
+	            session = await options.createSession({ registry: options.registry, spec: msg.spec });
+	            openSeen = true;
+	            startEventPump()
+	              .catch(err => failAndClose(err?.message ?? String(err), err?.code))
+	              .finally(() => closeAll());
+	            return;
+	          }
           case 'send_text': {
             ensureOpen();
             await session.sendText({ text: msg.text, role: msg.role });
