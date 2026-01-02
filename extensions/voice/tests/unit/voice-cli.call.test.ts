@@ -596,6 +596,95 @@ describe('extensions/voice CLI', () => {
     expect(stderr.data).toBe('');
   });
 
+  test('end: sends mode/maxWaitMs/cancelOnUserSpeech body when flags are set', async () => {
+    const server = await startServer((req, body) => {
+      expect(req.method).toBe('POST');
+      expect(req.url).toBe('/voice/calls/cfg/end');
+      expect(req.headers['x-api-key']).toBe('k');
+      expect(body).toEqual({ mode: 'after_playback', maxWaitMs: 1234, cancelOnUserSpeech: true });
+      return { status: 200, body: { ok: true } };
+    });
+
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+
+    try {
+      await runVoiceCli({
+        argv: [
+          'node',
+          'llm-adapter',
+          'end',
+          '--server-url',
+          server.baseUrl,
+          '--api-key',
+          'k',
+          '--call-config-id',
+          'cfg',
+          '--mode',
+          'after_playback',
+          '--max-wait-ms',
+          '1234',
+          '--cancel-on-user-speech',
+          '1'
+        ],
+        deps: { error: jest.fn(), exit },
+        io: {
+          stdin: Readable.from([]),
+          stdout: stdout.stream,
+          stderr: stderr.stream
+        }
+      });
+    } finally {
+      await server.close();
+    }
+
+    expect(exit).toHaveBeenCalledWith(0);
+    expect(JSON.parse(stdout.data)).toEqual({ ok: true });
+    expect(stderr.data).toBe('');
+  });
+
+  test('end: ignores empty --cancel-on-user-speech flag value', async () => {
+    const server = await startServer((req, body) => {
+      expect(req.method).toBe('POST');
+      expect(req.url).toBe('/voice/calls/cfg/end');
+      expect(body).toBeUndefined();
+      return { status: 200, body: { ok: true } };
+    });
+
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+
+    try {
+      await runVoiceCli({
+        argv: [
+          'node',
+          'llm-adapter',
+          'end',
+          '--server-url',
+          server.baseUrl,
+          '--call-config-id',
+          'cfg',
+          '--cancel-on-user-speech',
+          ''
+        ],
+        deps: { error: jest.fn(), exit },
+        io: {
+          stdin: Readable.from([]),
+          stdout: stdout.stream,
+          stderr: stderr.stream
+        }
+      });
+    } finally {
+      await server.close();
+    }
+
+    expect(exit).toHaveBeenCalledWith(0);
+    expect(JSON.parse(stdout.data)).toEqual({ ok: true });
+    expect(stderr.data).toBe('');
+  });
+
   test('end: writes server error response to stderr and exits 1', async () => {
     const server = await startServer(() => ({ status: 404, body: { type: 'error', error: { message: 'nope', code: 'not_found' } } }));
 
@@ -638,6 +727,41 @@ describe('extensions/voice CLI', () => {
       }
     });
 
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(error).toHaveBeenCalled();
+  });
+
+  test('end: validates mode/maxWaitMs/cancelOnUserSpeech flags and exits 1', async () => {
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+    const error = jest.fn();
+
+    const baseArgs = ['node', 'llm-adapter', 'end', '--server-url', 'http://127.0.0.1:9999', '--call-config-id', 'cfg'];
+
+    await runVoiceCli({
+      argv: [...baseArgs, '--mode', 'nope'],
+      deps: { error, exit },
+      io: { stdin: Readable.from([]), stdout: stdout.stream, stderr: stderr.stream }
+    });
+    expect(exit).toHaveBeenCalledWith(1);
+
+    exit.mockClear();
+    error.mockClear();
+    await runVoiceCli({
+      argv: [...baseArgs, '--max-wait-ms', '-1'],
+      deps: { error, exit },
+      io: { stdin: Readable.from([]), stdout: stdout.stream, stderr: stderr.stream }
+    });
+    expect(exit).toHaveBeenCalledWith(1);
+
+    exit.mockClear();
+    error.mockClear();
+    await runVoiceCli({
+      argv: [...baseArgs, '--cancel-on-user-speech', 'maybe'],
+      deps: { error, exit },
+      io: { stdin: Readable.from([]), stdout: stdout.stream, stderr: stderr.stream }
+    });
     expect(exit).toHaveBeenCalledWith(1);
     expect(error).toHaveBeenCalled();
   });

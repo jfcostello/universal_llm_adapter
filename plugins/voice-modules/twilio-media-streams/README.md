@@ -59,7 +59,7 @@ const bridge = createTwilioMediaStreamsBridge({
   callbacks: {
     onCallStart: (metadata) => {},
     onRealtimeEvent: ({ event, metadata }) => {},
-    onMark: ({ name, metadata, playedMs }) => {},
+    onMark: ({ name, metadata, kind, playedMs }) => {},
     onDtmf: ({ digit, metadata }) => {},
     onError: ({ message, code, metadata }) => {}
   }
@@ -168,10 +168,20 @@ In `digit` mode, each key press is injected as a user turn and committed immedia
 
 - Assistant audio chunks (`assistant_audio.chunk`) are converted to **g711_ulaw @ 8000 Hz mono**, framed into `frameMs` chunks, then sent as Twilio `media` messages.
 - `mark` messages are emitted periodically (`markEveryMs`) to track playback progress (via Twilio inbound `mark` acknowledgements).
+- On `assistant_audio.end`, the bridge enqueues a **drain mark** (name: `d<N>`) after all pending outbound audio frames. When Twilio acknowledges that mark, `callbacks.onMark({ kind: "drain" })` fires, which is suitable for “playback fully drained” signals.
 - Outbound audio buffering is bounded by `maxPendingOutboundAudioMs`. If the pending queue would exceed this limit, the bridge:
   - emits `callbacks.onError({ code: "outbound_backpressure" })`
   - sends a Twilio `{ event: "clear" }` to stop playback
   - interrupts the session (`session.interrupt({ reason: "outbound_backpressure" })`)
+
+#### Mark kinds
+
+The bridge uses Twilio `mark` messages in two ways:
+
+- **Periodic marks** (`kind: "periodic"`, name: `m<N>`): emitted opportunistically as audio is sent (based on `markEveryMs`) to track approximate playback progress.
+- **Drain marks** (`kind: "drain"`, name: `d<N>`): emitted after `assistant_audio.end` and placed after all queued outbound audio frames, suitable for “playback drained” detection.
+
+`playedMs` is best-effort and represents the total outbound audio milliseconds sent at the time the mark was emitted (based on audio byte length and format).
 
 ### Pacing (telephony-friendly)
 

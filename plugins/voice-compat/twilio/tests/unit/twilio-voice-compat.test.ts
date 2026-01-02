@@ -1192,6 +1192,210 @@ describe('plugins/voice-compat/twilio', () => {
     }
   });
 
+  test('emits assistant audio boundaries and playback drained events', async () => {
+    jest.useFakeTimers();
+    try {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+    const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
+
+    const emitted: any[] = [];
+    const emit = jest.fn((event: any) => emitted.push(event));
+
+    const outBytes = Buffer.alloc(320, 0xab); // 40ms g711_ulaw
+    const { registry } = createRegistryHarnessWithCompatSession({
+      events: async function* () {
+        yield {
+          type: 'ready',
+          sessionId: 's1',
+          audio: {
+            input: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1 },
+            output: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1 }
+          }
+        };
+        yield {
+          type: 'assistant_audio.chunk',
+          frame: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1, dataBase64: outBytes.toString('base64') }
+        };
+        yield { type: 'assistant_audio.end' };
+      }
+    });
+
+    const compat = new TwilioVoiceCompat();
+    const ws = new MockWebSocket();
+    const task = compat.handleMediaConnection({
+      ws: ws as any,
+      req: { url: `/voice/media?token=${encodeURIComponent(token)}` } as any,
+      callConfigId: 'cfg_1',
+      callConfig: {
+        realtimeSpec: { provider: 'realtime_p1' }
+      },
+      voiceProvider: 'twilio',
+      registry,
+      events: { emit }
+    } as any);
+
+    ws.emitMessage(startMessage());
+    await jest.advanceTimersByTimeAsync(0);
+    // Allow pacing + framing to flush outbound audio and drain mark.
+    await jest.advanceTimersByTimeAsync(50);
+
+    const sent = ws.sent.map(s => JSON.parse(s));
+    const drainMark = sent.find(m => m.event === 'mark' && typeof m?.mark?.name === 'string' && m.mark.name.startsWith('d'));
+    expect(drainMark).toBeTruthy();
+
+    ws.emitMessage(JSON.stringify({ event: 'mark', streamSid: 'MZ123', mark: { name: drainMark.mark.name } }));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(emitted.some(event => event?.type === 'voice.assistant_audio.started')).toBe(true);
+    expect(emitted.some(event => event?.type === 'voice.assistant_audio.ended')).toBe(true);
+    expect(emitted.some(event => event?.type === 'voice.playback.drained')).toBe(true);
+
+      ws.emitMessage(stopMessage());
+      await task;
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('does not emit playback drained for unknown marks (non-drain branch)', async () => {
+    jest.useFakeTimers();
+    try {
+      process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+      const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
+
+      const emitted: any[] = [];
+      const emit = jest.fn((event: any) => emitted.push(event));
+
+      const { registry } = createRegistryHarnessWithCompatSession({
+        events: async function* () {
+          yield {
+            type: 'ready',
+            sessionId: 's1',
+            audio: {
+              input: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1 },
+              output: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1 }
+            }
+          };
+        }
+      });
+
+      const compat = new TwilioVoiceCompat();
+      const ws = new MockWebSocket();
+      const task = compat.handleMediaConnection({
+        ws: ws as any,
+        req: { url: `/voice/media?token=${encodeURIComponent(token)}` } as any,
+        callConfigId: 'cfg_1',
+        callConfig: {
+          realtimeSpec: { provider: 'realtime_p1' }
+        },
+        voiceProvider: 'twilio',
+        registry,
+        events: { emit }
+      } as any);
+
+      ws.emitMessage(startMessage());
+      await jest.advanceTimersByTimeAsync(0);
+
+      ws.emitMessage(JSON.stringify({ event: 'mark', streamSid: 'MZ123', mark: { name: 'm_unknown' } }));
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(emitted.some(event => event?.type === 'voice.playback.drained')).toBe(false);
+
+      ws.emitMessage(stopMessage());
+      await task;
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('assistant audio/drain events omit providerCallId when callSid is empty', async () => {
+    jest.useFakeTimers();
+    try {
+      process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+      const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
+
+      const emitted: any[] = [];
+      const emit = jest.fn((event: any) => emitted.push(event));
+
+      const outBytes = Buffer.alloc(320, 0xab); // 40ms g711_ulaw
+      const { registry } = createRegistryHarnessWithCompatSession({
+        events: async function* () {
+          yield {
+            type: 'ready',
+            sessionId: 's1',
+            audio: {
+              input: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1 },
+              output: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1 }
+            }
+          };
+          yield {
+            type: 'assistant_audio.chunk',
+            frame: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1, dataBase64: outBytes.toString('base64') }
+          };
+          yield { type: 'assistant_audio.end' };
+        }
+      });
+
+      const compat = new TwilioVoiceCompat();
+      const ws = new MockWebSocket();
+      const task = compat.handleMediaConnection({
+        ws: ws as any,
+        req: { url: `/voice/media?token=${encodeURIComponent(token)}` } as any,
+        callConfigId: 'cfg_1',
+        callConfig: {
+          realtimeSpec: { provider: 'realtime_p1' }
+        },
+        voiceProvider: 'twilio',
+        registry,
+        events: { emit }
+      } as any);
+
+      ws.emitMessage(
+        JSON.stringify({
+          event: 'start',
+          streamSid: 'MZ123',
+          start: {
+            streamSid: 'MZ123',
+            accountSid: 'AC123',
+            callSid: '',
+            customParameters: {
+              from: '+15551234567',
+              to: '+15557654321',
+              direction: 'inbound',
+              callConfigId: 'cfg_1'
+            }
+          }
+        })
+      );
+
+      await jest.advanceTimersByTimeAsync(0);
+      await jest.advanceTimersByTimeAsync(50);
+
+      const sent = ws.sent.map(s => JSON.parse(s));
+      const drainMark = sent.find(m => m.event === 'mark' && typeof m?.mark?.name === 'string' && m.mark.name.startsWith('d'));
+      expect(drainMark).toBeTruthy();
+
+      ws.emitMessage(JSON.stringify({ event: 'mark', streamSid: 'MZ123', mark: { name: drainMark.mark.name } }));
+      await jest.advanceTimersByTimeAsync(0);
+
+      const started = emitted.find(event => event?.type === 'voice.assistant_audio.started');
+      const ended = emitted.find(event => event?.type === 'voice.assistant_audio.ended');
+      const drained = emitted.find(event => event?.type === 'voice.playback.drained');
+
+      expect(started).toBeTruthy();
+      expect(ended).toBeTruthy();
+      expect(drained).toBeTruthy();
+      expect('providerCallId' in started).toBe(false);
+      expect('providerCallId' in ended).toBe(false);
+      expect('providerCallId' in drained).toBe(false);
+
+      ws.emitMessage(stopMessage());
+      await task;
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('handleMediaConnection logs assistant_first_turn.failed with message fallback and code when sendText throws a non-Error', async () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });

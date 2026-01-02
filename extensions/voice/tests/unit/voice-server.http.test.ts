@@ -8,6 +8,7 @@ import { Readable, Writable } from 'stream';
 
 import { createVoiceServerRegistration } from '../../internal/server.js';
 import { createInMemoryVoiceCallConfigStore } from '../../internal/call-config-store/index.js';
+import { createVoiceCallEventHub } from '../../internal/call-events.js';
 
 function createMockRes() {
   return { setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() } as any;
@@ -3758,36 +3759,977 @@ describe('extensions/voice: server http handlers', () => {
       httpConfig: { auth: { enabled: false } }
     });
     const resNoAuth = createMockRes();
-    await expect(regNoAuth.handleHttp({ url: '/voice/calls/cfg_end_ready/end', method: 'POST' } as any, resNoAuth)).resolves.toBe(true);
+    await expect(
+      regNoAuth.handleHttp(
+        createJsonReq({ url: '/voice/calls/cfg_end_ready/end', method: 'POST', body: {} }),
+        resNoAuth
+      )
+    ).resolves.toBe(true);
     expect(String(resNoAuth.writeHead.mock.calls[0][0])).toBe('501');
 
     const resUnknown = createMockRes();
-    await expect(reg.handleHttp({ url: '/voice/calls/missing/end', method: 'POST', headers: { authorization: 'Bearer k1' }, socket: {} } as any, resUnknown)).resolves.toBe(true);
+    await expect(
+      reg.handleHttp(
+        createJsonReq({ url: '/voice/calls/missing/end', method: 'POST', headers: { authorization: 'Bearer k1' }, body: {} }),
+        resUnknown
+      )
+    ).resolves.toBe(true);
     expect(String(resUnknown.writeHead.mock.calls[0][0])).toBe('404');
 
     const resMissingProvider = createMockRes();
-    await expect(reg.handleHttp({ url: '/voice/calls/cfg_end_missing_provider/end', method: 'POST', headers: { authorization: 'Bearer k1' }, socket: {} } as any, resMissingProvider)).resolves.toBe(true);
+    await expect(
+      reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls/cfg_end_missing_provider/end',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1' },
+          body: {}
+        }),
+        resMissingProvider
+      )
+    ).resolves.toBe(true);
     expect(String(resMissingProvider.writeHead.mock.calls[0][0])).toBe('400');
 
     const resMissingProviderCallId = createMockRes();
-    await expect(reg.handleHttp({ url: '/voice/calls/cfg_end_missing_call/end', method: 'POST', headers: { authorization: 'Bearer k1' }, socket: {} } as any, resMissingProviderCallId)).resolves.toBe(true);
+    await expect(
+      reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls/cfg_end_missing_call/end',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1' },
+          body: {}
+        }),
+        resMissingProviderCallId
+      )
+    ).resolves.toBe(true);
     expect(String(resMissingProviderCallId.writeHead.mock.calls[0][0])).toBe('409');
 
     providerPlugins.getManifest.mockRejectedValueOnce(new Error('nope'));
     const resUnknownProvider = createMockRes();
-    await expect(reg.handleHttp({ url: '/voice/calls/cfg_end_ready/end', method: 'POST', headers: { authorization: 'Bearer k1' }, socket: {} } as any, resUnknownProvider)).resolves.toBe(true);
+    await expect(
+      reg.handleHttp(
+        createJsonReq({ url: '/voice/calls/cfg_end_ready/end', method: 'POST', headers: { authorization: 'Bearer k1' }, body: {} }),
+        resUnknownProvider
+      )
+    ).resolves.toBe(true);
     expect(String(resUnknownProvider.writeHead.mock.calls[0][0])).toBe('400');
 
     const resNoCompat = createMockRes();
-    await expect(reg.handleHttp({ url: '/voice/calls/cfg_end_ready/end', method: 'POST', headers: { authorization: 'Bearer k1' }, socket: {} } as any, resNoCompat)).resolves.toBe(true);
+    await expect(
+      reg.handleHttp(
+        createJsonReq({ url: '/voice/calls/cfg_end_ready/end', method: 'POST', headers: { authorization: 'Bearer k1' }, body: {} }),
+        resNoCompat
+      )
+    ).resolves.toBe(true);
     expect(String(resNoCompat.writeHead.mock.calls[0][0])).toBe('501');
 
     const endCall = jest.fn(async () => {});
     providerPlugins.getCompat.mockResolvedValueOnce({ endCall });
     const resOk = createMockRes();
-    await expect(reg.handleHttp({ url: '/voice/calls/cfg_end_ready/end', method: 'POST', headers: { authorization: 'Bearer k1' }, socket: {} } as any, resOk)).resolves.toBe(true);
+    await expect(
+      reg.handleHttp(
+        createJsonReq({ url: '/voice/calls/cfg_end_ready/end', method: 'POST', headers: { authorization: 'Bearer k1' }, body: {} }),
+        resOk
+      )
+    ).resolves.toBe(true);
     expect(String(resOk.writeHead.mock.calls[0][0])).toBe('200');
     expect(endCall).toHaveBeenCalled();
+  });
+
+  test('/voice/calls/:id/end validates body and applies end defaults', async () => {
+    jest.useFakeTimers();
+    try {
+      const store = createInMemoryVoiceCallConfigStore();
+      await store.putConfig(
+        {
+          version: 1,
+          callConfigId: 'cfg_end_ready',
+          createdAtMs: 0,
+          expiresAtMs: 0,
+          to: 'to',
+          from: 'from',
+          direction: 'outbound',
+          realtimeSpec: {},
+          voiceProvider: 'test',
+          providerCallId: 'c1'
+        } as any,
+        { ttlSeconds: 60 }
+      );
+
+      const endCall = jest.fn(async () => {});
+      const providerPlugins: any = {
+        getManifest: jest.fn(async () => ({ defaults: {} })),
+        getCompat: jest.fn(async () => ({ endCall }))
+      };
+
+      const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
+
+      const reg = await createVoiceServerRegistration({
+        server: {} as any,
+        registry: {},
+        pluginsPath: './plugins',
+        upgradeRouter: {} as any,
+        store,
+        providerPlugins,
+        httpConfig: {
+          auth: { enabled: true, apiKeys: ['k1'] },
+          extensions: {
+            voice: {
+              end: {
+                defaultMode: 'after_assistant_audio',
+                defaultMaxWaitMs: 1234,
+                defaultCancelOnUserSpeech: true
+              }
+            }
+          }
+        },
+        eventsHub: eventsHub as any
+      });
+
+      const resInvalid = new MockStreamRes() as any;
+      await expect(
+        reg.handleHttp(
+          createJsonReq({
+            url: '/voice/calls/cfg_end_ready/end',
+            method: 'POST',
+            headers: { authorization: 'Bearer k1' },
+            body: { mode: 'nope' }
+          }),
+          resInvalid
+        )
+      ).resolves.toBe(true);
+      expect(String(resInvalid.writeHead.mock.calls[0][0])).toBe('400');
+      const invalidBody = JSON.parse(Buffer.concat(resInvalid.chunks).toString('utf-8'));
+      expect(invalidBody?.error?.code).toBe('validation_error');
+
+      const resInvalidWait = new MockStreamRes() as any;
+      await expect(
+        reg.handleHttp(
+          createJsonReq({
+            url: '/voice/calls/cfg_end_ready/end',
+            method: 'POST',
+            headers: { authorization: 'Bearer k1' },
+            body: { maxWaitMs: 'nope' }
+          }),
+          resInvalidWait
+        )
+      ).resolves.toBe(true);
+      expect(String(resInvalidWait.writeHead.mock.calls[0][0])).toBe('400');
+      const invalidWaitBody = JSON.parse(Buffer.concat(resInvalidWait.chunks).toString('utf-8'));
+      expect(invalidWaitBody?.error?.code).toBe('validation_error');
+
+      const resDefault = new MockStreamRes() as any;
+      await expect(
+        reg.handleHttp(
+          createJsonReq({
+            url: '/voice/calls/cfg_end_ready/end',
+            method: 'POST',
+            headers: { authorization: 'Bearer k1' },
+            body: {}
+          }),
+          resDefault
+        )
+      ).resolves.toBe(true);
+      expect(String(resDefault.writeHead.mock.calls[0][0])).toBe('200');
+      const defaultBody = JSON.parse(Buffer.concat(resDefault.chunks).toString('utf-8'));
+      expect(defaultBody).toEqual(
+        expect.objectContaining({
+          ok: true,
+          result: 'scheduled',
+          mode: 'after_assistant_audio',
+          maxWaitMs: 1234,
+          cancelOnUserSpeech: true
+        })
+      );
+      expect(endCall).not.toHaveBeenCalled();
+
+      eventsHub.emit('cfg_end_ready', { type: 'voice.assistant_audio.ended' });
+      await jest.advanceTimersByTimeAsync(0);
+      expect(endCall).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('/voice/calls/:id/end applies defaultMode=after_playback and coerces invalid defaultMaxWaitMs', async () => {
+    jest.useFakeTimers();
+    try {
+      const store = createInMemoryVoiceCallConfigStore();
+      await store.putConfig(
+        {
+          version: 1,
+          callConfigId: 'cfg_end_ready',
+          createdAtMs: 0,
+          expiresAtMs: 0,
+          to: 'to',
+          from: 'from',
+          direction: 'outbound',
+          realtimeSpec: {},
+          voiceProvider: 'test',
+          providerCallId: 'c1'
+        } as any,
+        { ttlSeconds: 60 }
+      );
+
+      const endCall = jest.fn(async () => {});
+      const providerPlugins: any = {
+        getManifest: jest.fn(async () => ({ defaults: {} })),
+        getCompat: jest.fn(async () => ({ endCall }))
+      };
+
+      const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
+      const reg = await createVoiceServerRegistration({
+        server: {} as any,
+        registry: {},
+        pluginsPath: './plugins',
+        upgradeRouter: {} as any,
+        store,
+        providerPlugins,
+        httpConfig: {
+          auth: { enabled: true, apiKeys: ['k1'] },
+          extensions: {
+            voice: {
+              end: {
+                defaultMode: 'after_playback',
+                defaultMaxWaitMs: 'nope'
+              }
+            }
+          }
+        },
+        eventsHub: eventsHub as any
+      });
+
+      const res = new MockStreamRes() as any;
+      await expect(
+        reg.handleHttp(
+          createJsonReq({
+            url: '/voice/calls/cfg_end_ready/end',
+            method: 'POST',
+            headers: { authorization: 'Bearer k1' },
+            body: {}
+          }),
+          res
+        )
+      ).resolves.toBe(true);
+      expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+      const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
+      expect(body).toEqual(expect.objectContaining({ ok: true, result: 'scheduled', mode: 'after_playback', maxWaitMs: 5000 }));
+
+      eventsHub.emit('cfg_end_ready', { type: 'voice.assistant_audio.ended' });
+      await jest.advanceTimersByTimeAsync(0);
+      expect(endCall).not.toHaveBeenCalled();
+
+      eventsHub.emit('cfg_end_ready', { type: 'voice.playback.drained' });
+      await jest.advanceTimersByTimeAsync(0);
+      expect(endCall).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('/voice/calls/:id/end applies defaultMode=immediate and coerces negative defaultMaxWaitMs', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_end_ready',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'outbound',
+        realtimeSpec: {},
+        voiceProvider: 'test',
+        providerCallId: 'c1'
+      } as any,
+      { ttlSeconds: 60 }
+    );
+
+    const endCall = jest.fn(async () => {});
+    const providerPlugins: any = {
+      getManifest: jest.fn(async () => ({ defaults: {} })),
+      getCompat: jest.fn(async () => ({ endCall }))
+    };
+
+    const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins,
+      httpConfig: {
+        auth: { enabled: true, apiKeys: ['k1'] },
+        extensions: {
+          voice: {
+            end: {
+              defaultMode: 'immediate',
+              defaultMaxWaitMs: -1
+            }
+          }
+        }
+      },
+      eventsHub: eventsHub as any
+    });
+
+    const res = new MockStreamRes() as any;
+    await expect(
+      reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls/cfg_end_ready/end',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1' },
+          body: {}
+        }),
+        res
+      )
+    ).resolves.toBe(true);
+    expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+    const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
+    expect(body).toEqual(expect.objectContaining({ ok: true, result: 'ended', mode: 'immediate', maxWaitMs: 5000 }));
+    expect(endCall).toHaveBeenCalledTimes(1);
+  });
+
+  test('/voice/calls/:id/end mode=after_playback waits for voice.playback.drained', async () => {
+    jest.useFakeTimers();
+    try {
+      const store = createInMemoryVoiceCallConfigStore();
+      await store.putConfig(
+        {
+          version: 1,
+          callConfigId: 'cfg_end_ready',
+          createdAtMs: 0,
+          expiresAtMs: 0,
+          to: 'to',
+          from: 'from',
+          direction: 'outbound',
+          realtimeSpec: {},
+          voiceProvider: 'test',
+          providerCallId: 'c1'
+        } as any,
+        { ttlSeconds: 60 }
+      );
+
+      const endCall = jest.fn(async () => {});
+      const providerPlugins: any = {
+        getManifest: jest.fn(async () => ({ defaults: {} })),
+        getCompat: jest.fn(async () => ({ endCall }))
+      };
+
+      const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
+      const reg = await createVoiceServerRegistration({
+        server: {} as any,
+        registry: {},
+        pluginsPath: './plugins',
+        upgradeRouter: {} as any,
+        store,
+        providerPlugins,
+        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+        eventsHub: eventsHub as any
+      });
+
+      const res = new MockStreamRes() as any;
+      await expect(
+        reg.handleHttp(
+          createJsonReq({
+            url: '/voice/calls/cfg_end_ready/end',
+            method: 'POST',
+            headers: { authorization: 'Bearer k1' },
+            body: { mode: 'after_playback', maxWaitMs: 1000 }
+          }),
+          res
+        )
+      ).resolves.toBe(true);
+      expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+
+      eventsHub.emit('cfg_end_ready', { type: 'voice.assistant_audio.ended' });
+      await jest.advanceTimersByTimeAsync(0);
+      expect(endCall).not.toHaveBeenCalled();
+
+      eventsHub.emit('cfg_end_ready', { type: 'voice.playback.drained' });
+      await jest.advanceTimersByTimeAsync(0);
+      expect(endCall).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('/voice/calls/:id/end cancelOnUserSpeech prevents hangup while pending', async () => {
+    jest.useFakeTimers();
+    try {
+      const store = createInMemoryVoiceCallConfigStore();
+      await store.putConfig(
+        {
+          version: 1,
+          callConfigId: 'cfg_end_ready',
+          createdAtMs: 0,
+          expiresAtMs: 0,
+          to: 'to',
+          from: 'from',
+          direction: 'outbound',
+          realtimeSpec: {},
+          voiceProvider: 'test',
+          providerCallId: 'c1'
+        } as any,
+        { ttlSeconds: 60 }
+      );
+
+      const endCall = jest.fn(async () => {});
+      const providerPlugins: any = {
+        getManifest: jest.fn(async () => ({ defaults: {} })),
+        getCompat: jest.fn(async () => ({ endCall }))
+      };
+
+      const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
+      const reg = await createVoiceServerRegistration({
+        server: {} as any,
+        registry: {},
+        pluginsPath: './plugins',
+        upgradeRouter: {} as any,
+        store,
+        providerPlugins,
+        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+        eventsHub: eventsHub as any
+      });
+
+      const res = new MockStreamRes() as any;
+      await expect(
+        reg.handleHttp(
+          createJsonReq({
+            url: '/voice/calls/cfg_end_ready/end',
+            method: 'POST',
+            headers: { authorization: 'Bearer k1' },
+            body: { mode: 'after_assistant_audio', maxWaitMs: 50, cancelOnUserSpeech: true }
+          }),
+          res
+        )
+      ).resolves.toBe(true);
+      expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+
+      eventsHub.emit('cfg_end_ready', { type: 'user_speech.started' });
+      await jest.advanceTimersByTimeAsync(0);
+
+      await jest.advanceTimersByTimeAsync(100);
+      expect(endCall).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('/voice/calls/:id/end returns noop when already scheduled and close cancels pending end', async () => {
+    jest.useFakeTimers();
+    try {
+      const store = createInMemoryVoiceCallConfigStore();
+      await store.putConfig(
+        {
+          version: 1,
+          callConfigId: 'cfg_end_ready',
+          createdAtMs: 0,
+          expiresAtMs: 0,
+          to: 'to',
+          from: 'from',
+          direction: 'outbound',
+          realtimeSpec: {},
+          voiceProvider: 'test',
+          providerCallId: 'c1'
+        } as any,
+        { ttlSeconds: 60 }
+      );
+
+      const endCall = jest.fn(async () => {});
+      const providerPlugins: any = {
+        getManifest: jest.fn(async () => ({ defaults: {} })),
+        getCompat: jest.fn(async () => ({ endCall }))
+      };
+
+      const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
+      const reg = await createVoiceServerRegistration({
+        server: {} as any,
+        registry: {},
+        pluginsPath: './plugins',
+        upgradeRouter: {} as any,
+        store,
+        providerPlugins,
+        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+        eventsHub: eventsHub as any
+      });
+
+      const res1 = new MockStreamRes() as any;
+      await expect(
+        reg.handleHttp(
+          createJsonReq({
+            url: '/voice/calls/cfg_end_ready/end',
+            method: 'POST',
+            headers: { authorization: 'Bearer k1' },
+            body: { mode: 'after_assistant_audio', maxWaitMs: 1000 }
+          }),
+          res1
+        )
+      ).resolves.toBe(true);
+      const body1 = JSON.parse(Buffer.concat(res1.chunks).toString('utf-8'));
+      expect(body1?.result).toBe('scheduled');
+      expect(endCall).not.toHaveBeenCalled();
+
+      const res2 = new MockStreamRes() as any;
+      await expect(
+        reg.handleHttp(
+          createJsonReq({
+            url: '/voice/calls/cfg_end_ready/end',
+            method: 'POST',
+            headers: { authorization: 'Bearer k1' },
+            body: { mode: 'after_assistant_audio', maxWaitMs: 1000 }
+          }),
+          res2
+        )
+      ).resolves.toBe(true);
+      const body2 = JSON.parse(Buffer.concat(res2.chunks).toString('utf-8'));
+      expect(body2?.result).toBe('noop');
+
+      const closeTask = reg.close();
+      await jest.runOnlyPendingTimersAsync();
+      await closeTask;
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('close cancels pending voice call end requests', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_end_ready',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'outbound',
+        realtimeSpec: {},
+        voiceProvider: 'test',
+        providerCallId: 'c1'
+      } as any,
+      { ttlSeconds: 60 }
+    );
+
+    const endCall = jest.fn(async () => {});
+    const providerPlugins: any = {
+      getManifest: jest.fn(async () => ({ defaults: {} })),
+      getCompat: jest.fn(async () => ({ endCall }))
+    };
+
+    const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+      eventsHub: eventsHub as any
+    });
+
+    const res = new MockStreamRes() as any;
+    await expect(
+      reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls/cfg_end_ready/end',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1' },
+          body: { mode: 'after_assistant_audio', maxWaitMs: 60000 }
+        }),
+        res
+      )
+    ).resolves.toBe(true);
+    const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
+    expect(body?.result).toBe('scheduled');
+    expect(endCall).not.toHaveBeenCalled();
+
+    await reg.close();
+  });
+
+  test('/voice/calls/:id/end falls back to immediate end when events hub rejects subscription', async () => {
+    jest.useFakeTimers();
+    try {
+      const store = createInMemoryVoiceCallConfigStore();
+      await store.putConfig(
+        {
+          version: 1,
+          callConfigId: 'cfg_end_ready',
+          createdAtMs: 0,
+          expiresAtMs: 0,
+          to: 'to',
+          from: 'from',
+          direction: 'outbound',
+          realtimeSpec: {},
+          voiceProvider: 'test',
+          providerCallId: 'c1'
+        } as any,
+        { ttlSeconds: 60 }
+      );
+
+      const endCall = jest.fn(async () => {});
+      const providerPlugins: any = {
+        getManifest: jest.fn(async () => ({ defaults: {} })),
+        getCompat: jest.fn(async () => ({ endCall }))
+      };
+
+      const eventsHub: any = {
+        emit: jest.fn(),
+        subscribe: jest.fn(() => ({ accepted: false, replay: [], unsubscribe: jest.fn() })),
+        snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })),
+        close: jest.fn()
+      };
+
+      const reg = await createVoiceServerRegistration({
+        server: {} as any,
+        registry: {},
+        pluginsPath: './plugins',
+        upgradeRouter: {} as any,
+        store,
+        providerPlugins,
+        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+        eventsHub
+      });
+
+      const res = new MockStreamRes() as any;
+      await expect(
+        reg.handleHttp(
+          createJsonReq({
+            url: '/voice/calls/cfg_end_ready/end',
+            method: 'POST',
+            headers: { authorization: 'Bearer k1' },
+            body: { mode: 'after_playback', maxWaitMs: 1000 }
+          }),
+          res
+        )
+      ).resolves.toBe(true);
+      expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+
+      const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
+      expect(body).toEqual(expect.objectContaining({ ok: true, result: 'ended', mode: 'immediate' }));
+      expect(endCall).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('/voice/calls/:id/end tolerates extra/malformed events after completion (covers active/type guards)', async () => {
+    jest.useFakeTimers();
+    try {
+      const store = createInMemoryVoiceCallConfigStore();
+      await store.putConfig(
+        {
+          version: 1,
+          callConfigId: 'cfg_end_ready',
+          createdAtMs: 0,
+          expiresAtMs: 0,
+          to: 'to',
+          from: 'from',
+          direction: 'outbound',
+          realtimeSpec: {},
+          voiceProvider: 'test',
+          providerCallId: 'c1'
+        } as any,
+        { ttlSeconds: 60 }
+      );
+
+      const endCall = jest.fn(async () => {});
+      const providerPlugins: any = {
+        getManifest: jest.fn(async () => ({ defaults: {} })),
+        getCompat: jest.fn(async () => ({ endCall }))
+      };
+
+      let onEvent: ((evt: any) => void) | undefined;
+      const eventsHub: any = {
+        emit: jest.fn(),
+        subscribe: jest.fn((_callConfigId: string, _options: any, cb: any) => {
+          onEvent = cb;
+          return { accepted: true, replay: [], unsubscribe: jest.fn() };
+        }),
+        snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })),
+        close: jest.fn()
+      };
+
+      const reg = await createVoiceServerRegistration({
+        server: {} as any,
+        registry: {},
+        pluginsPath: './plugins',
+        upgradeRouter: {} as any,
+        store,
+        providerPlugins,
+        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+        eventsHub
+      });
+
+      const res = new MockStreamRes() as any;
+      await expect(
+        reg.handleHttp(
+          createJsonReq({
+            url: '/voice/calls/cfg_end_ready/end',
+            method: 'POST',
+            headers: { authorization: 'Bearer k1' },
+            body: { mode: 'after_assistant_audio', maxWaitMs: 1000, cancelOnUserSpeech: true }
+          }),
+          res
+        )
+      ).resolves.toBe(true);
+
+      expect(typeof onEvent).toBe('function');
+      onEvent!({ callConfigId: 'cfg_end_ready', atMs: Date.now(), event: {} });
+      onEvent!({ callConfigId: 'cfg_end_ready', atMs: Date.now(), event: { type: 'voice.assistant_audio.ended' } });
+      await jest.advanceTimersByTimeAsync(0);
+      expect(endCall).toHaveBeenCalledTimes(1);
+
+      // Second end + cancel event should be ignored once inactive.
+      onEvent!({ callConfigId: 'cfg_end_ready', atMs: Date.now(), event: { type: 'voice.assistant_audio.ended' } });
+      onEvent!({ callConfigId: 'cfg_end_ready', atMs: Date.now(), event: { type: 'user_speech.started' } });
+      await jest.advanceTimersByTimeAsync(0);
+      expect(endCall).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('/voice/calls/:id/end emits voice.call.end_failed when endCall throws', async () => {
+    jest.useFakeTimers();
+    try {
+      const store = createInMemoryVoiceCallConfigStore();
+      await store.putConfig(
+        {
+          version: 1,
+          callConfigId: 'cfg_end_ready',
+          createdAtMs: 0,
+          expiresAtMs: 0,
+          to: 'to',
+          from: 'from',
+          direction: 'outbound',
+          realtimeSpec: {},
+          voiceProvider: 'test',
+          providerCallId: 'c1'
+        } as any,
+        { ttlSeconds: 60 }
+      );
+
+      const err: any = { message: 'nope', code: 'E_END', statusCode: 503 };
+      const endCall = jest.fn(async () => {
+        throw err;
+      });
+
+      const providerPlugins: any = {
+        getManifest: jest.fn(async () => ({ defaults: {} })),
+        getCompat: jest.fn(async () => ({ endCall }))
+      };
+
+      const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
+
+      const logger: any = {
+        withCorrelation: () => logger,
+        debug: jest.fn(),
+        info: jest.fn(),
+        warning: jest.fn(),
+        error: jest.fn()
+      };
+
+      const reg = await createVoiceServerRegistration({
+        server: {} as any,
+        registry: {},
+        pluginsPath: './plugins',
+        upgradeRouter: {} as any,
+        store,
+        providerPlugins,
+        logging: { getLogger: () => logger },
+        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+        eventsHub: eventsHub as any
+      });
+
+      const seen: any[] = [];
+      eventsHub.subscribe('cfg_end_ready', { includeDeltas: false }, (evt) => {
+        seen.push(evt.event);
+      });
+
+      const res = new MockStreamRes() as any;
+      await expect(
+        reg.handleHttp(
+          createJsonReq({
+            url: '/voice/calls/cfg_end_ready/end',
+            method: 'POST',
+            headers: { authorization: 'Bearer k1' },
+            body: { mode: 'after_assistant_audio', maxWaitMs: 1000 }
+          }),
+          res
+        )
+      ).resolves.toBe(true);
+      expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+
+      eventsHub.emit('cfg_end_ready', { type: 'voice.assistant_audio.ended' });
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(endCall).toHaveBeenCalledTimes(1);
+
+      const endFailed = seen.find((evt) => evt?.type === 'voice.call.end_failed');
+      expect(endFailed).toEqual(
+        expect.objectContaining({
+          type: 'voice.call.end_failed',
+          reason: 'client_request',
+          providerCallId: 'c1',
+          message: expect.any(String),
+          code: 'E_END',
+          statusCode: 503
+        })
+      );
+
+      expect(logger.error).toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('/voice/calls/:id/end end_failed captures non-error throws', async () => {
+    jest.useFakeTimers();
+    try {
+      const store = createInMemoryVoiceCallConfigStore();
+      await store.putConfig(
+        {
+          version: 1,
+          callConfigId: 'cfg_end_ready',
+          createdAtMs: 0,
+          expiresAtMs: 0,
+          to: 'to',
+          from: 'from',
+          direction: 'outbound',
+          realtimeSpec: {},
+          voiceProvider: 'test',
+          providerCallId: 'c1'
+        } as any,
+        { ttlSeconds: 60 }
+      );
+
+      const endCall = jest.fn(async () => {
+        throw 'nope';
+      });
+
+      const providerPlugins: any = {
+        getManifest: jest.fn(async () => ({ defaults: {} })),
+        getCompat: jest.fn(async () => ({ endCall }))
+      };
+
+      const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
+
+      const logger: any = {
+        withCorrelation: () => logger,
+        debug: jest.fn(),
+        info: jest.fn(),
+        warning: jest.fn(),
+        error: jest.fn()
+      };
+
+      const reg = await createVoiceServerRegistration({
+        server: {} as any,
+        registry: {},
+        pluginsPath: './plugins',
+        upgradeRouter: {} as any,
+        store,
+        providerPlugins,
+        logging: { getLogger: () => logger },
+        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+        eventsHub: eventsHub as any
+      });
+
+      const seen: any[] = [];
+      eventsHub.subscribe('cfg_end_ready', { includeDeltas: false }, (evt) => {
+        seen.push(evt.event);
+      });
+
+      const res = new MockStreamRes() as any;
+      await expect(
+        reg.handleHttp(
+          createJsonReq({
+            url: '/voice/calls/cfg_end_ready/end',
+            method: 'POST',
+            headers: { authorization: 'Bearer k1' },
+            body: { mode: 'after_assistant_audio', maxWaitMs: 1000 }
+          }),
+          res
+        )
+      ).resolves.toBe(true);
+      expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+
+      eventsHub.emit('cfg_end_ready', { type: 'voice.assistant_audio.ended' });
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(endCall).toHaveBeenCalledTimes(1);
+
+      const endFailed = seen.find((evt) => evt?.type === 'voice.call.end_failed');
+      expect(endFailed?.message).toContain('nope');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('/voice/calls/:id/end end_failed tolerates async logger failures', async () => {
+    jest.useFakeTimers();
+    try {
+      const store = createInMemoryVoiceCallConfigStore();
+      await store.putConfig(
+        {
+          version: 1,
+          callConfigId: 'cfg_end_ready',
+          createdAtMs: 0,
+          expiresAtMs: 0,
+          to: 'to',
+          from: 'from',
+          direction: 'outbound',
+          realtimeSpec: {},
+          voiceProvider: 'test',
+          providerCallId: 'c1'
+        } as any,
+        { ttlSeconds: 60 }
+      );
+
+      const endCall = jest.fn(async () => {
+        throw new Error('boom');
+      });
+
+      const providerPlugins: any = {
+        getManifest: jest.fn(async () => ({ defaults: {} })),
+        getCompat: jest.fn(async () => ({ endCall }))
+      };
+
+      const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
+      const reg = await createVoiceServerRegistration({
+        server: {} as any,
+        registry: {},
+        pluginsPath: './plugins',
+        upgradeRouter: {} as any,
+        store,
+        providerPlugins,
+        logging: { getLogger: () => Promise.reject(new Error('nope')) } as any,
+        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+        eventsHub: eventsHub as any
+      });
+
+      const res = new MockStreamRes() as any;
+      await expect(
+        reg.handleHttp(
+          createJsonReq({
+            url: '/voice/calls/cfg_end_ready/end',
+            method: 'POST',
+            headers: { authorization: 'Bearer k1' },
+            body: { mode: 'after_assistant_audio', maxWaitMs: 1000 }
+          }),
+          res
+        )
+      ).resolves.toBe(true);
+      expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+
+      eventsHub.emit('cfg_end_ready', { type: 'voice.assistant_audio.ended' });
+      await jest.advanceTimersByTimeAsync(0);
+      expect(endCall).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test('/voice/calls/:id/recording handles provider download and upstream failures', async () => {

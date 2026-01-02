@@ -567,6 +567,7 @@ export default class TwilioVoiceCompat {
     let assistantAudioStartFallbackTimer: any | undefined;
     let assistantAudioEndFallbackTimer: any | undefined;
     let waitingForFirstAssistantAudioEnd = assistantFirstTurnEnabled;
+    let assistantAudioActive = false;
     let callEnded = false;
 
     const clearCallTimeout = () => {
@@ -774,6 +775,15 @@ export default class TwilioVoiceCompat {
             startSilenceTimer(silenceTimeoutMs);
           }
         },
+	        onMark: ({ name, playedMs, kind }) => {
+            if (kind !== 'drain') return;
+            emitEvent({
+              type: 'voice.playback.drained',
+              mark: String(name),
+              playedMs,
+              ...(providerCallId ? { providerCallId } : {})
+            });
+          },
 	        onRealtimeEvent: ({ event, metadata }) => {
 	          if (event?.type === 'ready') {
 	            safeLog('info', 'voice.realtime.ready', {
@@ -784,11 +794,24 @@ export default class TwilioVoiceCompat {
 	          }
 
           const type = String((event as any)?.type ?? '');
+
+          if (type === 'assistant_audio.chunk') {
+            if (!assistantAudioActive) {
+              assistantAudioActive = true;
+              emitEvent({ type: 'voice.assistant_audio.started', ...(providerCallId ? { providerCallId } : {}) });
+            }
+          } else if (type === 'assistant_audio.end') {
+            if (assistantAudioActive) assistantAudioActive = false;
+            emitEvent({ type: 'voice.assistant_audio.ended', ...(providerCallId ? { providerCallId } : {}) });
+          }
+
           if (
             type === 'ready' ||
             type === 'closed' ||
             type === 'timeout' ||
             type === 'error' ||
+            type === 'user_speech.started' ||
+            type === 'user_speech.stopped' ||
             type.startsWith('user_transcript.') ||
             type.startsWith('assistant_transcript.')
           ) {
