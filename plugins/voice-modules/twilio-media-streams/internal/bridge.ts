@@ -39,6 +39,7 @@ export interface TwilioMediaStreamsBridgeLimits {
   startTimeoutMs?: number;
   maxPendingInboundFrames?: number;
   maxPendingOutboundAudioMs?: number;
+  firstTurnGraceMs?: number;
 }
 
 export interface TwilioMediaStreamsBridgeAudioOptions {
@@ -86,7 +87,8 @@ const DEFAULT_LIMITS: Required<TwilioMediaStreamsBridgeLimits> = {
   maxSessionDurationMs: 3600000,
   startTimeoutMs: 5000,
   maxPendingInboundFrames: 200,
-  maxPendingOutboundAudioMs: 10000
+  maxPendingOutboundAudioMs: 10000,
+  firstTurnGraceMs: 0
 };
 
 const DEFAULT_AUDIO: Required<Pick<TwilioMediaStreamsBridgeAudioOptions, 'frameMs' | 'markEveryMs'>> = {
@@ -260,6 +262,7 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
       let idleTimer: any | undefined;
       let durationTimer: any | undefined;
       let startTimer: any | undefined;
+      let firstTurnGraceTimer: any | undefined;
 
       let closed = false;
       let metadata: TwilioCallMetadata | undefined;
@@ -297,6 +300,8 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
         if (idleTimer) clearTimeout(idleTimer);
         if (durationTimer) clearTimeout(durationTimer);
         if (startTimer) clearTimeout(startTimer);
+        clearTimeout(firstTurnGraceTimer);
+        firstTurnGraceTimer = undefined;
 
         inboundAudioQueue.close();
         outboundAudioQueue.close();
@@ -380,6 +385,33 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
             const next = await inboundAudioQueue.next();
             if (!next) return;
             try {
+              const target = sessionReadyAudioInput;
+              if (target) {
+                const frame = next.value;
+                const inputSpec: AudioSpec = {
+                  format: frame.format as AudioSpec['format'],
+                  sampleRateHz: Number(frame.sampleRateHz),
+                  channels: frame.channels as 1 | 2
+                };
+
+                const sameFormat = inputSpec.format === target.format;
+                const sameRate = Math.floor(inputSpec.sampleRateHz) === Math.floor(target.sampleRateHz);
+                const sameCh = inputSpec.channels === target.channels;
+
+                if (!sameFormat || !sameRate || !sameCh) {
+                  const inputBytes = base64ToBytes(frame.dataBase64);
+                  const converted = convertAudioBytes({ input: inputBytes, inputSpec, outputSpec: target });
+                  const outBase64 = bytesToBase64(converted);
+                  await localSession.sendAudio({
+                    format: target.format as any,
+                    sampleRateHz: target.sampleRateHz,
+                    channels: target.channels,
+                    dataBase64: outBase64
+                  });
+                  continue;
+                }
+              }
+
               await localSession.sendAudio(next.value);
             } catch (err: any) {
               callbacks.onError?.({ message: err?.message ?? String(err), code: 'session_send_audio_failed', metadata });
@@ -437,16 +469,62 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
 
             callbacks.onRealtimeEvent?.({ event: first.value, metadata: call });
 
+            const firstTurnGraceMs = Math.max(0, Math.floor(Number(limits.firstTurnGraceMs ?? 0)));
+            const readyAtMs = Date.now();
+            const firstTurnGraceEndsAtMs = firstTurnGraceMs > 0 ? readyAtMs + firstTurnGraceMs : 0;
+            let firstAutoCommitDone = false;
+            let sawUserSpeechStarted = false;
+
+            const scheduleCommitAfterGrace = () => {
+              const delay = Math.max(0, firstTurnGraceEndsAtMs - Date.now());
+              clearTimeout(firstTurnGraceTimer);
+              firstTurnGraceTimer = setTimeout(() => {
+                firstTurnGraceTimer = undefined;
+                void (async () => {
+                  try {
+                    await localSession.commit();
+                    firstAutoCommitDone = true;
+                  } catch (err: any) {
+                    callbacks.onError?.({ message: err?.message ?? String(err), code: 'session_commit_failed', metadata });
+                    void closeAll();
+                  }
+                })();
+              }, delay);
+              if (typeof (firstTurnGraceTimer as any)?.unref === 'function') {
+                try {
+                  (firstTurnGraceTimer as any).unref();
+                } catch {}
+              }
+            };
+
             for await (const event of { [Symbol.asyncIterator]: () => iter } as AsyncIterable<RealtimeEvent>) {
-              callbacks.onRealtimeEvent?.({ event, metadata: call });
+              const inGrace = Boolean(firstTurnGraceEndsAtMs) && Date.now() < firstTurnGraceEndsAtMs && !firstAutoCommitDone;
+              const suppressUserTranscripts =
+                inGrace &&
+                !sawUserSpeechStarted &&
+                (event.type === 'user_transcript.delta' || event.type === 'user_transcript.final');
+
+              if (!suppressUserTranscripts) {
+                callbacks.onRealtimeEvent?.({ event, metadata: call });
+              }
 
               if (event.type === 'user_speech.started') {
                 pendingUserSpeech = true;
+                if (inGrace) sawUserSpeechStarted = true;
+                if (inGrace) {
+                  clearTimeout(firstTurnGraceTimer);
+                  firstTurnGraceTimer = undefined;
+                }
               } else if (event.type === 'user_speech.stopped') {
                 if (pendingUserSpeech) {
                   pendingUserSpeech = false;
                   try {
-                    await localSession.commit();
+                    if (inGrace && !firstAutoCommitDone) {
+                      scheduleCommitAfterGrace();
+                    } else {
+                      await localSession.commit();
+                      firstAutoCommitDone = true;
+                    }
                   } catch (err: any) {
                     callbacks.onError?.({ message: err?.message ?? String(err), code: 'session_commit_failed', metadata });
                     void closeAll();

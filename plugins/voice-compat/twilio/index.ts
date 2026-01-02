@@ -457,12 +457,12 @@ export default class TwilioVoiceCompat {
     logger?: any;
     metrics?: any;
   }): Promise<void> {
-    const callConfig = options.callConfig ?? {};
-    const systemPrompt = callConfig.systemPrompt;
-    const realtimeSpec = callConfig.realtimeSpec ?? {};
-    const requestId = typeof callConfig?.metadata?.requestId === 'string'
-      ? String(callConfig.metadata.requestId).trim()
-      : '';
+	    const callConfig = options.callConfig ?? {};
+	    const systemPrompt = callConfig.systemPrompt;
+	    const realtimeSpec = callConfig.realtimeSpec ?? {};
+	    const requestId = typeof callConfig?.metadata?.requestId === 'string'
+	      ? String(callConfig.metadata.requestId).trim()
+	      : '';
 
     const logger = options.logger;
     const safeLog = (level: 'debug' | 'info' | 'warning' | 'error', message: string, data?: any) => {
@@ -478,12 +478,12 @@ export default class TwilioVoiceCompat {
         if (typeof fn === 'function') fn(...args);
       } catch {}
     };
-    const baseFields = {
-      callConfigId: String(options.callConfigId),
-      voiceProvider: String(options.voiceProvider),
-      ...(systemPrompt !== undefined ? { systemPrompt: String(systemPrompt) } : {}),
-      ...(requestId ? { requestId } : {})
-    };
+	    const baseFields = {
+	      callConfigId: String(options.callConfigId),
+	      voiceProvider: String(options.voiceProvider),
+	      ...(requestId ? { requestId } : {})
+	    };
+	    const systemPromptField = systemPrompt !== undefined ? { systemPrompt: String(systemPrompt) } : {};
 
     const emitEvent = (event: any) => {
       try {
@@ -504,6 +504,23 @@ export default class TwilioVoiceCompat {
     if (silenceTimeoutMs !== undefined && (!Number.isFinite(silenceTimeoutMs) || silenceTimeoutMs <= 0)) {
       throw makeHttpError({ message: 'Invalid timeouts.silenceTimeoutMs', statusCode: 400, code: 'validation_error' });
     }
+
+    const firstTurnGraceMsRaw = (timeouts as any)?.firstTurnGraceMs;
+    const firstTurnGraceMsExplicit =
+      firstTurnGraceMsRaw === undefined || firstTurnGraceMsRaw === null || firstTurnGraceMsRaw === ''
+        ? undefined
+        : Number(firstTurnGraceMsRaw);
+    if (firstTurnGraceMsExplicit !== undefined && (!Number.isFinite(firstTurnGraceMsExplicit) || firstTurnGraceMsExplicit < 0)) {
+      throw makeHttpError({ message: 'Invalid timeouts.firstTurnGraceMs', statusCode: 400, code: 'validation_error' });
+    }
+
+    const realtimeProvider = String((realtimeSpec as any)?.provider ?? '').trim();
+    const firstTurnGraceMs =
+      firstTurnGraceMsExplicit !== undefined
+        ? Math.floor(firstTurnGraceMsExplicit)
+        : realtimeProvider === 'grok'
+          ? 500
+          : undefined;
 
     const silenceAssistantAudioEndFallbackMsRaw = (timeouts as any)?.silenceAssistantAudioEndFallbackMs;
     const silenceAssistantAudioEndFallbackMs =
@@ -587,24 +604,25 @@ export default class TwilioVoiceCompat {
       clearAssistantAudioEndFallback();
     };
 
-    const requestEndCallOnce = async (reason: string) => {
-      if (callEnded) return;
-      callEnded = true;
-      clearAllTimers();
+	    const requestEndCallOnce = async (reason: string) => {
+	      if (callEnded) return;
+	      callEnded = true;
+	      clearAllTimers();
 
       emitEvent({ type: 'voice.call.end_requested', reason, ...(providerCallId ? { providerCallId } : {}) });
 
-      if (providerCallId) {
-        try {
-          await this.endCall({ providerCallId, providerDefaults: options.providerDefaults });
-        } catch (error: any) {
-          safeLog('error', 'voice.call.end_failed', {
-            ...baseFields,
-            providerCallId,
-            reason,
-            message: error?.message ?? String(error),
-            code: error?.code !== undefined ? String(error.code) : undefined,
-            statusCode: Number(error?.statusCode ?? error?.status ?? 0) || undefined
+	      if (providerCallId) {
+	        try {
+	          await this.endCall({ providerCallId, providerDefaults: options.providerDefaults });
+	        } catch (error: any) {
+	          safeLog('error', 'voice.call.end_failed', {
+	            ...baseFields,
+	            ...systemPromptField,
+	            providerCallId,
+	            reason,
+	            message: error?.message ?? String(error),
+	            code: error?.code !== undefined ? String(error.code) : undefined,
+	            statusCode: Number(error?.statusCode ?? error?.status ?? 0) || undefined
           });
         }
       }
@@ -731,16 +749,17 @@ export default class TwilioVoiceCompat {
           voiceProvider: String(options.voiceProvider)
         }
       },
+      ...(firstTurnGraceMs !== undefined ? { limits: { firstTurnGraceMs } } : {}),
       callbacks: {
-        onCallStart: (metadata) => {
-          providerCallId = metadata.callSid;
-          providerStreamId = metadata.streamSid;
+	        onCallStart: (metadata) => {
+	          providerCallId = metadata.callSid;
+	          providerStreamId = metadata.streamSid;
 
-          safeLog('info', 'voice.media.stream_started', {
-            ...baseFields,
-            providerStreamId: metadata.streamSid,
-            providerCallId: metadata.callSid
-          });
+	          safeLog('info', 'voice.media.stream_started', {
+	            ...baseFields,
+	            providerStreamId: metadata.streamSid,
+	            providerCallId: metadata.callSid
+	          });
 
           emitEvent({ type: 'voice.call.connected', providerStreamId: metadata.streamSid, providerCallId: metadata.callSid });
 
@@ -755,14 +774,14 @@ export default class TwilioVoiceCompat {
             startSilenceTimer(silenceTimeoutMs);
           }
         },
-        onRealtimeEvent: ({ event, metadata }) => {
-          if (event?.type === 'ready') {
-            safeLog('info', 'voice.realtime.ready', {
-              ...baseFields,
-              providerStreamId: metadata.streamSid,
-              realtimeSessionId: (event as any).sessionId
-            });
-          }
+	        onRealtimeEvent: ({ event, metadata }) => {
+	          if (event?.type === 'ready') {
+	            safeLog('info', 'voice.realtime.ready', {
+	              ...baseFields,
+	              providerStreamId: metadata.streamSid,
+	              realtimeSessionId: (event as any).sessionId
+	            });
+	          }
 
           const type = String((event as any)?.type ?? '');
           if (
@@ -801,42 +820,45 @@ export default class TwilioVoiceCompat {
             clearAllTimers();
           }
         },
-        onError: ({ message, code, metadata }) => {
-          safeLog('error', 'voice.media.bridge_error', {
-            ...baseFields,
-            ...(metadata?.streamSid ? { providerStreamId: metadata.streamSid } : {}),
-            ...(metadata?.callSid ? { providerCallId: metadata.callSid } : {}),
-            code: String(code),
-            message: String(message)
-          });
+	        onError: ({ message, code, metadata }) => {
+	          safeLog('error', 'voice.media.bridge_error', {
+	            ...baseFields,
+	            ...systemPromptField,
+	            ...(metadata?.streamSid ? { providerStreamId: metadata.streamSid } : {}),
+	            ...(metadata?.callSid ? { providerCallId: metadata.callSid } : {}),
+	            code: String(code),
+	            message: String(message)
+	          });
           safeMetric('compatError', 'media_bridge', baseFields.voiceProvider);
         }
       }
     });
 
-    try {
-      await bridge.handleConnection(options.ws, options.req);
-    } finally {
-      clearAllTimers();
+	    try {
+	      await bridge.handleConnection(options.ws, options.req);
+	    } finally {
+	      clearAllTimers();
 
-      if (providerCallId) {
-        try {
-          await this.persistCallLogs({
-            callConfigId: String(options.callConfigId),
-            providerCallId,
-            providerDefaults: options.providerDefaults,
-            logger
-          });
-        } catch (error: any) {
-          safeLog('warning', 'voice.twilio.call_logs.persist_failed', {
-            ...baseFields,
-            providerCallId,
-            message: error?.message ?? String(error)
-          });
-        }
-      }
-    }
-  }
+	      if (providerCallId) {
+	        void (async () => {
+	          try {
+	            await this.persistCallLogs({
+	              callConfigId: String(options.callConfigId),
+	              providerCallId,
+	              providerDefaults: options.providerDefaults,
+	              logger
+	            });
+	          } catch (error: any) {
+	            safeLog('warning', 'voice.twilio.call_logs.persist_failed', {
+	              ...baseFields,
+	              providerCallId,
+	              message: error?.message ?? String(error)
+	            });
+	          }
+	        })();
+	      }
+	    }
+	  }
 
   async createOutboundCall(options: {
     to: string;

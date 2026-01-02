@@ -1004,11 +1004,197 @@ describe('plugins/voice-modules/twilio-media-streams — bridge coverage cases',
     jest.useRealTimers();
   });
 
-  test('bridge_error uses fallback code when non-coded error thrown in message handler', async () => {
-    jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
-    const secret = 'secret';
-    const token = makeToken(secret);
-    const onError = jest.fn();
+	  test('grace-window scheduled commit failure reports session_commit_failed', async () => {
+	    jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+	    const secret = 'secret';
+	    const token = makeToken(secret);
+	    const onError = jest.fn();
+	    let resolveSawStopped: (() => void) | undefined;
+	    const sawStopped = new Promise<void>(resolve => {
+	      resolveSawStopped = resolve;
+	    });
+
+	    const session = new MockRealtimeSession();
+	    session.commit.mockImplementation(async () => { throw new Error('commit boom'); });
+	    session.push({ type: 'ready', sessionId: 's1' });
+
+	    const bridge = createTwilioMediaStreamsBridge({
+	      createSession: async () => session,
+	      security: { tokenSecret: secret },
+	      limits: { startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0, firstTurnGraceMs: 50 } as any,
+	      callbacks: {
+	        onError,
+	        onRealtimeEvent: ({ event }) => {
+	          if (event?.type === 'user_speech.stopped') resolveSawStopped?.();
+	        }
+	      }
+	    });
+
+	    const ws = new MockWebSocket();
+	    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+	    ws.emitMessage(startMessage({ customParameters: { from: 'x', to: 'y' } }));
+	    await flush();
+
+	    session.push({ type: 'user_speech.started' });
+	    session.push({ type: 'user_speech.stopped' });
+	    await flush();
+	    await sawStopped;
+
+	    expect(session.commit).not.toHaveBeenCalled();
+	    expect(onError).not.toHaveBeenCalled();
+	    expect(ws.closed.length).toBe(0);
+
+    jest.advanceTimersByTime(49);
+    await flush();
+
+    expect(session.commit).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1);
+    await flush();
+
+    await task;
+
+	    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'session_commit_failed', message: 'commit boom' }));
+	    jest.useRealTimers();
+	  });
+
+	  test('grace-window scheduled commit failure uses String(err) fallback when non-Error thrown', async () => {
+	    jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+	    const secret = 'secret';
+	    const token = makeToken(secret);
+	    const onError = jest.fn();
+	    let resolveSawStopped: (() => void) | undefined;
+	    const sawStopped = new Promise<void>(resolve => {
+	      resolveSawStopped = resolve;
+	    });
+
+	    const session = new MockRealtimeSession();
+	    // eslint-disable-next-line no-throw-literal
+	    session.commit.mockImplementation(async () => { throw 'boom'; });
+	    session.push({ type: 'ready', sessionId: 's1' });
+
+	    const bridge = createTwilioMediaStreamsBridge({
+	      createSession: async () => session,
+	      security: { tokenSecret: secret },
+	      limits: { startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0, firstTurnGraceMs: 50 } as any,
+	      callbacks: {
+	        onError,
+	        onRealtimeEvent: ({ event }) => {
+	          if (event?.type === 'user_speech.stopped') resolveSawStopped?.();
+	        }
+	      }
+	    });
+
+	    const ws = new MockWebSocket();
+	    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+	    ws.emitMessage(startMessage({ customParameters: { from: 'x', to: 'y' } }));
+	    await flush();
+
+	    session.push({ type: 'user_speech.started' });
+	    session.push({ type: 'user_speech.stopped' });
+	    await flush();
+	    await sawStopped;
+
+	    jest.advanceTimersByTime(60);
+	    await flush();
+
+	    await task;
+
+	    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'session_commit_failed', message: 'boom' }));
+	    jest.useRealTimers();
+	  });
+
+	  test('grace-window cancels pending commit if user starts speaking again before grace ends', async () => {
+	    jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+	    const secret = 'secret';
+	    const token = makeToken(secret);
+
+	    const session = new MockRealtimeSession();
+	    session.push({ type: 'ready', sessionId: 's1' });
+
+	    let startedCount = 0;
+	    let stoppedCount = 0;
+	    let resolveFirstStop: (() => void) | undefined;
+	    let resolveSecondStart: (() => void) | undefined;
+	    let resolveSecondStop: (() => void) | undefined;
+	    const firstStop = new Promise<void>(resolve => { resolveFirstStop = resolve; });
+	    const secondStart = new Promise<void>(resolve => { resolveSecondStart = resolve; });
+	    const secondStop = new Promise<void>(resolve => { resolveSecondStop = resolve; });
+
+	    const bridge = createTwilioMediaStreamsBridge({
+	      createSession: async () => session,
+	      security: { tokenSecret: secret },
+	      limits: { startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0, firstTurnGraceMs: 50 } as any,
+	      callbacks: {
+	        onRealtimeEvent: ({ event }) => {
+	          if (event?.type === 'user_speech.started') {
+	            startedCount += 1;
+	            if (startedCount === 2) resolveSecondStart?.();
+	          } else if (event?.type === 'user_speech.stopped') {
+	            stoppedCount += 1;
+	            if (stoppedCount === 1) resolveFirstStop?.();
+	            if (stoppedCount === 2) resolveSecondStop?.();
+	          }
+	        }
+	      }
+	    });
+
+	    const ws = new MockWebSocket();
+	    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+	    ws.emitMessage(startMessage({ customParameters: { from: 'x', to: 'y' } }));
+	    await flush();
+
+	    session.push({ type: 'user_speech.started' });
+	    session.push({ type: 'user_speech.stopped' });
+	    await firstStop;
+
+	    // Start speaking again before grace ends, which should cancel the pending grace commit.
+	    session.push({ type: 'user_speech.started' });
+	    await secondStart;
+
+	    jest.advanceTimersByTime(60);
+	    await flush();
+	    expect(session.commit).not.toHaveBeenCalled();
+
+	    // Stop speaking after grace ends; commit should happen immediately (non-grace path).
+	    session.push({ type: 'user_speech.stopped' });
+	    await secondStop;
+	    expect(session.commit).toHaveBeenCalledTimes(1);
+
+	    ws.emitMessage(stopMessage({}));
+	    await task;
+	    jest.useRealTimers();
+	  });
+
+	  test('treats firstTurnGraceMs as 0 when explicitly undefined', async () => {
+	    jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+	    const secret = 'secret';
+	    const token = makeToken(secret);
+
+	    const session = new MockRealtimeSession();
+	    session.push({ type: 'ready', sessionId: 's1' });
+
+	    const bridge = createTwilioMediaStreamsBridge({
+	      createSession: async () => session,
+	      security: { tokenSecret: secret },
+	      limits: { startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0, firstTurnGraceMs: undefined } as any
+	    });
+
+	    const ws = new MockWebSocket();
+	    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+	    ws.emitMessage(startMessage({ customParameters: { from: 'x', to: 'y' } }));
+	    await flush();
+	    ws.emitMessage(stopMessage({}));
+	    await task;
+	    jest.useRealTimers();
+	  });
+
+	  test('bridge_error uses fallback code when non-coded error thrown in message handler', async () => {
+	    jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+	    const secret = 'secret';
+	    const token = makeToken(secret);
+	    const onError = jest.fn();
 
     const bridge = createTwilioMediaStreamsBridge({
       createSession: async () => new MockRealtimeSession(),

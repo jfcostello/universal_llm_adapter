@@ -35,6 +35,23 @@ function generateSessionId(): string {
   return `sess_local_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
+function readEnvPositiveInt(name: string): number | undefined {
+  const raw = process.env[name];
+  const n = raw === undefined || raw === null || raw === '' ? NaN : Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return Math.floor(n);
+}
+
+function sanitizeProviderEventForLog(event: any): any {
+  if (!event || typeof event !== 'object') return event;
+  const cloned = Array.isArray(event) ? [...event] : { ...event };
+  const type = String((cloned as any).type ?? '');
+  if (type === 'response.output_audio.delta' && typeof (cloned as any).delta === 'string') {
+    (cloned as any).delta = '[REDACTED_BASE64]';
+  }
+  return cloned;
+}
+
 export function createGrokRealtimeCompatSessionWithTransport(
   options: Parameters<IRealtimeCompat['createSession']>[0],
   transport: RealtimeTransport
@@ -72,6 +89,43 @@ export function createGrokRealtimeCompatSessionWithTransport(
   let closed = false;
   let hasAudioSinceCommit = false;
   let pendingTextTurn = false;
+
+  const providerEventLogWindowMs = readEnvPositiveInt('LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS');
+  let providerEventLogUntilMs: number | undefined;
+  let providerEventLogger: any | undefined;
+  let providerEventLoggerLoading: Promise<any> | undefined;
+  const getProviderEventLogger = async (): Promise<any | undefined> => {
+    if (providerEventLogger) return providerEventLogger;
+    if (!providerEventLoggerLoading) {
+      providerEventLoggerLoading = (async () => {
+        const logging = await import('../../../../modules/logging/index.js');
+        return logging.getRealtimeLogger();
+      })();
+    }
+    try {
+      providerEventLogger = await providerEventLoggerLoading;
+    } catch {
+      providerEventLoggerLoading = undefined;
+      providerEventLogger = undefined;
+    }
+    return providerEventLogger;
+  };
+  const maybeLogProviderEvent = async (event: any): Promise<void> => {
+    if (!providerEventLogWindowMs) return;
+    const until = providerEventLogUntilMs;
+    if (!until) return;
+    const now = Date.now();
+    if (now > until) {
+      providerEventLogUntilMs = undefined;
+      return;
+    }
+    try {
+      const logger = await getProviderEventLogger();
+      logger?.info?.('realtime.provider_event', { providerEvent: sanitizeProviderEventForLog(event) });
+    } catch {
+      // best-effort
+    }
+  };
 
   const commitMode = spec.turnDetection?.mode ?? 'manual_commit';
   const forceToolChoiceOnCommit = typeof spec.toolChoice === 'object' && spec.toolChoice?.type === 'single';
@@ -125,6 +179,9 @@ export function createGrokRealtimeCompatSessionWithTransport(
     if (readySent) return;
     readySent = true;
     clearReadyFallback();
+    if (providerEventLogWindowMs && !providerEventLogUntilMs) {
+      providerEventLogUntilMs = Date.now() + providerEventLogWindowMs;
+    }
     queue.push({
       type: 'ready',
       sessionId,
@@ -196,6 +253,7 @@ export function createGrokRealtimeCompatSessionWithTransport(
           continue;
         }
 
+        const readyAlreadySent = readySent;
         const msgType = String(parsed?.type ?? '');
 
         if (msgType === 'conversation.created' && !sessionUpdateSent) {
@@ -207,6 +265,10 @@ export function createGrokRealtimeCompatSessionWithTransport(
         // Wait for session.updated before declaring ready so the session config is in effect.
         if (!readySent && (msgType === 'session.updated' || msgType === 'error')) {
           emitReadyOnce();
+        }
+
+        if (readyAlreadySent) {
+          await maybeLogProviderEvent(parsed);
         }
 
         if (msgType === 'input_audio_buffer.committed') {

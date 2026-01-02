@@ -196,6 +196,50 @@ describe('plugins/voice-modules/twilio-media-streams (bridge integration)', () =
     expect(session.close).toHaveBeenCalled();
   });
 
+  test('converts buffered pre-ready inbound media to negotiated pcm16 input', async () => {
+    const secret = 'secret';
+    const token = makeToken(secret);
+
+    const session = new MockRealtimeSession();
+
+    const bridge = createTwilioMediaStreamsBridge({
+      createSession: async () => session,
+      security: { tokenSecret: secret },
+      limits: { startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0 },
+      audio: { pacing: { enabled: false } }
+    });
+
+    const ws = new MockWebSocket();
+    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+
+    ws.emitMessage(startMessage({}));
+    await flush();
+
+    const inboundBytes = new Uint8Array(160).fill(0xff);
+    ws.emitMessage(mediaMessage({ payloadBase64: bytesToBase64(inboundBytes) }));
+    await flush();
+
+    session.push({
+      type: 'ready',
+      sessionId: 's1',
+      audio: {
+        input: { format: 'pcm16', sampleRateHz: 8000, channels: 1 },
+        output: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1 }
+      }
+    } as any);
+    await flush();
+
+    expect(session.sendAudio).toHaveBeenCalledTimes(1);
+    const sentFrame = (session.sendAudio as any).mock.calls[0][0];
+    expect(sentFrame.format).toBe('pcm16');
+    expect(sentFrame.sampleRateHz).toBe(8000);
+    expect(sentFrame.channels).toBe(1);
+    expect(base64ToBytes(sentFrame.dataBase64).length).toBeGreaterThan(inboundBytes.length);
+
+    ws.emitMessage(stopMessage({}));
+    await task;
+  });
+
   test('strips voiceMediaToken from call metadata customParameters', async () => {
     const secret = 'secret';
     const token = makeToken(secret);
@@ -323,6 +367,116 @@ describe('plugins/voice-modules/twilio-media-streams (bridge integration)', () =
     await flush();
 
     expect(session.commit).toHaveBeenCalledTimes(1);
+
+    ws.emitMessage(stopMessage({}));
+    await task;
+  });
+
+  test('firstTurnGraceMs delays first auto-commit within the grace window', async () => {
+    const secret = 'secret';
+    const token = makeToken(secret);
+
+    const session = new MockRealtimeSession();
+    session.push({ type: 'ready', sessionId: 's1' });
+
+    const bridge = createTwilioMediaStreamsBridge({
+      createSession: async () => session,
+      security: { tokenSecret: secret },
+      limits: { startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0, firstTurnGraceMs: 50 } as any,
+      audio: { pacing: { enabled: false } }
+    });
+
+    const ws = new MockWebSocket();
+    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+    ws.emitMessage(startMessage({}));
+    await flush();
+
+    session.push({ type: 'user_speech.started' } as any);
+    session.push({ type: 'user_speech.stopped' } as any);
+    await flush();
+
+    expect(session.commit).toHaveBeenCalledTimes(0);
+
+    await new Promise(resolve => setTimeout(resolve, 60));
+    await flush();
+
+    expect(session.commit).toHaveBeenCalledTimes(1);
+
+    ws.emitMessage(stopMessage({}));
+    await task;
+  });
+
+  test('firstTurnGraceMs suppresses early user_transcript.final when no speech has started', async () => {
+    const secret = 'secret';
+    const token = makeToken(secret);
+
+    const session = new MockRealtimeSession();
+    session.push({ type: 'ready', sessionId: 's1' });
+
+    const onRealtimeEvent = jest.fn();
+    const bridge = createTwilioMediaStreamsBridge({
+      createSession: async () => session,
+      security: { tokenSecret: secret },
+      limits: { startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0, firstTurnGraceMs: 50 } as any,
+      audio: { pacing: { enabled: false } },
+      callbacks: { onRealtimeEvent }
+    });
+
+    const ws = new MockWebSocket();
+    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+    ws.emitMessage(startMessage({}));
+    await flush();
+
+    session.push({ type: 'user_transcript.final', text: 'bogus' } as any);
+    await flush();
+
+    const emittedBogus = onRealtimeEvent.mock.calls.some(([arg]) =>
+      arg?.event?.type === 'user_transcript.final' && arg?.event?.text === 'bogus'
+    );
+    expect(emittedBogus).toBe(false);
+
+    await new Promise(resolve => setTimeout(resolve, 60));
+    session.push({ type: 'user_transcript.final', text: 'ok' } as any);
+    await flush();
+
+    const emittedOk = onRealtimeEvent.mock.calls.some(([arg]) =>
+      arg?.event?.type === 'user_transcript.final' && arg?.event?.text === 'ok'
+    );
+    expect(emittedOk).toBe(true);
+
+    ws.emitMessage(stopMessage({}));
+    await task;
+  });
+
+  test('firstTurnGraceMs does not suppress transcripts once speech has started', async () => {
+    const secret = 'secret';
+    const token = makeToken(secret);
+
+    const session = new MockRealtimeSession();
+    session.push({ type: 'ready', sessionId: 's1' });
+
+    const onRealtimeEvent = jest.fn();
+    const bridge = createTwilioMediaStreamsBridge({
+      createSession: async () => session,
+      security: { tokenSecret: secret },
+      limits: { startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0, firstTurnGraceMs: 50 } as any,
+      audio: { pacing: { enabled: false } },
+      callbacks: { onRealtimeEvent }
+    });
+
+    const ws = new MockWebSocket();
+    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+    ws.emitMessage(startMessage({}));
+    await flush();
+
+    session.push({ type: 'user_speech.started' } as any);
+    session.push({ type: 'user_transcript.final', text: 'hello' } as any);
+    await flush();
+
+    const emitted = onRealtimeEvent.mock.calls.some(([arg]) =>
+      arg?.event?.type === 'user_transcript.final' && arg?.event?.text === 'hello'
+    );
+    expect(emitted).toBe(true);
 
     ws.emitMessage(stopMessage({}));
     await task;

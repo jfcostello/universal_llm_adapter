@@ -165,6 +165,15 @@ function readPositiveInt(value: unknown, label: string): number {
   return out;
 }
 
+function readNonNegativeInt(value: unknown, label: string): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  const out = Math.floor(n);
+  if (!Number.isFinite(n) || out < 0) {
+    throw makeHttpError({ message: `Invalid ${label}`, statusCode: 400, code: 'validation_error' });
+  }
+  return out;
+}
+
 function normalizeVoiceCallTimeouts(options: {
   raw: unknown;
   defaults: unknown;
@@ -175,6 +184,10 @@ function normalizeVoiceCallTimeouts(options: {
 
   const callTimeoutMsRaw = raw?.callTimeoutMs !== undefined ? raw.callTimeoutMs : defaults?.callTimeoutMs;
   const silenceTimeoutMsRaw = raw?.silenceTimeoutMs !== undefined ? raw.silenceTimeoutMs : defaults?.silenceTimeoutMs;
+  const firstTurnGraceMsRaw =
+    raw?.firstTurnGraceMs !== undefined
+      ? raw.firstTurnGraceMs
+      : defaults?.firstTurnGraceMs;
   const silenceAssistantAudioStartFallbackMsRaw =
     raw?.silenceAssistantAudioStartFallbackMs !== undefined
       ? raw.silenceAssistantAudioStartFallbackMs
@@ -190,6 +203,9 @@ function normalizeVoiceCallTimeouts(options: {
   }
   if (silenceTimeoutMsRaw !== undefined && silenceTimeoutMsRaw !== null && silenceTimeoutMsRaw !== '') {
     out.silenceTimeoutMs = readPositiveInt(silenceTimeoutMsRaw, 'timeouts.silenceTimeoutMs');
+  }
+  if (firstTurnGraceMsRaw !== undefined && firstTurnGraceMsRaw !== null && firstTurnGraceMsRaw !== '') {
+    out.firstTurnGraceMs = readNonNegativeInt(firstTurnGraceMsRaw, 'timeouts.firstTurnGraceMs');
   }
   if (
     silenceAssistantAudioStartFallbackMsRaw !== undefined &&

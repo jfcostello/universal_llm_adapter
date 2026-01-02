@@ -203,10 +203,13 @@ export function buildInputAudioCommitEvent(): GrokRealtimeClientEvent {
 }
 
 export function buildResponseCreateEvent(options: { toolChoice?: any } = {}): GrokRealtimeClientEvent {
+  const response: any = {
+    modalities: ['text', 'audio']
+  };
   if (options.toolChoice !== undefined) {
-    return { type: 'response.create', response: { tool_choice: options.toolChoice } };
+    response.tool_choice = options.toolChoice;
   }
-  return { type: 'response.create' };
+  return { type: 'response.create', response };
 }
 
 export function buildResponseCancelEvent(): GrokRealtimeClientEvent {
