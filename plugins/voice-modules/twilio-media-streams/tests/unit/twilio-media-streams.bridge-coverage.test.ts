@@ -385,6 +385,44 @@ describe('plugins/voice-modules/twilio-media-streams — bridge coverage cases',
     jest.useRealTimers();
   });
 
+  test('playback.clear_requested drops queued outbound frames (covers generation mismatch guard)', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+    const secret = 'secret';
+    const token = makeToken(secret);
+
+    const session = new MockRealtimeSession();
+    session.push({ type: 'ready', sessionId: 's1' });
+    session.push({
+      type: 'assistant_audio.chunk',
+      frame: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1, dataBase64: bytesToBase64(new Uint8Array(160 * 20)) }
+    });
+    session.push({ type: 'playback.clear_requested' });
+
+    const bridge = createTwilioMediaStreamsBridge({
+      createSession: async () => session,
+      security: { tokenSecret: secret },
+      limits: { startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0 },
+      audio: { pacing: { enabled: false }, markEveryMs: 1000 }
+    });
+
+    const ws = new MockWebSocket();
+    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+    ws.emitMessage(startMessage({ customParameters: { from: 'x', to: 'y', direction: 'inbound' } }));
+
+    for (let i = 0; i < 10; i++) {
+      await flush();
+      if (ws.sent.some(msg => JSON.parse(msg)?.event === 'clear')) break;
+    }
+
+    const sent = ws.sent.map(s => JSON.parse(s));
+    expect(sent.some(m => m.event === 'clear')).toBe(true);
+    expect(sent.filter(m => m.event === 'media').length).toBeLessThan(20);
+
+    ws.emitMessage(stopMessage({}));
+    await task;
+    jest.useRealTimers();
+  });
+
   test('sendJson reports ws_send_failed when socket not open', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
     const secret = 'secret';

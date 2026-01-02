@@ -30,7 +30,7 @@ CLI:
 When `modules/logging` is available, the voice extension emits JSONL file logs under:
 - `logs/voice/`
 
-If the active voice compat supports it, provider-side artifacts may also be persisted under nested subdirectories (for example: `logs/voice/twilio/...`).
+If the active voice compat supports it, provider-side artifacts may also be persisted under nested subdirectories (for example: `logs/voice/<voiceProvider>/...`).
 
 Retention:
 - `LLM_ADAPTER_VOICE_LOG_MAX_FILES`
@@ -98,6 +98,9 @@ Call defaults (applied to `POST /voice/calls` when a field is omitted):
 Events stream defaults/settings (applied to `GET /voice/calls/:callConfigId/events`):
 - `events`: `{ includeDeltas, keepAliveIntervalMs, maxWriteQueueBytes, maxActiveCalls, maxBufferedEventsPerCall, callTtlMs }`
 
+Call end defaults/settings (applied to `POST /voice/calls/:callConfigId/end`):
+- `end`: `{ defaultMode, defaultMaxWaitMs, defaultCancelOnUserSpeech }`
+
 Notes:
 - `events.maxActiveCalls` (default: `20000`): cap on in-memory active call channels for the SSE events hub.
 - `events.maxBufferedEventsPerCall` (default: `200`): number of most-recent non-delta events kept per call for replay (set `0` to disable replay buffering).
@@ -105,6 +108,9 @@ Notes:
 - `events.callTtlMs` (default: `900000`): sweep inactive call channels after this TTL (set `0` to disable TTL-based sweeping).
 - `events.keepAliveIntervalMs` (default: `15000`): interval for SSE keepalive comments (`: keepalive`) to keep intermediaries from timing out idle streams (set `0` to disable keepalives). Can also be overridden via `LLM_ADAPTER_VOICE_EVENTS_KEEPALIVE_INTERVAL_MS`.
 - `events.maxWriteQueueBytes` (default: `262144`): upper bound on buffered SSE response bytes (in-flight + queued). If exceeded, the server closes the stream to avoid unbounded memory growth.
+- `end.defaultMode` (default: `immediate`): `{ immediate | after_assistant_audio | after_playback }`.
+- `end.defaultMaxWaitMs` (default: `5000`, max: `60000`): safety fallback for graceful call ends.
+- `end.defaultCancelOnUserSpeech` (default: `false`): cancel a pending graceful end when `user_speech.started` is observed.
 - `timeouts.firstTurnGraceMs`: optional non-negative millisecond window used by some voice compats/bridges to adjust first-turn commit behavior immediately after realtime `ready` (see the active compat README under `plugins/voice-compat/*`).
 - `timeouts.silenceAssistantAudioStartFallbackMs` / `timeouts.silenceAssistantAudioEndFallbackMs`: optional fallback windows used by some provider compats when `assistantFirstTurn.enabled=true` to ensure silence timers still arm when assistant-audio boundary events are missing (see the active compat README under `plugins/voice-compat/*`).
 
@@ -371,6 +377,9 @@ Required:
 Optional:
 - `--api-key <key>`
 - `--api-key-header-name <name>` (default: `x-api-key`)
+- `--mode <mode>` (`immediate|after_assistant_audio|after_playback`)
+- `--max-wait-ms <ms>` (non-negative; max: `60000`)
+- `--cancel-on-user-speech 0|1`
 
 ## CLI: `llm-adapter voice recording`
 
@@ -384,3 +393,33 @@ Optional:
 - `--api-key <key>`
 - `--api-key-header-name <name>` (default: `x-api-key`)
 - `--output <path>` (defaults to stdout)
+
+## Call ending (graceful hangup)
+
+`POST /voice/calls/:callConfigId/end` supports immediate and graceful modes.
+
+Request body (optional):
+
+```json
+{
+  "mode": "after_playback",
+  "maxWaitMs": 5000,
+  "cancelOnUserSpeech": true
+}
+```
+
+Modes:
+- `immediate`: end the call immediately.
+- `after_assistant_audio`: wait for `voice.assistant_audio.ended` then end.
+- `after_playback`: wait for `voice.playback.drained` then end (requires compat support).
+
+Behavior:
+- For graceful modes, the server returns `{ ok: true, result: "scheduled" }` and performs termination asynchronously.
+- `maxWaitMs` is a safety fallback; if the awaited event is not observed within `maxWaitMs`, the server ends the call.
+- When `cancelOnUserSpeech=true`, a pending graceful end is canceled if `user_speech.started` is observed before termination.
+
+Events:
+- `voice.call.end_scheduled` (server scheduled a graceful end)
+- `voice.call.end_requested` (provider termination requested)
+- `voice.call.end_canceled` (graceful end canceled)
+- `voice.call.end_failed` (termination attempt failed)

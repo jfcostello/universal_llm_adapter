@@ -69,6 +69,22 @@ When `assistantFirstTurn.enabled=true`, the silence timeout is armed after the f
 
 You can also terminate a call via `POST /voice/calls/:callConfigId/end` (server auth required).
 
+### Graceful call end (playback drained)
+
+This compat emits provider-agnostic call events designed to support graceful hangup:
+
+- `voice.assistant_audio.started` / `voice.assistant_audio.ended`
+  - derived from realtime session events (`assistant_audio.chunk` / `assistant_audio.end`)
+  - `assistant_audio.ended` may be synthesized by the adapter’s fallback timers when first-turn audio boundary events are missing (see the timeout notes above).
+- `voice.playback.drained`
+  - emitted when Twilio acknowledges a **drain mark** (sent after `assistant_audio.end` via the shared `twilio-media-streams` bridge).
+  - suitable for “all pending outbound audio has been played” signals.
+
+These events are visible to clients via `GET /voice/calls/:callConfigId/events` (SSE) and can be used with `POST /voice/calls/:callConfigId/end`:
+
+- `mode=after_assistant_audio`: waits for `voice.assistant_audio.ended`
+- `mode=after_playback`: waits for `voice.playback.drained` (recommended to avoid cutting off TTS mid-sentence)
+
 ### Provider-side recording + download
 
 When `callConfig.recording.enabled=true` and `callConfig.recording.mode="provider"`:

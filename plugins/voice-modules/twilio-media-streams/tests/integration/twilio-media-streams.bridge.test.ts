@@ -196,6 +196,66 @@ describe('plugins/voice-modules/twilio-media-streams (bridge integration)', () =
     expect(session.close).toHaveBeenCalled();
   });
 
+  test('sends a drain mark after assistant_audio.end and reports it via onMark', async () => {
+    const secret = 'secret';
+    const token = makeToken(secret);
+
+    const session = new MockRealtimeSession();
+    session.push({
+      type: 'ready',
+      sessionId: 's1',
+      audio: {
+        input: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1 },
+        output: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1 }
+      }
+    });
+
+    const onMark = jest.fn();
+    const bridge = createTwilioMediaStreamsBridge({
+      createSession: async () => session,
+      security: { tokenSecret: secret },
+      limits: { startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0 },
+      audio: { markEveryMs: 1000, pacing: { enabled: false } },
+      callbacks: { onMark }
+    });
+
+    const ws = new MockWebSocket();
+    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+
+    ws.emitMessage(startMessage({}));
+    await flush();
+
+    // Send 40ms of assistant audio => two 20ms Twilio media frames.
+    const outBytes = new Uint8Array(320).fill(0xab);
+    session.push({
+      type: 'assistant_audio.chunk',
+      frame: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1, dataBase64: bytesToBase64(outBytes) }
+    });
+    await flush();
+
+    session.push({ type: 'assistant_audio.end' });
+    await flush();
+
+    const sent = ws.sent.map(s => JSON.parse(s));
+    const lastMediaIndex = sent.map(m => m.event).lastIndexOf('media');
+    expect(lastMediaIndex).toBeGreaterThanOrEqual(0);
+
+    const drainMarks = sent.filter(m => m.event === 'mark' && typeof m?.mark?.name === 'string' && m.mark.name.startsWith('d'));
+    expect(drainMarks).toHaveLength(1);
+
+    const drainMark = drainMarks[0];
+    const drainMarkIndex = sent.indexOf(drainMark);
+    expect(drainMarkIndex).toBeGreaterThan(lastMediaIndex);
+
+    ws.emitMessage(markMessage({ name: drainMark.mark.name }));
+    await flush();
+
+    expect(onMark).toHaveBeenCalledWith(expect.objectContaining({ name: drainMark.mark.name, kind: 'drain', playedMs: 40 }));
+
+    ws.emitMessage(stopMessage({}));
+    await task;
+  });
+
   test('converts buffered pre-ready inbound media to negotiated pcm16 input', async () => {
     const secret = 'secret';
     const token = makeToken(secret);

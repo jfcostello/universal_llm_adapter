@@ -310,7 +310,7 @@ describe('extensions/voice: call events + control endpoints', () => {
       });
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body).toEqual({ ok: true });
+      expect(body).toEqual(expect.objectContaining({ ok: true }));
 
       expect(endCall).toHaveBeenCalledWith(
         expect.objectContaining({

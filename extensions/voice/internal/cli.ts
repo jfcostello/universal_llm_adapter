@@ -4,7 +4,7 @@ import { pipeline } from 'stream/promises';
 
 import { Command } from 'commander';
 
-import { makeHttpError } from '../../../modules/shared/index.js';
+import { makeHttpError, normalizeFlag } from '../../../modules/shared/index.js';
 import { mapErrorToHttp } from '../../../modules/transport/index.js';
 
 type VoiceCliDeps = {
@@ -310,6 +310,9 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
     .option('--api-key <key>', 'API key for server auth (sent as x-api-key by default)')
     .option('--api-key-header-name <name>', 'Header name for api key (default: x-api-key)', 'x-api-key')
     .option('--call-config-id <id>', 'Call config id to terminate')
+    .option('--mode <mode>', 'End mode (immediate|after_assistant_audio|after_playback)')
+    .option('--max-wait-ms <ms>', 'Max wait time (ms) for graceful end')
+    .option('--cancel-on-user-speech <0|1>', 'Cancel graceful end when user speech starts (0|1)')
     .option('--pretty', 'Pretty print output')
     .action(async (options) => {
       try {
@@ -323,9 +326,49 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
           headers[apiKeyHeaderName] = apiKey;
         }
 
+        const body = (() => {
+          const out: any = {};
+
+          const modeRaw = typeof options.mode === 'string' ? options.mode.trim() : '';
+          if (modeRaw) {
+            if (!['immediate', 'after_assistant_audio', 'after_playback'].includes(modeRaw)) {
+              throw makeHttpError({ message: 'Invalid mode', statusCode: 400, code: 'validation_error' });
+            }
+            out.mode = modeRaw;
+          }
+
+          const maxWaitMsRaw = typeof options.maxWaitMs === 'string' ? options.maxWaitMs.trim() : '';
+          if (maxWaitMsRaw) {
+            const n = Number(maxWaitMsRaw);
+            const ms = Math.floor(n);
+            if (!Number.isFinite(n) || ms < 0) {
+              throw makeHttpError({ message: 'Invalid maxWaitMs', statusCode: 400, code: 'validation_error' });
+            }
+            out.maxWaitMs = ms;
+          }
+
+          if (options.cancelOnUserSpeech !== undefined) {
+            const raw = String(options.cancelOnUserSpeech).trim().toLowerCase();
+            if (!raw) {
+              // ignore
+            } else if (
+              ['true', '1', 'yes', 'y', 'on'].includes(raw) ||
+              ['false', '0', 'no', 'n', 'off'].includes(raw)
+            ) {
+              out.cancelOnUserSpeech = normalizeFlag(raw, false);
+            } else {
+              throw makeHttpError({ message: 'Invalid cancelOnUserSpeech', statusCode: 400, code: 'validation_error' });
+            }
+          }
+
+          if (Object.keys(out).length === 0) return undefined;
+          return out;
+        })();
+
         const res = await fetch(new URL(`/voice/calls/${encodeURIComponent(callConfigId)}/end`, serverUrl), {
           method: 'POST',
-          headers
+          headers,
+          ...(body ? { body: JSON.stringify(body) } : {})
         });
 
         const text = await res.text();

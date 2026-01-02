@@ -64,7 +64,7 @@ export interface TwilioMediaStreamsBridgeSecurity {
 export interface TwilioMediaStreamsBridgeCallbacks {
   onCallStart?: (metadata: TwilioCallMetadata) => void;
   onDtmf?: (options: { digit: string; metadata: TwilioCallMetadata }) => void;
-  onMark?: (options: { name: string; metadata: TwilioCallMetadata; playedMs?: number }) => void;
+  onMark?: (options: { name: string; metadata: TwilioCallMetadata; kind?: 'periodic' | 'drain'; playedMs?: number }) => void;
   onRealtimeEvent?: (options: { event: RealtimeEvent; metadata: TwilioCallMetadata }) => void;
   onError?: (options: { message: string; code?: string; metadata?: TwilioCallMetadata }) => void;
 }
@@ -220,6 +220,10 @@ class ResettableQueue<T> {
   }
 }
 
+type OutboundItem =
+  | { kind: 'audio'; bytes: Uint8Array }
+  | { kind: 'mark'; name: string; markKind: 'periodic' | 'drain' };
+
 export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridgeOptions): TwilioMediaStreamsBridge {
   const limits: Required<TwilioMediaStreamsBridgeLimits> = {
     ...DEFAULT_LIMITS,
@@ -273,14 +277,16 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
       let sessionReadyAudioOutput: AudioSpec | undefined;
 
       const inboundAudioQueue = new ResettableQueue<RealtimeAudioFrame>();
-      const outboundAudioQueue = new ResettableQueue<Uint8Array>();
+      const outboundAudioQueue = new ResettableQueue<OutboundItem>();
       const dtmfQueue = new ResettableQueue<string>();
 
       let sentAudioMsTotal = 0;
       let markSeq = 0;
+      let drainSeq = 0;
       let pendingMarkMs = 0;
       let playedMs: number | undefined;
       const markToMs = new Map<string, number>();
+      const markKindByName = new Map<string, 'periodic' | 'drain'>();
 
       let pendingUserSpeech = false;
 
@@ -330,8 +336,10 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
         sentAudioMsTotal = 0;
         pendingMarkMs = 0;
         markSeq = 0;
+        drainSeq = 0;
         playedMs = undefined;
         markToMs.clear();
+        markKindByName.clear();
 
         sendJson(buildTwilioClearMessage({ streamSid: call.streamSid }));
       };
@@ -342,7 +350,20 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
             const next = await outboundAudioQueue.next();
             if (!next) return;
 
-            const { value: bytes, generation } = next;
+            const { value, generation } = next;
+
+            if (generation !== outboundAudioQueue.currentGeneration()) {
+              continue;
+            }
+
+            if (value.kind === 'mark') {
+              markToMs.set(value.name, sentAudioMsTotal);
+              markKindByName.set(value.name, value.markKind);
+              sendJson(buildTwilioMarkMessage({ streamSid: call.streamSid, name: value.name }));
+              continue;
+            }
+
+            const bytes = value.bytes;
 
             // Any clear interrupts in-flight frames as well as queued frames.
             if (pacingEnabled) {
@@ -373,6 +394,7 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
             if (pendingMarkMs >= markEveryMs) {
               const name = `m${++markSeq}`;
               markToMs.set(name, sentAudioMsTotal);
+              markKindByName.set(name, 'periodic');
               pendingMarkMs = 0;
               sendJson(buildTwilioMarkMessage({ streamSid: call.streamSid, name }));
             }
@@ -555,9 +577,12 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
                   }
                 } else {
                   for (const frame of framed) {
-                    outboundAudioQueue.push(frame);
+                    outboundAudioQueue.push({ kind: 'audio', bytes: frame });
                   }
                 }
+              } else if (event.type === 'assistant_audio.end') {
+                const name = `d${++drainSeq}`;
+                outboundAudioQueue.push({ kind: 'mark', name, markKind: 'drain' });
               } else if (event.type === 'playback.clear_requested') {
                 clearPlayback(call);
               } else if (event.type === 'error' || event.type === 'timeout') {
@@ -677,10 +702,13 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
             case 'mark': {
               if (!metadata) return;
               const msAt = markToMs.get(msg.name);
+              const kind = markKindByName.get(msg.name);
               if (msAt !== undefined) {
                 playedMs = msAt;
               }
-              callbacks.onMark?.({ name: msg.name, metadata, playedMs });
+              if (msAt !== undefined) markToMs.delete(msg.name);
+              if (kind) markKindByName.delete(msg.name);
+              callbacks.onMark?.({ name: msg.name, metadata, ...(kind ? { kind } : {}), playedMs });
               return;
             }
             case 'dtmf': {
