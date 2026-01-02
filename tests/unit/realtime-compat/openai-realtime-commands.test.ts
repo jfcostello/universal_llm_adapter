@@ -327,4 +327,247 @@ describe('realtime-compat/openai — commands', () => {
     const asJson = buildToolResultItemCreateEvent({ toolCallId: 'c2', result: { a: 1 } });
     expect(asJson.item.output).toBe(JSON.stringify({ a: 1 }));
   });
+
+  // Extended settings tests (Issue #812)
+
+  test('buildSessionUpdateEvent maps extended settings (speed, maxResponseOutputTokens)', () => {
+    const { event, settingsWarnings } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        settings: {
+          speed: 1.5,
+          maxResponseOutputTokens: '4096'
+        } as any
+      }
+    });
+
+    expect(event.session.speed).toBe(1.5);
+    expect(event.session.max_response_output_tokens).toBe('4096');
+    expect(settingsWarnings.unknownKeys).toEqual([]);
+    expect(settingsWarnings.invalidKeys).toEqual([]);
+  });
+
+  test('buildSessionUpdateEvent maps maxResponseOutputTokens via alias', () => {
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        settings: { max_response_output_tokens: '2048' } as any
+      }
+    });
+
+    expect(event.session.max_response_output_tokens).toBe('2048');
+  });
+
+  test('buildSessionUpdateEvent uses custom transcriptionModel instead of whisper-1', () => {
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        transcription: { enabled: true, language: 'en' },
+        settings: { transcription_model: 'gpt-4o-transcribe' } as any
+      }
+    });
+
+    expect(event.session.audio.input.transcription.model).toBe('gpt-4o-transcribe');
+    expect(event.session.audio.input.transcription.language).toBe('en');
+  });
+
+  test('buildSessionUpdateEvent applies noiseReduction setting', () => {
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        settings: { noise_reduction: 'near_field' } as any
+      }
+    });
+
+    expect(event.session.audio.input.noise_reduction).toEqual({ type: 'near_field' });
+  });
+
+  test('buildSessionUpdateEvent reports invalid vadType values and defaults to server_vad', () => {
+    const { event, settingsWarnings } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        turnDetection: { mode: 'server_vad' },
+        settings: { vad_type: 'nope' } as any
+      }
+    });
+
+    expect(event.session.audio.input.turn_detection.type).toBe('server_vad');
+    expect(settingsWarnings.invalidKeys).toEqual(['vad_type']);
+  });
+
+  test('buildSessionUpdateEvent falls back to canonical invalid key when settings key is missing post-parse', () => {
+    const settings: any = {};
+    Object.defineProperty(settings, 'vad_type', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        delete settings.vad_type;
+        return 'nope';
+      }
+    });
+
+    const { event, settingsWarnings } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        turnDetection: { mode: 'server_vad' },
+        settings
+      } as any
+    });
+
+    expect(event.session.audio.input.turn_detection.type).toBe('server_vad');
+    expect(settingsWarnings.invalidKeys).toEqual(['vadType']);
+  });
+
+  test('buildSessionUpdateEvent supports semantic_vad with eagerness setting', () => {
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        turnDetection: { mode: 'server_vad' },
+        settings: { vad_type: 'semantic_vad', vad_eagerness: 'low' } as any
+      }
+    });
+
+    expect(event.session.audio.input.turn_detection.type).toBe('semantic_vad');
+    expect(event.session.audio.input.turn_detection.eagerness).toBe('low');
+    expect(event.session.audio.input.turn_detection.create_response).toBe(true);
+    expect(event.session.audio.input.turn_detection.interrupt_response).toBe(false);
+    // Threshold/padding should not be present for semantic_vad
+    expect(event.session.audio.input.turn_detection.threshold).toBeUndefined();
+    expect(event.session.audio.input.turn_detection.prefix_padding_ms).toBeUndefined();
+  });
+
+  test('buildSessionUpdateEvent reports invalid vadEagerness values and omits eagerness', () => {
+    const { event, settingsWarnings } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        turnDetection: { mode: 'server_vad' },
+        settings: { vad_type: 'semantic_vad', vad_eagerness: 'nope' } as any
+      }
+    });
+
+    expect(event.session.audio.input.turn_detection.type).toBe('semantic_vad');
+    expect(event.session.audio.input.turn_detection.eagerness).toBeUndefined();
+    expect(settingsWarnings.invalidKeys).toEqual(['vad_eagerness']);
+  });
+
+  test('buildSessionUpdateEvent supports semantic_vad without eagerness setting', () => {
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        turnDetection: { mode: 'server_vad' },
+        settings: { vad_type: 'semantic_vad' } as any
+      }
+    });
+
+    expect(event.session.audio.input.turn_detection.type).toBe('semantic_vad');
+    expect(event.session.audio.input.turn_detection.eagerness).toBeUndefined();
+    expect(event.session.audio.input.turn_detection.create_response).toBe(true);
+    expect(event.session.audio.input.turn_detection.interrupt_response).toBe(false);
+  });
+
+  test('buildSessionUpdateEvent applies server_vad threshold and padding settings', () => {
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        turnDetection: { mode: 'server_vad' },
+        settings: {
+          vadThreshold: 0.6,
+          vad_prefix_padding_ms: 300,
+          vad_silence_duration_ms: 500,
+          vad_idle_timeout_ms: 1000
+        } as any
+      }
+    });
+
+    expect(event.session.audio.input.turn_detection.type).toBe('server_vad');
+    expect(event.session.audio.input.turn_detection.threshold).toBe(0.6);
+    expect(event.session.audio.input.turn_detection.prefix_padding_ms).toBe(300);
+    expect(event.session.audio.input.turn_detection.silence_duration_ms).toBe(500);
+    expect(event.session.audio.input.turn_detection.idle_timeout_ms).toBe(1000);
+    // Eagerness should not be present for server_vad
+    expect(event.session.audio.input.turn_detection.eagerness).toBeUndefined();
+  });
+
+  test('buildSessionUpdateEvent defaults to server_vad when vadType is not semantic_vad', () => {
+    const { event: defaultVad } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        turnDetection: { mode: 'server_vad' }
+      }
+    });
+    expect(defaultVad.session.audio.input.turn_detection.type).toBe('server_vad');
+
+    const { event: explicitServerVad } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        turnDetection: { mode: 'server_vad' },
+        settings: { vad_type: 'server_vad' } as any
+      }
+    });
+    expect(explicitServerVad.session.audio.input.turn_detection.type).toBe('server_vad');
+  });
+
+  test('buildSessionUpdateEvent ignores VAD settings when turnDetection mode is manual_commit', () => {
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        turnDetection: { mode: 'manual_commit' },
+        settings: {
+          vad_type: 'semantic_vad',
+          vadThreshold: 0.5,
+          vad_eagerness: 'high'
+        } as any
+      }
+    });
+
+    // Turn detection should be null for manual_commit mode
+    expect(event.session.audio.input.turn_detection).toBe(null);
+  });
+
+  test('buildSessionUpdateEvent combines all extended settings correctly', () => {
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        systemPrompt: 'Be helpful',
+        transcription: { enabled: true, language: 'en' },
+        turnDetection: { mode: 'server_vad' },
+        settings: {
+          voice: 'marin',
+          temperature: 0.8,
+          speed: 1.2,
+          max_response_output_tokens: 'inf',
+          transcription_model: 'gpt-4o-transcribe',
+          noise_reduction: 'near_field',
+          vad_threshold: 0.5,
+          vad_prefix_padding_ms: 250,
+          vad_silence_duration_ms: 400
+        } as any
+      }
+    });
+
+    expect(event.session.voice).toBe('marin');
+    expect(event.session.temperature).toBe(0.8);
+    expect(event.session.speed).toBe(1.2);
+    expect(event.session.max_response_output_tokens).toBe('inf');
+    expect(event.session.audio.input.noise_reduction).toEqual({ type: 'near_field' });
+    expect(event.session.audio.input.transcription.model).toBe('gpt-4o-transcribe');
+    expect(event.session.audio.input.turn_detection.type).toBe('server_vad');
+    expect(event.session.audio.input.turn_detection.threshold).toBe(0.5);
+    expect(event.session.audio.input.turn_detection.prefix_padding_ms).toBe(250);
+    expect(event.session.audio.input.turn_detection.silence_duration_ms).toBe(400);
+  });
 });

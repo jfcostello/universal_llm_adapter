@@ -76,6 +76,47 @@ Runtime `session.injectContext(items)` is **not supported** and will throw.
   - emits `user_transcript.final` at turn completion when transcription is enabled
 - `interrupt()` sends an empty `clientContent` message which interrupts any current model generation.
 
+## Extended session settings
+
+Pass extended settings via `spec.settings`. All settings support both camelCase and snake_case aliases.
+
+| Setting | Type | Description |
+|---------|------|-------------|
+| `temperature` | number | Sampling temperature |
+| `maxOutputTokens` | int | Max output tokens (aliases: `maxTokens`, `max_output_tokens`) |
+| `voice` | string | Voice name for audio output (e.g., `"Kore"`, `"Aoede"`) |
+| `topP` | number | Nucleus sampling probability |
+| `topK` | int | Top-K sampling parameter |
+| `enableAffectiveDialog` | boolean | Enable affective dialog (adapts response style to input tone) |
+| `proactiveAudio` | boolean | Enable proactive audio responses |
+| `thinkingBudget` | int | Thinking token budget for reasoning models |
+| `includeThoughts` | boolean | Include thinking process in responses |
+| `startOfSpeechSensitivity` | string | Speech start detection sensitivity (e.g., `"START_SENSITIVITY_LOW"`) |
+| `endOfSpeechSensitivity` | string | Speech end detection sensitivity (e.g., `"END_SENSITIVITY_HIGH"`) |
+| `vadPrefixPaddingMs` | int | Audio padding before speech detection |
+| `vadSilenceDurationMs` | int | Silence duration to end turn |
+
+Note: `int` values are parsed as **positive integers (>0)**.
+
+Example:
+```ts
+const session = await createRealtimeSession(registry, {
+  provider: 'google',
+  model: 'gemini-2.0-flash-exp',
+  turnDetection: { mode: 'server_vad' },
+  settings: {
+    voice: 'Kore',
+    temperature: 0.7,
+    top_p: 0.95,
+    enable_affective_dialog: true,
+    proactive_audio: true,
+    thinking_budget: 1024,
+    start_of_speech_sensitivity: 'START_SENSITIVITY_LOW',
+    vad_silence_duration_ms: 300
+  }
+});
+```
+
 ## Tool calling
 
 Tool calls are mapped from provider function-call messages to:

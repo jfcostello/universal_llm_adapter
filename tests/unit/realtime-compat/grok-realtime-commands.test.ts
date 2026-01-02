@@ -331,4 +331,200 @@ describe('realtime-compat/grok — commands', () => {
     expect(buildToolResultItemCreateEvent({ toolCallId: 'call-1', result: 'ok' }).item.output).toBe('ok');
     expect(buildToolResultItemCreateEvent({ toolCallId: 'call-1', result: { ok: true } }).item.output).toBe('{"ok":true}');
   });
+
+  // Extended settings tests (Issue #812)
+
+  test('buildSessionUpdateEvent applies VAD settings in server_vad mode', () => {
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'grok',
+        turnDetection: { mode: 'server_vad' },
+        settings: {
+          vad_threshold: 0.6,
+          vad_prefix_padding_ms: 250,
+          vad_silence_duration_ms: 400
+        } as any
+      },
+      defaultVoice: 'ara'
+    });
+
+    expect(event.session.turn_detection.type).toBe('server_vad');
+    expect(event.session.turn_detection.threshold).toBe(0.6);
+    expect(event.session.turn_detection.prefix_padding_ms).toBe(250);
+    expect(event.session.turn_detection.silence_duration_ms).toBe(400);
+  });
+
+  test('buildSessionUpdateEvent applies VAD settings via camelCase aliases', () => {
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'grok',
+        turnDetection: { mode: 'server_vad' },
+        settings: {
+          vadThreshold: 0.5,
+          vadPrefixPaddingMs: 300,
+          vadSilenceDurationMs: 500
+        } as any
+      },
+      defaultVoice: 'ara'
+    });
+
+    expect(event.session.turn_detection.threshold).toBe(0.5);
+    expect(event.session.turn_detection.prefix_padding_ms).toBe(300);
+    expect(event.session.turn_detection.silence_duration_ms).toBe(500);
+  });
+
+  test('buildSessionUpdateEvent ignores VAD settings in manual_commit mode', () => {
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'grok',
+        turnDetection: { mode: 'manual_commit' },
+        settings: {
+          vadThreshold: 0.5,
+          vad_prefix_padding_ms: 300
+        } as any
+      },
+      defaultVoice: 'ara'
+    });
+
+    expect(event.session.turn_detection).toBe(null);
+  });
+
+  test('buildSessionUpdateEvent injects web_search built-in tool when enabled', () => {
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'grok',
+        settings: { enable_web_search: 'true' } as any
+      },
+      defaultVoice: 'ara'
+    });
+
+    expect(event.session.tools).toEqual([{ type: 'web_search' }]);
+    expect(event.session.tool_choice).toBe('auto');
+  });
+
+  test('buildSessionUpdateEvent injects x_search built-in tool when enabled', () => {
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'grok',
+        settings: { enableXSearch: true } as any
+      },
+      defaultVoice: 'ara'
+    });
+
+    expect(event.session.tools).toEqual([{ type: 'x_search' }]);
+    expect(event.session.tool_choice).toBe('auto');
+  });
+
+  test('buildSessionUpdateEvent injects file_search built-in tool when enabled', () => {
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'grok',
+        settings: { enable_file_search: 'yes' } as any
+      },
+      defaultVoice: 'ara'
+    });
+
+    expect(event.session.tools).toEqual([{ type: 'file_search' }]);
+    expect(event.session.tool_choice).toBe('auto');
+  });
+
+  test('buildSessionUpdateEvent combines function tools with built-in tools', () => {
+    const tools: UnifiedTool[] = [
+      { name: 'test.echo', description: 'Echo', parametersJsonSchema: { type: 'object', properties: {} } }
+    ];
+
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'grok',
+        settings: {
+          enableWebSearch: true,
+          enableXSearch: true
+        } as any
+      },
+      defaultVoice: 'ara',
+      tools
+    });
+
+    expect(event.session.tools).toHaveLength(3);
+    expect(event.session.tools[0].type).toBe('function');
+    expect(event.session.tools[0].name).toBe('test_echo');
+    expect(event.session.tools[1]).toEqual({ type: 'web_search' });
+    expect(event.session.tools[2]).toEqual({ type: 'x_search' });
+    expect(event.session.tool_choice).toBe('auto');
+  });
+
+  test('buildSessionUpdateEvent does not inject built-in tools when disabled', () => {
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'grok',
+        settings: {
+          enableWebSearch: false,
+          enableXSearch: 'no',
+          enableFileSearch: 'off'
+        } as any
+      },
+      defaultVoice: 'ara'
+    });
+
+    expect(event.session.tools).toBeUndefined();
+    expect(event.session.tool_choice).toBeUndefined();
+  });
+
+  test('buildSessionUpdateEvent injects multiple built-in tools when all enabled', () => {
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'grok',
+        settings: {
+          enable_web_search: 'true',
+          enable_x_search: 'true',
+          enable_file_search: 'true'
+        } as any
+      },
+      defaultVoice: 'ara'
+    });
+
+    expect(event.session.tools).toHaveLength(3);
+    expect(event.session.tools).toEqual([
+      { type: 'web_search' },
+      { type: 'x_search' },
+      { type: 'file_search' }
+    ]);
+    expect(event.session.tool_choice).toBe('auto');
+  });
+
+  test('buildSessionUpdateEvent combines all extended settings correctly', () => {
+    const tools: UnifiedTool[] = [
+      { name: 'test.echo', description: 'Echo', parametersJsonSchema: { type: 'object', properties: {} } }
+    ];
+
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'grok',
+        systemPrompt: 'Be helpful',
+        turnDetection: { mode: 'server_vad' },
+        settings: {
+          voice: 'sage',
+          temperature: 0.9,
+          vadThreshold: 0.55,
+          vad_prefix_padding_ms: 200,
+          vad_silence_duration_ms: 350,
+          enableWebSearch: true,
+          enableXSearch: true
+        } as any
+      },
+      defaultVoice: 'ara',
+      tools
+    });
+
+    expect(event.session.voice).toBe('sage');
+    expect(event.session.temperature).toBe(0.9);
+    expect(event.session.turn_detection.type).toBe('server_vad');
+    expect(event.session.turn_detection.threshold).toBe(0.55);
+    expect(event.session.turn_detection.prefix_padding_ms).toBe(200);
+    expect(event.session.turn_detection.silence_duration_ms).toBe(350);
+    expect(event.session.tools).toHaveLength(3);
+    expect(event.session.tools[0].name).toBe('test_echo');
+    expect(event.session.tools[1]).toEqual({ type: 'web_search' });
+    expect(event.session.tools[2]).toEqual({ type: 'x_search' });
+  });
 });

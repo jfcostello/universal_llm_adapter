@@ -1,10 +1,10 @@
 import type { RealtimeSessionSettings } from './realtime-types.js';
 
-type SettingValueType = 'number' | 'int' | 'string';
+type SettingValueType = 'number' | 'int' | 'string' | 'boolean';
 
 export type RealtimeSessionSettingDefinition = {
   type: SettingValueType;
-  aliases?: string[];
+  aliases?: readonly string[];
 };
 
 function asPlainObject(value: unknown): Record<string, any> | undefined {
@@ -30,6 +30,22 @@ function normalizeString(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   const trimmed = String(value).trim();
   return trimmed ? trimmed : undefined;
+}
+
+function normalizeBoolean(value: unknown): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return undefined;
+    return value !== 0;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
+    return undefined;
+  }
+  return undefined;
 }
 
 export function parseRealtimeSessionSettings(
@@ -73,6 +89,16 @@ export function parseRealtimeSessionSettings(
       if (v !== undefined) {
         values[key] = v;
       } else if (rawValue !== undefined && rawValue !== null) {
+        invalidKeys.push(rawKey);
+      }
+      continue;
+    }
+
+    if (def.type === 'boolean') {
+      const v = normalizeBoolean(rawValue);
+      if (v !== undefined) {
+        values[key] = v;
+      } else if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
         invalidKeys.push(rawKey);
       }
       continue;

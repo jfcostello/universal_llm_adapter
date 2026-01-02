@@ -3,6 +3,17 @@ import { parseRealtimeSessionSettings } from '../../../../kernel/index.js';
 
 type GrokRealtimeClientEvent = Record<string, any>;
 
+const GROK_SESSION_SETTINGS_DEFINITIONS = {
+  temperature: { type: 'number' },
+  voice: { type: 'string' },
+  vadThreshold: { type: 'number', aliases: ['vad_threshold'] },
+  vadPrefixPaddingMs: { type: 'int', aliases: ['vad_prefix_padding_ms'] },
+  vadSilenceDurationMs: { type: 'int', aliases: ['vad_silence_duration_ms'] },
+  enableWebSearch: { type: 'boolean', aliases: ['enable_web_search'] },
+  enableXSearch: { type: 'boolean', aliases: ['enable_x_search'] },
+  enableFileSearch: { type: 'boolean', aliases: ['enable_file_search'] }
+} as const;
+
 function toProviderToolName(originalName: string, used: Set<string>): string {
   const base = String(originalName).replace(/[^a-zA-Z0-9_-]/g, '_');
   const normalized = base.length > 0 ? base : 'tool';
@@ -114,19 +125,43 @@ export function buildSessionUpdateEvent(options: {
   settingsWarnings: { unknownKeys: string[]; invalidKeys: string[] };
 } {
   const audio = resolveAudioConfig(options.spec);
-  const { values: settingsValues, unknownKeys, invalidKeys } = parseRealtimeSessionSettings(options.spec.settings, {
-    temperature: { type: 'number' },
-    voice: { type: 'string' }
-  });
+  const { values: settingsValues, unknownKeys, invalidKeys } = parseRealtimeSessionSettings(
+    options.spec.settings,
+    GROK_SESSION_SETTINGS_DEFINITIONS
+  );
 
   const voiceFromSettings = typeof settingsValues.voice === 'string' ? settingsValues.voice : undefined;
   const voice = voiceFromSettings ?? resolveVoice(options.spec, options.defaultVoice);
   const temperature = typeof settingsValues.temperature === 'number' ? settingsValues.temperature : undefined;
+  const vadThreshold = typeof settingsValues.vadThreshold === 'number' ? settingsValues.vadThreshold : undefined;
+  const vadPrefixPaddingMs =
+    typeof settingsValues.vadPrefixPaddingMs === 'number' ? settingsValues.vadPrefixPaddingMs : undefined;
+  const vadSilenceDurationMs =
+    typeof settingsValues.vadSilenceDurationMs === 'number' ? settingsValues.vadSilenceDurationMs : undefined;
+  const enableWebSearch =
+    typeof settingsValues.enableWebSearch === 'boolean' ? settingsValues.enableWebSearch : undefined;
+  const enableXSearch = typeof settingsValues.enableXSearch === 'boolean' ? settingsValues.enableXSearch : undefined;
+  const enableFileSearch =
+    typeof settingsValues.enableFileSearch === 'boolean' ? settingsValues.enableFileSearch : undefined;
 
   const turnMode = options.spec.turnDetection?.mode ?? 'manual_commit';
-  const turnDetection = turnMode === 'server_vad' ? { type: 'server_vad' } : null;
+
+  // Build turn detection config with optional VAD settings
+  let turnDetection: any = null;
+  if (turnMode === 'server_vad') {
+    turnDetection = { type: 'server_vad' };
+    if (vadThreshold !== undefined) turnDetection.threshold = vadThreshold;
+    if (vadPrefixPaddingMs !== undefined) turnDetection.prefix_padding_ms = vadPrefixPaddingMs;
+    if (vadSilenceDurationMs !== undefined) turnDetection.silence_duration_ms = vadSilenceDurationMs;
+  }
 
   const { toolsForSession: allToolsForSession, toolNameByProviderName, providerNameByToolName } = serializeTools(options.tools);
+
+  // Collect built-in Grok tools based on settings
+  const builtInTools: any[] = [];
+  if (enableWebSearch === true) builtInTools.push({ type: 'web_search' });
+  if (enableXSearch === true) builtInTools.push({ type: 'x_search' });
+  if (enableFileSearch === true) builtInTools.push({ type: 'file_search' });
 
   const toolChoice = serializeToolChoice(options.spec.toolChoice, providerNameByToolName);
   let toolsForSession = allToolsForSession;
@@ -158,7 +193,10 @@ export function buildSessionUpdateEvent(options: {
     }
   }
 
-  const resolvedToolChoice = toolChoice ?? (toolsForSession ? 'auto' : undefined);
+  // Combine function tools with built-in tools
+  const allTools = [...(toolsForSession || []), ...builtInTools];
+  const hasTools = allTools.length > 0;
+  const resolvedToolChoice = toolChoice ?? (hasTools ? 'auto' : undefined);
 
   const event: GrokRealtimeClientEvent = {
     type: 'session.update',
@@ -171,7 +209,7 @@ export function buildSessionUpdateEvent(options: {
         output: { format: toGrokAudioFormat(audio.output.format, audio.output.sampleRateHz) }
       },
       turn_detection: turnDetection,
-      ...(toolsForSession ? { tools: toolsForSession } : {}),
+      ...(hasTools ? { tools: allTools } : {}),
       ...(resolvedToolChoice ? { tool_choice: resolvedToolChoice } : {})
     }
   };

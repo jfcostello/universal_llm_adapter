@@ -45,6 +45,45 @@ When committing a turn, this compat always requests both text and audio output:
 
 If a tool choice is supplied by the session controller, it is forwarded as `response.tool_choice`.
 
+## Extended session settings
+
+Pass extended settings via `spec.settings`. All settings support both camelCase and snake_case aliases.
+
+| Setting | Type | Description |
+|---------|------|-------------|
+| `voice` | string | Voice identifier (overrides `spec.metadata.voice` and default) |
+| `temperature` | number | Sampling temperature |
+| `vadThreshold` | number | VAD activation threshold (0.0-1.0, server_vad only) |
+| `vadPrefixPaddingMs` | int | Audio padding before speech detection (server_vad only) |
+| `vadSilenceDurationMs` | int | Silence duration to end turn (server_vad only) |
+| `enableWebSearch` | boolean | Enable Grok's built-in web search tool |
+| `enableXSearch` | boolean | Enable Grok's built-in X (Twitter) search tool |
+| `enableFileSearch` | boolean | Enable Grok's built-in file search tool |
+
+Note: `int` values are parsed as **positive integers (>0)**.
+
+Example:
+```ts
+const session = await createRealtimeSession(registry, {
+  provider: 'grok',
+  model: 'grok-2-realtime',
+  turnDetection: { mode: 'server_vad' },
+  settings: {
+    voice: 'sage',
+    temperature: 0.9,
+    vad_threshold: 0.5,
+    vad_prefix_padding_ms: 200,
+    vad_silence_duration_ms: 400,
+    enable_web_search: true,
+    enable_x_search: true
+  }
+});
+```
+
+When built-in tools are enabled, they are automatically added to the session tools array alongside any function tools you provide.
+
+Note: `toolChoice.allowed` filtering applies only to function tools. Built-in tools enabled via `spec.settings` are always added.
+
 ## Provider event logging (debug)
 
 Set `LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS=<ms>` to log raw provider events for the first N milliseconds after the session becomes `ready`.

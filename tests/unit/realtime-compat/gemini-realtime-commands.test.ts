@@ -386,4 +386,195 @@ describe('realtime-compat/gemini — commands', () => {
       })
     ).toThrow('positive sampleRateHz');
   });
+
+  // Extended settings tests (Issue #812)
+
+  test('buildGeminiSetupMessage maps voice to speechConfig', () => {
+    const { message } = buildGeminiSetupMessage({
+      model: 'm',
+      spec: {
+        provider: 'google',
+        model: 'm',
+        settings: { voice: 'Kore' } as any
+      }
+    });
+
+    expect(message.setup.speechConfig).toEqual({
+      voiceConfig: {
+        prebuiltVoiceConfig: {
+          voiceName: 'Kore'
+        }
+      }
+    });
+  });
+
+  test('buildGeminiSetupMessage maps topP and topK to generationConfig', () => {
+    const { message } = buildGeminiSetupMessage({
+      model: 'm',
+      spec: {
+        provider: 'google',
+        model: 'm',
+        settings: { top_p: 0.9, top_k: 40 } as any
+      }
+    });
+
+    expect(message.setup.generationConfig.topP).toBe(0.9);
+    expect(message.setup.generationConfig.topK).toBe(40);
+  });
+
+  test('buildGeminiSetupMessage applies enableAffectiveDialog', () => {
+    const { message: withTrue } = buildGeminiSetupMessage({
+      model: 'm',
+      spec: {
+        provider: 'google',
+        model: 'm',
+        settings: { enable_affective_dialog: 'true' } as any
+      }
+    });
+    expect(withTrue.setup.enableAffectiveDialog).toBe(true);
+
+    const { message: withFalse } = buildGeminiSetupMessage({
+      model: 'm',
+      spec: {
+        provider: 'google',
+        model: 'm',
+        settings: { enableAffectiveDialog: false } as any
+      }
+    });
+    expect(withFalse.setup.enableAffectiveDialog).toBe(false);
+  });
+
+  test('buildGeminiSetupMessage applies proactiveAudio', () => {
+    const { message } = buildGeminiSetupMessage({
+      model: 'm',
+      spec: {
+        provider: 'google',
+        model: 'm',
+        settings: { proactive_audio: 'yes' } as any
+      }
+    });
+
+    expect(message.setup.proactivity).toEqual({ proactiveAudio: true });
+  });
+
+  test('buildGeminiSetupMessage applies thinkingConfig', () => {
+    const { message } = buildGeminiSetupMessage({
+      model: 'm',
+      spec: {
+        provider: 'google',
+        model: 'm',
+        settings: { thinking_budget: 1024, include_thoughts: 'true' } as any
+      }
+    });
+
+    expect(message.setup.thinkingConfig).toEqual({
+      thinkingBudget: 1024,
+      includeThoughts: true
+    });
+  });
+
+  test('buildGeminiSetupMessage applies thinkingConfig with only thinkingBudget', () => {
+    const { message } = buildGeminiSetupMessage({
+      model: 'm',
+      spec: {
+        provider: 'google',
+        model: 'm',
+        settings: { thinkingBudget: 512 } as any
+      }
+    });
+
+    expect(message.setup.thinkingConfig).toEqual({ thinkingBudget: 512 });
+  });
+
+  test('buildGeminiSetupMessage applies VAD settings in server_vad mode', () => {
+    const { message } = buildGeminiSetupMessage({
+      model: 'm',
+      spec: {
+        provider: 'google',
+        model: 'm',
+        turnDetection: { mode: 'server_vad' },
+        settings: {
+          start_of_speech_sensitivity: 'START_SENSITIVITY_LOW',
+          end_of_speech_sensitivity: 'END_SENSITIVITY_HIGH',
+          vad_prefix_padding_ms: 100,
+          vad_silence_duration_ms: 200
+        } as any
+      }
+    });
+
+    expect(message.setup.realtimeInputConfig.automaticActivityDetection).toEqual({
+      disabled: false,
+      startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',
+      endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
+      prefixPaddingMs: 100,
+      silenceDurationMs: 200
+    });
+  });
+
+  test('buildGeminiSetupMessage does not set realtimeInputConfig in server_vad mode when no VAD settings', () => {
+    const { message } = buildGeminiSetupMessage({
+      model: 'm',
+      spec: {
+        provider: 'google',
+        model: 'm',
+        turnDetection: { mode: 'server_vad' }
+      }
+    });
+
+    // realtimeInputConfig should not be set when no VAD settings and mode is server_vad
+    expect(message.setup.realtimeInputConfig).toBeUndefined();
+  });
+
+  test('buildGeminiSetupMessage ignores VAD settings in manual_commit mode', () => {
+    const { message } = buildGeminiSetupMessage({
+      model: 'm',
+      spec: {
+        provider: 'google',
+        model: 'm',
+        turnDetection: { mode: 'manual_commit' },
+        settings: {
+          start_of_speech_sensitivity: 'START_SENSITIVITY_LOW',
+          vad_prefix_padding_ms: 100
+        } as any
+      }
+    });
+
+    // In manual_commit mode, automaticActivityDetection should be disabled
+    expect(message.setup.realtimeInputConfig.automaticActivityDetection).toEqual({ disabled: true });
+  });
+
+  test('buildGeminiSetupMessage combines all extended settings correctly', () => {
+    const { message } = buildGeminiSetupMessage({
+      model: 'm',
+      spec: {
+        provider: 'google',
+        model: 'm',
+        systemPrompt: 'Be helpful',
+        turnDetection: { mode: 'server_vad' },
+        settings: {
+          temperature: 0.7,
+          maxTokens: 2048,
+          voice: 'Aoede',
+          topP: 0.95,
+          topK: 50,
+          enableAffectiveDialog: true,
+          proactiveAudio: true,
+          thinkingBudget: 512,
+          startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH',
+          vadSilenceDurationMs: 300
+        } as any
+      }
+    });
+
+    expect(message.setup.generationConfig.temperature).toBe(0.7);
+    expect(message.setup.generationConfig.maxOutputTokens).toBe(2048);
+    expect(message.setup.generationConfig.topP).toBe(0.95);
+    expect(message.setup.generationConfig.topK).toBe(50);
+    expect(message.setup.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName).toBe('Aoede');
+    expect(message.setup.enableAffectiveDialog).toBe(true);
+    expect(message.setup.proactivity).toEqual({ proactiveAudio: true });
+    expect(message.setup.thinkingConfig).toEqual({ thinkingBudget: 512 });
+    expect(message.setup.realtimeInputConfig.automaticActivityDetection.startOfSpeechSensitivity).toBe('START_SENSITIVITY_HIGH');
+    expect(message.setup.realtimeInputConfig.automaticActivityDetection.silenceDurationMs).toBe(300);
+  });
 });
