@@ -110,12 +110,26 @@ function createProvider(overrides: any = {}) {
     compat: 'vapi',
     endpoint: { urlTemplate: 'https://vapi.test/call', headers: { Authorization: 'Bearer vapi_key' } },
     metadata: {
+      supportedModelProviders: [
+        'openai',
+        'google',
+        'groq',
+        'openrouter',
+        'perplexity',
+        'together',
+        'xai',
+        'deepinfra',
+        'deepseek',
+        'inflection',
+        'custom-llm'
+      ],
       defaultModelProvider: 'openai',
       defaultModel: 'gpt-4o-mini',
       defaultVoiceProvider: 'openai',
       defaultVoice: 'alloy',
       defaultTranscriberProvider: 'deepgram',
       defaultTranscriberModel: 'nova-2',
+      wsHandshakeTimeoutMs: 10000,
       keepalive: { enabled: true, intervalMs: 250 }
     }
   };
@@ -282,11 +296,150 @@ describe('plugins/realtime-compat/vapi — ws session', () => {
 
       const compat = new VapiRealtimeCompat() as any;
       const session = await compat.createSession({
-        provider: createProvider(),
+        provider: createProvider({ metadata: { supportedModelProviders: ['provider_x'] } }),
         spec: createSpec({
           model: 'model_x',
           settings: { modelProvider: 'provider_x', voiceProvider: 'provider_y', voice: 'voice_y' }
         })
+      });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      await waitForEvent(it, (e: any) => e?.type === 'ready');
+      await session.close();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('createSession: validates modelProvider against provider metadata whitelist', async () => {
+    const server = await startWsServer();
+    try {
+      const fetchMock = installVapiFetchMock({ websocketCallUrl: server.url });
+      restoreFetch = fetchMock.restore;
+
+      const compat = new VapiRealtimeCompat() as any;
+      await expect(
+        compat.createSession({
+          provider: createProvider({ metadata: { supportedModelProviders: ['openai'] } }),
+          spec: createSpec({ settings: { modelProvider: 'nope' } })
+        })
+      ).rejects.toThrow('modelProvider');
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('createSession: passes WS handshakeTimeout from provider metadata and spec.settings override', async () => {
+    const server = await startWsServer();
+    const originalWebSocket = wsLib.WebSocket;
+    const captured: any[] = [];
+
+    (wsLib as any).WebSocket = class CapturingWebSocket extends originalWebSocket {
+      constructor(...args: any[]) {
+        const second = args[1];
+        const third = args[2];
+        const options =
+          second && typeof second === 'object' && !Array.isArray(second) ? second
+            : third && typeof third === 'object' && !Array.isArray(third) ? third
+              : undefined;
+        captured.push(options);
+        super(...args);
+      }
+    };
+
+    try {
+      const fetchMock = installVapiFetchMock({ websocketCallUrl: server.url });
+      restoreFetch = fetchMock.restore;
+
+      const compat = new VapiRealtimeCompat() as any;
+      const provider = createProvider({ metadata: { wsHandshakeTimeoutMs: 1234 } });
+
+      const session1 = await compat.createSession({ provider, spec: createSpec() });
+      const it1 = session1.events()[Symbol.asyncIterator]();
+      await waitForEvent(it1, (e: any) => e?.type === 'ready');
+      await session1.close();
+
+      const session2 = await compat.createSession({ provider, spec: createSpec({ settings: { wsHandshakeTimeoutMs: 4321 } }) });
+      const it2 = session2.events()[Symbol.asyncIterator]();
+      await waitForEvent(it2, (e: any) => e?.type === 'ready');
+      await session2.close();
+
+      expect(captured[0]?.handshakeTimeout).toBe(1234);
+      expect(captured[1]?.handshakeTimeout).toBe(4321);
+    } finally {
+      (wsLib as any).WebSocket = originalWebSocket;
+      await server.close();
+    }
+  });
+
+  test('createSession: skips modelProvider validation when whitelist missing and falls back for invalid provider metadata', async () => {
+    const server = await startWsServer();
+    const originalWebSocket = wsLib.WebSocket;
+    const captured: any[] = [];
+
+    (wsLib as any).WebSocket = class CapturingWebSocket extends originalWebSocket {
+      constructor(...args: any[]) {
+        const second = args[1];
+        const third = args[2];
+        const options =
+          second && typeof second === 'object' && !Array.isArray(second) ? second
+            : third && typeof third === 'object' && !Array.isArray(third) ? third
+              : undefined;
+        captured.push(options);
+        super(...args);
+      }
+    };
+
+    try {
+      const fetchMock = installVapiFetchMock({
+        websocketCallUrl: server.url,
+        onCreateCall: ({ body }) => {
+          expect(body.assistant.model.provider).toBe('provider_x');
+        }
+      });
+      restoreFetch = fetchMock.restore;
+
+      const compat = new VapiRealtimeCompat() as any;
+      const session = await compat.createSession({
+        provider: createProvider({
+          metadata: {
+            supportedModelProviders: undefined,
+            wsHandshakeTimeoutMs: 'nope',
+            controlUrl: { pollMs: 'nope', maxWaitMs: 'nope' }
+          }
+        }),
+        spec: createSpec({
+          settings: {
+            modelProvider: 'provider_x'
+          }
+        })
+      });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      await waitForEvent(it, (e: any) => e?.type === 'ready');
+      await session.close();
+
+      expect(captured[0]).toBeUndefined();
+    } finally {
+      (wsLib as any).WebSocket = originalWebSocket;
+      await server.close();
+    }
+  });
+
+  test('createSession: filters invalid supportedModelProviders metadata entries during validation', async () => {
+    const server = await startWsServer();
+    try {
+      const fetchMock = installVapiFetchMock({ websocketCallUrl: server.url });
+      restoreFetch = fetchMock.restore;
+
+      const compat = new VapiRealtimeCompat() as any;
+      const session = await compat.createSession({
+        provider: createProvider({
+          metadata: {
+            supportedModelProviders: ['openai', undefined, '   ']
+          }
+        }),
+        spec: createSpec({ settings: { modelProvider: 'openai' } })
       });
 
       const it = session.events()[Symbol.asyncIterator]();
@@ -378,6 +531,7 @@ describe('plugins/realtime-compat/vapi — ws session', () => {
             defaultVoice: undefined,
             defaultTranscriberProvider: undefined,
             defaultTranscriberModel: undefined,
+            wsHandshakeTimeoutMs: undefined,
             keepalive: undefined
           }
         }),
@@ -1617,6 +1771,44 @@ describe('plugins/realtime-compat/vapi — ws session', () => {
     }
   });
 
+  test('sendToolResult: supports configurable toolFallbackDelayMs via spec.settings', async () => {
+    const server = await startWsServer();
+    const originalSetTimeout = globalThis.setTimeout;
+    const delayMs = 1234;
+    const setTimeoutSpy = jest.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: any, ms: any, ...args: any[]) => {
+      if (Number(ms) === delayMs) {
+        return (originalSetTimeout as any)(fn, 0, ...args);
+      }
+      return (originalSetTimeout as any)(fn, ms, ...args);
+    }) as any);
+
+    try {
+      const fetchMock = installVapiFetchMock({ websocketCallUrl: server.url });
+      restoreFetch = fetchMock.restore;
+
+      const compat = new VapiRealtimeCompat() as any;
+      const session = await compat.createSession({
+        provider: createProvider(),
+        spec: createSpec({ settings: { toolFallbackDelayMs: delayMs } })
+      });
+      const it = session.events()[Symbol.asyncIterator]();
+      await waitForEvent(it, (e: any) => e?.type === 'ready');
+
+      await session.sendToolResult({ toolCallId: 'tc1', result: 'fallback' });
+      await new Promise(res => (originalSetTimeout as any)(res, 25));
+
+      const says = fetchMock.controlBodies.filter(m => m?.type === 'say');
+      expect(says.length).toBeGreaterThan(0);
+      expect(says[says.length - 1]?.content).toBe('fallback');
+      expect(setTimeoutSpy.mock.calls.some(([, ms]) => Number(ms) === delayMs)).toBe(true);
+
+      await session.close();
+    } finally {
+      setTimeoutSpy.mockRestore();
+      await server.close();
+    }
+  });
+
   test('sendToolResult: triggers say fallback when no assistant activity observed', async () => {
     const server = await startWsServer();
     const originalSetTimeout = globalThis.setTimeout;
@@ -2153,6 +2345,79 @@ describe('plugins/realtime-compat/vapi — ws session', () => {
     await expect(compat.createSession({ provider: createProvider(), spec: createSpec() } as any)).rejects.toThrow(
       'missing id'
     );
+  });
+
+  test('waitFor controlUrl: uses controlUrlPollMs from spec.settings', async () => {
+    const server = await startWsServer();
+    const originalSetTimeout = globalThis.setTimeout;
+    const pollMs = 1234;
+    const setTimeoutSpy = jest.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: any, ms: any, ...args: any[]) => {
+      // Avoid slowing the test down; only short-circuit the polling delay (and the default).
+      if (Number(ms) === pollMs || Number(ms) === 500) {
+        return (originalSetTimeout as any)(fn, 0, ...args);
+      }
+      return (originalSetTimeout as any)(fn, ms, ...args);
+    }) as any);
+    let getCount = 0;
+
+    try {
+      restoreFetch = installFetch(async (url, init) => {
+        const method = String(init?.method ?? 'GET').toUpperCase();
+        if (method === 'POST' && url === 'https://vapi.test/call') {
+          return {
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            json: async () => ({ id: 'call_1', transport: { websocketCallUrl: server.url } })
+          };
+        }
+
+        if (method === 'GET' && url === 'https://vapi.test/call/call_1') {
+          getCount += 1;
+          if (getCount < 2) {
+            return {
+              ok: true,
+              status: 200,
+              statusText: 'OK',
+              json: async () => ({ id: 'call_1', monitor: {} })
+            };
+          }
+          return {
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            json: async () => ({ id: 'call_1', monitor: { controlUrl: 'https://vapi.test/control' } })
+          };
+        }
+
+        if (method === 'POST' && url === 'https://vapi.test/control') {
+          return {
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            text: async () => JSON.stringify({ status: 'ok' })
+          };
+        }
+
+        throw new Error(`Unexpected fetch: ${method} ${url}`);
+      });
+
+      const compat = new VapiRealtimeCompat() as any;
+      const session = await compat.createSession({
+        provider: createProvider(),
+        spec: createSpec({ settings: { controlUrlPollMs: pollMs } })
+      });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      await waitForEvent(it, (e: any) => e?.type === 'ready');
+
+      await session.interrupt();
+      expect(setTimeoutSpy.mock.calls.some(([, ms]) => Number(ms) === pollMs)).toBe(true);
+      await session.close();
+    } finally {
+      setTimeoutSpy.mockRestore();
+      await server.close();
+    }
   });
 
   test('waitFor controlUrl: times out when call get fails and includes last error', async () => {

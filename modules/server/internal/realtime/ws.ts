@@ -124,10 +124,24 @@ export async function attachRealtimeWsServer(options: {
       return true;
     }
 
-    wss.handleUpgrade(req, socket, head, (ws: any) => {
-      (ws as any).__realtimeRelease = release;
-      wss.emit('connection', ws, req);
-    });
+    let upgraded = false;
+    try {
+      wss.handleUpgrade(req, socket, head, (ws: any) => {
+        upgraded = true;
+        (ws as any).__realtimeRelease = release;
+        wss.emit('connection', ws, req);
+      });
+    } catch {
+      // If ws throws before establishing a ws connection, ensure we don't leak a limiter slot.
+      try { release(); } catch {}
+      try { socket.destroy(); } catch {}
+      return true;
+    }
+    // If the ws library rejects the upgrade without throwing, the callback won't run.
+    if (!upgraded) {
+      try { release(); } catch {}
+      try { socket.destroy(); } catch {}
+    }
     return true;
   };
 

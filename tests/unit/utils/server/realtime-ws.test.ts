@@ -1,8 +1,13 @@
 import { jest } from '@jest/globals';
 import http from 'http';
+import net from 'net';
+import { createRequire } from 'module';
 
 import { attachRealtimeWsServer } from '@/modules/server/internal/realtime/ws.ts';
 import { attachUpgradeRouter } from '@/modules/server/internal/transport/upgrade-router.ts';
+
+const require = createRequire(import.meta.url);
+const wsLib = require('ws');
 
 function toWsUrl(httpUrl: string, pathname: string): string {
   const url = new URL(httpUrl);
@@ -188,6 +193,103 @@ describe('server/internal/realtime/ws', () => {
       try { ws.close(); } catch {}
       await closePromise;
     } finally {
+      await harness.close();
+    }
+  });
+
+  test('releases limiter slot when ws upgrade fails (invalid handshake)', async () => {
+    const harness = await startHarness({
+      config: {
+        path: '/realtime/ws',
+        maxMessageBytes: 1024 * 1024,
+        idleTimeoutMs: 0,
+        maxConcurrentSessions: 1,
+        maxAudioBytesPerSecond: 256000,
+        maxSessionDurationMs: 0
+      },
+      createSession: jest.fn()
+    });
+
+    try {
+      // Send an invalid websocket upgrade request (missing Sec-WebSocket-* headers) that
+      // should be rejected by the ws library without establishing a ws connection.
+      const { port } = new URL(harness.url);
+      const responseText = await new Promise<string>((resolve, reject) => {
+        const socket = net.createConnection({ host: '127.0.0.1', port: Number(port) }, () => {
+          socket.write(
+            [
+              'GET /realtime/ws HTTP/1.1',
+              `Host: 127.0.0.1:${port}`,
+              'Connection: Upgrade',
+              'Upgrade: websocket',
+              '',
+              ''
+            ].join('\r\n')
+          );
+        });
+        const timer = setTimeout(() => {
+          try { socket.destroy(); } catch {}
+          reject(new Error('Timed out waiting for invalid upgrade response'));
+        }, 2000);
+        socket.on('error', (err) => {
+          clearTimeout(timer);
+          try { socket.destroy(); } catch {}
+          reject(err);
+        });
+        socket.on('data', (chunk) => {
+          clearTimeout(timer);
+          const text = Buffer.from(chunk).toString('utf-8');
+          try { socket.destroy(); } catch {}
+          resolve(text);
+        });
+      });
+      expect(responseText).toContain('HTTP/1.1');
+
+      // If the limiter slot leaked, this would fail with 503 due to maxConcurrentSessions=1.
+      const { ws, closePromise } = await openWs(toWsUrl(harness.url, '/realtime/ws'));
+      try {
+        ws.close();
+      } catch {}
+      await closePromise;
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('releases limiter slot when ws handleUpgrade throws', async () => {
+    const originalHandleUpgrade = wsLib.WebSocketServer.prototype.handleUpgrade;
+    (wsLib.WebSocketServer.prototype as any).handleUpgrade = () => {
+      throw new Error('handleUpgrade blew up');
+    };
+
+    const harness = await startHarness({
+      config: {
+        path: '/realtime/ws',
+        maxMessageBytes: 1024 * 1024,
+        idleTimeoutMs: 0,
+        maxConcurrentSessions: 1,
+        maxAudioBytesPerSecond: 256000,
+        maxSessionDurationMs: 0
+      },
+      createSession: jest.fn()
+    });
+
+    try {
+      const fakeSocket: any = { write: jest.fn(), destroy: jest.fn() };
+      harness.server.emit('upgrade', { url: '/realtime/ws' } as any, fakeSocket as any, Buffer.alloc(0));
+      await new Promise(res => setTimeout(res, 0));
+      expect(fakeSocket.destroy).toHaveBeenCalled();
+
+      // Restore upgrades so we can verify a subsequent connection works (slot didn't leak).
+      (wsLib.WebSocketServer.prototype as any).handleUpgrade = originalHandleUpgrade;
+
+      const { ws, closePromise } = await openWs(toWsUrl(harness.url, '/realtime/ws'));
+      try {
+        ws.close();
+      } catch {}
+      await closePromise;
+    } finally {
+      (wsLib.WebSocketServer.prototype as any).handleUpgrade = originalHandleUpgrade;
       await harness.close();
     }
   });

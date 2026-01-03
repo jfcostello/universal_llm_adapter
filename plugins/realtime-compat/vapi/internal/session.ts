@@ -80,7 +80,11 @@ const VAPI_SESSION_SETTINGS_DEFINITIONS = {
   transcriberProvider: { type: 'string', aliases: ['transcriber_provider'] },
   transcriberModel: { type: 'string', aliases: ['transcriber_model'] },
   keepaliveEnabled: { type: 'boolean', aliases: ['keepalive_enabled'] },
-  keepaliveIntervalMs: { type: 'int', aliases: ['keepalive_interval_ms'] }
+  keepaliveIntervalMs: { type: 'int', aliases: ['keepalive_interval_ms'] },
+  wsHandshakeTimeoutMs: { type: 'int', aliases: ['ws_handshake_timeout_ms'] },
+  toolFallbackDelayMs: { type: 'int', aliases: ['tool_fallback_delay_ms'] },
+  controlUrlPollMs: { type: 'int', aliases: ['control_url_poll_ms'] },
+  controlUrlMaxWaitMs: { type: 'int', aliases: ['control_url_max_wait_ms'] }
 } as const;
 
 function generateSessionId(): string {
@@ -313,11 +317,12 @@ async function waitForVapiControlUrl(options: {
   callId: string;
   urlTemplate: string;
   headers?: Record<string, string>;
-  maxWaitMs?: number;
-  pollMs?: number;
+  maxWaitMs: number;
+  pollMs: number;
 }): Promise<{ controlUrl: string }> {
-  const deadline = Date.now() + (options.maxWaitMs ?? 20_000);
-  const pollMs = Math.max(100, Math.floor(options.pollMs ?? 500));
+  const pollMs = Math.max(100, Math.floor(options.pollMs));
+  const maxWaitMs = Math.max(pollMs, Math.floor(options.maxWaitMs));
+  const deadline = Date.now() + maxWaitMs;
 
   let lastErr: any;
   while (Date.now() < deadline) {
@@ -373,6 +378,17 @@ function extractEchoToken(text: string): string | undefined {
   return m[1];
 }
 
+function resolveWhitelistedProvider(value: string, allowed: any, label: string): string {
+  const raw = String(value).trim();
+  if (!Array.isArray(allowed) || allowed.length === 0) return raw;
+  const cleaned = allowed.map(v => String(v ?? '').trim()).filter(Boolean);
+  const found = cleaned.find(v => v.toLowerCase() === raw.toLowerCase());
+  if (!found) {
+    throw new Error(`Unsupported ${label} '${raw}'. Allowed: ${cleaned.join(', ')}`);
+  }
+  return found;
+}
+
 export async function createVapiRealtimeCompatSession(
   options: Parameters<IRealtimeCompat['createSession']>[0]
 ): Promise<RealtimeCompatSession> {
@@ -388,7 +404,12 @@ export async function createVapiRealtimeCompatSession(
   const settings = settingsParse.values as any;
 
   const model = resolveModel(spec, provider);
-  const modelProvider = String(settings.modelProvider ?? (provider.metadata as any)?.defaultModelProvider ?? 'openai').trim() || 'openai';
+  const supportedModelProviders = (provider.metadata as any)?.supportedModelProviders;
+  const modelProvider = resolveWhitelistedProvider(
+    String(settings.modelProvider ?? (provider.metadata as any)?.defaultModelProvider ?? 'openai').trim() || 'openai',
+    supportedModelProviders,
+    'modelProvider'
+  );
   const voiceProvider =
     String(settings.voiceProvider ?? (provider.metadata as any)?.defaultVoiceProvider ?? modelProvider).trim() || modelProvider;
   const voice = String(settings.voice ?? (provider.metadata as any)?.defaultVoice ?? 'alloy').trim() || 'alloy';
@@ -396,6 +417,7 @@ export async function createVapiRealtimeCompatSession(
   const temperature = Number.isFinite(temp) ? Math.max(0, Math.min(2, temp)) : undefined;
 
   const keepaliveFromProvider = (provider.metadata as any)?.keepalive;
+  const controlUrlFromProvider = (provider.metadata as any)?.controlUrl;
   const keepaliveEnabled: boolean = settings.keepaliveEnabled === undefined
     ? Boolean(keepaliveFromProvider?.enabled ?? true)
     : Boolean(settings.keepaliveEnabled);
@@ -404,6 +426,29 @@ export async function createVapiRealtimeCompatSession(
   const keepaliveIntervalMs = Math.max(
     50,
     Math.floor(Number.isFinite(Number(keepaliveIntervalMsRaw)) ? Number(keepaliveIntervalMsRaw) : 250)
+  );
+
+  const wsHandshakeTimeoutMsRaw =
+    settings.wsHandshakeTimeoutMs ?? (provider.metadata as any)?.wsHandshakeTimeoutMs ?? 0;
+  const wsHandshakeTimeoutMs = Math.max(
+    0,
+    Math.floor(Number.isFinite(Number(wsHandshakeTimeoutMsRaw)) ? Number(wsHandshakeTimeoutMsRaw) : 0)
+  );
+
+  const toolFallbackDelayMsRaw = settings.toolFallbackDelayMs ?? 5000;
+  const toolFallbackDelayMs = Math.max(0, Math.floor(toolFallbackDelayMsRaw));
+
+  const controlUrlPollMsRaw =
+    settings.controlUrlPollMs ?? controlUrlFromProvider?.pollMs ?? 500;
+  const controlUrlPollMs = Math.max(
+    100,
+    Math.floor(Number.isFinite(Number(controlUrlPollMsRaw)) ? Number(controlUrlPollMsRaw) : 500)
+  );
+  const controlUrlMaxWaitMsRaw =
+    settings.controlUrlMaxWaitMs ?? controlUrlFromProvider?.maxWaitMs ?? 20000;
+  const controlUrlMaxWaitMs = Math.max(
+    controlUrlPollMs,
+    Math.floor(Number.isFinite(Number(controlUrlMaxWaitMsRaw)) ? Number(controlUrlMaxWaitMsRaw) : 20000)
   );
 
   const transcriberProvider =
@@ -461,12 +506,17 @@ export async function createVapiRealtimeCompatSession(
   const controlUrlPromise = waitForVapiControlUrl({
     callId,
     urlTemplate: endpoint.urlTemplate,
-    headers: endpoint.headers
+    headers: endpoint.headers,
+    maxWaitMs: controlUrlMaxWaitMs,
+    pollMs: controlUrlPollMs
   });
 
   const require = createRequire(import.meta.url);
   const wsLib = require('ws');
-  const ws: WsLike = new wsLib.WebSocket(websocketCallUrl);
+  const ws: WsLike =
+    wsHandshakeTimeoutMs > 0
+      ? new wsLib.WebSocket(websocketCallUrl, { handshakeTimeout: wsHandshakeTimeoutMs })
+      : new wsLib.WebSocket(websocketCallUrl);
   const WS_OPEN: number = wsLib.WebSocket.OPEN;
 
   const queue = new AsyncQueue<RealtimeEvent>();
@@ -951,14 +1001,16 @@ export async function createVapiRealtimeCompatSession(
 
       // Fallback: if we see no assistant activity shortly after tool results, force speech so
       // realtime conformance tests remain deterministic.
-      toolFallbackActiveSinceMs = Date.now();
-      toolFallbackTimer = setTimeout(() => {
-        if (!toolFallbackActiveSinceMs) return;
-        void postControl({ type: 'say', content: text, interruptAssistantEnabled: true }).catch(() => {});
-        clearToolFallback();
-      }, 5000);
-      if (typeof (toolFallbackTimer as any)?.unref === 'function') {
-        (toolFallbackTimer as any).unref();
+      if (toolFallbackDelayMs > 0) {
+        toolFallbackActiveSinceMs = Date.now();
+        toolFallbackTimer = setTimeout(() => {
+          if (!toolFallbackActiveSinceMs) return;
+          void postControl({ type: 'say', content: text, interruptAssistantEnabled: true }).catch(() => {});
+          clearToolFallback();
+        }, toolFallbackDelayMs);
+        if (typeof (toolFallbackTimer as any)?.unref === 'function') {
+          (toolFallbackTimer as any).unref();
+        }
       }
     },
     events() {

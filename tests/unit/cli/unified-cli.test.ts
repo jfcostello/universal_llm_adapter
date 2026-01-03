@@ -1470,33 +1470,33 @@ describe('cli/internal/unified-cli', () => {
       expect(serverOptions.extensions).toEqual({ enabled: ['voice', 'other'] });
     });
 
-	    test('passes realtime options', async () => {
-	      const program = createUnifiedProgram(mockDeps);
+    test('passes realtime options', async () => {
+      const program = createUnifiedProgram(mockDeps);
 
-	      await program.parseAsync([
-	        'node', 'llm-adapter', 'serve',
-	        '--realtime-enabled',
-	        '--realtime-ws-path', '/realtime/ws2',
-	        '--realtime-max-ws-message-bytes', '123',
-	        '--realtime-ws-idle-timeout-ms', '456',
-	        '--realtime-open-handshake-timeout-ms', '789',
-	        '--realtime-max-concurrent-sessions', '7',
-	        '--realtime-max-audio-bytes-per-second', '890',
-	        '--realtime-max-session-duration-ms', '123456'
-	      ]);
+      await program.parseAsync([
+        'node', 'llm-adapter', 'serve',
+        '--realtime-enabled',
+        '--realtime-ws-path', '/realtime/ws2',
+        '--realtime-max-ws-message-bytes', '123',
+        '--realtime-ws-idle-timeout-ms', '456',
+        '--realtime-open-handshake-timeout-ms', '789',
+        '--realtime-max-concurrent-sessions', '7',
+        '--realtime-max-audio-bytes-per-second', '890',
+        '--realtime-max-session-duration-ms', '123456'
+      ]);
 
-	      const serverOptions = mockDeps.createServer.mock.calls[0][0];
-	      expect(serverOptions.realtime).toEqual({
-	        enabled: true,
-	        wsPath: '/realtime/ws2',
-	        maxWsMessageBytes: 123,
-	        wsIdleTimeoutMs: 456,
-	        openHandshakeTimeoutMs: 789,
-	        maxConcurrentSessions: 7,
-	        maxAudioBytesPerSecond: 890,
-	        maxSessionDurationMs: 123456
-	      });
-	    });
+      const serverOptions = mockDeps.createServer.mock.calls[0][0];
+      expect(serverOptions.realtime).toEqual({
+        enabled: true,
+        wsPath: '/realtime/ws2',
+        maxWsMessageBytes: 123,
+        wsIdleTimeoutMs: 456,
+        openHandshakeTimeoutMs: 789,
+        maxConcurrentSessions: 7,
+        maxAudioBytesPerSecond: 890,
+        maxSessionDurationMs: 123456
+      });
+    });
 
     test('passes minimal realtime config when only enabled flag is provided', async () => {
       const program = createUnifiedProgram(mockDeps);
