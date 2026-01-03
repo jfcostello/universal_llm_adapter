@@ -87,7 +87,7 @@ describe('realtime-compat/openai — commands', () => {
       }
     });
 
-    expect(event.session.voice).toBe('voice_1');
+    expect(event.session.audio.output.voice).toBe('voice_1');
     expect(event.session.temperature).toBe(0.7);
     expect(settingsWarnings.unknownKeys.sort()).toEqual(['badVoice', 'extra']);
     expect(settingsWarnings.invalidKeys).toEqual([]);
@@ -102,7 +102,7 @@ describe('realtime-compat/openai — commands', () => {
       }
     });
 
-    expect(event.session.voice).toBeUndefined();
+    expect(event.session.audio.output.voice).toBeUndefined();
     expect(event.session.temperature).toBeUndefined();
     expect(settingsWarnings.unknownKeys).toEqual([]);
     expect(settingsWarnings.invalidKeys.sort()).toEqual(['temperature', 'voice']);
@@ -559,7 +559,7 @@ describe('realtime-compat/openai — commands', () => {
       }
     });
 
-    expect(event.session.voice).toBe('marin');
+    expect(event.session.audio.output.voice).toBe('marin');
     expect(event.session.temperature).toBe(0.8);
     expect(event.session.speed).toBe(1.2);
     expect(event.session.max_response_output_tokens).toBe('inf');
