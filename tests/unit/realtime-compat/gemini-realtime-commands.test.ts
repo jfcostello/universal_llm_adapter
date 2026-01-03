@@ -457,8 +457,8 @@ describe('realtime-compat/gemini — commands', () => {
     expect(message.setup.proactivity).toEqual({ proactiveAudio: true });
   });
 
-  test('buildGeminiSetupMessage applies thinkingConfig', () => {
-    const { message } = buildGeminiSetupMessage({
+  test('buildGeminiSetupMessage treats thinking settings as unsupported (does not set thinkingConfig)', () => {
+    const { message, settingsWarnings } = buildGeminiSetupMessage({
       model: 'm',
       spec: {
         provider: 'google',
@@ -467,14 +467,13 @@ describe('realtime-compat/gemini — commands', () => {
       }
     });
 
-    expect(message.setup.thinkingConfig).toEqual({
-      thinkingBudget: 1024,
-      includeThoughts: true
-    });
+    expect(message.setup.thinkingConfig).toBeUndefined();
+    expect(settingsWarnings.invalidKeys).toEqual([]);
+    expect(settingsWarnings.unknownKeys.sort()).toEqual(['include_thoughts', 'thinking_budget']);
   });
 
-  test('buildGeminiSetupMessage applies thinkingConfig with only thinkingBudget', () => {
-    const { message } = buildGeminiSetupMessage({
+  test('buildGeminiSetupMessage treats thinkingBudget as unsupported (camelCase)', () => {
+    const { message, settingsWarnings } = buildGeminiSetupMessage({
       model: 'm',
       spec: {
         provider: 'google',
@@ -483,7 +482,9 @@ describe('realtime-compat/gemini — commands', () => {
       }
     });
 
-    expect(message.setup.thinkingConfig).toEqual({ thinkingBudget: 512 });
+    expect(message.setup.thinkingConfig).toBeUndefined();
+    expect(settingsWarnings.invalidKeys).toEqual([]);
+    expect(settingsWarnings.unknownKeys).toEqual(['thinkingBudget']);
   });
 
   test('buildGeminiSetupMessage applies VAD settings in server_vad mode', () => {
@@ -544,7 +545,7 @@ describe('realtime-compat/gemini — commands', () => {
   });
 
   test('buildGeminiSetupMessage combines all extended settings correctly', () => {
-    const { message } = buildGeminiSetupMessage({
+    const { message, settingsWarnings } = buildGeminiSetupMessage({
       model: 'm',
       spec: {
         provider: 'google',
@@ -573,7 +574,9 @@ describe('realtime-compat/gemini — commands', () => {
     expect(message.setup.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName).toBe('Aoede');
     expect(message.setup.enableAffectiveDialog).toBe(true);
     expect(message.setup.proactivity).toEqual({ proactiveAudio: true });
-    expect(message.setup.thinkingConfig).toEqual({ thinkingBudget: 512 });
+    expect(message.setup.thinkingConfig).toBeUndefined();
+    expect(settingsWarnings.invalidKeys).toEqual([]);
+    expect(settingsWarnings.unknownKeys).toEqual(['thinkingBudget']);
     expect(message.setup.realtimeInputConfig.automaticActivityDetection.startOfSpeechSensitivity).toBe('START_SENSITIVITY_HIGH');
     expect(message.setup.realtimeInputConfig.automaticActivityDetection.silenceDurationMs).toBe(300);
   });

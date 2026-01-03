@@ -15,8 +15,6 @@ const GEMINI_SESSION_SETTINGS_DEFINITIONS = {
   topK: { type: 'int', aliases: ['top_k'] },
   enableAffectiveDialog: { type: 'boolean', aliases: ['enable_affective_dialog'] },
   proactiveAudio: { type: 'boolean', aliases: ['proactive_audio'] },
-  thinkingBudget: { type: 'int', aliases: ['thinking_budget'] },
-  includeThoughts: { type: 'boolean', aliases: ['include_thoughts'] },
   startOfSpeechSensitivity: { type: 'string', aliases: ['start_of_speech_sensitivity'] },
   endOfSpeechSensitivity: { type: 'string', aliases: ['end_of_speech_sensitivity'] },
   vadPrefixPaddingMs: { type: 'int', aliases: ['vad_prefix_padding_ms'] },
@@ -80,9 +78,6 @@ export function buildGeminiSetupMessage(options: {
     typeof settingsValues.enableAffectiveDialog === 'boolean' ? settingsValues.enableAffectiveDialog : undefined;
   const proactiveAudio =
     typeof settingsValues.proactiveAudio === 'boolean' ? settingsValues.proactiveAudio : undefined;
-  const thinkingBudget = typeof settingsValues.thinkingBudget === 'number' ? settingsValues.thinkingBudget : undefined;
-  const includeThoughts =
-    typeof settingsValues.includeThoughts === 'boolean' ? settingsValues.includeThoughts : undefined;
   const startOfSpeechSensitivity =
     typeof settingsValues.startOfSpeechSensitivity === 'string' ? settingsValues.startOfSpeechSensitivity : undefined;
   const endOfSpeechSensitivity =
@@ -123,13 +118,6 @@ export function buildGeminiSetupMessage(options: {
   // Apply proactive audio
   if (proactiveAudio !== undefined) {
     setup.proactivity = { proactiveAudio };
-  }
-
-  // Apply thinking config
-  if (thinkingBudget !== undefined || includeThoughts !== undefined) {
-    setup.thinkingConfig = {};
-    if (thinkingBudget !== undefined) setup.thinkingConfig.thinkingBudget = thinkingBudget;
-    if (includeThoughts !== undefined) setup.thinkingConfig.includeThoughts = includeThoughts;
   }
 
   const history = Array.isArray(options.spec.history) ? options.spec.history : [];

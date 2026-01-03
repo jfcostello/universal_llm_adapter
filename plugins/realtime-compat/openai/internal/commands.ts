@@ -246,7 +246,6 @@ export function buildSessionUpdateEvent(options: {
       type: 'realtime',
       instructions: options.spec.systemPrompt ?? undefined,
       output_modalities: ['audio'],
-      ...(voice ? { voice } : {}),
       ...(temperature !== undefined ? { temperature } : {}),
       ...(speed !== undefined ? { speed } : {}),
       ...(maxResponseOutputTokens ? { max_response_output_tokens: maxResponseOutputTokens } : {}),
@@ -265,7 +264,8 @@ export function buildSessionUpdateEvent(options: {
           turn_detection: turnDetection
         },
         output: {
-          format: toOpenAIAudioFormat(audio.output.format)
+          format: toOpenAIAudioFormat(audio.output.format),
+          ...(voice ? { voice } : {})
         }
       },
       ...(toolsForSession ? { tools: toolsForSession } : {}),
