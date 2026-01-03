@@ -5,7 +5,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { parseLaunchConfig, buildJestArgs } from './launcher/index.js';
-import { maxWorkersDefault, realtimeTestRuns } from './config.ts';
 import { getTestPathPatternsFromJestArgs, getMissingRequiredEnv } from './required-env.ts';
 import { startLiveServerProcess } from '../helpers/live-server.ts';
 
@@ -61,7 +60,20 @@ function generateTestApiKey(): string {
   return `live_test_${crypto.randomBytes(24).toString('hex')}`;
 }
 
+function isRealtimePattern(raw: string): boolean {
+  // Provider-specific runs exclude realtime via a negative lookahead, but the literal
+  // string "realtime" still appears in the pattern. Treat those as non-realtime.
+  if (/\(\?!.*realtime/i.test(raw)) return false;
+  return /\brealtime\b/i.test(raw);
+}
+
 async function main() {
+  const preImportPatterns = getTestPathPatternsFromJestArgs(process.argv.slice(2));
+  const preImportWantsRealtime = preImportPatterns.some((pattern) => isRealtimePattern(String(pattern)));
+  process.env.LLM_LIVE_WANTS_REALTIME = preImportWantsRealtime ? '1' : '0';
+
+  const { maxWorkersDefault, realtimeTestRuns } = await import('./config.ts');
+
   const { provider, maxWorkers, transport, passthrough } = parseLaunchConfig(
     process.argv.slice(2),
     process.env,
@@ -104,15 +116,13 @@ async function main() {
     /\bvector\b|16-vector-store|17-vector-cli|18-vector-auto-inject|19-vector-search-locks/i.test(patterns);
   const wantsRealtime = testPathPatterns.some((pattern) => {
     const raw = String(pattern);
-    // Provider-specific runs exclude realtime via a negative lookahead, but the literal
-    // string "realtime" still appears in the pattern. Treat those as non-realtime.
-    if (/\(\?!.*realtime/i.test(raw)) return false;
-    return /\brealtime\b/i.test(raw);
+    return isRealtimePattern(raw);
   });
 
   const expectsLlmSuites = wantsAllLive || (!wantsEmbeddings && !wantsVector && !wantsRealtime);
 
   baseEnv.LLM_LIVE_WANTS_REALTIME = wantsRealtime ? '1' : '0';
+  process.env.LLM_LIVE_WANTS_REALTIME = wantsRealtime ? '1' : '0';
 
   const effectiveProviders =
     selectedProviders.length > 0

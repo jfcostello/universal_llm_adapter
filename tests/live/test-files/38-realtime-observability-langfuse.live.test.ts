@@ -2,6 +2,7 @@ import { attachLangfuseObservability, createTraceId, waitForLangfuseTrace } from
 import { runRealtimeScenario } from '@tests/helpers/realtime-runner.ts';
 import { withLiveEnv } from '@tests/helpers/live.ts';
 import { filteredRealtimeTestRuns } from '../config.ts';
+import { getRealtimeProviderSelectionErrorMessage } from '../realtime-provider-selection.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const describeLive = runLive ? describe : describe.skip;
@@ -11,10 +12,7 @@ const TEST_FILE = '38-realtime-observability-langfuse';
 if (filteredRealtimeTestRuns.length === 0) {
   describeLive(`${TEST_FILE} — provider selection`, () => {
     test('requires a realtime provider selection', () => {
-      throw new Error(
-        'No realtime live test runs are selected. ' +
-          'Set LLM_TEST_PROVIDERS=openai|google|grok (or unset it to run all realtime providers).'
-      );
+      throw new Error(getRealtimeProviderSelectionErrorMessage());
     });
   });
 } else {
@@ -71,4 +69,3 @@ if (filteredRealtimeTestRuns.length === 0) {
     });
   }
 }
-

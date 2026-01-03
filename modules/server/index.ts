@@ -74,6 +74,7 @@ export interface ServerOptions {
     wsPath?: string;
     maxWsMessageBytes?: number;
     wsIdleTimeoutMs?: number;
+    openHandshakeTimeoutMs?: number;
     maxConcurrentSessions?: number;
     maxAudioBytesPerSecond?: number;
     maxSessionDurationMs?: number;
@@ -276,6 +277,7 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
   const realtimeWsPath = options.realtime?.wsPath ?? '/realtime/ws';
   const realtimeMaxWsMessageBytes = options.realtime?.maxWsMessageBytes ?? 262144;
   const realtimeWsIdleTimeoutMs = options.realtime?.wsIdleTimeoutMs ?? 60000;
+  const realtimeOpenHandshakeTimeoutMs = options.realtime?.openHandshakeTimeoutMs ?? 30000;
   const realtimeMaxConcurrentSessions = options.realtime?.maxConcurrentSessions ?? 20;
   const realtimeMaxAudioBytesPerSecond = options.realtime?.maxAudioBytesPerSecond ?? 256000;
   const realtimeMaxSessionDurationMs = options.realtime?.maxSessionDurationMs ?? 3600000;
@@ -311,6 +313,7 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
         path: realtimeWsPath,
         maxMessageBytes: realtimeMaxWsMessageBytes,
         idleTimeoutMs: realtimeWsIdleTimeoutMs,
+        openHandshakeTimeoutMs: realtimeOpenHandshakeTimeoutMs,
         maxConcurrentSessions: realtimeMaxConcurrentSessions,
         maxAudioBytesPerSecond: realtimeMaxAudioBytesPerSecond,
         maxSessionDurationMs: realtimeMaxSessionDurationMs

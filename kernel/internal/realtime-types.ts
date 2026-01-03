@@ -39,6 +39,8 @@ export interface RealtimeTimeoutConfig {
 export interface RealtimeTranscriptionConfig {
   enabled?: boolean;
   language?: string;
+  provider?: string;
+  model?: string;
 }
 
 export interface RealtimeDTMFConfig {

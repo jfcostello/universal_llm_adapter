@@ -57,7 +57,7 @@ Notes:
 | `npm test` | Run unit tests only with coverage |
 | `npm run test:all` | Run unit + live tests with combined summary |
 | `npm run test:live` | Run all live tests |
-| `npm run test:live:realtime` | Run realtime live tests only (filter with `LLM_TEST_PROVIDERS=openai|google`) |
+| `npm run test:live:realtime` | Run realtime live tests only (filter with `LLM_TEST_PROVIDERS=openai|google|grok|vapi`) |
 | `npm run test:live:openrouter` | Run live tests with OpenRouter |
 | `npm run test:live:anthropic` | Run live tests with Anthropic |
 | `npm run test:live:openai` | Run live tests with OpenAI |
@@ -79,6 +79,7 @@ npm run test:live:realtime
 LLM_TEST_PROVIDERS=openai npm run test:live:realtime
 LLM_TEST_PROVIDERS=google npm run test:live:realtime
 LLM_TEST_PROVIDERS=grok npm run test:live:realtime
+LLM_TEST_PROVIDERS=vapi npm run test:live:realtime
 
 # Enforce CLI/server parity (runs twice)
 npm run test:live:realtime -- --transport=both

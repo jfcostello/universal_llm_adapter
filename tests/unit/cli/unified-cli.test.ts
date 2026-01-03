@@ -1479,6 +1479,7 @@ describe('cli/internal/unified-cli', () => {
         '--realtime-ws-path', '/realtime/ws2',
         '--realtime-max-ws-message-bytes', '123',
         '--realtime-ws-idle-timeout-ms', '456',
+        '--realtime-open-handshake-timeout-ms', '789',
         '--realtime-max-concurrent-sessions', '7',
         '--realtime-max-audio-bytes-per-second', '890',
         '--realtime-max-session-duration-ms', '123456'
@@ -1490,6 +1491,7 @@ describe('cli/internal/unified-cli', () => {
         wsPath: '/realtime/ws2',
         maxWsMessageBytes: 123,
         wsIdleTimeoutMs: 456,
+        openHandshakeTimeoutMs: 789,
         maxConcurrentSessions: 7,
         maxAudioBytesPerSecond: 890,
         maxSessionDurationMs: 123456

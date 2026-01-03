@@ -11,6 +11,7 @@ export interface RealtimeWsConfig {
   path: string;
   maxMessageBytes: number;
   idleTimeoutMs: number;
+  openHandshakeTimeoutMs?: number;
   maxConcurrentSessions: number;
   maxAudioBytesPerSecond: number;
   maxSessionDurationMs: number;
@@ -45,6 +46,24 @@ type RealtimeServerEnvelope =
 
 function writeHttpResponse(socket: net.Socket, statusCode: number, statusText: string, body: string): void {
   writeHttpUpgradeResponse(socket, statusCode, statusText, body);
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, error: any): Promise<T> {
+  const ms = Math.floor(Number(timeoutMs));
+  if (!Number.isFinite(ms) || ms <= 0) return await promise;
+
+  return await new Promise<T>((resolve, reject) => {
+    let timer: NodeJS.Timeout | undefined;
+    timer = setTimeout(() => reject(error), ms);
+    if (typeof (timer as any)?.unref === 'function') (timer as any).unref();
+
+    promise
+      .then(resolve, reject)
+      .finally(() => {
+        if (timer) clearTimeout(timer);
+        timer = undefined;
+      });
+  });
 }
 
 export async function attachRealtimeWsServer(options: {
@@ -105,10 +124,24 @@ export async function attachRealtimeWsServer(options: {
       return true;
     }
 
-    wss.handleUpgrade(req, socket, head, (ws: any) => {
-      (ws as any).__realtimeRelease = release;
-      wss.emit('connection', ws, req);
-    });
+    let upgraded = false;
+    try {
+      wss.handleUpgrade(req, socket, head, (ws: any) => {
+        upgraded = true;
+        (ws as any).__realtimeRelease = release;
+        wss.emit('connection', ws, req);
+      });
+    } catch {
+      // If ws throws before establishing a ws connection, ensure we don't leak a limiter slot.
+      try { release(); } catch {}
+      try { socket.destroy(); } catch {}
+      return true;
+    }
+    // If the ws library rejects the upgrade without throwing, the callback won't run.
+    if (!upgraded) {
+      try { release(); } catch {}
+      try { socket.destroy(); } catch {}
+    }
     return true;
   };
 
@@ -122,6 +155,7 @@ export async function attachRealtimeWsServer(options: {
     let closed = false;
 
     let idleTimeoutMs = options.config.idleTimeoutMs;
+    let specIdleTimeoutAfterReadyMs: number | undefined;
     let idleTimer: NodeJS.Timeout | undefined;
     let durationTimer: NodeJS.Timeout | undefined;
     const audioRateLimiter = createAudioRateLimiter(options.config.maxAudioBytesPerSecond);
@@ -154,12 +188,19 @@ export async function attachRealtimeWsServer(options: {
       }
     };
 
-    const startEventPump = async () => {
+    const startEventPump = async (options: { openStartedAtMs: number; openHandshakeTimeoutMs: number }) => {
       if (!session?.events) {
         throw new Error('Session missing events()');
       }
       const iterator = (session.events() as AsyncIterable<any>)[Symbol.asyncIterator]();
-      const first = await iterator.next();
+      const remainingMs = options.openHandshakeTimeoutMs > 0
+        ? Math.max(0, options.openHandshakeTimeoutMs - (Date.now() - options.openStartedAtMs))
+        : 0;
+      const first = await withTimeout(
+        iterator.next(),
+        remainingMs,
+        Object.assign(new Error('Realtime WS open handshake timeout'), { code: 'ws_open_timeout' })
+      );
       if (first.done) {
         failAndClose('Realtime session closed before ready', 'closed_before_ready');
         return;
@@ -169,6 +210,10 @@ export async function attachRealtimeWsServer(options: {
         return;
       }
       send({ type: 'event', event: first.value });
+      if (specIdleTimeoutAfterReadyMs !== undefined) {
+        idleTimeoutMs = specIdleTimeoutAfterReadyMs;
+        scheduleIdleCheck();
+      }
 
       for await (const event of { [Symbol.asyncIterator]: () => iterator } as AsyncIterable<any>) {
         send({ type: 'event', event });
@@ -237,12 +282,27 @@ export async function attachRealtimeWsServer(options: {
             }
             const specIdleTimeoutMs = Number((msg as any)?.spec?.timeout?.idleTimeoutMs);
             if (Number.isFinite(specIdleTimeoutMs)) {
-              idleTimeoutMs = Math.max(0, Math.floor(specIdleTimeoutMs));
-              scheduleIdleCheck();
+              specIdleTimeoutAfterReadyMs = Math.max(0, Math.floor(specIdleTimeoutMs));
             }
-            session = await options.createSession({ registry: options.registry, spec: msg.spec });
+            if (idleTimer) {
+              clearTimeout(idleTimer);
+              idleTimer = undefined;
+            }
+            const openStartedAtMs = Date.now();
+            const openHandshakeTimeoutMs = Math.max(0, Math.floor(Number(options.config.openHandshakeTimeoutMs ?? 0)));
+            session = await withTimeout(
+              Promise.resolve(options.createSession({ registry: options.registry, spec: msg.spec })),
+              openHandshakeTimeoutMs,
+              Object.assign(new Error('Realtime WS open handshake timeout'), { code: 'ws_open_timeout' })
+            );
+            if (closed) {
+              try {
+                await session?.close?.();
+              } catch {}
+              return;
+            }
             openSeen = true;
-            startEventPump()
+            startEventPump({ openStartedAtMs, openHandshakeTimeoutMs })
               .catch(err => failAndClose(err?.message ?? String(err), err?.code))
               .finally(() => closeAll());
             return;

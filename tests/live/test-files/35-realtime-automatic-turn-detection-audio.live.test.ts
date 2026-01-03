@@ -3,6 +3,7 @@ import fs from 'fs';
 import { runRealtimeScenario } from '@tests/helpers/realtime-runner.ts';
 import { withLiveEnv } from '@tests/helpers/live.ts';
 import { filteredRealtimeTestRuns } from '../config.ts';
+import { getRealtimeProviderSelectionErrorMessage } from '../realtime-provider-selection.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
 const describeLive = runLive ? describe : describe.skip;
@@ -47,10 +48,7 @@ function getFinalTranscript(events: any[], who: 'user' | 'assistant'): string {
 if (filteredRealtimeTestRuns.length === 0) {
   describeLive(`${TEST_FILE} — provider selection`, () => {
     test('requires a realtime provider selection', () => {
-      throw new Error(
-        'No realtime live test runs are selected. ' +
-          'Set LLM_TEST_PROVIDERS=openai|google|grok (or unset it to run all realtime providers).'
-      );
+      throw new Error(getRealtimeProviderSelectionErrorMessage());
     });
   });
 } else {

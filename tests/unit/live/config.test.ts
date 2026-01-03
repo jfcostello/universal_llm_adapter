@@ -117,6 +117,7 @@ describe('tests/live/config', () => {
 
     test('returns all test runs with warning when no providers match', async () => {
       process.env.LLM_TEST_PROVIDERS = 'nonexistent';
+      delete process.env.LLM_LIVE_WANTS_REALTIME;
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       const { getFilteredTestRuns, testRuns } = await import('@tests/live/config.ts');
@@ -129,6 +130,20 @@ describe('tests/live/config', () => {
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('Available:')
       );
+
+      warnSpy.mockRestore();
+    });
+
+    test('returns all test runs without warning when realtime suite is selected', async () => {
+      process.env.LLM_TEST_PROVIDERS = 'vapi';
+      process.env.LLM_LIVE_WANTS_REALTIME = '1';
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const { getFilteredTestRuns, testRuns } = await import('@tests/live/config.ts');
+
+      const result = getFilteredTestRuns();
+      expect(result).toEqual(testRuns);
+      expect(warnSpy).not.toHaveBeenCalled();
 
       warnSpy.mockRestore();
     });

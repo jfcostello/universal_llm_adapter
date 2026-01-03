@@ -1,0 +1,40 @@
+{
+  "id": "vapi",
+  "compat": "vapi",
+  "endpoint": {
+    "urlTemplate": "https://api.vapi.ai/call",
+    "headers": {
+      "Authorization": "Bearer ${VAPI_API_KEY}"
+    }
+  },
+  "metadata": {
+    "supportedModelProviders": [
+      "openai",
+      "google",
+      "groq",
+      "openrouter",
+      "perplexity",
+      "together",
+      "xai",
+      "deepinfra",
+      "deepseek",
+      "inflection",
+      "custom-llm"
+    ],
+    "defaultModelProvider": "openai",
+    "defaultModel": "gpt-4o-mini",
+    "defaultVoiceProvider": "openai",
+    "defaultVoice": "alloy",
+    "defaultTranscriberProvider": "deepgram",
+    "defaultTranscriberModel": "nova-2",
+    "wsHandshakeTimeoutMs": 10000,
+    "controlUrl": {
+      "pollMs": 500,
+      "maxWaitMs": 20000
+    },
+    "keepalive": {
+      "enabled": true,
+      "intervalMs": 250
+    }
+  }
+}
