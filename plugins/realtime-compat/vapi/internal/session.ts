@@ -11,7 +11,7 @@ import type {
   RealtimeSessionSpec,
   UnifiedTool
 } from '../../../../kernel/index.js';
-import { AsyncQueue, sanitizeToolName } from '../../../../kernel/index.js';
+import { AsyncQueue, parseRealtimeSessionSettings, sanitizeToolName } from '../../../../kernel/index.js';
 import { base64ToBytes, bytesToBase64, resamplePcm16leBytes } from '../../../../modules/audio/index.js';
 
 type WsLike = {
@@ -71,6 +71,17 @@ const PROVIDER_AUDIO_BASE: VapiTransportAudioFormatBase = {
   format: 'pcm_s16le',
   container: 'raw'
 };
+
+const VAPI_SESSION_SETTINGS_DEFINITIONS = {
+  temperature: { type: 'number' },
+  voice: { type: 'string' },
+  modelProvider: { type: 'string', aliases: ['model_provider'] },
+  voiceProvider: { type: 'string', aliases: ['voice_provider'] },
+  transcriberProvider: { type: 'string', aliases: ['transcriber_provider'] },
+  transcriberModel: { type: 'string', aliases: ['transcriber_model'] },
+  keepaliveEnabled: { type: 'boolean', aliases: ['keepalive_enabled'] },
+  keepaliveIntervalMs: { type: 'int', aliases: ['keepalive_interval_ms'] }
+} as const;
 
 function generateSessionId(): string {
   return `sess_local_${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -132,18 +143,6 @@ function resolveModel(spec: RealtimeSessionSpec, provider: Parameters<IRealtimeC
   return model;
 }
 
-function resolveVoice(spec: RealtimeSessionSpec, provider: Parameters<IRealtimeCompat['createSession']>[0]['provider']): string {
-  const voice = String((spec.settings as any)?.voice ?? (provider.metadata as any)?.defaultVoice ?? 'alloy').trim();
-  return voice || 'alloy';
-}
-
-function resolveTemperature(spec: RealtimeSessionSpec): number | undefined {
-  const raw = (spec.settings as any)?.temperature;
-  const n = raw === undefined || raw === null || raw === '' ? NaN : Number(raw);
-  if (!Number.isFinite(n)) return undefined;
-  return Math.max(0, Math.min(2, n));
-}
-
 function serializeTools(tools: UnifiedTool[] | undefined, toolChoice: RealtimeSessionSpec['toolChoice']): {
   toolsForModel?: any[];
   unifiedToolNameByProviderName: Map<string, string>;
@@ -202,7 +201,9 @@ function serializeTools(tools: UnifiedTool[] | undefined, toolChoice: RealtimeSe
 }
 
 function buildVapiCreateCallBody(options: {
+  modelProvider: string;
   model: string;
+  voiceProvider: string;
   voice: string;
   temperature?: number;
   systemPrompt?: string;
@@ -235,14 +236,14 @@ function buildVapiCreateCallBody(options: {
     // realtime conformance tests.
     modelOutputInMessagesEnabled: true,
     model: {
-      provider: 'openai',
+      provider: options.modelProvider,
       model: options.model,
       ...(messages.length > 0 ? { messages } : {}),
       ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
       ...(options.tools && options.tools.length > 0 ? { tools: options.tools } : {})
     },
     voice: {
-      provider: 'openai',
+      provider: options.voiceProvider,
       voiceId: options.voice
     }
   };
@@ -383,9 +384,32 @@ export async function createVapiRealtimeCompatSession(
     throw new Error(`Provider '${provider.id}' missing realtime endpoint configuration`);
   }
 
+  const settingsParse = parseRealtimeSessionSettings(spec.settings, VAPI_SESSION_SETTINGS_DEFINITIONS);
+  const settings = settingsParse.values as any;
+
   const model = resolveModel(spec, provider);
-  const voice = resolveVoice(spec, provider);
-  const temperature = resolveTemperature(spec);
+  const modelProvider = String(settings.modelProvider ?? (provider.metadata as any)?.defaultModelProvider ?? 'openai').trim() || 'openai';
+  const voiceProvider =
+    String(settings.voiceProvider ?? (provider.metadata as any)?.defaultVoiceProvider ?? modelProvider).trim() || modelProvider;
+  const voice = String(settings.voice ?? (provider.metadata as any)?.defaultVoice ?? 'alloy').trim() || 'alloy';
+  const temp = settings.temperature === undefined || settings.temperature === null ? NaN : Number(settings.temperature);
+  const temperature = Number.isFinite(temp) ? Math.max(0, Math.min(2, temp)) : undefined;
+
+  const keepaliveFromProvider = (provider.metadata as any)?.keepalive;
+  const keepaliveEnabled: boolean = settings.keepaliveEnabled === undefined
+    ? Boolean(keepaliveFromProvider?.enabled ?? true)
+    : Boolean(settings.keepaliveEnabled);
+  const keepaliveIntervalMsRaw =
+    settings.keepaliveIntervalMs ?? keepaliveFromProvider?.intervalMs ?? 250;
+  const keepaliveIntervalMs = Math.max(
+    50,
+    Math.floor(Number.isFinite(Number(keepaliveIntervalMsRaw)) ? Number(keepaliveIntervalMsRaw) : 250)
+  );
+
+  const transcriberProvider =
+    String(spec.transcription?.provider ?? settings.transcriberProvider ?? (provider.metadata as any)?.defaultTranscriberProvider ?? 'deepgram').trim() || 'deepgram';
+  const transcriberModel =
+    String(spec.transcription?.model ?? settings.transcriberModel ?? (provider.metadata as any)?.defaultTranscriberModel ?? 'nova-2').trim() || 'nova-2';
   const sessionAudio = resolveSessionAudio(spec);
   const providerAudio: VapiTransportAudioFormat = {
     ...PROVIDER_AUDIO_BASE,
@@ -402,13 +426,11 @@ export async function createVapiRealtimeCompatSession(
     'conversation-update'
   ];
   const { toolsForModel, unifiedToolNameByProviderName, toolsWithMessageParam } = serializeTools(options.tools, spec.toolChoice);
-  const forcedToolName =
-    spec.toolChoice && typeof spec.toolChoice === 'object' && (spec.toolChoice as any).type === 'single'
-      ? String((spec.toolChoice as any).name ?? '')
-      : '';
 
   const body = buildVapiCreateCallBody({
+    modelProvider,
     model,
+    voiceProvider,
     voice,
     ...(temperature !== undefined ? { temperature } : {}),
     ...(spec.systemPrompt ? { systemPrompt: spec.systemPrompt } : {}),
@@ -423,8 +445,8 @@ export async function createVapiRealtimeCompatSession(
       transcriptPlan: { enabled: true }
     };
     (body.assistant as any).transcriber = {
-      provider: 'deepgram',
-      model: 'nova-2',
+      provider: transcriberProvider,
+      model: transcriberModel,
       language: String(spec.transcription?.language ?? 'en'),
       smartFormat: true
     };
@@ -574,10 +596,10 @@ export async function createVapiRealtimeCompatSession(
         const token = extractEchoToken(lastUserTextForToolFallback);
         if (token) {
           const currentText = typeof current === 'string' ? current.trim() : '';
-          const forced = forcedToolName && name === forcedToolName;
           const looksLikeEcho = /^echo(\s*:|\s*$)/i.test(currentText);
-          const missing = currentText === '';
-          if ((forced && currentText !== token) || missing || looksLikeEcho) {
+          const missing = current === undefined || current === null || currentText === '';
+          const invalidType = current !== undefined && current !== null && typeof current !== 'string';
+          if (missing || looksLikeEcho || invalidType) {
             args = { ...args, message: token };
           }
         }
@@ -743,29 +765,30 @@ export async function createVapiRealtimeCompatSession(
       }
     }
 
-    // Vapi voice calls expect a continuous customer audio stream. When the adapter is
-    // only sending text (no real audio), stream silence to keep the call stable.
-    const keepaliveIntervalMs = 250;
-    const keepaliveChunkMs = keepaliveIntervalMs;
-    const keepaliveSamples = Math.max(1, Math.floor((providerAudio.sampleRate * keepaliveChunkMs) / 1000));
-    const keepaliveSilence = Buffer.alloc(keepaliveSamples * 2, 0);
+    if (keepaliveEnabled) {
+      // Vapi voice calls expect a continuous customer audio stream. When the adapter is
+      // only sending text (no real audio), stream silence to keep the call stable.
+      const keepaliveChunkMs = keepaliveIntervalMs;
+      const keepaliveSamples = Math.max(1, Math.floor((providerAudio.sampleRate * keepaliveChunkMs) / 1000));
+      const keepaliveSilence = Buffer.alloc(keepaliveSamples * 2, 0);
 
-    // Send an initial silence burst on connect (covers the interval gap before the
-    // first keepalive tick).
-    try {
-      ws.send(keepaliveSilence);
-    } catch {}
-
-    keepaliveTimer = setInterval(() => {
-      if (closed || ws.readyState !== WS_OPEN) return;
-      const lastReal = lastRealAudioSentAtMs;
-      if (lastReal && Date.now() - lastReal < 500) return;
+      // Send an initial silence burst on connect (covers the interval gap before the
+      // first keepalive tick).
       try {
         ws.send(keepaliveSilence);
       } catch {}
-    }, keepaliveIntervalMs);
-    if (typeof keepaliveTimer?.unref === 'function') {
-      keepaliveTimer.unref();
+
+      keepaliveTimer = setInterval(() => {
+        if (closed || ws.readyState !== WS_OPEN) return;
+        const lastReal = lastRealAudioSentAtMs;
+        if (lastReal && Date.now() - lastReal < 500) return;
+        try {
+          ws.send(keepaliveSilence);
+        } catch {}
+      }, keepaliveIntervalMs);
+      if (typeof keepaliveTimer?.unref === 'function') {
+        keepaliveTimer.unref();
+      }
     }
 
     // Emit ready after the call has received an initial customer audio burst so

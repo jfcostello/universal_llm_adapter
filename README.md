@@ -533,7 +533,7 @@ All non-provider-specific defaults are in `plugins/configs/defaults.json`:
 For production deployments, be aware of per-process resource limits enforced by the server and realtime modules:
 
 - **Server**: `maxConcurrentRequests`, `maxConcurrentStreams`, `maxQueueSize` (see `plugins/configs/defaults.json`)
-- **Realtime WS**: `maxConcurrentSessions`, `maxMessageBytes`, `maxAudioBytesPerSecond`, `idleTimeoutMs`, `maxSessionDurationMs`
+- **Realtime WS**: `maxConcurrentSessions`, `maxMessageBytes`, `maxAudioBytesPerSecond`, `idleTimeoutMs`, `openHandshakeTimeoutMs`, `maxSessionDurationMs`
 - **Extensions**: extension-specific limits are documented per-extension under `extensions/`
 
 These limits protect against resource exhaustion. Tune them based on your expected concurrency and available memory.

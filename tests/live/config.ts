@@ -141,10 +141,14 @@ export function getFilteredTestRuns(): TestRun[] {
   );
 
   if (filtered.length === 0) {
-    console.warn(
-      `Warning: No test runs matched providers: ${providerFilter}. ` +
-      `Available: ${testRuns.map(r => r.name).join(', ')}`
-    );
+    // Avoid spamming logs for realtime-only live runs (many realtime test files import this config).
+    // `tests/live/run-live.ts` sets LLM_LIVE_WANTS_REALTIME when the realtime suite is selected.
+    if (process.env.LLM_LIVE_WANTS_REALTIME !== '1') {
+      console.warn(
+        `Warning: No test runs matched providers: ${providerFilter}. ` +
+        `Available: ${testRuns.map(r => r.name).join(', ')}`
+      );
+    }
     return testRuns;
   }
 

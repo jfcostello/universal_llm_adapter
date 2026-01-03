@@ -109,7 +109,15 @@ function createProvider(overrides: any = {}) {
     id: 'vapi',
     compat: 'vapi',
     endpoint: { urlTemplate: 'https://vapi.test/call', headers: { Authorization: 'Bearer vapi_key' } },
-    metadata: { defaultModel: 'gpt-4o-mini', defaultVoice: 'alloy' }
+    metadata: {
+      defaultModelProvider: 'openai',
+      defaultModel: 'gpt-4o-mini',
+      defaultVoiceProvider: 'openai',
+      defaultVoice: 'alloy',
+      defaultTranscriberProvider: 'deepgram',
+      defaultTranscriberModel: 'nova-2',
+      keepalive: { enabled: true, intervalMs: 250 }
+    }
   };
 
   const provider: any = { ...base, ...overrides };
@@ -258,6 +266,66 @@ describe('plugins/realtime-compat/vapi — ws session', () => {
     }
   });
 
+  test('createSession: supports modelProvider/voiceProvider overrides via spec.settings', async () => {
+    const server = await startWsServer();
+    try {
+      const fetchMock = installVapiFetchMock({
+        websocketCallUrl: server.url,
+        onCreateCall: ({ body }) => {
+          expect(body.assistant.model.provider).toBe('provider_x');
+          expect(body.assistant.model.model).toBe('model_x');
+          expect(body.assistant.voice.provider).toBe('provider_y');
+          expect(body.assistant.voice.voiceId).toBe('voice_y');
+        }
+      });
+      restoreFetch = fetchMock.restore;
+
+      const compat = new VapiRealtimeCompat() as any;
+      const session = await compat.createSession({
+        provider: createProvider(),
+        spec: createSpec({
+          model: 'model_x',
+          settings: { modelProvider: 'provider_x', voiceProvider: 'provider_y', voice: 'voice_y' }
+        })
+      });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      await waitForEvent(it, (e: any) => e?.type === 'ready');
+      await session.close();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('createSession: supports transcriber provider/model overrides via spec.transcription', async () => {
+    const server = await startWsServer();
+    try {
+      const fetchMock = installVapiFetchMock({
+        websocketCallUrl: server.url,
+        onCreateCall: ({ body }) => {
+          expect(body.assistant.transcriber.provider).toBe('transcriber_x');
+          expect(body.assistant.transcriber.model).toBe('transcriber_model_x');
+          expect(body.assistant.transcriber.language).toBe('fr');
+        }
+      });
+      restoreFetch = fetchMock.restore;
+
+      const compat = new VapiRealtimeCompat() as any;
+      const session = await compat.createSession({
+        provider: createProvider(),
+        spec: createSpec({
+          transcription: { enabled: true, provider: 'transcriber_x', model: 'transcriber_model_x', language: 'fr' }
+        })
+      });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      await waitForEvent(it, (e: any) => e?.type === 'ready');
+      await session.close();
+    } finally {
+      await server.close();
+    }
+  });
+
   test('createSession: defaults model from provider metadata, defaults voice to alloy, and coerces missing tool description', async () => {
     const server = await startWsServer();
     try {
@@ -276,6 +344,81 @@ describe('plugins/realtime-compat/vapi — ws session', () => {
         provider: createProvider({ metadata: { defaultVoice: undefined } }),
         spec: createSpec({ model: undefined }),
         tools: [{ name: 't1', parametersJsonSchema: { type: 'object' } }]
+      });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      await waitForEvent(it, (e: any) => e?.type === 'ready');
+      await session.close();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('createSession: falls back to built-in defaults when provider metadata values are missing', async () => {
+    const server = await startWsServer();
+    try {
+      const fetchMock = installVapiFetchMock({
+        websocketCallUrl: server.url,
+        onCreateCall: ({ body }) => {
+          expect(body.assistant.model.provider).toBe('openai');
+          expect(body.assistant.voice.provider).toBe('openai');
+          expect(body.assistant.voice.voiceId).toBe('alloy');
+          expect(body.assistant.transcriber.provider).toBe('deepgram');
+          expect(body.assistant.transcriber.model).toBe('nova-2');
+        }
+      });
+      restoreFetch = fetchMock.restore;
+
+      const compat = new VapiRealtimeCompat() as any;
+      const session = await compat.createSession({
+        provider: createProvider({
+          metadata: {
+            defaultModelProvider: undefined,
+            defaultVoiceProvider: undefined,
+            defaultVoice: undefined,
+            defaultTranscriberProvider: undefined,
+            defaultTranscriberModel: undefined,
+            keepalive: undefined
+          }
+        }),
+        spec: createSpec({ model: 'gpt-4o-mini', transcription: { enabled: true }, settings: {} })
+      });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      await waitForEvent(it, (e: any) => e?.type === 'ready');
+      await session.close();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('createSession: trims provider metadata values and falls back when empty', async () => {
+    const server = await startWsServer();
+    try {
+      const fetchMock = installVapiFetchMock({
+        websocketCallUrl: server.url,
+        onCreateCall: ({ body }) => {
+          expect(body.assistant.model.provider).toBe('openai');
+          expect(body.assistant.voice.provider).toBe('openai');
+          expect(body.assistant.voice.voiceId).toBe('alloy');
+          expect(body.assistant.transcriber.provider).toBe('deepgram');
+          expect(body.assistant.transcriber.model).toBe('nova-2');
+        }
+      });
+      restoreFetch = fetchMock.restore;
+
+      const compat = new VapiRealtimeCompat() as any;
+      const session = await compat.createSession({
+        provider: createProvider({
+          metadata: {
+            defaultModelProvider: '   ',
+            defaultVoiceProvider: '   ',
+            defaultVoice: '   ',
+            defaultTranscriberProvider: '   ',
+            defaultTranscriberModel: '   '
+          }
+        }),
+        spec: createSpec({ model: 'gpt-4o-mini', transcription: { enabled: true } })
       });
 
       const it = session.events()[Symbol.asyncIterator]();
@@ -1400,6 +1543,49 @@ describe('plugins/realtime-compat/vapi — ws session', () => {
     }
   });
 
+  test('tool args fallback: does not override non-empty provider arguments even when token is present', async () => {
+    const server = await startWsServer();
+    try {
+      const fetchMock = installVapiFetchMock({ websocketCallUrl: server.url });
+      restoreFetch = fetchMock.restore;
+
+      const compat = new VapiRealtimeCompat() as any;
+      const session = await compat.createSession({
+        provider: createProvider(),
+        spec: createSpec({ toolChoice: { type: 'single', name: 'test.echo' } }),
+        tools: [
+          {
+            name: 'test.echo',
+            description: 'Echo',
+            parametersJsonSchema: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] }
+          }
+        ]
+      });
+      const it = session.events()[Symbol.asyncIterator]();
+      await waitForEvent(it, (e: any) => e?.type === 'ready');
+
+      await session.sendText({ text: 'ECHO:XYZ', role: 'user' });
+      await session.commit();
+
+      const ws = server.getConnected();
+      expect(ws).toBeTruthy();
+      ws.send(
+        JSON.stringify({
+          type: 'tool-calls',
+          toolCallList: [{ id: 'tc_echo', function: { name: 'test_echo', arguments: { message: 'NOT_XYZ' } } }]
+        })
+      );
+
+      const end = await waitForEvent(it, (e: any) => e?.type === 'tool_call.end' && (e as any).toolCallId === 'tc_echo');
+      expect((end as any).name).toBe('test.echo');
+      expect((end as any).arguments).toEqual({ message: 'NOT_XYZ' });
+
+      await session.close();
+    } finally {
+      await server.close();
+    }
+  });
+
   test('sendToolResult: uses safe text extraction for strings, {result:string}, json, and circular values', async () => {
     const server = await startWsServer();
     try {
@@ -1652,6 +1838,144 @@ describe('plugins/realtime-compat/vapi — ws session', () => {
     } finally {
       setIntervalSpy.mockRestore();
       (wsLib as any).WebSocket = originalWebSocket;
+      await server.close();
+    }
+  });
+
+  test('keepalive: can be disabled via spec.settings', async () => {
+    const server = await startWsServer();
+    const setIntervalSpy = jest.spyOn(globalThis, 'setInterval');
+
+    try {
+      const fetchMock = installVapiFetchMock({ websocketCallUrl: server.url });
+      restoreFetch = fetchMock.restore;
+
+      const compat = new VapiRealtimeCompat() as any;
+      const session = await compat.createSession({
+        provider: createProvider(),
+        spec: createSpec({ settings: { keepaliveEnabled: false } })
+      });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      await waitForEvent(it, (e: any) => e?.type === 'ready');
+
+      await new Promise(res => setTimeout(res, 25));
+      expect(server.receivedBinary.length).toBe(0);
+      expect(setIntervalSpy).not.toHaveBeenCalled();
+
+      await session.close();
+    } finally {
+      setIntervalSpy.mockRestore();
+      await server.close();
+    }
+  });
+
+  test('keepalive: can be disabled via provider metadata', async () => {
+    const server = await startWsServer();
+    const setIntervalSpy = jest.spyOn(globalThis, 'setInterval');
+
+    try {
+      const fetchMock = installVapiFetchMock({ websocketCallUrl: server.url });
+      restoreFetch = fetchMock.restore;
+
+      const compat = new VapiRealtimeCompat() as any;
+      const session = await compat.createSession({
+        provider: createProvider({ metadata: { keepalive: { enabled: false, intervalMs: 250 } } }),
+        spec: createSpec()
+      });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      await waitForEvent(it, (e: any) => e?.type === 'ready');
+
+      await new Promise(res => setTimeout(res, 25));
+      expect(server.receivedBinary.length).toBe(0);
+      expect(setIntervalSpy).not.toHaveBeenCalled();
+
+      await session.close();
+    } finally {
+      setIntervalSpy.mockRestore();
+      await server.close();
+    }
+  });
+
+  test('keepalive: falls back to default interval when provider metadata is not numeric', async () => {
+    const server = await startWsServer();
+    const intervalCallbacks: Array<() => void> = [];
+    const originalSetInterval = globalThis.setInterval;
+    const setIntervalSpy = jest.spyOn(globalThis, 'setInterval').mockImplementation(((fn: any, ms: any, ...args: any[]) => {
+      if (Number(ms) === 250) {
+        intervalCallbacks.push(() => fn(...args));
+        return { unref: () => {} } as any;
+      }
+      return (originalSetInterval as any)(fn, ms, ...args);
+    }) as any);
+
+    try {
+      const fetchMock = installVapiFetchMock({ websocketCallUrl: server.url });
+      restoreFetch = fetchMock.restore;
+
+      const compat = new VapiRealtimeCompat() as any;
+      const session = await compat.createSession({
+        provider: createProvider({ metadata: { keepalive: { enabled: true, intervalMs: 'nope' } } }),
+        spec: createSpec()
+      });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      await waitForEvent(it, (e: any) => e?.type === 'ready');
+
+      const keepaliveCb = intervalCallbacks[intervalCallbacks.length - 1];
+      expect(typeof keepaliveCb).toBe('function');
+
+      await new Promise(res => setTimeout(res, 25));
+      const baselineBinaryCount = server.receivedBinary.length;
+      keepaliveCb?.();
+      await new Promise(res => setTimeout(res, 25));
+      expect(server.receivedBinary.length).toBeGreaterThan(baselineBinaryCount);
+
+      await session.close();
+    } finally {
+      setIntervalSpy.mockRestore();
+      await server.close();
+    }
+  });
+
+  test('keepalive: supports interval override via spec.settings', async () => {
+    const server = await startWsServer();
+    const intervalCallbacks: Array<() => void> = [];
+    const originalSetInterval = globalThis.setInterval;
+    const setIntervalSpy = jest.spyOn(globalThis, 'setInterval').mockImplementation(((fn: any, ms: any, ...args: any[]) => {
+      if (Number(ms) === 500) {
+        intervalCallbacks.push(() => fn(...args));
+        return { unref: () => {} } as any;
+      }
+      return (originalSetInterval as any)(fn, ms, ...args);
+    }) as any);
+
+    try {
+      const fetchMock = installVapiFetchMock({ websocketCallUrl: server.url });
+      restoreFetch = fetchMock.restore;
+
+      const compat = new VapiRealtimeCompat() as any;
+      const session = await compat.createSession({
+        provider: createProvider(),
+        spec: createSpec({ settings: { keepaliveIntervalMs: 500 } })
+      });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      await waitForEvent(it, (e: any) => e?.type === 'ready');
+
+      const keepaliveCb = intervalCallbacks[intervalCallbacks.length - 1];
+      expect(typeof keepaliveCb).toBe('function');
+
+      await new Promise(res => setTimeout(res, 25));
+      const baselineBinaryCount = server.receivedBinary.length;
+      keepaliveCb?.();
+      await new Promise(res => setTimeout(res, 25));
+      expect(server.receivedBinary.length).toBeGreaterThan(baselineBinaryCount);
+
+      await session.close();
+    } finally {
+      setIntervalSpy.mockRestore();
       await server.close();
     }
   });

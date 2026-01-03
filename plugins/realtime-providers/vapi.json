@@ -8,7 +8,15 @@
     }
   },
   "metadata": {
+    "defaultModelProvider": "openai",
     "defaultModel": "gpt-4o-mini",
-    "defaultVoice": "alloy"
+    "defaultVoiceProvider": "openai",
+    "defaultVoice": "alloy",
+    "defaultTranscriberProvider": "deepgram",
+    "defaultTranscriberModel": "nova-2",
+    "keepalive": {
+      "enabled": true,
+      "intervalMs": 250
+    }
   }
 }

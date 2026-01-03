@@ -17,6 +17,7 @@ async function startHarness(options: {
     path: string;
     maxMessageBytes: number;
     idleTimeoutMs: number;
+    openHandshakeTimeoutMs?: number;
     maxConcurrentSessions: number;
     maxAudioBytesPerSecond: number;
     maxSessionDurationMs: number;
@@ -324,6 +325,126 @@ describe('server/internal/realtime/ws', () => {
     }
   });
 
+  test('enforces openHandshakeTimeoutMs when createSession hangs', async () => {
+    const harness = await startHarness({
+      config: {
+        path: '/realtime/ws',
+        maxMessageBytes: 1024 * 1024,
+        idleTimeoutMs: 0,
+        openHandshakeTimeoutMs: 25,
+        maxConcurrentSessions: 20,
+        maxAudioBytesPerSecond: 256000,
+        maxSessionDurationMs: 0
+      },
+      createSession: jest.fn().mockImplementation(async () => new Promise(() => {}))
+    });
+
+    try {
+      const { ws, messages, closePromise } = await openWs(toWsUrl(harness.url, '/realtime/ws'));
+      ws.send(JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }));
+
+      const err = await waitForMessage(messages, m => m?.type === 'error' && m?.error?.code === 'ws_open_timeout', 2000);
+      expect(err.error.message).toContain('open handshake timeout');
+
+      await closePromise;
+      try { ws.close(); } catch {}
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('enforces openHandshakeTimeoutMs when session never emits ready', async () => {
+    const harness = await startHarness({
+      config: {
+        path: '/realtime/ws',
+        maxMessageBytes: 1024 * 1024,
+        idleTimeoutMs: 0,
+        openHandshakeTimeoutMs: 25,
+        maxConcurrentSessions: 20,
+        maxAudioBytesPerSecond: 256000,
+        maxSessionDurationMs: 0
+      },
+      createSession: jest.fn().mockResolvedValue({
+        close: jest.fn(),
+        events: async function* () {
+          await new Promise<void>(() => {});
+        }
+      })
+    });
+
+    try {
+      const { ws, messages, closePromise } = await openWs(toWsUrl(harness.url, '/realtime/ws'));
+      ws.send(JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }));
+
+      const err = await waitForMessage(messages, m => m?.type === 'error' && m?.error?.code === 'ws_open_timeout', 2000);
+      expect(err.error.message).toContain('open handshake timeout');
+
+      await closePromise;
+      try { ws.close(); } catch {}
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('closes session if WS closes before createSession resolves', async () => {
+    let resolveSession: ((value: any) => void) | undefined;
+    const createSessionPromise = new Promise((resolve) => {
+      resolveSession = resolve as any;
+    });
+    const session = {
+      close: jest.fn().mockResolvedValue(undefined),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+      }
+    };
+
+    const createSession = jest.fn().mockImplementation(async () => createSessionPromise);
+    const harness = await startHarness({
+      config: {
+        path: '/realtime/ws',
+        maxMessageBytes: 1024 * 1024,
+        idleTimeoutMs: 0,
+        openHandshakeTimeoutMs: 0,
+        maxConcurrentSessions: 20,
+        maxAudioBytesPerSecond: 256000,
+        maxSessionDurationMs: 0
+      },
+      createSession
+    });
+
+    let clientWs: WebSocket | undefined;
+    let harnessClosed = false;
+    try {
+      const { ws, closePromise } = await openWs(toWsUrl(harness.url, '/realtime/ws'));
+      clientWs = ws;
+
+      ws.send(JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }));
+
+      const start = Date.now();
+      while (createSession.mock.calls.length === 0 && Date.now() - start < 2000) {
+        await new Promise(res => setTimeout(res, 10));
+      }
+      expect(createSession).toHaveBeenCalledTimes(1);
+
+      await harness.close();
+      harnessClosed = true;
+      await closePromise;
+
+      resolveSession?.(session);
+
+      const startClosed = Date.now();
+      while (session.close.mock.calls.length === 0 && Date.now() - startClosed < 2000) {
+        await new Promise(res => setTimeout(res, 10));
+      }
+      expect(session.close).toHaveBeenCalledTimes(1);
+    } finally {
+      try { clientWs?.close(); } catch {}
+      if (!harnessClosed) {
+        await harness.close();
+      }
+    }
+  });
+
   test('exchanges v1 protocol messages and forwards events', async () => {
     let closeResolve: (() => void) | undefined;
     const closed = new Promise<void>((resolve) => {
@@ -417,10 +538,10 @@ describe('server/internal/realtime/ws', () => {
       }
     };
 
-	    const harness = await startHarness({
-	      config: { path: '/realtime/ws', maxMessageBytes: 1024 * 1024, idleTimeoutMs: 0, maxConcurrentSessions: 20, maxAudioBytesPerSecond: 256000, maxSessionDurationMs: 0 },
-	      createSession: jest.fn().mockResolvedValue(session)
-	    });
+    const harness = await startHarness({
+      config: { path: '/realtime/ws', maxMessageBytes: 1024 * 1024, idleTimeoutMs: 0, maxConcurrentSessions: 20, maxAudioBytesPerSecond: 256000, maxSessionDurationMs: 0 },
+      createSession: jest.fn().mockResolvedValue(session)
+    });
 
     try {
       const { ws, messages, closePromise } = await openWs(toWsUrl(harness.url, '/realtime/ws'));
@@ -439,11 +560,11 @@ describe('server/internal/realtime/ws', () => {
     }
   });
 
-	  test('fails on invalid JSON and oversized messages', async () => {
-	    const harness = await startHarness({
-	      config: { path: '/realtime/ws', maxMessageBytes: 64, idleTimeoutMs: 0, maxConcurrentSessions: 20, maxAudioBytesPerSecond: 256000, maxSessionDurationMs: 0 },
-	      createSession: jest.fn()
-	    });
+  test('fails on invalid JSON and oversized messages', async () => {
+    const harness = await startHarness({
+      config: { path: '/realtime/ws', maxMessageBytes: 64, idleTimeoutMs: 0, maxConcurrentSessions: 20, maxAudioBytesPerSecond: 256000, maxSessionDurationMs: 0 },
+      createSession: jest.fn()
+    });
 
     try {
       // invalid JSON
@@ -479,13 +600,13 @@ describe('server/internal/realtime/ws', () => {
     }
   });
 
-	  test('fails on unsupported protocolVersion and unknown message types', async () => {
-	    const harness = await startHarness({
-	      config: { path: '/realtime/ws', maxMessageBytes: 1024 * 1024, idleTimeoutMs: 0, maxConcurrentSessions: 20, maxAudioBytesPerSecond: 256000, maxSessionDurationMs: 0 },
-	      createSession: jest.fn().mockResolvedValue({
-	        close: jest.fn(),
-	        events: async function* () {
-	          yield { type: 'ready', sessionId: 's' };
+  test('fails on unsupported protocolVersion and unknown message types', async () => {
+    const harness = await startHarness({
+      config: { path: '/realtime/ws', maxMessageBytes: 1024 * 1024, idleTimeoutMs: 0, maxConcurrentSessions: 20, maxAudioBytesPerSecond: 256000, maxSessionDurationMs: 0 },
+      createSession: jest.fn().mockResolvedValue({
+        close: jest.fn(),
+        events: async function* () {
+          yield { type: 'ready', sessionId: 's' };
           await new Promise<void>(() => {});
         }
       })
@@ -518,13 +639,13 @@ describe('server/internal/realtime/ws', () => {
     }
   });
 
-	  test('handles session ready contract violations', async () => {
-	    const harness = await startHarness({
-	      config: { path: '/realtime/ws', maxMessageBytes: 1024 * 1024, idleTimeoutMs: 0, maxConcurrentSessions: 20, maxAudioBytesPerSecond: 256000, maxSessionDurationMs: 0 },
-	      createSession: jest
-	        .fn()
-	        .mockResolvedValueOnce({
-	          close: jest.fn(),
+  test('handles session ready contract violations', async () => {
+    const harness = await startHarness({
+      config: { path: '/realtime/ws', maxMessageBytes: 1024 * 1024, idleTimeoutMs: 0, maxConcurrentSessions: 20, maxAudioBytesPerSecond: 256000, maxSessionDurationMs: 0 },
+      createSession: jest
+        .fn()
+        .mockResolvedValueOnce({
+          close: jest.fn(),
           events: async function* () {
             // closes immediately
           }
@@ -607,10 +728,10 @@ describe('server/internal/realtime/ws', () => {
       }
     };
 
-	    const harness = await startHarness({
-	      config: { path: '/realtime/ws', maxMessageBytes: 1024 * 1024, idleTimeoutMs: 0, maxConcurrentSessions: 20, maxAudioBytesPerSecond: 256000, maxSessionDurationMs: 0 },
-	      createSession: jest.fn().mockResolvedValue(session)
-	    });
+    const harness = await startHarness({
+      config: { path: '/realtime/ws', maxMessageBytes: 1024 * 1024, idleTimeoutMs: 0, maxConcurrentSessions: 20, maxAudioBytesPerSecond: 256000, maxSessionDurationMs: 0 },
+      createSession: jest.fn().mockResolvedValue(session)
+    });
 
     try {
       const { ws, messages, closePromise } = await openWs(toWsUrl(harness.url, '/realtime/ws'));

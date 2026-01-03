@@ -398,6 +398,7 @@ export function createUnifiedProgram(
     .option('--realtime-ws-path <path>', 'WebSocket path for realtime sessions')
     .option('--realtime-max-ws-message-bytes <bytes>', 'Maximum realtime WebSocket message size', parseNumber)
     .option('--realtime-ws-idle-timeout-ms <ms>', 'Realtime WebSocket idle timeout', parseNumber)
+    .option('--realtime-open-handshake-timeout-ms <ms>', 'Realtime WebSocket open handshake timeout', parseNumber)
     .option('--realtime-max-concurrent-sessions <n>', 'Max concurrent realtime sessions', parseNumber)
     .option('--realtime-max-audio-bytes-per-second <bytes>', 'Max audio throughput per session (bytes/sec)', parseNumber)
     .option('--realtime-max-session-duration-ms <ms>', 'Max realtime session duration', parseNumber)
@@ -490,6 +491,7 @@ export function createUnifiedProgram(
           if (options.realtimeWsPath !== undefined) realtime.wsPath = options.realtimeWsPath;
           if (options.realtimeMaxWsMessageBytes !== undefined) realtime.maxWsMessageBytes = options.realtimeMaxWsMessageBytes;
           if (options.realtimeWsIdleTimeoutMs !== undefined) realtime.wsIdleTimeoutMs = options.realtimeWsIdleTimeoutMs;
+          if (options.realtimeOpenHandshakeTimeoutMs !== undefined) realtime.openHandshakeTimeoutMs = options.realtimeOpenHandshakeTimeoutMs;
           if (options.realtimeMaxConcurrentSessions !== undefined) realtime.maxConcurrentSessions = options.realtimeMaxConcurrentSessions;
           if (options.realtimeMaxAudioBytesPerSecond !== undefined) realtime.maxAudioBytesPerSecond = options.realtimeMaxAudioBytesPerSecond;
           if (options.realtimeMaxSessionDurationMs !== undefined) realtime.maxSessionDurationMs = options.realtimeMaxSessionDurationMs;
