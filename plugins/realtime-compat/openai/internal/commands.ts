@@ -4,10 +4,9 @@ import { parseRealtimeSessionSettings } from '../../../../kernel/index.js';
 type OpenAIRealtimeClientEvent = Record<string, any>;
 
 const OPENAI_SESSION_SETTINGS_DEFINITIONS = {
-  temperature: { type: 'number' },
   voice: { type: 'string' },
   speed: { type: 'number' },
-  maxResponseOutputTokens: { type: 'string', aliases: ['max_response_output_tokens'] },
+  maxResponseOutputTokens: { type: 'string', aliases: ['max_response_output_tokens', 'max_output_tokens'] },
   transcriptionModel: { type: 'string', aliases: ['transcription_model'] },
   noiseReduction: { type: 'string', aliases: ['noise_reduction'] },
   vadType: { type: 'string', aliases: ['vad_type'] },
@@ -185,10 +184,24 @@ export function buildSessionUpdateEvent(options: {
   };
 
   const voice = typeof settingsValues.voice === 'string' ? settingsValues.voice : undefined;
-  const temperature = typeof settingsValues.temperature === 'number' ? settingsValues.temperature : undefined;
   const speed = typeof settingsValues.speed === 'number' ? settingsValues.speed : undefined;
   const maxResponseOutputTokens =
     typeof settingsValues.maxResponseOutputTokens === 'string' ? settingsValues.maxResponseOutputTokens : undefined;
+  let maxOutputTokens: string | number | undefined;
+  if (maxResponseOutputTokens) {
+    if (maxResponseOutputTokens.toLowerCase() === 'inf') {
+      maxOutputTokens = 'inf';
+    } else {
+      const parsed = Number(maxResponseOutputTokens);
+      if (Number.isFinite(parsed) && Number.isInteger(parsed) && parsed > 0) {
+        maxOutputTokens = parsed;
+      } else {
+        addInvalidKey(
+          getProvidedKey(['maxResponseOutputTokens', 'max_response_output_tokens', 'max_output_tokens'], 'maxResponseOutputTokens')
+        );
+      }
+    }
+  }
   const transcriptionModel =
     typeof settingsValues.transcriptionModel === 'string' ? settingsValues.transcriptionModel : undefined;
   const noiseReduction = typeof settingsValues.noiseReduction === 'string' ? settingsValues.noiseReduction : undefined;
@@ -246,9 +259,7 @@ export function buildSessionUpdateEvent(options: {
       type: 'realtime',
       instructions: options.spec.systemPrompt ?? undefined,
       output_modalities: ['audio'],
-      ...(temperature !== undefined ? { temperature } : {}),
-      ...(speed !== undefined ? { speed } : {}),
-      ...(maxResponseOutputTokens ? { max_response_output_tokens: maxResponseOutputTokens } : {}),
+      ...(maxOutputTokens !== undefined ? { max_output_tokens: maxOutputTokens } : {}),
       audio: {
         input: {
           format: toOpenAIAudioFormat(audio.input.format),
@@ -265,7 +276,8 @@ export function buildSessionUpdateEvent(options: {
         },
         output: {
           format: toOpenAIAudioFormat(audio.output.format),
-          ...(voice ? { voice } : {})
+          ...(voice ? { voice } : {}),
+          ...(speed !== undefined ? { speed } : {})
         }
       },
       ...(toolsForSession ? { tools: toolsForSession } : {}),

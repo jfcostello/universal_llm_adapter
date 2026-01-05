@@ -864,7 +864,7 @@ describe('plugins/realtime-compat/openai — webrtc transport + session', () => 
         compat: 'openai',
         endpoint: { urlTemplate: 'ws://x?model={model}', headers: {} }
       } as any,
-      spec: { provider: 'openai', model: 'm', settings: { unknownKey: 'x', temperature: 'nope' } }
+      spec: { provider: 'openai', model: 'm', settings: { unknownKey: 'x', temperature: 'nope', voice: '' } }
     } as any, transport as any);
 
     const events = await collectN(session.events()[Symbol.asyncIterator](), 4);

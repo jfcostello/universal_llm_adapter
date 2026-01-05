@@ -78,7 +78,7 @@ describe('realtime-compat/openai — commands', () => {
     expect(event.session.audio.input.transcription.language).toBeUndefined();
   });
 
-  test('buildSessionUpdateEvent maps session settings (voice, temperature) and reports unknown/invalid keys', () => {
+  test('buildSessionUpdateEvent maps session settings (voice) and reports unknown/invalid keys', () => {
     const { event, settingsWarnings } = buildSessionUpdateEvent({
       spec: {
         provider: 'openai',
@@ -88,8 +88,8 @@ describe('realtime-compat/openai — commands', () => {
     });
 
     expect(event.session.audio.output.voice).toBe('voice_1');
-    expect(event.session.temperature).toBe(0.7);
-    expect(settingsWarnings.unknownKeys.sort()).toEqual(['badVoice', 'extra']);
+    expect((event.session as any).temperature).toBeUndefined();
+    expect(settingsWarnings.unknownKeys.sort()).toEqual(['badVoice', 'extra', 'temperature']);
     expect(settingsWarnings.invalidKeys).toEqual([]);
   });
 
@@ -103,9 +103,9 @@ describe('realtime-compat/openai — commands', () => {
     });
 
     expect(event.session.audio.output.voice).toBeUndefined();
-    expect(event.session.temperature).toBeUndefined();
-    expect(settingsWarnings.unknownKeys).toEqual([]);
-    expect(settingsWarnings.invalidKeys.sort()).toEqual(['temperature', 'voice']);
+    expect((event.session as any).temperature).toBeUndefined();
+    expect(settingsWarnings.unknownKeys).toEqual(['temperature']);
+    expect(settingsWarnings.invalidKeys.sort()).toEqual(['voice']);
   });
 
   test('buildSessionUpdateEvent validates audio constraints (channels and sample rates)', () => {
@@ -342,8 +342,8 @@ describe('realtime-compat/openai — commands', () => {
       }
     });
 
-    expect(event.session.speed).toBe(1.5);
-    expect(event.session.max_response_output_tokens).toBe('4096');
+    expect(event.session.audio.output.speed).toBe(1.5);
+    expect(event.session.max_output_tokens).toBe(4096);
     expect(settingsWarnings.unknownKeys).toEqual([]);
     expect(settingsWarnings.invalidKeys).toEqual([]);
   });
@@ -357,7 +357,32 @@ describe('realtime-compat/openai — commands', () => {
       }
     });
 
-    expect(event.session.max_response_output_tokens).toBe('2048');
+    expect(event.session.max_output_tokens).toBe(2048);
+  });
+
+  test('buildSessionUpdateEvent maps maxResponseOutputTokens via max_output_tokens alias', () => {
+    const { event } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        settings: { max_output_tokens: 2048 } as any
+      }
+    });
+
+    expect(event.session.max_output_tokens).toBe(2048);
+  });
+
+  test('buildSessionUpdateEvent reports invalid max_output_tokens values', () => {
+    const { event, settingsWarnings } = buildSessionUpdateEvent({
+      spec: {
+        provider: 'openai',
+        model: 'm',
+        settings: { max_output_tokens: 0 } as any
+      }
+    });
+
+    expect(event.session.max_output_tokens).toBeUndefined();
+    expect(settingsWarnings.invalidKeys).toEqual(['max_output_tokens']);
   });
 
   test('buildSessionUpdateEvent uses custom transcriptionModel instead of whisper-1', () => {
@@ -538,7 +563,7 @@ describe('realtime-compat/openai — commands', () => {
   });
 
   test('buildSessionUpdateEvent combines all extended settings correctly', () => {
-    const { event } = buildSessionUpdateEvent({
+    const { event, settingsWarnings } = buildSessionUpdateEvent({
       spec: {
         provider: 'openai',
         model: 'm',
@@ -560,9 +585,11 @@ describe('realtime-compat/openai — commands', () => {
     });
 
     expect(event.session.audio.output.voice).toBe('marin');
-    expect(event.session.temperature).toBe(0.8);
-    expect(event.session.speed).toBe(1.2);
-    expect(event.session.max_response_output_tokens).toBe('inf');
+    expect((event.session as any).temperature).toBeUndefined();
+    expect(event.session.audio.output.speed).toBe(1.2);
+    expect(event.session.max_output_tokens).toBe('inf');
+    expect(settingsWarnings.unknownKeys).toEqual(['temperature']);
+    expect(settingsWarnings.invalidKeys).toEqual([]);
     expect(event.session.audio.input.noise_reduction).toEqual({ type: 'near_field' });
     expect(event.session.audio.input.transcription.model).toBe('gpt-4o-transcribe');
     expect(event.session.audio.input.turn_detection.type).toBe('server_vad');
