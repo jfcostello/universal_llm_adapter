@@ -26,6 +26,7 @@ export interface WinstonMockHarness {
 
 export interface WinstonMockOptions {
   disableFileLogs?: boolean;
+  getDefaults?: () => any;
 }
 
 export async function setupLoggingTestHarness(
@@ -104,6 +105,13 @@ export async function setupLoggingTestHarness(
     },
     createLogger: createLoggerMock
   }));
+
+  if (options.getDefaults) {
+    await unstableMockModule('../../../kernel/index.js', () => ({
+      __esModule: true,
+      getDefaults: options.getDefaults
+    }));
+  }
 
   process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = options.disableFileLogs ? '1' : '0';
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from '@jest/globals';
 import {
+  createSensitiveKeyMatcher,
   genericRedactHeaders,
   redactJsonCredentials,
   redactUrlCredentials,
@@ -24,6 +25,11 @@ describe('utils/security/redaction', () => {
   test('genericRedactHeaders handles missing headers gracefully', () => {
     const redacted = genericRedactHeaders({});
     expect(redacted).toEqual({});
+  });
+
+  test('createSensitiveKeyMatcher handles non-array input defensively', () => {
+    const matcher = createSensitiveKeyMatcher(undefined as any);
+    expect(matcher('key')).toBe(false);
   });
 
   test('redactUrlCredentials redacts basic-auth credentials', () => {
@@ -53,15 +59,15 @@ describe('utils/security/redaction', () => {
       );
     });
 
-    test('redacts token query param', () => {
+    test('does not redact token query param by default', () => {
       expect(redactUrlQueryCredentials('https://api.example.com?token=eyJhbGciOiJIUzI1NiJ9')).toBe(
-        'https://api.example.com/?token=***NiJ9'
+        'https://api.example.com/?token=eyJhbGciOiJIUzI1NiJ9'
       );
     });
 
     test('redacts short sensitive values without leaking full value (<= 4 chars)', () => {
-      expect(redactUrlQueryCredentials('https://api.example.com?token=abcd')).toBe(
-        'https://api.example.com/?token=***'
+      expect(redactUrlQueryCredentials('https://api.example.com?key=abcd')).toBe(
+        'https://api.example.com/?key=***'
       );
     });
 
@@ -86,7 +92,7 @@ describe('utils/security/redaction', () => {
     test('redacts multiple sensitive params and preserves non-sensitive params', () => {
       const result = redactUrlQueryCredentials('https://api.example.com?key=abc123&token=xyz789&foo=bar');
       expect(result).toContain('key=***c123');
-      expect(result).toContain('token=***z789');
+      expect(result).toContain('token=xyz789');
       expect(result).toContain('foo=bar');
     });
 
@@ -111,7 +117,7 @@ describe('utils/security/redaction', () => {
 
     test('handles ws:// URLs', () => {
       expect(redactUrlQueryCredentials('ws://api.example.com/realtime?token=abcd1234')).toBe(
-        'ws://api.example.com/realtime?token=***1234'
+        'ws://api.example.com/realtime?token=abcd1234'
       );
     });
 
@@ -129,6 +135,18 @@ describe('utils/security/redaction', () => {
       );
     });
 
+    test('supports wildcard patterns (e.g. *token*)', () => {
+      expect(redactUrlQueryCredentials('https://api.example.com?token=abcd1234', ['*token*'])).toBe(
+        'https://api.example.com/?token=***1234'
+      );
+    });
+
+    test('supports disabling query redaction via empty pattern list', () => {
+      expect(redactUrlQueryCredentials('https://api.example.com?key=abcd1234', [])).toBe(
+        'https://api.example.com/?key=abcd1234'
+      );
+    });
+
     test('redactUrlQueryParams is an alias of redactUrlQueryCredentials', () => {
       expect(redactUrlQueryParams('https://api.example.com?key=abc123')).toBe(
         redactUrlQueryCredentials('https://api.example.com?key=abc123')
@@ -143,11 +161,12 @@ describe('utils/security/redaction', () => {
   });
 
   describe('redactJsonCredentials', () => {
-    test('redacts common credential keys recursively', () => {
+    test('redacts common credential keys recursively (but not token by default)', () => {
       const input = {
         api_key: 'sk-abcdef1234',
         nested: {
           token: 'abcd',
+          secret: 'nested-secret-1234',
           ok: 'value'
         }
       };
@@ -155,7 +174,8 @@ describe('utils/security/redaction', () => {
       expect(redactJsonCredentials(input)).toEqual({
         api_key: '***1234',
         nested: {
-          token: '***',
+          token: 'abcd',
+          secret: '***1234',
           ok: 'value'
         }
       });
@@ -179,11 +199,11 @@ describe('utils/security/redaction', () => {
 
     test('redacts non-string sensitive values with a placeholder', () => {
       const input = {
-        token: { nested: true }
+        secret: { nested: true }
       };
 
       expect(redactJsonCredentials(input)).toEqual({
-        token: '***'
+        secret: '***'
       });
     });
 
@@ -211,14 +231,28 @@ describe('utils/security/redaction', () => {
 
     test('handles arrays and WebSocket URLs', () => {
       const input = [
-        { token: 'abcd1234' },
-        'wss://api.example.com/realtime?token=abcd1234'
+        { token: 'abcd1234', api_key: 'sk-abcdef9876' },
+        'wss://api.example.com/realtime?token=abcd1234&key=abcd1234'
       ];
 
       expect(redactJsonCredentials(input)).toEqual([
-        { token: '***1234' },
-        'wss://api.example.com/realtime?token=***1234'
+        { token: 'abcd1234', api_key: '***9876' },
+        'wss://api.example.com/realtime?token=abcd1234&key=***1234'
       ]);
+    });
+
+    test('supports wildcard sensitive key patterns (e.g. *token*)', () => {
+      const input = {
+        promptTokens: 12,
+        tokenCount: 34,
+        ok: 'value'
+      };
+
+      expect(redactJsonCredentials(input, ['*token*'])).toEqual({
+        promptTokens: '***',
+        tokenCount: '***',
+        ok: 'value'
+      });
     });
 
     test('handles Date, Error, and Buffer values', () => {

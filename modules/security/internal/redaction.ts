@@ -1,3 +1,5 @@
+import { getDefaults } from '../../../kernel/index.js';
+
 export function genericRedactHeaders(headers: Record<string, any>): Record<string, any> {
   const redacted = { ...headers };
 
@@ -23,28 +25,74 @@ export function redactUrlCredentials(url: string): string {
 }
 
 /**
- * Default query parameter names that are considered sensitive and should be redacted.
- * Matching is case-insensitive.
+ * Default key names that are considered sensitive and should be redacted.
+ * Matching is case-insensitive, and supports glob-style `*` wildcards.
  */
-const DEFAULT_SENSITIVE_QUERY_PARAMS = [
-  'key',
-  'api_key',
-  'apikey',
-  'token',
-  'secret',
-  'password',
-  'auth',
-  'credential'
-];
-
-const DEFAULT_SENSITIVE_JSON_KEYS = [
-  ...DEFAULT_SENSITIVE_QUERY_PARAMS,
+const FALLBACK_SENSITIVE_KEYS = [
   'authorization',
   'x-api-key',
-  'x-goog-api-key'
+  'x-goog-api-key',
+  'api_key',
+  'apikey',
+  'key',
+  'secret',
+  'password',
+  'credential',
+  'auth'
 ];
 
-function redactSensitiveString(value: string): string {
+function normalizeKeyPatterns(patterns: unknown): string[] {
+  if (!Array.isArray(patterns)) return [];
+  return patterns
+    .map((p) => String(p).trim())
+    .filter(Boolean);
+}
+
+function resolveSensitiveKeyPatterns(overrides?: string[]): string[] {
+  if (overrides !== undefined) return normalizeKeyPatterns(overrides);
+
+  const defaults = getDefaults() as any;
+  const fromConfig = defaults?.security?.redaction?.sensitiveKeys;
+  const normalized = normalizeKeyPatterns(fromConfig);
+  return normalized.length > 0 ? normalized : FALLBACK_SENSITIVE_KEYS;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function compileGlobPattern(pattern: string): RegExp {
+  const parts = pattern.split('*').map(escapeRegExp);
+  return new RegExp(`^${parts.join('.*')}$`, 'i');
+}
+
+export function createSensitiveKeyMatcher(patterns: string[]): (key: string) => boolean {
+  const exact = new Set<string>();
+  const regexes: RegExp[] = [];
+
+  for (const raw of normalizeKeyPatterns(patterns)) {
+    if (raw.includes('*')) {
+      regexes.push(compileGlobPattern(raw));
+      continue;
+    }
+    exact.add(raw.toLowerCase());
+  }
+
+  if (exact.size === 0 && regexes.length === 0) {
+    return () => false;
+  }
+
+  return (key: string): boolean => {
+    const lower = String(key).toLowerCase();
+    if (exact.has(lower)) return true;
+    for (const re of regexes) {
+      if (re.test(key)) return true;
+    }
+    return false;
+  };
+}
+
+export function redactSensitiveString(value: string): string {
   const match = value.match(/^Bearer\s+(.+)$/i);
   if (match && match[1]) {
     const token = match[1];
@@ -53,6 +101,12 @@ function redactSensitiveString(value: string): string {
   }
 
   return value.length <= 4 ? '***' : `***${value.slice(-4)}`;
+}
+
+export function redactSensitiveValue(value: unknown): unknown {
+  if (typeof value === 'string') return redactSensitiveString(value);
+  if (value === null || value === undefined) return value;
+  return '***';
 }
 
 function looksLikeUrl(value: string): boolean {
@@ -68,8 +122,8 @@ function looksLikeUrl(value: string): boolean {
  * @returns The URL with sensitive query parameters redacted, or the original string if parsing fails.
  */
 export function redactUrlQueryCredentials(url: string, sensitiveParams?: string[]): string {
-  const paramsToRedact = sensitiveParams ?? DEFAULT_SENSITIVE_QUERY_PARAMS;
-  const paramsLower = new Set(paramsToRedact.map(p => p.toLowerCase()));
+  const paramsToRedact = resolveSensitiveKeyPatterns(sensitiveParams);
+  const shouldRedactParam = createSensitiveKeyMatcher(paramsToRedact);
 
   let parsed: URL;
   try {
@@ -84,11 +138,10 @@ export function redactUrlQueryCredentials(url: string, sensitiveParams?: string[
   }
 
   for (const [key] of parsed.searchParams) {
-    if (!paramsLower.has(key.toLowerCase())) continue;
+    if (!shouldRedactParam(key)) continue;
     const value = parsed.searchParams.get(key) || '';
     if (!value) continue;
-    const redacted = value.length <= 4 ? '***' : `***${value.slice(-4)}`;
-    parsed.searchParams.set(key, redacted);
+    parsed.searchParams.set(key, redactSensitiveString(value));
   }
 
   return parsed.toString();
@@ -118,8 +171,8 @@ export function redactUrl(url: string): string {
  * heuristic scanning of arbitrary text fields.
  */
 export function redactJsonCredentials(value: unknown, sensitiveKeys?: string[]): unknown {
-  const keys = sensitiveKeys ?? DEFAULT_SENSITIVE_JSON_KEYS;
-  const keysLower = new Set(keys.map(k => k.toLowerCase()));
+  const keys = resolveSensitiveKeyPatterns(sensitiveKeys);
+  const shouldRedactKey = createSensitiveKeyMatcher(keys);
   const seen = new WeakMap<object, any>();
   const maxDepth = 25;
 
@@ -161,14 +214,8 @@ export function redactJsonCredentials(value: unknown, sensitiveKeys?: string[]):
     seen.set(obj, out);
 
     for (const [key, raw] of Object.entries(obj)) {
-      if (keysLower.has(key.toLowerCase())) {
-        if (typeof raw === 'string') {
-          out[key] = redactSensitiveString(raw);
-        } else if (raw === null || raw === undefined) {
-          out[key] = raw;
-        } else {
-          out[key] = '***';
-        }
+      if (shouldRedactKey(key)) {
+        out[key] = redactSensitiveValue(raw);
         continue;
       }
 

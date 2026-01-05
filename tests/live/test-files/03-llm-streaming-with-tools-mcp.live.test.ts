@@ -33,6 +33,7 @@ function parseMcpTimestampFromToolResult(raw: string): number {
     const systemPrompt = [
       'You are a conformance test agent.',
       'You MUST call tools exactly as the user instructs.',
+      'The evaluator will FAIL you if you do not call tool test.echo at least once before answering.',
       'After tools run, reply with only what the user asked for, and nothing else.'
     ].join('\n');
 

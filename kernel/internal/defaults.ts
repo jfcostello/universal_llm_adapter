@@ -48,6 +48,22 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
     imageEstimate: 768,
     toolResultDivisor: 6
   },
+  security: {
+    redaction: {
+      sensitiveKeys: [
+        'authorization',
+        'x-api-key',
+        'x-goog-api-key',
+        'api_key',
+        'apikey',
+        'key',
+        'secret',
+        'password',
+        'credential',
+        'auth'
+      ]
+    }
+  },
   timeouts: {
     mcpRequest: 30000,
     llmHttp: 60000,

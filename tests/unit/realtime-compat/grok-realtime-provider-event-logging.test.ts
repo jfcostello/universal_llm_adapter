@@ -139,9 +139,12 @@ describe('realtime-compat/grok — provider event logging', () => {
   test('redacts audio payloads and stops logging after the configured window', async () => {
     await withTempCwd('grok-rt-provider-log-enabled', async (cwd) => {
       process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '0';
-      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS = '200';
+      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS = '5000';
 
       await jest.isolateModulesAsync(async () => {
+        const baseNow = Date.now();
+        const now = jest.spyOn(Date, 'now').mockImplementation(() => baseNow);
+
         const { createGrokRealtimeCompatSessionWithTransport } = await import(
           '@/plugins/realtime-compat/grok/internal/session-core.ts'
         );
@@ -162,11 +165,8 @@ describe('realtime-compat/grok — provider event logging', () => {
         fake.push({ type: 'message', data: JSON.stringify({ type: 'response.output_audio.delta', delta: 'AA==' }) });
         await flush();
 
-        // Give the background drain time to log before the window expires.
-        await new Promise(resolve => setTimeout(resolve, 50));
-
-        // Wait past the configured window so subsequent provider events are not logged.
-        await new Promise(resolve => setTimeout(resolve, 220));
+        // Force the follow-up provider events to arrive after the configured window.
+        now.mockImplementation(() => baseNow + 6000);
         fake.push({ type: 'message', data: JSON.stringify({ type: 'response.output_audio.delta', delta: 'BB==' }) });
         await flush();
         fake.push({ type: 'message', data: JSON.stringify({ type: 'response.output_audio.delta', delta: 'CC==' }) });
@@ -196,9 +196,12 @@ describe('realtime-compat/grok — provider event logging', () => {
   test('logs non-object provider payloads and reuses the logger within the window', async () => {
     await withTempCwd('grok-rt-provider-log-varied', async (cwd) => {
       process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '0';
-      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS = '200';
+      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS = '5000';
 
       await jest.isolateModulesAsync(async () => {
+        const baseNow = Date.now();
+        jest.spyOn(Date, 'now').mockImplementation(() => baseNow);
+
         const { createGrokRealtimeCompatSessionWithTransport } = await import(
           '@/plugins/realtime-compat/grok/internal/session-core.ts'
         );

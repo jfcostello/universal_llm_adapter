@@ -509,6 +509,11 @@ All non-provider-specific defaults are in `plugins/configs/defaults.json`:
     "imageEstimate": 768,
     "toolResultDivisor": 6
   },
+  "security": {
+    "redaction": {
+      "sensitiveKeys": ["authorization", "x-api-key", "api_key", "secret", "password"]
+    }
+  },
   "timeouts": {
     "mcpRequest": 30000,
     "llmHttp": 60000,

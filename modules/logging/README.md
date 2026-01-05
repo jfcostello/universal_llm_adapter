@@ -27,3 +27,13 @@ Retention:
 - Per-channel overrides:
   - `LLM_ADAPTER_VOICE_LOG_MAX_FILES`, `LLM_ADAPTER_VOICE_LOG_MAX_AGE_DAYS`, `LLM_ADAPTER_VOICE_LOG_MAX_BYTES`
   - `LLM_ADAPTER_REALTIME_LOG_MAX_FILES`, `LLM_ADAPTER_REALTIME_LOG_MAX_AGE_DAYS`, `LLM_ADAPTER_REALTIME_LOG_MAX_BYTES`
+
+## Redaction
+
+Structured logs are serialized via the `BaseAdapterLogger` JSON replacer.
+
+- Always redacts:
+  - `Authorization` header values (keeps last 4 chars)
+  - keys ending in `base64` (audio/images/etc)
+  - basic-auth credentials and sensitive query params in URL-like strings
+- Additionally redacts any key matching `security.redaction.sensitiveKeys` from `plugins/configs/defaults.json` (case-insensitive, supports `*` wildcards).
