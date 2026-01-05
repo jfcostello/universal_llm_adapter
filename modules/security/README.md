@@ -24,6 +24,7 @@ Key-based redaction is controlled by `security.redaction.sensitiveKeys` in `plug
 
 - Matching is case-insensitive.
 - Patterns can include `*` wildcards (glob-style).
+- Defaults include wildcard patterns for api-key-ish keys (e.g. `*api_key*`, `*api-key*`, `*apikey*`) so nested keys like `vendorApiKey` are redacted.
 - By default, we do **not** redact fields just because the key contains `"token"` (token usage counters are common in LLM payloads).
 
 Example:

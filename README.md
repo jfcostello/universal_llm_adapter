@@ -511,7 +511,21 @@ All non-provider-specific defaults are in `plugins/configs/defaults.json`:
   },
   "security": {
     "redaction": {
-      "sensitiveKeys": ["authorization", "x-api-key", "api_key", "secret", "password"]
+      "sensitiveKeys": [
+        "authorization",
+        "x-api-key",
+        "x-goog-api-key",
+        "api_key",
+        "apikey",
+        "*api_key*",
+        "*api-key*",
+        "*apikey*",
+        "key",
+        "secret",
+        "password",
+        "credential",
+        "auth"
+      ]
     }
   },
   "timeouts": {

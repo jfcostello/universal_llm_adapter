@@ -32,6 +32,20 @@ describe('utils/security/redaction', () => {
     expect(matcher('key')).toBe(false);
   });
 
+  test('createSensitiveKeyMatcher memoizes matchers for identical pattern sets', () => {
+    const matcher1 = createSensitiveKeyMatcher(['authorization', '*API_KEY*']);
+    const matcher2 = createSensitiveKeyMatcher(['*api_key*', 'AUTHORIZATION']);
+    expect(matcher2).toBe(matcher1);
+  });
+
+  test('createSensitiveKeyMatcher evicts older entries when cache is full', () => {
+    const sentinel = createSensitiveKeyMatcher(['sentinel']);
+    for (let i = 0; i < 200; i++) {
+      createSensitiveKeyMatcher([`pattern_${i}`]);
+    }
+    expect(createSensitiveKeyMatcher(['sentinel'])).not.toBe(sentinel);
+  });
+
   test('redactUrlCredentials redacts basic-auth credentials', () => {
     expect(redactUrlCredentials('https://user:password@cloud.example.com')).toBe('https://***:***@cloud.example.com');
   });
@@ -50,6 +64,12 @@ describe('utils/security/redaction', () => {
     test('redacts single sensitive query param (api_key)', () => {
       expect(redactUrlQueryCredentials('https://api.example.com?api_key=sk-abcdef7890')).toBe(
         'https://api.example.com/?api_key=***7890'
+      );
+    });
+
+    test('redacts sensitive query params containing api_key substrings by default (wildcard match)', () => {
+      expect(redactUrlQueryCredentials('https://api.example.com?vendor_api_key=sk-abcdef7890')).toBe(
+        'https://api.example.com/?vendor_api_key=***7890'
       );
     });
 
@@ -164,6 +184,7 @@ describe('utils/security/redaction', () => {
     test('redacts common credential keys recursively (but not token by default)', () => {
       const input = {
         api_key: 'sk-abcdef1234',
+        vendorApiKey: 'sk-vendor9876',
         nested: {
           token: 'abcd',
           secret: 'nested-secret-1234',
@@ -173,6 +194,7 @@ describe('utils/security/redaction', () => {
 
       expect(redactJsonCredentials(input)).toEqual({
         api_key: '***1234',
+        vendorApiKey: '***9876',
         nested: {
           token: 'abcd',
           secret: '***1234',

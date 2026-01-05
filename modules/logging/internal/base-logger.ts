@@ -4,7 +4,13 @@ import * as fs from 'fs';
 import DailyRotateFile from 'winston-daily-rotate-file';
 import TransportStream from 'winston-transport';
 import type { TransformableInfo } from 'logform';
-import { createSensitiveKeyMatcher, genericRedactHeaders, redactSensitiveValue, redactUrl } from '../../security/index.js';
+import {
+  createSensitiveKeyMatcher,
+  genericRedactHeaders,
+  getSensitiveKeyPatternsFromDefaults,
+  redactSensitiveValue,
+  redactUrl
+} from '../../security/index.js';
 import { readEnvFloat, readEnvInt } from './retention.js';
 import { applyRetentionOnce } from './retention-manager.js';
 import { getDefaults } from '../../../kernel/index.js';
@@ -184,8 +190,7 @@ export class BaseAdapterLogger {
     this.level = level;
     this.correlationId = correlationId;
     this.ownsWinstonLogger = !options.sharedLogger;
-    const sensitiveKeys = (getDefaults() as any)?.security?.redaction?.sensitiveKeys;
-    this.shouldRedactKey = createSensitiveKeyMatcher(Array.isArray(sensitiveKeys) ? sensitiveKeys : []);
+    this.shouldRedactKey = createSensitiveKeyMatcher(getSensitiveKeyPatternsFromDefaults());
 
     if (options.sharedLogger) {
       this.logger = options.sharedLogger;

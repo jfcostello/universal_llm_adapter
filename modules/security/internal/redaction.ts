@@ -34,12 +34,28 @@ const FALLBACK_SENSITIVE_KEYS = [
   'x-goog-api-key',
   'api_key',
   'apikey',
+  '*api_key*',
+  '*api-key*',
+  '*apikey*',
   'key',
   'secret',
   'password',
   'credential',
   'auth'
 ];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function readSensitiveKeysFromDefaults(defaults: unknown): unknown {
+  if (!isRecord(defaults)) return undefined;
+  const security = defaults.security;
+  if (!isRecord(security)) return undefined;
+  const redaction = security.redaction;
+  if (!isRecord(redaction)) return undefined;
+  return redaction.sensitiveKeys;
+}
 
 function normalizeKeyPatterns(patterns: unknown): string[] {
   if (!Array.isArray(patterns)) return [];
@@ -48,11 +64,23 @@ function normalizeKeyPatterns(patterns: unknown): string[] {
     .filter(Boolean);
 }
 
+const SENSITIVE_KEY_MATCHER_CACHE_MAX = 50;
+const sensitiveKeyMatcherCache = new Map<string, (key: string) => boolean>();
+
+function normalizeMatcherPatterns(patterns: unknown): string[] {
+  const normalized = normalizeKeyPatterns(patterns).map((pattern) => pattern.toLowerCase());
+  return Array.from(new Set(normalized)).sort();
+}
+
+function buildMatcherCacheKey(patterns: string[]): string {
+  return patterns.join('\u0000');
+}
+
 function resolveSensitiveKeyPatterns(overrides?: string[]): string[] {
   if (overrides !== undefined) return normalizeKeyPatterns(overrides);
 
-  const defaults = getDefaults() as any;
-  const fromConfig = defaults?.security?.redaction?.sensitiveKeys;
+  const defaults = getDefaults();
+  const fromConfig = readSensitiveKeysFromDefaults(defaults);
   const normalized = normalizeKeyPatterns(fromConfig);
   return normalized.length > 0 ? normalized : FALLBACK_SENSITIVE_KEYS;
 }
@@ -67,29 +95,44 @@ function compileGlobPattern(pattern: string): RegExp {
 }
 
 export function createSensitiveKeyMatcher(patterns: string[]): (key: string) => boolean {
+  const normalized = normalizeMatcherPatterns(patterns);
+  if (normalized.length === 0) return () => false;
+
+  const cacheKey = buildMatcherCacheKey(normalized);
+  const cached = sensitiveKeyMatcherCache.get(cacheKey);
+  if (cached) return cached;
+
   const exact = new Set<string>();
   const regexes: RegExp[] = [];
 
-  for (const raw of normalizeKeyPatterns(patterns)) {
+  for (const raw of normalized) {
     if (raw.includes('*')) {
       regexes.push(compileGlobPattern(raw));
       continue;
     }
-    exact.add(raw.toLowerCase());
+    exact.add(raw);
   }
 
-  if (exact.size === 0 && regexes.length === 0) {
-    return () => false;
-  }
-
-  return (key: string): boolean => {
+  const matcher = (key: string): boolean => {
     const lower = String(key).toLowerCase();
     if (exact.has(lower)) return true;
     for (const re of regexes) {
-      if (re.test(key)) return true;
+      if (re.test(lower)) return true;
     }
     return false;
   };
+
+  if (sensitiveKeyMatcherCache.size >= SENSITIVE_KEY_MATCHER_CACHE_MAX) {
+    const oldest = sensitiveKeyMatcherCache.keys().next().value as string;
+    sensitiveKeyMatcherCache.delete(oldest);
+  }
+  sensitiveKeyMatcherCache.set(cacheKey, matcher);
+
+  return matcher;
+}
+
+export function getSensitiveKeyPatternsFromDefaults(): string[] {
+  return resolveSensitiveKeyPatterns();
 }
 
 export function redactSensitiveString(value: string): string {

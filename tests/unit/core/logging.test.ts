@@ -189,6 +189,7 @@ describe('core/logging', () => {
           reasoningTokens: 56,
           cachedTokens: 78,
           audioTokens: 90,
+          vendorApiKey: 'vendor-secret-9876',
           authorization: 123,
           Authorization: 'Bearer sk-abcdef1234567890',
           'x-api-key': 'super-secret-api-key-1234',
@@ -206,6 +207,7 @@ describe('core/logging', () => {
         expect(redactedRaw).toContain('***:***@');
         expect(redactedRaw).toContain('token=abcd1234');
         expect(redactedRaw).toContain('hello');
+        expect(redactedRaw).toContain('"vendorApiKey":"***9876"');
         expect(redactedRaw).toContain('"promptTokens":12');
         expect(redactedRaw).toContain('"completionTokens":34');
         expect(redactedRaw).toContain('"reasoningTokens":56');
@@ -213,6 +215,7 @@ describe('core/logging', () => {
         expect(redactedRaw).toContain('"audioTokens":90');
         expect(redactedRaw).not.toContain('AA==');
         expect(redactedRaw).toContain('secret-token');
+        expect(redactedRaw).not.toContain('vendor-secret-9876');
         expect(redactedRaw).not.toContain('super-secret-api-key-1234');
         expect(redactedRaw).not.toContain('AIzaSyABCDEF1234');
         expect(redactedRaw).not.toContain('user:password@');
@@ -332,7 +335,7 @@ describe('core/logging', () => {
     expect(mocks.logger.info).toHaveBeenCalledWith('hello', {});
   });
 
-  test('BaseAdapterLogger tolerates invalid defaults security.redaction.sensitiveKeys shape', async () => {
+  test('BaseAdapterLogger falls back to built-in sensitive keys when defaults security.redaction.sensitiveKeys shape is invalid', async () => {
     const { module, mocks } = await setupLoggingTestHarness({
       disableFileLogs: true,
       getDefaults: () => ({
@@ -346,7 +349,8 @@ describe('core/logging', () => {
     mocks.logger.debug.mockClear();
     logger.debugRaw({ 'x-api-key': 'super-secret-api-key-1234' });
     const raw = mocks.logger.debug.mock.calls[0]?.[1]?.raw as string;
-    expect(raw).toContain('super-secret-api-key-1234');
+    expect(raw).toContain('"x-api-key":"***1234"');
+    expect(raw).not.toContain('super-secret-api-key-1234');
   });
 
   test('AdapterLogger defaults to info level and omits correlation metadata', async () => {
@@ -1805,5 +1809,22 @@ describe('core/logging', () => {
         jest.useRealTimers();
       }
     });
+  });
+
+  test('falls back to built-in sensitive keys when defaults config is missing', async () => {
+    const { module, mocks } = await setupLoggingTestHarness({
+      disableFileLogs: true,
+      getDefaults: () => ({})
+    });
+    const { AdapterLogger, LogLevel } = module;
+
+    mocks.logger.debug.mockClear();
+    const logger = new AdapterLogger(LogLevel.DEBUG, 'corr-missing-defaults');
+
+    logger.debugRaw({ vendorApiKey: 'vendor-secret-9876' });
+    const redactedRaw = mocks.logger.debug.mock.calls[0]?.[1]?.raw as string;
+
+    expect(redactedRaw).toContain('"vendorApiKey":"***9876"');
+    expect(redactedRaw).not.toContain('vendor-secret-9876');
   });
 });
