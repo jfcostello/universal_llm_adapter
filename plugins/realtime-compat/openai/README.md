@@ -75,9 +75,8 @@ Pass extended settings via `spec.settings`. All settings support both camelCase 
 | Setting | Type | Description |
 |---------|------|-------------|
 | `voice` | string | Voice identifier for audio output |
-| `temperature` | number | Sampling temperature (0.0-2.0) |
-| `speed` | number | Audio playback speed multiplier |
-| `maxResponseOutputTokens` | string | Max output tokens (e.g., `"4096"` or `"inf"`) |
+| `speed` | number | Speech speed multiplier (mapped to `session.audio.output.speed`) |
+| `maxResponseOutputTokens` | string | Max output tokens (e.g., `"4096"` or `"inf"`) (mapped to `session.max_output_tokens`) |
 | `transcriptionModel` | string | Transcription model (default: `whisper-1`) |
 | `noiseReduction` | string | Noise reduction type (e.g., `"near_field"`) |
 | `vadType` | string | VAD type: `"server_vad"` (default) or `"semantic_vad"` |
@@ -86,6 +85,8 @@ Pass extended settings via `spec.settings`. All settings support both camelCase 
 | `vadSilenceDurationMs` | int | Silence duration to end turn (server_vad only) |
 | `vadIdleTimeoutMs` | int | Idle timeout before auto-response (server_vad only) |
 | `vadEagerness` | string | Interruption eagerness: `"low"`, `"medium"`, `"high"`, `"auto"` (semantic_vad only) |
+
+Note: `temperature` is currently not applied for this compat. If provided, it is treated as an unsupported session setting and ignored.
 
 Note: `int` values are parsed as **positive integers (>0)**.
 
@@ -97,7 +98,8 @@ const session = await createRealtimeSession(registry, {
   turnDetection: { mode: 'server_vad' },
   settings: {
     voice: 'marin',
-    temperature: 0.8,
+    speed: 1.0,
+    max_output_tokens: 1024,
     transcription_model: 'gpt-4o-transcribe',
     noise_reduction: 'near_field',
     vad_type: 'semantic_vad',
