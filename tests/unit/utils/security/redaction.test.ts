@@ -28,7 +28,7 @@ describe('utils/security/redaction', () => {
   });
 
   test('createSensitiveKeyMatcher handles non-array input defensively', () => {
-    const matcher = createSensitiveKeyMatcher(undefined as any);
+    const matcher = createSensitiveKeyMatcher(undefined);
     expect(matcher('key')).toBe(false);
   });
 
@@ -36,6 +36,28 @@ describe('utils/security/redaction', () => {
     const matcher1 = createSensitiveKeyMatcher(['authorization', '*API_KEY*']);
     const matcher2 = createSensitiveKeyMatcher(['*api_key*', 'AUTHORIZATION']);
     expect(matcher2).toBe(matcher1);
+  });
+
+  test('createSensitiveKeyMatcher cache key is collision-safe for pattern values containing \\u0000', () => {
+    const matcher1 = createSensitiveKeyMatcher(['a', 'b']);
+    const matcher2 = createSensitiveKeyMatcher(['a\u0000b']);
+    expect(matcher2).not.toBe(matcher1);
+  });
+
+  test('createSensitiveKeyMatcher uses LRU eviction (recent hits survive)', () => {
+    const sentinelA = createSensitiveKeyMatcher(['sentinel_a']);
+    const sentinelB = createSensitiveKeyMatcher(['sentinel_b']);
+
+    for (let i = 0; i < 48; i++) {
+      createSensitiveKeyMatcher([`pattern_${i}`]);
+    }
+
+    expect(createSensitiveKeyMatcher(['sentinel_a'])).toBe(sentinelA);
+
+    createSensitiveKeyMatcher(['pattern_overflow']);
+
+    expect(createSensitiveKeyMatcher(['sentinel_a'])).toBe(sentinelA);
+    expect(createSensitiveKeyMatcher(['sentinel_b'])).not.toBe(sentinelB);
   });
 
   test('createSensitiveKeyMatcher evicts older entries when cache is full', () => {
@@ -70,6 +92,15 @@ describe('utils/security/redaction', () => {
     test('redacts sensitive query params containing api_key substrings by default (wildcard match)', () => {
       expect(redactUrlQueryCredentials('https://api.example.com?vendor_api_key=sk-abcdef7890')).toBe(
         'https://api.example.com/?vendor_api_key=***7890'
+      );
+    });
+
+    test('redacts access_token query param by default (without broad token matching)', () => {
+      expect(redactUrlQueryCredentials('https://api.example.com?access_token=abcd1234')).toBe(
+        'https://api.example.com/?access_token=***1234'
+      );
+      expect(redactUrlQueryCredentials('https://api.example.com?accessToken=abcd1234')).toBe(
+        'https://api.example.com/?accessToken=***1234'
       );
     });
 
@@ -185,6 +216,8 @@ describe('utils/security/redaction', () => {
       const input = {
         api_key: 'sk-abcdef1234',
         vendorApiKey: 'sk-vendor9876',
+        access_token: 'token-secret-1234',
+        accessToken: 'token-secret-5678',
         nested: {
           token: 'abcd',
           secret: 'nested-secret-1234',
@@ -195,6 +228,8 @@ describe('utils/security/redaction', () => {
       expect(redactJsonCredentials(input)).toEqual({
         api_key: '***1234',
         vendorApiKey: '***9876',
+        access_token: '***1234',
+        accessToken: '***5678',
         nested: {
           token: 'abcd',
           secret: '***1234',

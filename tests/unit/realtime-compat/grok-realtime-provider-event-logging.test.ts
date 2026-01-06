@@ -481,17 +481,20 @@ describe('realtime-compat/grok — provider event logging', () => {
   test('expiry: transport loop expires window and attempts to schedule a drop-warning drain when drops exist', async () => {
     await withTempCwd('grok-rt-provider-log-expiry-transport-schedules-drain', async () => {
       process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';
-      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS = '10';
+      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS = '5000';
       process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MAX_QUEUE = '1';
 
       await jest.isolateModulesAsync(async () => {
         const logger = { info: jest.fn(), warn: jest.fn() };
+        let resolveLogger: ((value: any) => void) | undefined;
         jest.unstable_mockModule('../../../modules/logging/index.js', () => ({
-          getRealtimeLogger: jest.fn(async () => {
-            await new Promise(resolve => setTimeout(resolve, 80));
-            return logger;
-          })
+          getRealtimeLogger: jest.fn(async () => new Promise((resolve) => {
+            resolveLogger = resolve;
+          }))
         }));
+
+        const baseNow = Date.now();
+        const now = jest.spyOn(Date, 'now').mockImplementation(() => baseNow);
 
         const { createGrokRealtimeCompatSessionWithTransport } = await import(
           '@/plugins/realtime-compat/grok/internal/session-core.ts'
@@ -515,8 +518,8 @@ describe('realtime-compat/grok — provider event logging', () => {
         fake.push({ type: 'message', data: JSON.stringify({ type: 'response.output_audio.delta', delta: 'BB==' }) });
         await flushMicrotasks();
 
-        // Block timers so expiry doesn't run until we're ready to send the post-expiry event.
-        busyWaitMs(25);
+        // Force the follow-up provider event to arrive after the configured window.
+        now.mockImplementation(() => baseNow + 6000);
 
         // This provider event arrives after the window; it should trigger the transport-loop expiry path,
         // which attempts to schedule a drain so the dropped-event warning can be emitted once the logger
@@ -524,7 +527,7 @@ describe('realtime-compat/grok — provider event logging', () => {
         fake.push({ type: 'message', data: JSON.stringify({ type: 'response.output_audio.delta', delta: 'CC==' }) });
         await flushMicrotasks();
 
-        await new Promise(resolve => setTimeout(resolve, 140));
+        resolveLogger?.(logger);
         await flush();
         await flush();
 

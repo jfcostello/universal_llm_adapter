@@ -106,6 +106,33 @@ describe('modules/observability OTLP helpers', () => {
     expect(unset.status.code).toBe(0);
   });
 
+  test('service.version prefers LLM_ADAPTER_VERSION when set', async () => {
+    jest.resetModules();
+
+    const originalAdapterVersion = process.env.LLM_ADAPTER_VERSION;
+    const originalNpmVersion = process.env.npm_package_version;
+    process.env.LLM_ADAPTER_VERSION = '  9.9.9  ';
+    process.env.npm_package_version = '8.8.8';
+
+    const { createReadableSpanFromSpec } = await import('@/modules/observability/internal/otlp/spans.ts');
+    const span = createReadableSpanFromSpec({
+      traceIdHex: '0123456789abcdef0123456789abcdef',
+      spanIdHex: '0123456789abcdef',
+      name: 'test',
+      startTimeIso: '1970-01-01T00:00:00.000Z',
+      endTimeIso: '1970-01-01T00:00:00.000Z'
+    });
+
+    expect((span.resource as any).attributes['service.version']).toBe('9.9.9');
+
+    if (originalAdapterVersion !== undefined) process.env.LLM_ADAPTER_VERSION = originalAdapterVersion;
+    else delete process.env.LLM_ADAPTER_VERSION;
+    if (originalNpmVersion !== undefined) process.env.npm_package_version = originalNpmVersion;
+    else delete process.env.npm_package_version;
+
+    jest.resetModules();
+  });
+
   test('service.version falls back to package.json when env is unset/blank', async () => {
     jest.resetModules();
 

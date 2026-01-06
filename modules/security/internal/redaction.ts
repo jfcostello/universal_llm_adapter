@@ -37,6 +37,18 @@ const FALLBACK_SENSITIVE_KEYS = [
   '*api_key*',
   '*api-key*',
   '*apikey*',
+  'access_token',
+  'refresh_token',
+  'id_token',
+  '*access_token*',
+  '*access-token*',
+  '*accesstoken*',
+  '*refresh_token*',
+  '*refresh-token*',
+  '*refreshtoken*',
+  '*id_token*',
+  '*id-token*',
+  '*idtoken*',
   'key',
   'secret',
   'password',
@@ -73,7 +85,7 @@ function normalizeMatcherPatterns(patterns: unknown): string[] {
 }
 
 function buildMatcherCacheKey(patterns: string[]): string {
-  return patterns.join('\u0000');
+  return JSON.stringify(patterns);
 }
 
 function resolveSensitiveKeyPatterns(overrides?: string[]): string[] {
@@ -94,13 +106,18 @@ function compileGlobPattern(pattern: string): RegExp {
   return new RegExp(`^${parts.join('.*')}$`, 'i');
 }
 
-export function createSensitiveKeyMatcher(patterns: string[]): (key: string) => boolean {
+export function createSensitiveKeyMatcher(patterns: unknown): (key: string) => boolean {
   const normalized = normalizeMatcherPatterns(patterns);
   if (normalized.length === 0) return () => false;
 
   const cacheKey = buildMatcherCacheKey(normalized);
   const cached = sensitiveKeyMatcherCache.get(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    // LRU: refresh access order on cache hit.
+    sensitiveKeyMatcherCache.delete(cacheKey);
+    sensitiveKeyMatcherCache.set(cacheKey, cached);
+    return cached;
+  }
 
   const exact = new Set<string>();
   const regexes: RegExp[] = [];
