@@ -423,7 +423,7 @@ describe('StreamCoordinator observability', () => {
 
     const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
     expect(responseArg.toolCalls).toEqual([
-      { id: 'tool-1', name: 'echo.text', arguments: { a: 1 }, metadata: { token: '***1234' } },
+      { id: 'tool-1', name: 'echo.text', arguments: { a: 1 }, metadata: { token: 'abcd1234' } },
       { id: 'tool-2', name: 'echo.other' }
     ]);
   });

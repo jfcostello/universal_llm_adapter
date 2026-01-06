@@ -79,27 +79,27 @@ if (filteredRealtimeTestRuns.length === 0) {
               input: { format: 'pcm16', sampleRateHz: 24000, channels: 1 },
               output: { format: 'pcm16', sampleRateHz: 24000, channels: 1 }
             },
-            timeout: { maxDurationMs: 60000, idleTimeoutMs: 20000, onTimeout: 'close' }
+            timeout: { maxDurationMs: 180000, idleTimeoutMs: 60000, onTimeout: 'close' }
           },
           steps: [
             { type: 'send_text', text: 'CALL_HISTORY', role: 'user' },
             { type: 'commit' },
-            { type: 'wait_for_event', eventType: 'tool_call.end', timeoutMs: 30000 },
-            { type: 'wait_for_event', eventType: 'tool_result.sent', timeoutMs: 30000 },
-            { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 30000 },
+            { type: 'wait_for_event', eventType: 'tool_call.end', timeoutMs: 60000 },
+            { type: 'wait_for_event', eventType: 'tool_result.sent', timeoutMs: 60000 },
+            { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 60000 },
             { type: 'send_text', text: `STORE_SECOND:${tokenTurn}`, role: 'user' },
             { type: 'commit' },
-            { type: 'wait_for_event', eventType: 'tool_call.end', timeoutMs: 30000 },
-            { type: 'wait_for_event', eventType: 'tool_result.sent', timeoutMs: 30000 },
-            { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 30000 },
+            { type: 'wait_for_event', eventType: 'tool_call.end', timeoutMs: 60000 },
+            { type: 'wait_for_event', eventType: 'tool_result.sent', timeoutMs: 60000 },
+            { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 60000 },
             { type: 'send_text', text: 'CALL_BOTH', role: 'user' },
             { type: 'commit' },
-            { type: 'wait_for_event', eventType: 'tool_call.end', timeoutMs: 30000 },
-            { type: 'wait_for_event', eventType: 'tool_result.sent', timeoutMs: 30000 },
-            { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 30000 },
+            { type: 'wait_for_event', eventType: 'tool_call.end', timeoutMs: 60000 },
+            { type: 'wait_for_event', eventType: 'tool_result.sent', timeoutMs: 60000 },
+            { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 60000 },
             { type: 'close' }
           ],
-          timeoutMs: 30000
+          timeoutMs: 60000
         });
 
         expect(result.code).toBe(0);

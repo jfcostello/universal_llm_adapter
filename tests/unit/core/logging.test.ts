@@ -184,29 +184,41 @@ describe('core/logging', () => {
         logger.debugRaw({
           dataBase64: 'AA==',
           token: 'secret-token',
+          promptTokens: 12,
+          completionTokens: 34,
+          reasoningTokens: 56,
+          cachedTokens: 78,
+          audioTokens: 90,
+          vendorApiKey: 'vendor-secret-9876',
           authorization: 123,
           Authorization: 'Bearer sk-abcdef1234567890',
-          'x-api-key': 'super-secret-api-key',
+          'x-api-key': 'super-secret-api-key-1234',
           note: 'hello',
           url: 'wss://api.example.com/realtime?key=AIzaSyABCDEF1234',
           url2: 'https://user:password@api.example.com/realtime?token=abcd1234'
         });
         const redactedRaw = mocks.logger.debug.mock.calls[0]?.[1]?.raw as string;
         expect(redactedRaw).toContain('[REDACTED_BASE64]');
-        expect(redactedRaw).toContain('[REDACTED_TOKEN]');
+        expect(redactedRaw).not.toContain('[REDACTED_TOKEN]');
         expect(redactedRaw).toContain('[REDACTED_AUTH]');
         expect(redactedRaw).toContain('Bearer ***7890');
-        expect(redactedRaw).toContain('[REDACTED_API_KEY]');
+        expect(redactedRaw).toContain('***1234');
         expect(redactedRaw).toContain('key=***1234');
         expect(redactedRaw).toContain('***:***@');
-        expect(redactedRaw).toContain('token=***1234');
+        expect(redactedRaw).toContain('token=abcd1234');
         expect(redactedRaw).toContain('hello');
+        expect(redactedRaw).toContain('"vendorApiKey":"***9876"');
+        expect(redactedRaw).toContain('"promptTokens":12');
+        expect(redactedRaw).toContain('"completionTokens":34');
+        expect(redactedRaw).toContain('"reasoningTokens":56');
+        expect(redactedRaw).toContain('"cachedTokens":78');
+        expect(redactedRaw).toContain('"audioTokens":90');
         expect(redactedRaw).not.toContain('AA==');
-        expect(redactedRaw).not.toContain('secret-token');
-        expect(redactedRaw).not.toContain('super-secret-api-key');
+        expect(redactedRaw).toContain('secret-token');
+        expect(redactedRaw).not.toContain('vendor-secret-9876');
+        expect(redactedRaw).not.toContain('super-secret-api-key-1234');
         expect(redactedRaw).not.toContain('AIzaSyABCDEF1234');
         expect(redactedRaw).not.toContain('user:password@');
-        expect(redactedRaw).not.toContain('abcd1234');
       } finally {
         jest.useRealTimers();
       }
@@ -321,6 +333,24 @@ describe('core/logging', () => {
     const logger = new BaseAdapterLogger();
     logger.info('hello');
     expect(mocks.logger.info).toHaveBeenCalledWith('hello', {});
+  });
+
+  test('BaseAdapterLogger falls back to built-in sensitive keys when defaults security.redaction.sensitiveKeys shape is invalid', async () => {
+    const { module, mocks } = await setupLoggingTestHarness({
+      disableFileLogs: true,
+      getDefaults: () => ({
+        timeouts: { loggerFlush: 2000 },
+        security: { redaction: { sensitiveKeys: 'not-an-array' } }
+      })
+    });
+    const { BaseAdapterLogger, LogLevel } = module;
+
+    const logger = new BaseAdapterLogger(LogLevel.DEBUG);
+    mocks.logger.debug.mockClear();
+    logger.debugRaw({ 'x-api-key': 'super-secret-api-key-1234' });
+    const raw = mocks.logger.debug.mock.calls[0]?.[1]?.raw as string;
+    expect(raw).toContain('"x-api-key":"***1234"');
+    expect(raw).not.toContain('super-secret-api-key-1234');
   });
 
   test('AdapterLogger defaults to info level and omits correlation metadata', async () => {
@@ -1779,5 +1809,22 @@ describe('core/logging', () => {
         jest.useRealTimers();
       }
     });
+  });
+
+  test('falls back to built-in sensitive keys when defaults config is missing', async () => {
+    const { module, mocks } = await setupLoggingTestHarness({
+      disableFileLogs: true,
+      getDefaults: () => ({})
+    });
+    const { AdapterLogger, LogLevel } = module;
+
+    mocks.logger.debug.mockClear();
+    const logger = new AdapterLogger(LogLevel.DEBUG, 'corr-missing-defaults');
+
+    logger.debugRaw({ vendorApiKey: 'vendor-secret-9876' });
+    const redactedRaw = mocks.logger.debug.mock.calls[0]?.[1]?.raw as string;
+
+    expect(redactedRaw).toContain('"vendorApiKey":"***9876"');
+    expect(redactedRaw).not.toContain('vendor-secret-9876');
   });
 });

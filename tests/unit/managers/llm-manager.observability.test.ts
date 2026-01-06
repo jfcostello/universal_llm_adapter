@@ -214,7 +214,7 @@ describe('LLMManager observability', () => {
         provider: 'test-sdk-provider',
         model: 'test-model',
         content: [{ type: 'text', text: 'SDK response' }],
-        rawResponse: { token: '***1234', ok: true },
+        rawResponse: { token: 'abcd1234', ok: true },
         usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
         toolCalls: [{ id: 'tc-1', name: 'test_tool', arguments: { arg1: 'value1' } }],
         durationMs: expect.any(Number),
@@ -363,7 +363,7 @@ describe('LLMManager observability', () => {
 
     const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
     expect(responseArg.toolCalls).toEqual([
-      { id: 'tc-1', name: 'tool-a', arguments: { arg1: 'value1' }, metadata: { token: '***1234' } },
+      { id: 'tc-1', name: 'tool-a', arguments: { arg1: 'value1' }, metadata: { token: 'abcd1234' } },
       { id: 'tc-2', name: 'tool-b' }
     ]);
   });

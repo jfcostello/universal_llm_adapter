@@ -33,6 +33,8 @@ function parseMcpTimestampFromToolResult(raw: string): number {
     const systemPrompt = [
       'You are a conformance test agent.',
       'You MUST call tools exactly as the user instructs.',
+      'The evaluator will FAIL you if you do not call tool test.echo at least once before answering.',
+      'You MUST NOT guess or copy example values; you MUST compute your final answer from the MCP tool result.',
       'After tools run, reply with only what the user asked for, and nothing else.'
     ].join('\n');
 
@@ -44,7 +46,7 @@ function parseMcpTimestampFromToolResult(raw: string): number {
       '4) Reply with ONLY the last 4 digits of the timestamp string from step (2) (exactly 4 digits, original order).',
       'IMPORTANT: The tool test.echo returns a transformed string (it reverses the message and prefixes it like [R:13]...).',
       'Do NOT use the test.echo tool output to compute the final 4 digits.',
-      'Example: if the timestamp string is 1234567890 then reply with 7890.'
+      'Do not copy any example digits from this prompt; your reply must be computed from the actual timestamp returned by the MCP tool.'
     ].join('\n');
 
     const messages: Message[] = [

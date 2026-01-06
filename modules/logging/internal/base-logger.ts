@@ -4,7 +4,13 @@ import * as fs from 'fs';
 import DailyRotateFile from 'winston-daily-rotate-file';
 import TransportStream from 'winston-transport';
 import type { TransformableInfo } from 'logform';
-import { genericRedactHeaders, redactUrl } from '../../security/index.js';
+import {
+  createSensitiveKeyMatcher,
+  genericRedactHeaders,
+  getSensitiveKeyPatternsFromDefaults,
+  redactSensitiveValue,
+  redactUrl
+} from '../../security/index.js';
 import { readEnvFloat, readEnvInt } from './retention.js';
 import { applyRetentionOnce } from './retention-manager.js';
 import { getDefaults } from '../../../kernel/index.js';
@@ -178,11 +184,13 @@ export class BaseAdapterLogger {
   protected correlationId?: string | string[];
   protected level: LogLevel;
   private ownsWinstonLogger: boolean;
+  private shouldRedactKey: (key: string) => boolean;
 
   constructor(level: LogLevel = LogLevel.INFO, correlationId?: string | string[], options: AdapterLoggerOptions = {}) {
     this.level = level;
     this.correlationId = correlationId;
     this.ownsWinstonLogger = !options.sharedLogger;
+    this.shouldRedactKey = createSensitiveKeyMatcher(getSensitiveKeyPatternsFromDefaults());
 
     if (options.sharedLogger) {
       this.logger = options.sharedLogger;
@@ -341,10 +349,6 @@ export class BaseAdapterLogger {
       return '[REDACTED_BASE64]';
     }
 
-    if (lowerKey.includes('token')) {
-      return '[REDACTED_TOKEN]';
-    }
-
     if (lowerKey === 'authorization') {
       if (typeof value === 'string') {
         return this.redactHeaders({ Authorization: value }).Authorization;
@@ -352,8 +356,8 @@ export class BaseAdapterLogger {
       return '[REDACTED_AUTH]';
     }
 
-    if (lowerKey.includes('apikey') || lowerKey.includes('api_key') || lowerKey.includes('api-key')) {
-      return '[REDACTED_API_KEY]';
+    if (this.shouldRedactKey(key)) {
+      return redactSensitiveValue(value);
     }
 
     if (value instanceof Buffer || value instanceof Uint8Array) {

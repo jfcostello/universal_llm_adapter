@@ -1138,6 +1138,21 @@ export interface TokenEstimationDefaults {
 }
 
 /**
+ * Security-related defaults.
+ */
+export interface RedactionDefaults {
+  /**
+   * Key names/patterns that should be redacted when sanitizing JSON/URLs and serializing logs.
+   * Supports `*` wildcard patterns (glob-style), case-insensitive.
+   */
+  sensitiveKeys: string[];
+}
+
+export interface SecurityDefaults {
+  redaction: RedactionDefaults;
+}
+
+/**
  * Timeout default settings (all values in milliseconds).
  */
 export interface TimeoutDefaults {
@@ -1355,6 +1370,7 @@ export interface DefaultSettings {
   vector: VectorDefaults;
   chunking: ChunkingDefaults;
   tokenEstimation: TokenEstimationDefaults;
+  security: SecurityDefaults;
   timeouts: TimeoutDefaults;
   server: ServerDefaults;
   paths: PathDefaults;

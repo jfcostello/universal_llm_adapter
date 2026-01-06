@@ -209,6 +209,7 @@ describe('plugins/realtime-compat/vapi — ws session', () => {
   let restoreFetch: (() => void) | undefined;
 
   beforeEach(() => {
+    jest.useRealTimers();
     restoreFetch?.();
     restoreFetch = undefined;
   });

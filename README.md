@@ -509,6 +509,37 @@ All non-provider-specific defaults are in `plugins/configs/defaults.json`:
     "imageEstimate": 768,
     "toolResultDivisor": 6
   },
+  "security": {
+    "redaction": {
+      "sensitiveKeys": [
+        "authorization",
+        "x-api-key",
+        "x-goog-api-key",
+        "api_key",
+        "apikey",
+        "*api_key*",
+        "*api-key*",
+        "*apikey*",
+        "access_token",
+        "refresh_token",
+        "id_token",
+        "*access_token*",
+        "*access-token*",
+        "*accesstoken*",
+        "*refresh_token*",
+        "*refresh-token*",
+        "*refreshtoken*",
+        "*id_token*",
+        "*id-token*",
+        "*idtoken*",
+        "key",
+        "secret",
+        "password",
+        "credential",
+        "auth"
+      ]
+    }
+  },
   "timeouts": {
     "mcpRequest": 30000,
     "llmHttp": 60000,
