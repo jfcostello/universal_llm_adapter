@@ -173,7 +173,6 @@ describe('extensions/voice: recording webhook + retrieval', () => {
           mode: 'provider',
           format: 'mp3',
           channels: 'mono',
-          providerRecording: { id: 'rec_1', url: 'https://recording.example/rec_1', status: 'completed' }
         }
       } as any,
       { ttlSeconds: 60 }

@@ -166,7 +166,7 @@ If you run behind a reverse proxy/load balancer, ensure it forwards those header
 Notes:
 - `POST /voice/calls` supports idempotency via the `Idempotency-Key` header or `idempotencyKey` JSON body field. Keys are trimmed; extremely large keys are stored via a stable hash to keep store keys bounded.
 - Consumers can subscribe to real-time call events (including transcripts) via `GET /voice/calls/<callConfigId>/events` (SSE).
-- When enabled, provider-side recording callbacks are received at `POST /voice/webhook/recording`, and recordings can be fetched via `GET /voice/calls/<callConfigId>/recording`.
+- When enabled, recordings can be fetched via `GET /voice/calls/<callConfigId>/recording`. Some providers also send provider-side recording callbacks to `POST /voice/webhook/recording`.
 
 ### Inbound call
 

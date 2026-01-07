@@ -39,6 +39,18 @@ Notes:
 - `assistantFirstTurn.delayMs` is not supported; it must be `0` or omitted.
 - Only bearer webhook auth is supported for outbound call creation (to set `assistant.server.headers.Authorization`).
 
+## Recording
+
+When `callConfig.recording.enabled=true` and `callConfig.recording.mode="provider"`, this compat configures Vapi per-call recording via:
+- `assistant.artifactPlan.recordingEnabled = true`
+- `assistant.artifactPlan.recordingFormat`:
+  - `callConfig.recording.format = "mp3"` → `"mp3"`
+  - `callConfig.recording.format = "wav"` → `"wav;l16"`
+
+On download (`GET /voice/calls/:callConfigId/recording`), the compat resolves the recording URL by fetching the call (`GET /call/{id}`) and selecting:
+- Stereo URL when `callConfig.recording.channels = "dual"` and the payload provides a stereo artifact.
+- Otherwise the best available combined/mono URL.
+
 ## Webhook security
 
 By default, Vapi Server URL webhooks are authenticated using `Authorization: Bearer <token>` matching:

@@ -1521,14 +1521,6 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
-          const providerRecording = (recordingCfg as any)?.providerRecording;
-          const hasProviderArtifact = providerRecording && typeof providerRecording === 'object'
-            && (typeof (providerRecording as any).url === 'string' || typeof (providerRecording as any).id === 'string');
-          if (!hasProviderArtifact) {
-            writeJson(res, 409, { type: 'error', error: { message: 'Recording is not ready', code: 'recording_not_ready' } });
-            return true;
-          }
-
           let providerDefaults: any | undefined;
           try {
             const manifest = await providerPlugins.getManifest(voiceProvider);

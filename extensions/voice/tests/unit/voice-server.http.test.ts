@@ -4928,9 +4928,18 @@ describe('extensions/voice: server http handlers', () => {
     await expect(reg.handleHttp({ url: '/voice/calls/cfg_recording_disabled/recording', method: 'GET', headers: { authorization: 'Bearer k1' }, socket: {} } as any, resNotEnabled)).resolves.toBe(true);
     expect(String(resNotEnabled.writeHead.mock.calls[0][0])).toBe('409');
 
+    const getRecordingDownloadRequestNotReady = jest.fn(async () => {
+      const err: any = new Error('Recording not ready');
+      err.statusCode = 409;
+      err.code = 'recording_not_ready';
+      throw err;
+    });
+    providerPlugins.getCompat.mockResolvedValueOnce({ getRecordingDownloadRequest: getRecordingDownloadRequestNotReady });
+
     const resNotReady = createMockRes();
     await expect(reg.handleHttp({ url: '/voice/calls/cfg_recording_enabled/recording', method: 'GET', headers: { authorization: 'Bearer k1' }, socket: {} } as any, resNotReady)).resolves.toBe(true);
     expect(String(resNotReady.writeHead.mock.calls[0][0])).toBe('409');
+    expect(getRecordingDownloadRequestNotReady).toHaveBeenCalled();
 
     providerPlugins.getManifest.mockRejectedValueOnce(new Error('nope'));
     const resUnknownProvider = createMockRes();
