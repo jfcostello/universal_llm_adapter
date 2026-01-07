@@ -774,15 +774,28 @@ export async function createVoiceServerRegistration(ctx: {
 
           const compat = await providerPlugins.getCompat(voiceProvider);
           const params: Record<string, string> = {};
-          if (method === 'POST') {
-            const contentType = String(req.headers?.['content-type'] ?? '').toLowerCase();
-            if (contentType.includes('application/x-www-form-urlencoded')) {
-              const rawBody = await readTextBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
-              if (rawBody) {
-                const form = new URLSearchParams(rawBody);
-                for (const [k, v] of form.entries()) {
-                  params[String(k)] = String(v);
-                }
+          let webhookBodyText: string | undefined;
+          let webhookBody: any | undefined;
+	          if (method === 'POST') {
+	            const contentType = String(req.headers?.['content-type'] ?? '').toLowerCase();
+	            if (contentType.includes('application/x-www-form-urlencoded')) {
+	              webhookBodyText = await readTextBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
+	              if (webhookBodyText) {
+	                const form = new URLSearchParams(webhookBodyText);
+	                for (const [k, v] of form.entries()) {
+	                  params[String(k)] = String(v);
+	                }
+	              }
+	            } else if (contentType.includes('application/json') || contentType.includes('+json')) {
+	              const bodyText = await readTextBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
+	              webhookBodyText = bodyText;
+	              const raw = bodyText.trim();
+	              if (!raw) {
+	                webhookBody = {};
+	              } else {
+	                try {
+	                  webhookBody = JSON.parse(raw);
+                } catch {}
               }
             }
           }
@@ -810,7 +823,22 @@ export async function createVoiceServerRegistration(ctx: {
               }
 
               try {
-                await validateWebhookRequest({ req, method, url: publicUrl, params, callConfigId, callConfig, voiceProvider, providerDefaults });
+                await validateWebhookRequest({
+                  req,
+                  method,
+                  url: publicUrl,
+                  params,
+                  ...(webhookBody !== undefined ? { body: webhookBody } : {}),
+                  ...(webhookBodyText !== undefined ? { bodyText: webhookBodyText } : {}),
+                  callConfigId,
+                  callConfig,
+                  voiceProvider,
+                  providerDefaults,
+                  store,
+                  logger,
+                  events: { emit: (event: any) => emitCallEvent(callConfigId, event) },
+                  metrics
+                });
               } catch (error: any) {
                 metrics.compatError('webhook_validate', voiceProvider);
                 const statusCode = Number(error?.statusCode ?? 500);
@@ -831,7 +859,20 @@ export async function createVoiceServerRegistration(ctx: {
 
             const response = await (async () => {
               try {
-                return await compat.createWebhookResponse({ req, callConfigId, callConfig, voiceProvider, mediaWsUrl, params });
+                return await compat.createWebhookResponse({
+                  req,
+                  callConfigId,
+                  callConfig,
+                  voiceProvider,
+                  mediaWsUrl,
+                  params,
+                  ...(webhookBody !== undefined ? { body: webhookBody } : {}),
+                  ...(webhookBodyText !== undefined ? { bodyText: webhookBodyText } : {}),
+                  store,
+                  logger,
+                  events: { emit: (event: any) => emitCallEvent(callConfigId, event) },
+                  metrics
+                });
               } catch (error: any) {
                 metrics.compatError('webhook_response', voiceProvider);
                 throw error;
@@ -839,12 +880,12 @@ export async function createVoiceServerRegistration(ctx: {
             })();
             const status = Number(response?.status ?? 200);
             const headers = (response?.headers && typeof response.headers === 'object') ? response.headers : {};
-            const body = String(response?.body ?? '');
+            const responseBody = String(response?.body ?? '');
 
             safeLog(logger, 'info', 'voice.webhook.response', { callConfigId, voiceProvider, status, ...(requestId ? { requestId } : {}) });
 
             res.writeHead(status, headers);
-            res.end(body);
+            res.end(responseBody);
             return true;
           } catch (error: any) {
             const statusCode = Number(error?.statusCode ?? 500);

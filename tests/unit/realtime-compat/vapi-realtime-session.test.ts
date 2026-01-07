@@ -312,6 +312,162 @@ describe('plugins/realtime-compat/vapi — ws session', () => {
     }
   });
 
+  test('createSession: supports additional assistant/model/voice settings via spec.settings', async () => {
+    const server = await startWsServer();
+    try {
+      const fetchMock = installVapiFetchMock({
+        websocketCallUrl: server.url,
+        onCreateCall: ({ body }) => {
+          expect(body.assistant.backgroundSound).toBe('office');
+          expect(body.assistant.model.maxTokens).toBe(321);
+          expect(body.assistant.model.emotionRecognitionEnabled).toBe(true);
+          expect(body.assistant.voice.speed).toBe(1.25);
+          expect(body.assistant.voice.chunkPlan.minCharacters).toBe(42);
+        }
+      });
+      restoreFetch = fetchMock.restore;
+
+      const compat = new VapiRealtimeCompat() as any;
+      const session = await compat.createSession({
+        provider: createProvider(),
+        spec: createSpec({
+          settings: {
+            speed: 1.25,
+            inputMinCharacters: 42,
+            maxOutputTokens: 321,
+            emotionRecognitionEnabled: true,
+            backgroundSound: 'office'
+          }
+        })
+      });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      await waitForEvent(it, (e: any) => e?.type === 'ready');
+      await session.close();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('createSession: forwards invalid/out-of-range settings to Vapi (no clamping)', async () => {
+    const server = await startWsServer();
+    try {
+      const restore = installFetch(async (url, init) => {
+        const method = String(init?.method ?? 'GET').toUpperCase();
+
+        if (method === 'POST' && url === 'https://vapi.test/call') {
+          const body = JSON.parse(init.body);
+          expect(body.assistant.voice.speed).toBe(999);
+          return {
+            ok: false,
+            status: 400,
+            statusText: 'Bad Request',
+            text: async () => 'invalid voice.speed'
+          };
+        }
+
+        throw new Error(`Unexpected fetch: ${method} ${url}`);
+      });
+      restoreFetch = restore;
+
+      const compat = new VapiRealtimeCompat() as any;
+      await expect(
+        compat.createSession({
+          provider: createProvider(),
+          spec: createSpec({ settings: { speed: 999 } })
+        })
+      ).rejects.toThrow('Vapi call create failed (400): invalid voice.speed');
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('createSession: supports Vapi turn detection settings via spec.settings', async () => {
+    const server = await startWsServer();
+    try {
+      const fetchMock = installVapiFetchMock({
+        websocketCallUrl: server.url,
+        onCreateCall: ({ body }) => {
+          expect(body.assistant.startSpeakingPlan.waitSeconds).toBe(0.25);
+          expect(body.assistant.startSpeakingPlan.smartEndpointingEnabled).toBe(true);
+          expect(body.assistant.startSpeakingPlan.transcriptionEndpointingPlan.onPunctuationSeconds).toBe(0.11);
+          expect(body.assistant.startSpeakingPlan.transcriptionEndpointingPlan.onNoPunctuationSeconds).toBe(0.22);
+          expect(body.assistant.startSpeakingPlan.transcriptionEndpointingPlan.onNumberSeconds).toBe(0.33);
+
+          expect(body.assistant.stopSpeakingPlan.numWords).toBe(0);
+          expect(body.assistant.stopSpeakingPlan.voiceSeconds).toBe(0.2);
+          expect(body.assistant.stopSpeakingPlan.backoffSeconds).toBe(1);
+
+          expect(body.assistant.transcriber.eagerEotThreshold).toBe(0.3);
+          expect(body.assistant.transcriber.eotThreshold).toBe(0.7);
+          expect(body.assistant.transcriber.eotTimeoutMs).toBe(5000);
+        }
+      });
+      restoreFetch = fetchMock.restore;
+
+      const compat = new VapiRealtimeCompat() as any;
+      const session = await compat.createSession({
+        provider: createProvider(),
+        spec: createSpec({
+          settings: {
+            startSpeakingWaitSeconds: 0.25,
+            startSpeakingSmartEndpointingEnabled: true,
+            transcriptionEndpointingOnPunctuationSeconds: 0.11,
+            transcriptionEndpointingOnNoPunctuationSeconds: 0.22,
+            transcriptionEndpointingOnNumberSeconds: 0.33,
+            stopSpeakingNumWords: 0,
+            stopSpeakingVoiceSeconds: 0.2,
+            stopSpeakingBackoffSeconds: 1,
+            transcriberEagerEotThreshold: 0.3,
+            transcriberEotThreshold: 0.7,
+            transcriberEotTimeoutMs: 5000
+          }
+        })
+      });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      await waitForEvent(it, (e: any) => e?.type === 'ready');
+      await session.close();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('createSession: does not attach Deepgram EOT settings for non-deepgram transcribers', async () => {
+    const server = await startWsServer();
+    try {
+      const fetchMock = installVapiFetchMock({
+        websocketCallUrl: server.url,
+        onCreateCall: ({ body }) => {
+          expect(body.assistant.transcriber.provider).toBe('assemblyai');
+          expect(body.assistant.transcriber.eagerEotThreshold).toBeUndefined();
+          expect(body.assistant.transcriber.eotThreshold).toBeUndefined();
+          expect(body.assistant.transcriber.eotTimeoutMs).toBeUndefined();
+        }
+      });
+      restoreFetch = fetchMock.restore;
+
+      const compat = new VapiRealtimeCompat() as any;
+      const session = await compat.createSession({
+        provider: createProvider(),
+        spec: createSpec({
+          transcription: { enabled: true, provider: 'assemblyai' },
+          settings: {
+            transcriberEagerEotThreshold: 0.3,
+            transcriberEotThreshold: 0.7,
+            transcriberEotTimeoutMs: 5000
+          }
+        })
+      });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      await waitForEvent(it, (e: any) => e?.type === 'ready');
+      await session.close();
+    } finally {
+      await server.close();
+    }
+  });
+
   test('createSession: validates modelProvider against provider metadata whitelist', async () => {
     const server = await startWsServer();
     try {
@@ -2814,7 +2970,7 @@ describe('plugins/realtime-compat/vapi — ws session', () => {
         onCreateCall: ({ init, body }) => {
           expect(init.headers['Content-Type']).toBe('application/json; charset=utf-8');
           expect(body.assistant.model.messages).toBeUndefined();
-          expect(body.assistant.model.temperature).toBe(2);
+          expect(body.assistant.model.temperature).toBe(999);
           expect(body.assistant.model.tools).toBeUndefined();
         }
       });

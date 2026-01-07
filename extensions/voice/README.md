@@ -135,6 +135,14 @@ By default, webhook validation is **required**. If the active compat does not im
 
 For local/dev only, set `LLM_ADAPTER_VOICE_WEBHOOK_VALIDATION_REQUIRED=0` to allow missing validation.
 
+### Webhook request bodies
+
+`POST /voice/webhook` supports:
+- `application/x-www-form-urlencoded` (exposed to the compat as `params` + raw `bodyText`)
+- `application/json` (exposed to the compat as parsed `body` + raw `bodyText`)
+
+If a JSON body is empty, it is treated as `{}`. If JSON parsing fails, the request is still processed and the raw `bodyText` is passed through so the compat can validate/reject it.
+
 ### Public base URL / proxies
 
 `/voice/webhook` needs to generate a public `WS /voice/media` URL for the telephony provider to connect to.

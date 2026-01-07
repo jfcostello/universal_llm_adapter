@@ -98,6 +98,44 @@ async function waitForMessage(messages: any[], predicate: (m: any) => boolean, t
   throw new Error('Timed out waiting for WS message');
 }
 
+async function readNextSseEvent(res: Response, timeoutMs = 1000): Promise<any> {
+  const decoder = new TextDecoder();
+  let buffer = '';
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error('Expected SSE body');
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const idx = buffer.indexOf('\n\n');
+    if (idx < 0) continue;
+
+    const raw = buffer.slice(0, idx);
+    buffer = buffer.slice(idx + 2);
+
+    const lines = raw.split('\n').map(l => l.replace(/\r$/, ''));
+    let eventName: string | undefined;
+    const dataLines: string[] = [];
+    for (const line of lines) {
+      if (!line || line.startsWith(':')) continue;
+      if (line.startsWith('event:')) {
+        eventName = line.slice('event:'.length).trim();
+        continue;
+      }
+      if (line.startsWith('data:')) {
+        dataLines.push(line.slice('data:'.length).trim());
+      }
+    }
+    const dataText = dataLines.join('\n');
+    return { event: eventName, data: dataText ? JSON.parse(dataText) : null };
+  }
+
+  throw new Error('Timed out waiting for SSE event');
+}
+
 async function startHarness(options: { store: any; providerPlugins?: any; logging?: any; httpConfig?: any; preUpgradeHandlers?: any[] }) {
   let handleHttp: any = async () => false;
   const server = http.createServer((req, res) => {
@@ -827,6 +865,67 @@ describe('extensions/voice: webhook + media wiring', () => {
       ws.close();
       await closePromise;
     } finally {
+      await harness.close();
+    }
+  });
+
+  test('end-to-end: /voice/webhook accepts application/json and can emit SSE events', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_webhook_json_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'inbound',
+        realtimeSpec: {},
+        voiceProvider: 'test'
+      },
+      { ttlSeconds: 60 }
+    );
+
+    const providerPlugins = {
+      getCompat: jest.fn(async () => ({
+        validateWebhookRequest: jest.fn(async () => {}),
+        createWebhookResponse: jest.fn(async (options: any) => {
+          expect(options.params).toEqual({});
+          expect(options.body).toEqual({ message: { type: 'status-update', status: 'queued' } });
+          expect(typeof options.bodyText).toBe('string');
+          expect(options.bodyText).toContain('status-update');
+          options.events?.emit?.({ type: 'user_transcript.final', text: 'hello from webhook' });
+          return { status: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ok: true }) };
+        })
+      }))
+    };
+
+    const harness = await startHarness({
+      store,
+      providerPlugins,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+    });
+
+    let eventsRes: Response | undefined;
+    try {
+      const webhookRes = await fetch(new URL('/voice/webhook?callConfigId=cfg_webhook_json_1', harness.baseUrl), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-test-signature': 'ok' },
+        body: JSON.stringify({ message: { type: 'status-update', status: 'queued' } })
+      });
+      expect(webhookRes.status).toBe(200);
+
+      eventsRes = await fetch(new URL('/voice/calls/cfg_webhook_json_1/events', harness.baseUrl), {
+        method: 'GET',
+        headers: { Authorization: 'Bearer k1' }
+      });
+      expect(eventsRes.status).toBe(200);
+
+      const first = await readNextSseEvent(eventsRes, 1000);
+      expect(first.data?.event?.type ?? first.event).toBe('user_transcript.final');
+      expect(first.data?.event?.text ?? first.data?.event?.textDelta ?? '').toContain('hello from webhook');
+    } finally {
+      try { await eventsRes?.body?.cancel(); } catch {}
       await harness.close();
     }
   });

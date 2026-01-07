@@ -74,11 +74,27 @@ const PROVIDER_AUDIO_BASE: VapiTransportAudioFormatBase = {
 
 const VAPI_SESSION_SETTINGS_DEFINITIONS = {
   temperature: { type: 'number' },
+  maxOutputTokens: { type: 'number', aliases: ['maxTokens', 'max_output_tokens'] },
   voice: { type: 'string' },
+  speed: { type: 'number' },
+  inputMinCharacters: { type: 'number', aliases: ['input_min_characters'] },
+  backgroundSound: { type: 'string', aliases: ['background_sound'] },
   modelProvider: { type: 'string', aliases: ['model_provider'] },
   voiceProvider: { type: 'string', aliases: ['voice_provider'] },
+  emotionRecognitionEnabled: { type: 'boolean', aliases: ['emotion_recognition_enabled'] },
   transcriberProvider: { type: 'string', aliases: ['transcriber_provider'] },
   transcriberModel: { type: 'string', aliases: ['transcriber_model'] },
+  transcriberEagerEotThreshold: { type: 'number', aliases: ['transcriber_eager_eot_threshold'] },
+  transcriberEotThreshold: { type: 'number', aliases: ['transcriber_eot_threshold'] },
+  transcriberEotTimeoutMs: { type: 'number', aliases: ['transcriber_eot_timeout_ms'] },
+  startSpeakingWaitSeconds: { type: 'number', aliases: ['start_speaking_wait_seconds'] },
+  startSpeakingSmartEndpointingEnabled: { type: 'boolean', aliases: ['smartEndpointingEnabled', 'smart_endpointing_enabled'] },
+  transcriptionEndpointingOnPunctuationSeconds: { type: 'number', aliases: ['transcription_endpointing_on_punctuation_seconds'] },
+  transcriptionEndpointingOnNoPunctuationSeconds: { type: 'number', aliases: ['transcription_endpointing_on_no_punctuation_seconds'] },
+  transcriptionEndpointingOnNumberSeconds: { type: 'number', aliases: ['transcription_endpointing_on_number_seconds'] },
+  stopSpeakingNumWords: { type: 'number', aliases: ['stop_speaking_num_words'] },
+  stopSpeakingVoiceSeconds: { type: 'number', aliases: ['stop_speaking_voice_seconds'] },
+  stopSpeakingBackoffSeconds: { type: 'number', aliases: ['stop_speaking_backoff_seconds'] },
   keepaliveEnabled: { type: 'boolean', aliases: ['keepalive_enabled'] },
   keepaliveIntervalMs: { type: 'int', aliases: ['keepalive_interval_ms'] },
   wsHandshakeTimeoutMs: { type: 'int', aliases: ['ws_handshake_timeout_ms'] },
@@ -414,7 +430,7 @@ export async function createVapiRealtimeCompatSession(
     String(settings.voiceProvider ?? (provider.metadata as any)?.defaultVoiceProvider ?? modelProvider).trim() || modelProvider;
   const voice = String(settings.voice ?? (provider.metadata as any)?.defaultVoice ?? 'alloy').trim() || 'alloy';
   const temp = settings.temperature === undefined || settings.temperature === null ? NaN : Number(settings.temperature);
-  const temperature = Number.isFinite(temp) ? Math.max(0, Math.min(2, temp)) : undefined;
+  const temperature = Number.isFinite(temp) ? temp : undefined;
 
   const keepaliveFromProvider = (provider.metadata as any)?.keepalive;
   const controlUrlFromProvider = (provider.metadata as any)?.controlUrl;
@@ -485,6 +501,76 @@ export async function createVapiRealtimeCompatSession(
     audioFormat: providerAudio
   });
 
+  if (settings.backgroundSound !== undefined) {
+    (body.assistant as any).backgroundSound = settings.backgroundSound;
+  }
+
+  if (settings.maxOutputTokens !== undefined) {
+    (body.assistant as any).model.maxTokens = settings.maxOutputTokens;
+  }
+  if (settings.emotionRecognitionEnabled !== undefined) {
+    (body.assistant as any).model.emotionRecognitionEnabled = settings.emotionRecognitionEnabled;
+  }
+
+  if (settings.speed !== undefined) {
+    (body.assistant as any).voice.speed = settings.speed;
+  }
+  if (settings.inputMinCharacters !== undefined) {
+    const voiceObj = (body.assistant as any).voice;
+    const chunkPlan = ensureJsonObject(voiceObj.chunkPlan);
+    voiceObj.chunkPlan = { ...chunkPlan, minCharacters: settings.inputMinCharacters };
+  }
+
+  const startSpeakingPlan: any = {};
+  let hasStartSpeakingPlan = false;
+  if (settings.startSpeakingWaitSeconds !== undefined) {
+    startSpeakingPlan.waitSeconds = settings.startSpeakingWaitSeconds;
+    hasStartSpeakingPlan = true;
+  }
+  if (settings.startSpeakingSmartEndpointingEnabled !== undefined) {
+    startSpeakingPlan.smartEndpointingEnabled = settings.startSpeakingSmartEndpointingEnabled;
+    hasStartSpeakingPlan = true;
+  }
+  const transcriptionEndpointingPlan: any = {};
+  let hasEndpointingPlan = false;
+  if (settings.transcriptionEndpointingOnPunctuationSeconds !== undefined) {
+    transcriptionEndpointingPlan.onPunctuationSeconds = settings.transcriptionEndpointingOnPunctuationSeconds;
+    hasEndpointingPlan = true;
+  }
+  if (settings.transcriptionEndpointingOnNoPunctuationSeconds !== undefined) {
+    transcriptionEndpointingPlan.onNoPunctuationSeconds = settings.transcriptionEndpointingOnNoPunctuationSeconds;
+    hasEndpointingPlan = true;
+  }
+  if (settings.transcriptionEndpointingOnNumberSeconds !== undefined) {
+    transcriptionEndpointingPlan.onNumberSeconds = settings.transcriptionEndpointingOnNumberSeconds;
+    hasEndpointingPlan = true;
+  }
+  if (hasEndpointingPlan) {
+    startSpeakingPlan.transcriptionEndpointingPlan = transcriptionEndpointingPlan;
+    hasStartSpeakingPlan = true;
+  }
+  if (hasStartSpeakingPlan) {
+    (body.assistant as any).startSpeakingPlan = startSpeakingPlan;
+  }
+
+  const stopSpeakingPlan: any = {};
+  let hasStopSpeakingPlan = false;
+  if (settings.stopSpeakingNumWords !== undefined) {
+    stopSpeakingPlan.numWords = settings.stopSpeakingNumWords;
+    hasStopSpeakingPlan = true;
+  }
+  if (settings.stopSpeakingVoiceSeconds !== undefined) {
+    stopSpeakingPlan.voiceSeconds = settings.stopSpeakingVoiceSeconds;
+    hasStopSpeakingPlan = true;
+  }
+  if (settings.stopSpeakingBackoffSeconds !== undefined) {
+    stopSpeakingPlan.backoffSeconds = settings.stopSpeakingBackoffSeconds;
+    hasStopSpeakingPlan = true;
+  }
+  if (hasStopSpeakingPlan) {
+    (body.assistant as any).stopSpeakingPlan = stopSpeakingPlan;
+  }
+
   if (spec.transcription?.enabled) {
     (body.assistant as any).artifactPlan = {
       transcriptPlan: { enabled: true }
@@ -495,6 +581,18 @@ export async function createVapiRealtimeCompatSession(
       language: String(spec.transcription?.language ?? 'en'),
       smartFormat: true
     };
+
+    if (String(transcriberProvider).trim().toLowerCase() === 'deepgram') {
+      if (settings.transcriberEagerEotThreshold !== undefined) {
+        (body.assistant as any).transcriber.eagerEotThreshold = settings.transcriberEagerEotThreshold;
+      }
+      if (settings.transcriberEotThreshold !== undefined) {
+        (body.assistant as any).transcriber.eotThreshold = settings.transcriberEotThreshold;
+      }
+      if (settings.transcriberEotTimeoutMs !== undefined) {
+        (body.assistant as any).transcriber.eotTimeoutMs = settings.transcriberEotTimeoutMs;
+      }
+    }
   }
 
   const { callId, websocketCallUrl } = await createVapiWebsocketCall({
