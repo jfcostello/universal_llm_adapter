@@ -31,7 +31,7 @@ This compat reads provider-agnostic `spec.settings` values (aliases in parenthes
 - `wsHandshakeTimeoutMs` (`ws_handshake_timeout_ms`): WS handshake timeout for connecting to `transport.websocketCallUrl` (default from provider metadata; `0` disables explicit timeout)
 - `voiceProvider` (`voice_provider`): underlying voice provider (default from provider metadata)
 - `voice`: underlying voice id/name (default from provider metadata)
-- `temperature`: clamped to `[0,2]` when provided
+- `temperature`: forwarded to `assistant.model.temperature` (not clamped; Vapi validates)
 - `maxOutputTokens` (`maxTokens`, `max_output_tokens`): forwarded to `assistant.model.maxTokens` (Vapi validates)
 - `emotionRecognitionEnabled` (`emotion_recognition_enabled`): forwarded to `assistant.model.emotionRecognitionEnabled`
 - `backgroundSound` (`background_sound`): forwarded to `assistant.backgroundSound`

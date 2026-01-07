@@ -172,14 +172,14 @@ describe('plugins/voice-compat/vapi', () => {
         signatureEncoding: 'base64',
         signaturePrefix: 'sha512=',
         includeTimestamp: true,
-        // cover non-numeric timestamp tolerance bypass
+        // cover signature prefix + base64 secret/signature + non-numeric toleranceSeconds normalization
         payloadFormat: '{timestamp}.{body}.{method}.{url}.{svix-id}',
         toleranceSeconds: 'nope'
       }
     };
 
     const bodyText = JSON.stringify({ message: { type: 'status-update', status: 'queued' } });
-    const timestamp = 'abc';
+    const timestamp = String(Math.floor(Date.now() / 1000));
     const url = 'https://example.test/voice/webhook?callConfigId=cfg_1';
     const payload = `${timestamp}.${bodyText}.POST.${url}.m1`;
     const signature = hmac({ algorithm: 'sha512', key: secretBytes, payload, encoding: 'base64' });
@@ -193,6 +193,33 @@ describe('plugins/voice-compat/vapi', () => {
         providerDefaults
       })
     ).resolves.toBeUndefined();
+  });
+
+  test('validateWebhookRequest: hmac rejects non-numeric timestamps when tolerance is enabled', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const providerDefaults = {
+      webhookAuth: {
+        type: 'hmac',
+        secretKey: 'secret_6',
+        algorithm: 'sha256',
+        signatureHeader: 'x-signature',
+        timestampHeader: 'x-timestamp',
+        signatureEncoding: 'hex',
+        includeTimestamp: true,
+        payloadFormat: '{timestamp}.{body}',
+        toleranceSeconds: 300
+      }
+    };
+
+    await expect(
+      compat.validateWebhookRequest({
+        req: { headers: { 'x-signature': 'sig', 'x-timestamp': 'abc' } } as any,
+        method: 'POST',
+        url: 'https://example.test/voice/webhook?callConfigId=cfg_1',
+        providerDefaults
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 401, code: 'unauthorized' });
   });
 
   test('validateWebhookRequest: hmac can default headers and fill missing body/method/url', async () => {
@@ -949,6 +976,40 @@ describe('plugins/voice-compat/vapi', () => {
       events: { emit: (evt: any) => emitted.push(evt) }
     } as any);
 
+    // ensure end-of-call-report can emit ended events when it is the first terminal webhook
+    await compat.createWebhookResponse({
+      callConfigId: 'cfg_2',
+      callConfig: { providerCallId: 'call_2' },
+      voiceProvider: 'vapi',
+      body: { message: { type: 'end-of-call-report', endedReason: 'z', call: { id: 'call_2' } } },
+      events: { emit: (evt: any) => emitted.push(evt) }
+    } as any);
+
+    await compat.createWebhookResponse({
+      callConfigId: 'cfg_3',
+      callConfig: { providerCallId: 'call_3' },
+      voiceProvider: 'vapi',
+      body: { message: { type: 'status-update', status: 'ended', call: { id: 'call_3' } } },
+      events: { emit: (evt: any) => emitted.push(evt) }
+    } as any);
+
+    await compat.createWebhookResponse({
+      callConfigId: 'cfg_4',
+      callConfig: { providerCallId: 'call_4' },
+      voiceProvider: 'vapi',
+      body: { message: { type: 'end-of-call-report', call: { id: 'call_4' } } },
+      events: { emit: (evt: any) => emitted.push(evt) }
+    } as any);
+
+    // cover ended-event dedupe fallback for empty keys (should not throw)
+    await compat.createWebhookResponse({
+      callConfigId: '',
+      callConfig: {},
+      voiceProvider: 'vapi',
+      body: { message: { type: 'end-of-call-report', endedReason: 'empty-key' } },
+      events: { emit: (evt: any) => emitted.push(evt) }
+    } as any);
+
     expect(emitted.some(e => e?.type === 'user_transcript.final' && String(e?.text).includes('hello'))).toBe(true);
     expect(emitted.some(e => e?.type === 'assistant_transcript.delta')).toBe(true);
     expect(emitted.some(e => e?.type === 'assistant_transcript.final' && String(e?.text).includes('bye'))).toBe(true);
@@ -960,7 +1021,23 @@ describe('plugins/voice-compat/vapi', () => {
     expect(emitted.some(e => e?.type === 'voice.assistant_audio.ended')).toBe(true);
     expect(emitted.some(e => e?.type === 'voice.playback.drained')).toBe(true);
     expect(emitted.some(e => e?.type === 'voice.call.connected')).toBe(true);
-    expect(emitted.some(e => e?.type === 'voice.call.ended' && e?.endedReason === 'x')).toBe(true);
+    const endedCall1 = emitted.filter(e => e?.type === 'voice.call.ended' && e?.providerCallId === 'call_1');
+    expect(endedCall1).toHaveLength(1);
+    expect(endedCall1[0]?.endedReason).toBe('x');
+
+    const endedCall2 = emitted.filter(e => e?.type === 'voice.call.ended' && e?.providerCallId === 'call_2');
+    expect(endedCall2).toHaveLength(1);
+    expect(endedCall2[0]?.endedReason).toBe('z');
+
+    const endedCall3 = emitted.filter(e => e?.type === 'voice.call.ended' && e?.providerCallId === 'call_3');
+    expect(endedCall3).toHaveLength(1);
+    expect(endedCall3[0]?.endedReason).toBeUndefined();
+
+    const endedCall4 = emitted.filter(e => e?.type === 'voice.call.ended' && e?.providerCallId === 'call_4');
+    expect(endedCall4).toHaveLength(1);
+    expect(endedCall4[0]?.endedReason).toBeUndefined();
+
+    expect(emitted.some(e => e?.type === 'voice.call.ended' && e?.endedReason === 'empty-key')).toBe(true);
   });
 
   test('endCall: posts end-call to monitor.controlUrl', async () => {

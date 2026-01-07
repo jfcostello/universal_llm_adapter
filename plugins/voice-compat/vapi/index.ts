@@ -1,8 +1,18 @@
 import crypto from 'crypto';
 import type http from 'http';
 
-import { ProviderExecutionError } from '../../../kernel/index.js';
+import { LruMap, ProviderExecutionError } from '../../../kernel/index.js';
 import { makeHttpError } from '../../../modules/shared/index.js';
+
+const ENDED_EVENT_DEDUPE = new LruMap<string, true>(20_000, { label: 'voice.vapi.ended_events' });
+
+function shouldEmitEndedEvent(key: string): boolean {
+  const id = String(key).trim();
+  if (!id) return true;
+  if (ENDED_EVENT_DEDUPE.get(id) === true) return false;
+  ENDED_EVENT_DEDUPE.set(id, true);
+  return true;
+}
 
 function safeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(String(a));
@@ -232,13 +242,14 @@ export default class VapiVoiceCompat {
 
     if (auth.includeTimestamp && auth.toleranceSeconds > 0) {
       const n = Number(timestamp);
-      if (Number.isFinite(n)) {
-        const now = Date.now();
-        const tsMs = n > 1e12 ? n : n * 1000;
-        const diffSeconds = Math.abs(now - tsMs) / 1000;
-        if (diffSeconds > auth.toleranceSeconds) {
-          throw makeUnauthorizedError('Unauthorized: webhook timestamp outside tolerance');
-        }
+      if (!Number.isFinite(n)) {
+        throw makeUnauthorizedError('Unauthorized: invalid timestamp');
+      }
+      const now = Date.now();
+      const tsMs = n > 1e12 ? n : n * 1000;
+      const diffSeconds = Math.abs(now - tsMs) / 1000;
+      if (diffSeconds > auth.toleranceSeconds) {
+        throw makeUnauthorizedError('Unauthorized: webhook timestamp outside tolerance');
       }
     }
 
@@ -417,6 +428,7 @@ export default class VapiVoiceCompat {
 
     const call = normalizePlainObject(message.call);
     const providerCallId = String(call.id ?? options.callConfig?.providerCallId ?? '').trim();
+    const endedDedupeKey = providerCallId || String(options.callConfigId).trim();
     const emit = (event: any) => {
       try {
         options.events?.emit?.({ ...event, ...(providerCallId ? { providerCallId } : {}) });
@@ -467,11 +479,15 @@ export default class VapiVoiceCompat {
         emit({ type: 'voice.call.connected' });
       } else if (status === 'ended') {
         const endedReason = String(message.endedReason ?? '').trim();
-        emit({ type: 'voice.call.ended', ...(endedReason ? { endedReason } : {}) });
+        if (shouldEmitEndedEvent(endedDedupeKey)) {
+          emit({ type: 'voice.call.ended', ...(endedReason ? { endedReason } : {}) });
+        }
       }
     } else if (type === 'end-of-call-report') {
       const endedReason = String(message.endedReason ?? '').trim();
-      emit({ type: 'voice.call.ended', ...(endedReason ? { endedReason } : {}) });
+      if (shouldEmitEndedEvent(endedDedupeKey)) {
+        emit({ type: 'voice.call.ended', ...(endedReason ? { endedReason } : {}) });
+      }
     }
 
     return {
