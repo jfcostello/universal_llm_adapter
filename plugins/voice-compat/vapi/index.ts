@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import type http from 'http';
 
 import { LruMap, ProviderExecutionError } from '../../../kernel/index.js';
+import { safeEqual } from '../../../modules/security/index.js';
 import { makeHttpError } from '../../../modules/shared/index.js';
 
 const ENDED_EVENT_DEDUPE = new LruMap<string, true>(20_000, { label: 'voice.vapi.ended_events' });
@@ -12,17 +13,6 @@ function shouldEmitEndedEvent(key: string): boolean {
   if (ENDED_EVENT_DEDUPE.get(id) === true) return false;
   ENDED_EVENT_DEDUPE.set(id, true);
   return true;
-}
-
-function safeEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(String(a));
-  const bufB = Buffer.from(String(b));
-  if (bufA.length !== bufB.length) {
-    // keep timing roughly consistent
-    crypto.timingSafeEqual(bufA, bufA);
-    return false;
-  }
-  return crypto.timingSafeEqual(bufA, bufB);
 }
 
 function makeProviderConfigError(message: string): Error {

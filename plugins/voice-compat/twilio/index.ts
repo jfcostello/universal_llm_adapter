@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { ProviderExecutionError } from '../../../kernel/index.js';
+import { safeEqual } from '../../../modules/security/index.js';
 import { calculateBackoffDelay, makeHttpError } from '../../../modules/shared/index.js';
 import { createRealtimeSession } from '../../../modules/realtime/index.js';
 import { createTwilioMediaStreamsBridge } from '../../voice-modules/twilio-media-streams/index.js';
@@ -75,17 +76,6 @@ function sleepUnref(ms: number): Promise<void> | undefined {
 
 function makeProviderConfigError(message: string): Error {
   return makeHttpError({ message, statusCode: 500, code: 'provider_config_error' });
-}
-
-function safeEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) {
-    // keep timing roughly consistent
-    crypto.timingSafeEqual(bufA, bufA);
-    return false;
-  }
-  return crypto.timingSafeEqual(bufA, bufB);
 }
 
 function makeUnauthorizedError(message: string): Error {

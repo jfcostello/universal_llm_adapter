@@ -1,6 +1,8 @@
 import crypto from 'crypto';
 import type http from 'http';
 
+import { safeEqual } from '../../../security/index.js';
+
 export interface AuthConfig {
   enabled: boolean;
   allowBearer?: boolean;
@@ -34,17 +36,6 @@ function stripHashPrefix(value: string): string {
   const trimmed = value.trim();
   if (trimmed.startsWith('sha256:')) return trimmed.slice('sha256:'.length);
   return trimmed;
-}
-
-function safeEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) {
-    // keep timing roughly consistent
-    crypto.timingSafeEqual(bufA, bufA);
-    return false;
-  }
-  return crypto.timingSafeEqual(bufA, bufB);
 }
 
 function makeAuthError(message: string, statusCode = 401, code = 'unauthorized') {
@@ -114,4 +105,3 @@ export async function assertAuthorized(
 
   return token;
 }
-

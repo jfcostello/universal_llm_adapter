@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 
+import { safeEqual } from './safe-equal.js';
+
 export interface SignedWsTokenPayload {
   iat: number;
   exp: number;
@@ -29,16 +31,6 @@ function base64UrlDecode(input: string): Buffer {
   const padLen = (4 - (normalized.length % 4)) % 4;
   const padded = normalized + '='.repeat(padLen);
   return Buffer.from(padded, 'base64');
-}
-
-function safeEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) {
-    crypto.timingSafeEqual(bufA, bufA);
-    return false;
-  }
-  return crypto.timingSafeEqual(bufA, bufB);
 }
 
 function makeError(code: string, message: string): VerifySignedWsTokenResult<any> {
