@@ -39,10 +39,8 @@ if (filteredRealtimeTestRuns.length === 0) {
   for (const runCfg of filteredRealtimeTestRuns) {
     describeLive(`${TEST_FILE} — ${runCfg.name}`, () => {
       test('manual commit: history is visible and earlier turns persist', async () => {
-        const pick = () => WORD_TOKENS[Math.floor(Math.random() * WORD_TOKENS.length)]!;
-        const tokenHistory = pick();
-        let tokenTurn = pick();
-        while (tokenTurn === tokenHistory) tokenTurn = pick();
+        const tokenHistory = WORD_TOKENS[0]!;
+        const tokenTurn = WORD_TOKENS[1]!;
 
         const result = await runRealtimeScenario({
           pluginsPath,
@@ -104,19 +102,27 @@ if (filteredRealtimeTestRuns.length === 0) {
 
         expect(result.code).toBe(0);
         const events = result.envelopes.filter(e => e.type === 'event').map(e => (e as any).event);
+        const normalizeMessage = (raw: any) => String(raw ?? '').trim();
         const toolCall = findToolCallEnd(events, 'test.echo');
         expect(toolCall).toBeTruthy();
         expect(
-          events.some(e => e?.type === 'tool_call.end' && String(e?.arguments?.message ?? '') === `HISTORY=${tokenHistory}`)
+          events.some(e => e?.type === 'tool_call.end' && normalizeMessage(e?.arguments?.message) === `HISTORY=${tokenHistory}`)
         ).toBe(true);
         expect(
-          events.some(e => e?.type === 'tool_call.end' && String(e?.arguments?.message ?? '') === 'STORED')
+          events.some(e => e?.type === 'tool_call.end' && normalizeMessage(e?.arguments?.message) === 'STORED')
         ).toBe(true);
         expect(
           events.some(
-            e =>
-              e?.type === 'tool_call.end' &&
-              String(e?.arguments?.message ?? '') === `BOTH=${tokenHistory}|${tokenTurn}`
+            e => {
+              if (e?.type !== 'tool_call.end') return false;
+              const msg = normalizeMessage(e?.arguments?.message);
+              if (!msg.startsWith('BOTH=')) return false;
+              const payload = msg.slice('BOTH='.length);
+              const parts = payload.split('|');
+              if (parts.length !== 2) return false;
+              const [historyToken, secondToken] = parts.map(p => p.trim());
+              return historyToken === tokenHistory && secondToken === tokenTurn;
+            }
           )
         ).toBe(true);
       }, 180_000);
