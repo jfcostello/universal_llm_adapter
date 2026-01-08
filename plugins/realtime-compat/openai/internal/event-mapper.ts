@@ -45,10 +45,16 @@ export function mapOpenAIRealtimeServerEvent(
       const code = evt?.error?.code ? String(evt.error.code) : undefined;
       return [{ type: 'error', message, ...(code ? { code } : {}) }];
     }
-    case 'input_audio_buffer.speech_started':
-      return [{ type: 'user_speech.started' }];
-    case 'input_audio_buffer.speech_stopped':
-      return [{ type: 'user_speech.stopped' }];
+    case 'input_audio_buffer.speech_started': {
+      const audioStartMsRaw = (evt as any)?.audio_start_ms;
+      const audioStartMs = typeof audioStartMsRaw === 'number' ? audioStartMsRaw : undefined;
+      return [{ type: 'user_speech.started', ...(audioStartMs !== undefined ? { audioStartMs } : {}) }];
+    }
+    case 'input_audio_buffer.speech_stopped': {
+      const audioEndMsRaw = (evt as any)?.audio_end_ms;
+      const audioEndMs = typeof audioEndMsRaw === 'number' ? audioEndMsRaw : undefined;
+      return [{ type: 'user_speech.stopped', ...(audioEndMs !== undefined ? { audioEndMs } : {}) }];
+    }
     case 'conversation.item.input_audio_transcription.delta': {
       const delta = String(evt?.delta ?? '');
       if (!delta) return [];

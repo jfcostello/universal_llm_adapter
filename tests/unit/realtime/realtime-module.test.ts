@@ -1131,6 +1131,42 @@ describe('modules/realtime/internal/realtime-session', () => {
     expect(events.some(e => e.type === 'user_transcript.delta')).toBe(true);
   });
 
+  test('barge-in ignores stale user_transcript.delta after a speech turn ends (causality enforcement)', async () => {
+    const compatInterrupt = jest.fn();
+    const compat: RealtimeCompatSession = {
+      sendText: jest.fn(),
+      injectContext: jest.fn(),
+      sendAudio: jest.fn(),
+      commit: jest.fn(),
+      interrupt: compatInterrupt,
+      sendToolResult: jest.fn(),
+      close: jest.fn(),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+        yield { type: 'user_speech.started', audioStartMs: 7348 };
+        yield { type: 'user_speech.stopped', audioEndMs: 9664 };
+        yield { type: 'user_transcript.delta', textDelta: 'late transcript' };
+        yield { type: 'user_speech.started', audioStartMs: 12000 };
+      }
+    };
+
+    const session = createRealtimeSessionController({
+      registry: { getProcessRoutes: jest.fn().mockResolvedValue([]) },
+      provider: { id: 'p' } as any,
+      spec: {
+        provider: 'p',
+        bargeIn: { enabled: true, triggers: ['user_speech.started', 'user_transcript.delta'] },
+        timeout: { maxDurationMs: 0, idleTimeoutMs: 0, onTimeout: 'close' }
+      },
+      compatSession: compat
+    });
+
+    const events = await collectAll(session.events());
+    expect(events.some(e => e.type === 'user_transcript.delta')).toBe(true);
+    expect(events.filter(e => e.type === 'playback.clear_requested')).toHaveLength(2);
+    expect(compatInterrupt).toHaveBeenCalledTimes(2);
+  });
+
   test('barge-in does not trigger when the event is not in triggers', async () => {
     const compatInterrupt = jest.fn();
     const compat: RealtimeCompatSession = {

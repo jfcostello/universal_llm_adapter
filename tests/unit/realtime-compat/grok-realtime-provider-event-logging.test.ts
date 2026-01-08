@@ -592,6 +592,55 @@ describe('realtime-compat/grok — provider event logging', () => {
     });
   });
 
+  test('expiry: scheduled expiry timer drops queued events and attempts to schedule a drain when drops exist', async () => {
+    await withTempCwd('grok-rt-provider-log-expiry-timer-callback', async () => {
+      process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';
+      process.env.LLM_ADAPTER_REALTIME_LOG_PROVIDER_EVENTS_MS = '1000';
+
+      await jest.isolateModulesAsync(async () => {
+        jest.useFakeTimers();
+
+        const logger = { info: jest.fn(), warn: jest.fn() };
+        let resolveLogger: ((value: any) => void) | undefined;
+        jest.unstable_mockModule('../../../modules/logging/index.js', () => ({
+          getRealtimeLogger: jest.fn(async () => await new Promise((resolve) => {
+            resolveLogger = resolve;
+          }))
+        }));
+
+        const { createGrokRealtimeCompatSessionWithTransport } = await import(
+          '@/plugins/realtime-compat/grok/internal/session-core.ts'
+        );
+
+        const fake = createFakeTransport();
+        const session = createGrokRealtimeCompatSessionWithTransport(
+          { provider, spec: { provider: 'grok' } as any } as any,
+          fake.transport as any
+        );
+
+        const it = session.events()[Symbol.asyncIterator]();
+        fake.push({ type: 'open' });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created' }) });
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'session.updated' }) });
+        await waitForEvent(it, e => e.type === 'ready');
+
+        fake.push({ type: 'message', data: JSON.stringify({ type: 'response.output_audio.delta', delta: 'AA==' }) });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        // Advance far enough to fire the scheduled expiry timer callback.
+        await jest.advanceTimersByTimeAsync(1000);
+
+        expect(resolveLogger).toBeDefined();
+        resolveLogger?.(logger);
+        await Promise.resolve();
+        await jest.advanceTimersByTimeAsync(0);
+
+        await session.close();
+      });
+    });
+  });
+
   test('tunables: respects max queue and emits one dropped-event warning per session', async () => {
     await withTempCwd('grok-rt-provider-log-tunables', async () => {
       process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';

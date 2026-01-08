@@ -99,6 +99,9 @@ class RealtimeSessionController implements RealtimeSession {
   private dtmfBuffer = '';
   private dtmfBargedInThisBuffer = false;
 
+  private currentSpeechTurnAudioStartMs: number | undefined;
+  private lastResponseTriggeredByAudioEndMs: number | undefined;
+
   private readonly observability: ObservabilityRuntime | undefined;
   private readonly logger: RealtimeSessionLogger | undefined;
   private conversationMessages: Message[] = [];
@@ -612,7 +615,16 @@ class RealtimeSessionController implements RealtimeSession {
     }
 
     if (event.type === 'user_speech.started') {
+      const audioStartMs = Number((event as any)?.audioStartMs);
+      if (Number.isFinite(audioStartMs) && audioStartMs >= 0) {
+        this.currentSpeechTurnAudioStartMs = audioStartMs;
+      }
       await this.maybeBargeIn('user_speech.started');
+    } else if (event.type === 'user_speech.stopped') {
+      const audioEndMs = Number((event as any)?.audioEndMs);
+      if (Number.isFinite(audioEndMs) && audioEndMs >= 0) {
+        this.lastResponseTriggeredByAudioEndMs = Math.max(this.lastResponseTriggeredByAudioEndMs ?? 0, audioEndMs);
+      }
     } else if (event.type === 'user_transcript.delta') {
       await this.maybeBargeIn('user_transcript.delta');
     }
@@ -648,6 +660,15 @@ class RealtimeSessionController implements RealtimeSession {
 
     const triggers = cfg.triggers ?? ['user_speech.started', 'user_dtmf.digit'];
     if (!triggers.includes(trigger)) return false;
+
+    if (
+      (trigger === 'user_speech.started' || trigger === 'user_transcript.delta') &&
+      this.currentSpeechTurnAudioStartMs !== undefined &&
+      this.lastResponseTriggeredByAudioEndMs !== undefined &&
+      this.currentSpeechTurnAudioStartMs <= this.lastResponseTriggeredByAudioEndMs
+    ) {
+      return false;
+    }
 
     await this.options.compatSession.interrupt({ reason: 'barge_in' });
     this.pushEvent({ type: 'playback.clear_requested', reason: 'barge_in', atMs: Date.now() });

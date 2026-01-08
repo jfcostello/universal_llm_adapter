@@ -74,10 +74,18 @@ export function mapGrokRealtimeServerEvent(evt: any, state: GrokRealtimeMapperSt
       state.userTranscript = '';
       state.pendingUserTranscriptFinal = false;
       state.userTranscriptFinalEmitted = false;
-      return [{ type: 'user_speech.started' }];
+      {
+        const audioStartMsRaw = (evt as any)?.audio_start_ms;
+        const audioStartMs = typeof audioStartMsRaw === 'number' ? audioStartMsRaw : undefined;
+        return [{ type: 'user_speech.started', ...(audioStartMs !== undefined ? { audioStartMs } : {}) }];
+      }
     case 'input_audio_buffer.speech_stopped':
       state.pendingUserTranscriptFinal = true;
-      return [{ type: 'user_speech.stopped' }];
+      {
+        const audioEndMsRaw = (evt as any)?.audio_end_ms;
+        const audioEndMs = typeof audioEndMsRaw === 'number' ? audioEndMsRaw : undefined;
+        return [{ type: 'user_speech.stopped', ...(audioEndMs !== undefined ? { audioEndMs } : {}) }];
+      }
     case 'conversation.item.input_audio_transcription.delta': {
       const delta = String(evt?.delta ?? '');
       if (!delta) return [];

@@ -227,10 +227,12 @@ export interface TimeoutEvent {
 
 export interface UserSpeechStartedEvent {
   type: 'user_speech.started';
+  audioStartMs?: number;
 }
 
 export interface UserSpeechStoppedEvent {
   type: 'user_speech.stopped';
+  audioEndMs?: number;
 }
 
 export interface UserTranscriptDeltaEvent {

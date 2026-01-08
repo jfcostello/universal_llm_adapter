@@ -45,8 +45,15 @@ describe('realtime-compat/grok — event mapper', () => {
   });
 
   test('maps speech start/stop', () => {
+    expect(mapGrokRealtimeServerEvent({ type: 'input_audio_buffer.speech_started', audio_start_ms: 123 }, makeState())).toEqual([
+      { type: 'user_speech.started', audioStartMs: 123 }
+    ]);
     expect(mapGrokRealtimeServerEvent({ type: 'input_audio_buffer.speech_started' }, makeState())).toEqual([
       { type: 'user_speech.started' }
+    ]);
+
+    expect(mapGrokRealtimeServerEvent({ type: 'input_audio_buffer.speech_stopped', audio_end_ms: 456 }, makeState())).toEqual([
+      { type: 'user_speech.stopped', audioEndMs: 456 }
     ]);
     expect(mapGrokRealtimeServerEvent({ type: 'input_audio_buffer.speech_stopped' }, makeState())).toEqual([
       { type: 'user_speech.stopped' }
