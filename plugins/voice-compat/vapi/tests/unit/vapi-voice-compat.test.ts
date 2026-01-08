@@ -682,6 +682,7 @@ describe('plugins/voice-compat/vapi', () => {
       expect(Array.isArray(body.assistant.serverMessages)).toBe(true);
       expect(body.assistant.serverMessages).toContain('status-update');
       expect(body.assistant.serverMessages).toContain('transcript');
+      expect(body.assistant.serverMessages).toContain('tool-calls');
 
       return {
         ok: true,
@@ -1071,6 +1072,610 @@ describe('plugins/voice-compat/vapi', () => {
     expect(endedCall4[0]?.endedReason).toBeUndefined();
 
     expect(emitted.some(e => e?.type === 'voice.call.ended' && e?.endedReason === 'empty-key')).toBe(true);
+  });
+
+  test('createWebhookResponse: executes tool-calls via process routes and returns results', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const registry = {
+      getProcessRoutes: async () => [
+        {
+          id: 'test-echo',
+          match: { type: 'exact', pattern: 'test.echo' },
+          invoke: { kind: 'module', module: './dist/plugins/modules/test-echo/index.js', function: 'handle' },
+          timeoutMs: 1000
+        }
+      ]
+    };
+
+    const res = await compat.createWebhookResponse({
+      callConfigId: 'cfg_1',
+      callConfig: { providerCallId: 'call_1', realtimeSpec: { provider: 'vapi', model: 'model_x' } },
+      voiceProvider: 'vapi',
+      registry,
+      body: {
+        message: {
+          type: 'tool-calls',
+          call: { id: 'call_1' },
+          toolWithToolCallList: [],
+          toolCallList: [
+            {
+              id: 'tc_1',
+              type: 'function',
+              function: { name: 'test.echo', arguments: JSON.stringify({ message: 'hello' }) }
+            }
+          ]
+        }
+      }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toEqual([{ name: 'test.echo', toolCallId: 'tc_1', result: '[R:5]olleh' }]);
+  });
+
+  test('createWebhookResponse: supports function-call shaped webhook and returns tool result', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const registry = {
+      getProcessRoutes: async () => [
+        {
+          id: 'test-echo',
+          match: { type: 'exact', pattern: 'test.echo' },
+          invoke: { kind: 'module', module: './dist/plugins/modules/test-echo/index.js', function: 'handle' },
+          timeoutMs: 1000
+        }
+      ]
+    };
+
+    const res = await compat.createWebhookResponse({
+      callConfigId: 'cfg_1',
+      callConfig: { providerCallId: 'call_1', realtimeSpec: { provider: 'vapi', model: 'model_x' } },
+      voiceProvider: 'vapi',
+      registry,
+      body: {
+        message: {
+          type: 'function-call',
+          toolCallId: 'tc_2',
+          functionCall: { id: 'tc_2', name: 'test.echo', parameters: { message: 'world' } },
+          call: { id: 'call_1' }
+        }
+      }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toEqual([{ name: 'test.echo', toolCallId: 'tc_2', result: '[R:5]dlrow' }]);
+  });
+
+  test('createWebhookResponse: returns tool error in results when tool execution fails', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const registry = {
+      getProcessRoutes: async () => [
+        {
+          id: 'test-echo',
+          match: { type: 'exact', pattern: 'test.echo' },
+          invoke: { kind: 'module', module: './dist/plugins/modules/test-echo/index.js', function: 'handle' },
+          timeoutMs: 1000
+        }
+      ]
+    };
+
+    const res = await compat.createWebhookResponse({
+      callConfigId: 'cfg_1',
+      callConfig: { providerCallId: 'call_1', realtimeSpec: { provider: 'vapi', model: 'model_x' } },
+      voiceProvider: 'vapi',
+      registry,
+      body: {
+        message: {
+          type: 'tool-calls',
+          call: { id: 'call_1' },
+          toolWithToolCallList: [],
+          toolCallList: [
+            {
+              id: 'tc_fail',
+              type: 'function',
+              function: { name: 'test.echo', arguments: JSON.stringify({ nope: true }) }
+            }
+          ]
+        }
+      }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toEqual([{ name: 'test.echo', toolCallId: 'tc_fail', error: expect.any(String) }]);
+    expect(String(body.results[0]?.error ?? '')).not.toContain('\n');
+  });
+
+  test('createWebhookResponse: parses toolWithToolCallList when toolCallList is empty', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const registry = {
+      getProcessRoutes: async () => [
+        {
+          id: 'test-echo',
+          match: { type: 'exact', pattern: 'test.echo' },
+          invoke: { kind: 'module', module: './dist/plugins/modules/test-echo/index.js', function: 'handle' },
+          timeoutMs: 1000
+        }
+      ]
+    };
+
+    const res = await compat.createWebhookResponse({
+      callConfigId: 'cfg_1',
+      callConfig: { providerCallId: 'call_1', realtimeSpec: { provider: 'vapi', model: 'model_x' } },
+      voiceProvider: 'vapi',
+      registry,
+      body: {
+        message: {
+          type: 'tool-calls',
+          call: { id: 'call_1' },
+          toolCallList: [],
+          toolWithToolCallList: [{ name: 'test.echo', toolCall: { id: 'tc_tw', parameters: { message: 'hey' } } }]
+        }
+      }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toEqual([{ name: 'test.echo', toolCallId: 'tc_tw', result: '[R:3]yeh' }]);
+  });
+
+  test('createWebhookResponse: returns empty results when a tool-calls webhook has no tool calls', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const res = await compat.createWebhookResponse({
+      callConfigId: 'cfg_1',
+      callConfig: { providerCallId: 'call_1', realtimeSpec: { provider: 'vapi', model: 'model_x' } },
+      voiceProvider: 'vapi',
+      body: { message: { type: 'tool-calls', call: { id: 'call_1' } } }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toEqual([]);
+  });
+
+  test('createWebhookResponse: returns tool_execution_unavailable when registry is missing', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const res = await compat.createWebhookResponse({
+      callConfigId: 'cfg_1',
+      callConfig: { providerCallId: 'call_1', realtimeSpec: { provider: 'vapi', model: 'model_x' } },
+      voiceProvider: 'vapi',
+      body: {
+        message: {
+          type: 'tool-calls',
+          call: { id: 'call_1' },
+          toolWithToolCallList: [],
+          toolCallList: [{ id: 'tc_no_reg', name: 'test.echo', arguments: { message: 'hello' } }]
+        }
+      }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toEqual([{ name: 'test.echo', toolCallId: 'tc_no_reg', error: 'tool_execution_unavailable' }]);
+  });
+
+  test('createWebhookResponse: returns invalid_tool_arguments when args JSON cannot be parsed', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const res = await compat.createWebhookResponse({
+      callConfigId: 'cfg_1',
+      callConfig: { providerCallId: 'call_1', realtimeSpec: { provider: 'vapi', model: 'model_x' } },
+      voiceProvider: 'vapi',
+      body: {
+        message: {
+          type: 'tool-calls',
+          toolCallId: 'tc_bad',
+          name: 'test.echo',
+          call: { id: 'call_1' },
+          toolWithToolCallList: [],
+          toolCallList: [{ id: 'tc_ignored', name: 'test.echo', arguments: '{not json' }]
+        }
+      }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toEqual([{ name: 'test.echo', toolCallId: 'tc_ignored', error: 'invalid_tool_arguments' }]);
+  });
+
+  test('createWebhookResponse: returns invalid_tool_arguments when args is an empty string', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const res = await compat.createWebhookResponse({
+      callConfigId: 'cfg_1',
+      callConfig: { providerCallId: 'call_1', realtimeSpec: { provider: 'vapi', model: 'model_x' } },
+      voiceProvider: 'vapi',
+      body: {
+        message: {
+          type: 'tool-calls',
+          call: { id: 'call_1' },
+          toolWithToolCallList: [],
+          toolCallList: [{ id: 'tc_empty', name: 'test.echo', arguments: '' }]
+        }
+      }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toEqual([{ name: 'test.echo', toolCallId: 'tc_empty', error: 'invalid_tool_arguments' }]);
+  });
+
+  test('createWebhookResponse: function-call falls back to message.toolCallId and parses functionCall.arguments', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const registry = {
+      getProcessRoutes: async () => [
+        {
+          id: 'test-echo',
+          match: { type: 'exact', pattern: 'test.echo' },
+          invoke: { kind: 'module', module: './dist/plugins/modules/test-echo/index.js', function: 'handle' },
+          timeoutMs: 1000
+        }
+      ]
+    };
+
+    const res = await compat.createWebhookResponse({
+      callConfigId: 'cfg_1',
+      callConfig: { providerCallId: 'call_1', realtimeSpec: {} },
+      voiceProvider: 'vapi',
+      registry,
+      body: {
+        message: {
+          type: 'function-call',
+          toolCallId: 'tc_fallback',
+          functionCall: { name: 'test.echo', arguments: JSON.stringify({ message: 'hi' }) }
+        }
+      }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toEqual([{ name: 'test.echo', toolCallId: 'tc_fallback', result: '[R:2]ih' }]);
+  });
+
+  test('createWebhookResponse: omits call metadata when callConfigId and call ids are empty', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const registry = {
+      getProcessRoutes: async () => [
+        {
+          id: 'test-echo',
+          match: { type: 'exact', pattern: 'test.echo' },
+          invoke: { kind: 'module', module: './dist/plugins/modules/test-echo/index.js', function: 'handle' },
+          timeoutMs: 1000
+        }
+      ]
+    };
+
+    const res = await compat.createWebhookResponse({
+      callConfigId: '',
+      callConfig: { realtimeSpec: {} },
+      voiceProvider: 'vapi',
+      registry,
+      body: {
+        message: {
+          type: 'tool-calls',
+          toolWithToolCallList: [],
+          toolCallList: [
+            {
+              id: 'tc_meta_empty',
+              type: 'function',
+              function: { name: 'test.echo', arguments: JSON.stringify({ message: 'ok' }) }
+            }
+          ]
+        }
+      }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toEqual([{ name: 'test.echo', toolCallId: 'tc_meta_empty', result: '[R:2]ko' }]);
+  });
+
+  test('createWebhookResponse: extraction throw prefers message.functionCall.name and uses message.toolCallId', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const throwing: any = {};
+    Object.defineProperty(throwing, 'id', {
+      get: () => {
+        throw 'boom';
+      }
+    });
+
+    const res = await compat.createWebhookResponse({
+      callConfigId: 'cfg_1',
+      callConfig: { providerCallId: 'call_1', realtimeSpec: { provider: 'vapi', model: 'model_x' } },
+      voiceProvider: 'vapi',
+      body: {
+        message: {
+          type: 'tool-calls',
+          functionCall: { name: 'fallback_name' },
+          toolCallId: 'tc_outer',
+          toolWithToolCallList: [],
+          toolCallList: [throwing]
+        }
+      }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toHaveLength(1);
+    expect(body.results[0].name).toBe('fallback_name');
+    expect(body.results[0].toolCallId).toBe('tc_outer');
+    expect(body.results[0].error).toBe('boom');
+  });
+
+  test('createWebhookResponse: returns invalid_tool_arguments for invalid toolWithToolCallList arguments (even with registry)', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const registry = { getProcessRoutes: async () => [] };
+    const res = await compat.createWebhookResponse({
+      callConfigId: 'cfg_1',
+      callConfig: { providerCallId: 'call_1', realtimeSpec: { provider: 'vapi', model: 'model_x' } },
+      voiceProvider: 'vapi',
+      registry,
+      body: {
+        message: {
+          type: 'tool-calls',
+          call: { id: 'call_1' },
+          toolCallList: [],
+          toolWithToolCallList: [
+            {
+              toolCallId: 'tc_tw_bad_args',
+              toolCall: { function: { name: 'test.echo', arguments: '{not json' } }
+            }
+          ]
+        }
+      }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toEqual([{ name: 'test.echo', toolCallId: 'tc_tw_bad_args', error: 'invalid_tool_arguments' }]);
+  });
+
+  test('createWebhookResponse: returns invalid_tool_arguments for invalid function-call arguments (even with registry)', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const registry = { getProcessRoutes: async () => [] };
+    const res = await compat.createWebhookResponse({
+      callConfigId: 'cfg_1',
+      callConfig: { providerCallId: 'call_1', realtimeSpec: { provider: 'vapi', model: 'model_x' } },
+      voiceProvider: 'vapi',
+      registry,
+      body: {
+        message: {
+          type: 'function-call',
+          toolCallId: 'tc_fn_bad_args',
+          functionCall: { name: 'test.echo', arguments: '{not json' }
+        }
+      }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toEqual([{ name: 'test.echo', toolCallId: 'tc_fn_bad_args', error: 'invalid_tool_arguments' }]);
+  });
+
+  test('createWebhookResponse: supports alternate toolCallId/name fields and skips invalid entries', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const registry = {
+      getProcessRoutes: async () => [
+        {
+          id: 'test-echo',
+          match: { type: 'exact', pattern: 'test.echo' },
+          invoke: { kind: 'module', module: './dist/plugins/modules/test-echo/index.js', function: 'handle' },
+          timeoutMs: 1000
+        }
+      ]
+    };
+
+    const res = await compat.createWebhookResponse({
+      callConfigId: 'cfg_1',
+      callConfig: { providerCallId: 'call_1', realtimeSpec: { provider: 'vapi', model: 'model_x' } },
+      voiceProvider: 'vapi',
+      registry,
+      body: {
+        message: {
+          type: 'tool-calls',
+          call: { id: 'call_1' },
+          toolWithToolCallList: [],
+          toolCallList: [
+            {},
+            { toolCallId: 'tc_alt', function: { name: 'test.echo', arguments: JSON.stringify({ message: 'yo' }) } }
+          ]
+        }
+      }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toEqual([{ name: 'test.echo', toolCallId: 'tc_alt', result: '[R:2]oy' }]);
+  });
+
+  test('createWebhookResponse: supports toolWithToolCallList alternate fields and skips invalid entries', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const registry = {
+      getProcessRoutes: async () => [
+        {
+          id: 'test-echo',
+          match: { type: 'exact', pattern: 'test.echo' },
+          invoke: { kind: 'module', module: './dist/plugins/modules/test-echo/index.js', function: 'handle' },
+          timeoutMs: 1000
+        }
+      ]
+    };
+
+    const res = await compat.createWebhookResponse({
+      callConfigId: 'cfg_1',
+      callConfig: { providerCallId: 'call_1', realtimeSpec: { provider: 'vapi', model: 'model_x' } },
+      voiceProvider: 'vapi',
+      registry,
+      body: {
+        message: {
+          type: 'tool-calls',
+          call: { id: 'call_1' },
+          toolCallList: [],
+          toolWithToolCallList: [
+            {},
+            {
+              toolCallId: 'tc_tw_alt',
+              toolCall: { function: { name: 'test.echo', arguments: JSON.stringify({ message: 'ok' }) } }
+            }
+          ]
+        }
+      }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toEqual([{ name: 'test.echo', toolCallId: 'tc_tw_alt', result: '[R:2]ko' }]);
+  });
+
+  test('createWebhookResponse: stringifies tool results when the invocation payload is an object', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const registry = {
+      getProcessRoutes: async () => [
+        {
+          id: 'test-cmd',
+          match: { type: 'exact', pattern: 'test.cmd' },
+          invoke: { kind: 'command', command: process.execPath, args: ['-e', 'console.log(JSON.stringify({\"foo\":\"bar\"}))'] },
+          timeoutMs: 1000
+        }
+      ]
+    };
+
+    const res = await compat.createWebhookResponse({
+      callConfigId: 'cfg_1',
+      callConfig: { providerCallId: 'call_1', realtimeSpec: { provider: 'vapi', model: 'model_x' } },
+      voiceProvider: 'vapi',
+      registry,
+      body: {
+        message: {
+          type: 'tool-calls',
+          call: { id: 'call_1' },
+          toolWithToolCallList: [],
+          toolCallList: [{ id: 'tc_cmd', name: 'test.cmd', arguments: {} }]
+        }
+      }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toEqual([{ name: 'test.cmd', toolCallId: 'tc_cmd', result: '{\"foo\":\"bar\"}' }]);
+  });
+
+  test('createWebhookResponse: handles non-array process routes safely', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const registry = {
+      getProcessRoutes: async () => ({ not: 'an array' })
+    };
+
+    const res = await compat.createWebhookResponse({
+      callConfigId: 'cfg_1',
+      callConfig: { providerCallId: 'call_1', realtimeSpec: { provider: 'vapi', model: 'model_x' } },
+      voiceProvider: 'vapi',
+      registry,
+      body: {
+        message: {
+          type: 'tool-calls',
+          call: { id: 'call_1' },
+          toolWithToolCallList: [],
+          toolCallList: [{ id: 'tc_no_routes', name: 'test.echo', arguments: { message: 'hello' } }]
+        }
+      }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toEqual([{ name: 'test.echo', toolCallId: 'tc_no_routes', error: expect.any(String) }]);
+  });
+
+  test('createWebhookResponse: tolerates registry.getProcessRoutes throwing', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const registry = {
+      getProcessRoutes: async () => {
+        throw new Error('boom');
+      }
+    };
+
+    const res = await compat.createWebhookResponse({
+      callConfigId: 'cfg_1',
+      callConfig: { providerCallId: 'call_1', realtimeSpec: { provider: 'vapi', model: 'model_x' } },
+      voiceProvider: 'vapi',
+      registry,
+      body: {
+        message: {
+          type: 'tool-calls',
+          call: { id: 'call_1' },
+          toolWithToolCallList: [],
+          toolCallList: [{ id: 'tc_routes_throw', name: 'test.echo', arguments: { message: 'hello' } }]
+        }
+      }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toEqual([{ name: 'test.echo', toolCallId: 'tc_routes_throw', error: expect.any(String) }]);
+  });
+
+  test('createWebhookResponse: returns empty results for function-call with missing fields', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const registry = { getProcessRoutes: async () => [] };
+    const res = await compat.createWebhookResponse({
+      callConfigId: 'cfg_1',
+      callConfig: { providerCallId: 'call_1', realtimeSpec: { provider: 'vapi', model: 'model_x' } },
+      voiceProvider: 'vapi',
+      registry,
+      body: { message: { type: 'function-call', functionCall: {} } }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toEqual([]);
+  });
+
+  test('createWebhookResponse: parse error defaults to name=\"tool\" when no name fields exist', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const throwing: any = {};
+    Object.defineProperty(throwing, 'id', {
+      get: () => {
+        throw 'boom';
+      }
+    });
+
+    const res = await compat.createWebhookResponse({
+      callConfigId: 'cfg_1',
+      callConfig: { providerCallId: 'call_1', realtimeSpec: { provider: 'vapi', model: 'model_x' } },
+      voiceProvider: 'vapi',
+      body: {
+        message: {
+          type: 'tool-calls',
+          toolWithToolCallList: [],
+          toolCallList: [throwing]
+        }
+      }
+    } as any);
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.results).toHaveLength(1);
+    expect(body.results[0].name).toBe('tool');
+    expect(String(body.results[0].toolCallId)).toMatch(/^tool_/);
+    expect(body.results[0].error).toBe('boom');
   });
 
   test('endCall: posts end-call to monitor.controlUrl', async () => {

@@ -62,10 +62,9 @@ if (filteredRealtimeTestRuns.length === 0) {
         // Verifies that our locally-logged observability content is present in the Langfuse trace.
         await waitForLangfuseTrace(traceId, {
           testFileBase: TEST_FILE,
-          timeoutMs: 180_000,
           logTimeoutMs: 60_000
         });
-      }, 240_000);
+      }, 360_000);
     });
   }
 }

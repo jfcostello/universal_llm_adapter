@@ -47,6 +47,92 @@ function normalizePlainObject(value: any): Record<string, any> {
   return value as Record<string, any>;
 }
 
+function safeJsonParse(value: string): any {
+  const raw = String(value).trim();
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeToolArgs(value: any): Record<string, any> {
+  if (typeof value === 'string') {
+    const parsed = safeJsonParse(value);
+    if (parsed === undefined) {
+      throw new Error('invalid_tool_arguments');
+    }
+    return normalizePlainObject(parsed);
+  }
+  return normalizePlainObject(value);
+}
+
+function stripToSingleLine(value: string): string {
+  return String(value)
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s\s+/g, ' ')
+    .trim();
+}
+
+type ExtractedToolCall = { toolCallId: string; name: string; args: Record<string, any>; parseError?: string };
+
+function extractToolCallsFromMessage(message: Record<string, any>): ExtractedToolCall[] {
+  const toolCalls: ExtractedToolCall[] = [];
+
+  const toolCallList = Array.isArray((message as any).toolCallList) ? (message as any).toolCallList : [];
+  if (toolCallList.length > 0) {
+    for (const raw of toolCallList) {
+      const obj = normalizePlainObject(raw);
+      const toolCallId = String(obj.id ?? obj.toolCallId ?? '').trim();
+      const name = String(obj.name ?? obj.function?.name ?? '').trim();
+      if (!toolCallId || !name) continue;
+
+      const argsRaw =
+        obj.parameters ??
+        obj.arguments ??
+        obj.function?.parameters ??
+        obj.function?.arguments;
+
+      let args: Record<string, any> = {};
+      let parseError: string | undefined;
+      try {
+        args = normalizeToolArgs(argsRaw);
+      } catch {
+        parseError = 'invalid_tool_arguments';
+        args = {};
+      }
+      toolCalls.push({ toolCallId, name, args, ...(parseError ? { parseError } : {}) });
+    }
+    return toolCalls;
+  }
+
+  const toolWithToolCallList = Array.isArray((message as any).toolWithToolCallList) ? (message as any).toolWithToolCallList : [];
+  for (const raw of toolWithToolCallList) {
+    const obj = normalizePlainObject(raw);
+    const toolCall = normalizePlainObject(obj.toolCall);
+    const toolCallId = String(toolCall.id ?? obj.toolCallId ?? '').trim();
+    const name = String(obj.name ?? toolCall.name ?? toolCall.function?.name ?? '').trim();
+    if (!toolCallId || !name) continue;
+    const argsRaw =
+      toolCall.parameters ??
+      toolCall.arguments ??
+      toolCall.function?.parameters ??
+      toolCall.function?.arguments;
+    let args: Record<string, any> = {};
+    let parseError: string | undefined;
+    try {
+      args = normalizeToolArgs(argsRaw);
+    } catch {
+      parseError = 'invalid_tool_arguments';
+      args = {};
+    }
+    toolCalls.push({ toolCallId, name, args, ...(parseError ? { parseError } : {}) });
+  }
+
+  return toolCalls;
+}
+
 function readSettingString(settings: any, name: string, aliases: string[] = []): string | undefined {
   const s = normalizePlainObject(settings);
   const candidates = [name, ...aliases];
@@ -391,7 +477,7 @@ export default class VapiVoiceCompat {
     const assistant: any = {
       ...(assistantFirstTurnActive ? { firstMessageMode: 'assistant-speaks-first-with-model-generated-message' } : { firstMessageMode: 'assistant-waits-for-user' }),
       modelOutputInMessagesEnabled: true,
-      serverMessages: ['status-update', 'speech-update', 'transcript', 'end-of-call-report'],
+      serverMessages: ['status-update', 'speech-update', 'transcript', 'end-of-call-report', 'tool-calls', 'function-call'],
       server: {
         url: webhookUrl,
         headers: { Authorization: `Bearer ${webhookAuth.token}` }
@@ -446,7 +532,15 @@ export default class VapiVoiceCompat {
     return { providerCallId };
   }
 
-  async createWebhookResponse(options: { callConfigId: string; callConfig?: any; voiceProvider: string; body?: any; bodyText?: string; events?: { emit?: (event: any) => void } }): Promise<{
+  async createWebhookResponse(options: {
+    callConfigId: string;
+    callConfig?: any;
+    voiceProvider: string;
+    body?: any;
+    bodyText?: string;
+    events?: { emit?: (event: any) => void };
+    registry?: any;
+  }): Promise<{
     status: number;
     headers: Record<string, string>;
     body: string;
@@ -464,7 +558,100 @@ export default class VapiVoiceCompat {
       } catch {}
     };
 
-    if (type.startsWith('transcript')) {
+    if (type === 'tool-calls' || type === 'function-call') {
+      const callConfigId = String(options.callConfigId).trim();
+      const metadata = {
+        ...(callConfigId ? { callConfigId } : {}),
+        ...(providerCallId ? { providerCallId } : {})
+      };
+
+      const callConfig = normalizePlainObject(options.callConfig);
+      const realtimeSpec = normalizePlainObject(callConfig.realtimeSpec);
+      const provider = String(realtimeSpec.provider ?? options.voiceProvider).trim();
+      const model = String(realtimeSpec.model ?? '').trim();
+
+      const toolCalls: ExtractedToolCall[] = [];
+      try {
+        if (type === 'tool-calls') {
+          toolCalls.push(...extractToolCallsFromMessage(message));
+        } else {
+          const functionCall = normalizePlainObject(message.functionCall);
+          const toolCallId = String(functionCall.id ?? message.toolCallId ?? '').trim();
+          const name = String(functionCall.name ?? '').trim();
+          const argsRaw = functionCall.parameters ?? functionCall.arguments;
+          if (toolCallId && name) {
+            let args: Record<string, any> = {};
+            let parseError: string | undefined;
+            try {
+              args = normalizeToolArgs(argsRaw);
+            } catch {
+              parseError = 'invalid_tool_arguments';
+              args = {};
+            }
+            toolCalls.push({ toolCallId, name, args, ...(parseError ? { parseError } : {}) });
+          }
+        }
+      } catch (err: any) {
+        const toolCallIdFallback = String(message.toolCallId ?? '').trim() || `tool_${Date.now()}`;
+        const nameFallback = String(message?.functionCall?.name ?? message?.name ?? '').trim() || 'tool';
+        const error = stripToSingleLine(err?.message ?? String(err));
+        return {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ results: [{ name: nameFallback, toolCallId: toolCallIdFallback, error }] })
+        };
+      }
+
+      if (toolCalls.length === 0) {
+        return {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ results: [] })
+        };
+      }
+
+      const getProcessRoutes = options.registry?.getProcessRoutes;
+      if (typeof getProcessRoutes !== 'function') {
+        return {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            results: toolCalls.map(tc => ({
+              name: tc.name,
+              toolCallId: tc.toolCallId,
+              error: tc.parseError ? tc.parseError : 'tool_execution_unavailable'
+            }))
+          })
+        };
+      }
+
+      const routes = await getProcessRoutes.call(options.registry).catch(() => []);
+      const { ToolCoordinator } = await import('../../../modules/tools/index.js');
+      const coordinator = new ToolCoordinator(Array.isArray(routes) ? routes : []);
+
+      const results: Array<{ name: string; toolCallId: string; result?: string; error?: string }> = [];
+      for (const tc of toolCalls) {
+        if (tc.parseError) {
+          results.push({ name: tc.name, toolCallId: tc.toolCallId, error: tc.parseError });
+          continue;
+        }
+        try {
+          const invoked = await coordinator.routeAndInvoke(tc.name, tc.toolCallId, tc.args, { provider, model, metadata });
+          const payload = invoked && typeof invoked === 'object' && 'result' in invoked ? (invoked as any).result : invoked;
+          const text = stripToSingleLine(typeof payload === 'string' ? payload : JSON.stringify(payload));
+          results.push({ name: tc.name, toolCallId: tc.toolCallId, result: text });
+        } catch (err: any) {
+          const error = stripToSingleLine(String((err as any).message));
+          results.push({ name: tc.name, toolCallId: tc.toolCallId, error });
+        }
+      }
+
+      return {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ results })
+      };
+    } else if (type.startsWith('transcript')) {
       const roleRaw = String(message.role ?? '').trim().toLowerCase();
       const role = roleRaw === 'assistant' ? 'assistant' : roleRaw === 'user' ? 'user' : '';
       const transcript = String(message.transcript ?? '').trim();

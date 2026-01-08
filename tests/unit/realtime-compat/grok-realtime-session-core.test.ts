@@ -520,6 +520,62 @@ describe('realtime-compat/grok — session core', () => {
     await session.commit();
 
     const responseCreate = fake.sent.find(m => m.type === 'response.create');
+    expect(responseCreate.response.tool_choice).toEqual({ type: 'function', name: 'demo_tool' });
+
+    await session.close();
+  });
+
+  test('toolChoice=single accepts provider tool name and forces function tool choice', async () => {
+    const fake = createFakeTransport();
+
+    const session = createGrokRealtimeCompatSessionWithTransport(
+      {
+        provider,
+        spec: { provider: 'grok', toolChoice: { type: 'single', name: 'demo_tool' } } as any,
+        tools: [{ name: 'demo.tool', description: 'Demo tool', parametersJsonSchema: { type: 'object', properties: {} } }] as any
+      },
+      fake.transport as any
+    );
+
+    const it = session.events()[Symbol.asyncIterator]();
+    fake.push({ type: 'open' });
+    fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created' }) });
+    fake.push({ type: 'message', data: JSON.stringify({ type: 'session.updated' }) });
+    await waitForEvent(it, e => e.type === 'ready');
+
+    fake.sent.length = 0;
+    await session.sendText({ text: 'hi' });
+    await session.commit();
+
+    const responseCreate = fake.sent.find(m => m.type === 'response.create');
+    expect(responseCreate.response.tool_choice).toEqual({ type: 'function', name: 'demo_tool' });
+
+    await session.close();
+  });
+
+  test('toolChoice=single falls back to required when tool name is empty', async () => {
+    const fake = createFakeTransport();
+
+    const session = createGrokRealtimeCompatSessionWithTransport(
+      {
+        provider,
+        spec: { provider: 'grok', toolChoice: { type: 'single', name: '' } } as any,
+        tools: [{ name: '', description: 'Demo tool', parametersJsonSchema: { type: 'object', properties: {} } }] as any
+      },
+      fake.transport as any
+    );
+
+    const it = session.events()[Symbol.asyncIterator]();
+    fake.push({ type: 'open' });
+    fake.push({ type: 'message', data: JSON.stringify({ type: 'conversation.created' }) });
+    fake.push({ type: 'message', data: JSON.stringify({ type: 'session.updated' }) });
+    await waitForEvent(it, e => e.type === 'ready');
+
+    fake.sent.length = 0;
+    await session.sendText({ text: 'hi' });
+    await session.commit();
+
+    const responseCreate = fake.sent.find(m => m.type === 'response.create');
     expect(responseCreate.response.tool_choice).toBe('required');
 
     await session.close();

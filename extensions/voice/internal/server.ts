@@ -867,6 +867,7 @@ export async function createVoiceServerRegistration(ctx: {
                   params,
                   ...(webhookBody !== undefined ? { body: webhookBody } : {}),
                   ...(webhookBodyText !== undefined ? { bodyText: webhookBodyText } : {}),
+                  registry: ctx.registry,
                   store,
                   logger,
                   events: { emit: (event: any) => emitCallEvent(callConfigId, event) },

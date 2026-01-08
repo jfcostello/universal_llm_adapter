@@ -257,6 +257,21 @@ export function createGrokRealtimeCompatSessionWithTransport(
 
   const commitMode = spec.turnDetection?.mode ?? 'manual_commit';
   const forceToolChoiceOnCommit = typeof spec.toolChoice === 'object' && spec.toolChoice?.type === 'single';
+  const forcedToolChoice = forceToolChoiceOnCommit
+    ? (() => {
+        const wanted = String((spec.toolChoice as any).name).trim();
+        if (!wanted) return 'required';
+
+        for (const [providerName, toolName] of toolNameByProviderName.entries()) {
+          if (String(toolName) === wanted) {
+            return { type: 'function', name: providerName };
+          }
+        }
+
+        // Fallback: if caller already supplied the provider tool name, or mapping is missing.
+        return { type: 'function', name: wanted };
+      })()
+    : undefined;
   const preReadyEvents: RealtimeEvent[] = [];
   if (settingsWarnings.unknownKeys.length > 0) {
     preReadyEvents.push({
@@ -460,7 +475,7 @@ export function createGrokRealtimeCompatSessionWithTransport(
 
       pendingTextTurn = false;
       await waitForCancelIfNeeded();
-      send(buildResponseCreateEvent(forceToolChoiceOnCommit ? { toolChoice: 'required' } : {}));
+      send(buildResponseCreateEvent(forceToolChoiceOnCommit ? { toolChoice: forcedToolChoice } : {}));
     },
     async interrupt() {
       ensureOpen();
