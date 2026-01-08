@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import type http from 'http';
 
-import { LruMap, ProviderExecutionError } from '../../../kernel/index.js';
+import { LruMap, ProviderExecutionError, safeJsonParse } from '../../../kernel/index.js';
 import { safeEqual } from '../../../modules/security/index.js';
 import { makeHttpError } from '../../../modules/shared/index.js';
 
@@ -47,16 +47,6 @@ function normalizePlainObject(value: any): Record<string, any> {
   return value as Record<string, any>;
 }
 
-function safeJsonParse(value: string): any {
-  const raw = String(value).trim();
-  if (!raw) return undefined;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return undefined;
-  }
-}
-
 function normalizeToolArgs(value: any): Record<string, any> {
   if (typeof value === 'string') {
     const parsed = safeJsonParse(value);
@@ -77,34 +67,62 @@ function stripToSingleLine(value: string): string {
 
 type ExtractedToolCall = { toolCallId: string; name: string; args: Record<string, any>; parseError?: string };
 
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  const limit = Math.max(1, Math.floor(concurrency));
+
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () =>
+    (async () => {
+      while (true) {
+        const index = nextIndex++;
+        if (index >= items.length) return;
+        results[index] = await fn(items[index]!, index);
+      }
+    })()
+  );
+
+  await Promise.all(workers);
+  return results;
+}
+
 function extractToolCallsFromMessage(message: Record<string, any>): ExtractedToolCall[] {
   const toolCalls: ExtractedToolCall[] = [];
 
+  const seen = new Set<string>();
+  const pushToolCall = (toolCall: ExtractedToolCall) => {
+    const toolCallId = String(toolCall.toolCallId).trim();
+    if (seen.has(toolCallId)) return;
+    seen.add(toolCallId);
+    toolCalls.push(toolCall);
+  };
+
   const toolCallList = Array.isArray((message as any).toolCallList) ? (message as any).toolCallList : [];
-  if (toolCallList.length > 0) {
-    for (const raw of toolCallList) {
-      const obj = normalizePlainObject(raw);
-      const toolCallId = String(obj.id ?? obj.toolCallId ?? '').trim();
-      const name = String(obj.name ?? obj.function?.name ?? '').trim();
-      if (!toolCallId || !name) continue;
+  for (const raw of toolCallList) {
+    const obj = normalizePlainObject(raw);
+    const toolCallId = String(obj.id ?? obj.toolCallId ?? '').trim();
+    const name = String(obj.name ?? obj.function?.name ?? '').trim();
+    if (!toolCallId || !name) continue;
 
-      const argsRaw =
-        obj.parameters ??
-        obj.arguments ??
-        obj.function?.parameters ??
-        obj.function?.arguments;
+    const argsRaw =
+      obj.parameters ??
+      obj.arguments ??
+      obj.function?.parameters ??
+      obj.function?.arguments;
 
-      let args: Record<string, any> = {};
-      let parseError: string | undefined;
-      try {
-        args = normalizeToolArgs(argsRaw);
-      } catch {
-        parseError = 'invalid_tool_arguments';
-        args = {};
-      }
-      toolCalls.push({ toolCallId, name, args, ...(parseError ? { parseError } : {}) });
+    let args: Record<string, any> = {};
+    let parseError: string | undefined;
+    try {
+      args = normalizeToolArgs(argsRaw);
+    } catch {
+      parseError = 'invalid_tool_arguments';
+      args = {};
     }
-    return toolCalls;
+    pushToolCall({ toolCallId, name, args, ...(parseError ? { parseError } : {}) });
   }
 
   const toolWithToolCallList = Array.isArray((message as any).toolWithToolCallList) ? (message as any).toolWithToolCallList : [];
@@ -127,7 +145,7 @@ function extractToolCallsFromMessage(message: Record<string, any>): ExtractedToo
       parseError = 'invalid_tool_arguments';
       args = {};
     }
-    toolCalls.push({ toolCallId, name, args, ...(parseError ? { parseError } : {}) });
+    pushToolCall({ toolCallId, name, args, ...(parseError ? { parseError } : {}) });
   }
 
   return toolCalls;
@@ -629,22 +647,26 @@ export default class VapiVoiceCompat {
       const { ToolCoordinator } = await import('../../../modules/tools/index.js');
       const coordinator = new ToolCoordinator(Array.isArray(routes) ? routes : []);
 
-      const results: Array<{ name: string; toolCallId: string; result?: string; error?: string }> = [];
-      for (const tc of toolCalls) {
-        if (tc.parseError) {
-          results.push({ name: tc.name, toolCallId: tc.toolCallId, error: tc.parseError });
-          continue;
+      const results = await mapWithConcurrency(
+        toolCalls,
+        Math.min(4, toolCalls.length),
+        async (tc): Promise<{ name: string; toolCallId: string; result?: string; error?: string }> => {
+          if (tc.parseError) {
+            return { name: tc.name, toolCallId: tc.toolCallId, error: tc.parseError };
+          }
+
+          try {
+            const invoked = await coordinator.routeAndInvoke(tc.name, tc.toolCallId, tc.args, { provider, model, metadata });
+            const payload = invoked && typeof invoked === 'object' && 'result' in invoked ? (invoked as any).result : invoked;
+            const text = stripToSingleLine(typeof payload === 'string' ? payload : JSON.stringify(payload));
+            return { name: tc.name, toolCallId: tc.toolCallId, result: text };
+          } catch (err: any) {
+            const message = stripToSingleLine(err?.message ?? String(err));
+            const error = message.endsWith('undefined') || message.endsWith('null') ? 'tool_invocation_failed' : message;
+            return { name: tc.name, toolCallId: tc.toolCallId, error };
+          }
         }
-        try {
-          const invoked = await coordinator.routeAndInvoke(tc.name, tc.toolCallId, tc.args, { provider, model, metadata });
-          const payload = invoked && typeof invoked === 'object' && 'result' in invoked ? (invoked as any).result : invoked;
-          const text = stripToSingleLine(typeof payload === 'string' ? payload : JSON.stringify(payload));
-          results.push({ name: tc.name, toolCallId: tc.toolCallId, result: text });
-        } catch (err: any) {
-          const error = stripToSingleLine(String((err as any).message));
-          results.push({ name: tc.name, toolCallId: tc.toolCallId, error });
-        }
-      }
+      );
 
       return {
         status: 200,

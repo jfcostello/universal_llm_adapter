@@ -100,7 +100,7 @@ class RealtimeSessionController implements RealtimeSession {
   private dtmfBargedInThisBuffer = false;
 
   private currentSpeechTurnAudioStartMs: number | undefined;
-  private lastResponseTriggeredByAudioEndMs: number | undefined;
+  private lastSpeechTurnAudioEndMs: number | undefined;
 
   private readonly observability: ObservabilityRuntime | undefined;
   private readonly logger: RealtimeSessionLogger | undefined;
@@ -623,7 +623,7 @@ class RealtimeSessionController implements RealtimeSession {
     } else if (event.type === 'user_speech.stopped') {
       const audioEndMs = Number((event as any)?.audioEndMs);
       if (Number.isFinite(audioEndMs) && audioEndMs >= 0) {
-        this.lastResponseTriggeredByAudioEndMs = Math.max(this.lastResponseTriggeredByAudioEndMs ?? 0, audioEndMs);
+        this.lastSpeechTurnAudioEndMs = Math.max(this.lastSpeechTurnAudioEndMs ?? 0, audioEndMs);
       }
     } else if (event.type === 'user_transcript.delta') {
       await this.maybeBargeIn('user_transcript.delta');
@@ -664,8 +664,8 @@ class RealtimeSessionController implements RealtimeSession {
     if (
       (trigger === 'user_speech.started' || trigger === 'user_transcript.delta') &&
       this.currentSpeechTurnAudioStartMs !== undefined &&
-      this.lastResponseTriggeredByAudioEndMs !== undefined &&
-      this.currentSpeechTurnAudioStartMs <= this.lastResponseTriggeredByAudioEndMs
+      this.lastSpeechTurnAudioEndMs !== undefined &&
+      this.currentSpeechTurnAudioStartMs <= this.lastSpeechTurnAudioEndMs
     ) {
       return false;
     }
