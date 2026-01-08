@@ -1,18 +1,18 @@
 import crypto from 'crypto';
 import type http from 'http';
 
-import { ProviderExecutionError } from '../../../kernel/index.js';
+import { LruMap, ProviderExecutionError } from '../../../kernel/index.js';
+import { safeEqual } from '../../../modules/security/index.js';
 import { makeHttpError } from '../../../modules/shared/index.js';
 
-function safeEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(String(a));
-  const bufB = Buffer.from(String(b));
-  if (bufA.length !== bufB.length) {
-    // keep timing roughly consistent
-    crypto.timingSafeEqual(bufA, bufA);
-    return false;
-  }
-  return crypto.timingSafeEqual(bufA, bufB);
+const ENDED_EVENT_DEDUPE = new LruMap<string, true>(20_000, { label: 'voice.vapi.ended_events' });
+
+function shouldEmitEndedEvent(key: string): boolean {
+  const id = String(key).trim();
+  if (!id) return true;
+  if (ENDED_EVENT_DEDUPE.get(id) === true) return false;
+  ENDED_EVENT_DEDUPE.set(id, true);
+  return true;
 }
 
 function makeProviderConfigError(message: string): Error {
@@ -191,6 +191,35 @@ function resolveTranscriber(spec: any, settings: any): { provider: string; model
   return { provider, model };
 }
 
+function normalizeRecordingChannels(value: any): 'mono' | 'dual' {
+  const raw = String(value ?? '').trim().toLowerCase();
+  return raw === 'dual' ? 'dual' : 'mono';
+}
+
+function resolveRecordingDownloadUrl(call: any, channels: 'mono' | 'dual'): string {
+  const callObj = normalizePlainObject(call);
+  const artifact = normalizePlainObject(callObj.artifact);
+
+  const recordingFromArtifact = artifact.recording;
+  const recObj = normalizePlainObject(recordingFromArtifact);
+  const monoObj = normalizePlainObject(recObj.mono);
+
+  const candidates: any[] = [];
+  if (channels === 'dual') {
+    candidates.push(recObj.stereoUrl, artifact.stereoRecordingUrl, callObj.stereoRecordingUrl);
+  }
+  candidates.push(monoObj.combinedUrl, recordingFromArtifact, artifact.recordingUrl, callObj.recordingUrl);
+  if (channels !== 'dual') {
+    candidates.push(recObj.stereoUrl, artifact.stereoRecordingUrl, callObj.stereoRecordingUrl);
+  }
+
+  for (const candidate of candidates) {
+    const url = typeof candidate === 'string' ? candidate.trim() : '';
+    if (url) return url;
+  }
+  return '';
+}
+
 export default class VapiVoiceCompat {
   async validateWebhookRequest(options: {
     req: http.IncomingMessage;
@@ -232,13 +261,14 @@ export default class VapiVoiceCompat {
 
     if (auth.includeTimestamp && auth.toleranceSeconds > 0) {
       const n = Number(timestamp);
-      if (Number.isFinite(n)) {
-        const now = Date.now();
-        const tsMs = n > 1e12 ? n : n * 1000;
-        const diffSeconds = Math.abs(now - tsMs) / 1000;
-        if (diffSeconds > auth.toleranceSeconds) {
-          throw makeUnauthorizedError('Unauthorized: webhook timestamp outside tolerance');
-        }
+      if (!Number.isFinite(n)) {
+        throw makeUnauthorizedError('Unauthorized: invalid timestamp');
+      }
+      const now = Date.now();
+      const tsMs = n > 1e12 ? n : n * 1000;
+      const diffSeconds = Math.abs(now - tsMs) / 1000;
+      if (diffSeconds > auth.toleranceSeconds) {
+        throw makeUnauthorizedError('Unauthorized: webhook timestamp outside tolerance');
       }
     }
 
@@ -349,6 +379,15 @@ export default class VapiVoiceCompat {
       throw makeProviderConfigError('Only bearer webhookAuth is supported for createOutboundCall');
     }
 
+    const recordingCfg = normalizePlainObject(callConfig.recording);
+    const recordingEnabled = Boolean(recordingCfg.enabled);
+    const recordingMode = recordingEnabled ? String(recordingCfg.mode ?? 'provider').trim().toLowerCase() : '';
+    const recordingFormatRaw = String(recordingCfg.format ?? '').trim().toLowerCase();
+    const recordingFormat = recordingFormatRaw === 'wav' ? 'wav;l16' : 'mp3';
+    const artifactPlan = recordingEnabled && recordingMode === 'provider'
+      ? { recordingEnabled: true, recordingFormat }
+      : undefined;
+
     const assistant: any = {
       ...(assistantFirstTurnActive ? { firstMessageMode: 'assistant-speaks-first-with-model-generated-message' } : { firstMessageMode: 'assistant-waits-for-user' }),
       modelOutputInMessagesEnabled: true,
@@ -357,6 +396,7 @@ export default class VapiVoiceCompat {
         url: webhookUrl,
         headers: { Authorization: `Bearer ${webhookAuth.token}` }
       },
+      ...(artifactPlan ? { artifactPlan } : {}),
       model: {
         provider: modelProvider,
         model,
@@ -417,6 +457,7 @@ export default class VapiVoiceCompat {
 
     const call = normalizePlainObject(message.call);
     const providerCallId = String(call.id ?? options.callConfig?.providerCallId ?? '').trim();
+    const endedDedupeKey = providerCallId || String(options.callConfigId).trim();
     const emit = (event: any) => {
       try {
         options.events?.emit?.({ ...event, ...(providerCallId ? { providerCallId } : {}) });
@@ -467,11 +508,15 @@ export default class VapiVoiceCompat {
         emit({ type: 'voice.call.connected' });
       } else if (status === 'ended') {
         const endedReason = String(message.endedReason ?? '').trim();
-        emit({ type: 'voice.call.ended', ...(endedReason ? { endedReason } : {}) });
+        if (shouldEmitEndedEvent(endedDedupeKey)) {
+          emit({ type: 'voice.call.ended', ...(endedReason ? { endedReason } : {}) });
+        }
       }
     } else if (type === 'end-of-call-report') {
       const endedReason = String(message.endedReason ?? '').trim();
-      emit({ type: 'voice.call.ended', ...(endedReason ? { endedReason } : {}) });
+      if (shouldEmitEndedEvent(endedDedupeKey)) {
+        emit({ type: 'voice.call.ended', ...(endedReason ? { endedReason } : {}) });
+      }
     }
 
     return {
@@ -531,6 +576,70 @@ export default class VapiVoiceCompat {
       const text = await res.text().catch(() => '');
       throw new ProviderExecutionError('vapi', `Vapi control failed (${res.status}): ${text || res.statusText}`, res.status, res.status === 429);
     }
+  }
+
+  async getRecordingDownloadRequest(options: { callConfigId: string; callConfig: any; providerDefaults?: any }): Promise<{ url: string; headers: Record<string, string> }> {
+    const callConfig = options.callConfig ?? {};
+
+    const providerCallId = String((callConfig as any)?.providerCallId ?? '').trim();
+    if (!providerCallId) {
+      throw makeHttpError({ message: 'Recording is not ready', statusCode: 409, code: 'recording_not_ready' });
+    }
+
+    const defaults = normalizePlainObject(options.providerDefaults);
+    const apiKey = String(defaults.apiKey ?? '').trim();
+    const apiBaseUrlRaw = String(defaults.apiBaseUrl ?? 'https://api.vapi.ai').trim();
+    const apiBaseUrl = apiBaseUrlRaw ? apiBaseUrlRaw.replace(/\/+$/g, '') : 'https://api.vapi.ai';
+    if (!apiKey) {
+      throw makeProviderConfigError('Missing required provider credentials');
+    }
+
+    let apiHost = '';
+    try {
+      apiHost = new URL(apiBaseUrl).host;
+    } catch {
+      throw makeProviderConfigError('Invalid provider apiBaseUrl');
+    }
+
+    const channels = normalizeRecordingChannels((callConfig as any)?.recording?.channels);
+    const url = `${apiBaseUrl}/call/${encodeURIComponent(providerCallId)}`;
+
+    let res: any;
+    try {
+      res = await fetch(url, { method: 'GET', headers: { Authorization: `Bearer ${apiKey}` } });
+    } catch (err: any) {
+      const detail = err?.message ? `: ${String(err.message).slice(0, 200)}` : '';
+      throw new ProviderExecutionError('vapi', `Call get failed${detail}`, 502);
+    }
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      const suffix = text ? `: ${text.slice(0, 500)}` : '';
+      throw new ProviderExecutionError('vapi', `Call get failed (${res.status})${suffix}`, res.status, res.status === 429);
+    }
+
+    const call = await res.json().catch(() => null);
+    const recordingUrlRaw = resolveRecordingDownloadUrl(call, channels);
+    if (!recordingUrlRaw) {
+      throw makeHttpError({ message: 'Recording is not ready', statusCode: 409, code: 'recording_not_ready' });
+    }
+
+    let recordingUrl: URL;
+    try {
+      recordingUrl = new URL(recordingUrlRaw);
+    } catch {
+      throw makeHttpError({ message: 'Invalid recording URL', statusCode: 500, code: 'provider_error' });
+    }
+    if (recordingUrl.protocol !== 'https:' && recordingUrl.protocol !== 'http:') {
+      throw makeHttpError({ message: 'Invalid recording URL protocol', statusCode: 500, code: 'provider_error' });
+    }
+
+    const headers: Record<string, string> = {};
+    if (recordingUrl.host === apiHost) {
+      headers.Authorization = `Bearer ${apiKey}`;
+    }
+
+    return { url: recordingUrl.toString(), headers };
   }
 
   async handleMediaConnection(options: { ws: any }) {

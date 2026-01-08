@@ -15,6 +15,7 @@ Small, dependency-free security helpers used across the library.
 - `redactJsonCredentials(value, sensitiveKeys?)` – redacts credentials in JSON-like objects/arrays (by key name + URL parsing).
 - `createSensitiveKeyMatcher(patterns)` – builds a case-insensitive key matcher with glob-style `*` wildcards.
 - `redactSensitiveString(value)` / `redactSensitiveValue(value)` – helpers used by the redaction pipeline.
+- `safeEqual(a, b)` – constant-time string compare helper for secrets (wrapper around `crypto.timingSafeEqual`).
 - `createSignedWsToken({ secret, payload })` – creates a signed, compact token for ephemeral auth in WS query params or headers.
 - `verifySignedWsToken({ token, secret, expected, nowSeconds, clockSkewSeconds, maxTtlSeconds })` – verifies token signature and time bounds.
 

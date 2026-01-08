@@ -172,14 +172,14 @@ describe('plugins/voice-compat/vapi', () => {
         signatureEncoding: 'base64',
         signaturePrefix: 'sha512=',
         includeTimestamp: true,
-        // cover non-numeric timestamp tolerance bypass
+        // cover signature prefix + base64 secret/signature + non-numeric toleranceSeconds normalization
         payloadFormat: '{timestamp}.{body}.{method}.{url}.{svix-id}',
         toleranceSeconds: 'nope'
       }
     };
 
     const bodyText = JSON.stringify({ message: { type: 'status-update', status: 'queued' } });
-    const timestamp = 'abc';
+    const timestamp = String(Math.floor(Date.now() / 1000));
     const url = 'https://example.test/voice/webhook?callConfigId=cfg_1';
     const payload = `${timestamp}.${bodyText}.POST.${url}.m1`;
     const signature = hmac({ algorithm: 'sha512', key: secretBytes, payload, encoding: 'base64' });
@@ -193,6 +193,33 @@ describe('plugins/voice-compat/vapi', () => {
         providerDefaults
       })
     ).resolves.toBeUndefined();
+  });
+
+  test('validateWebhookRequest: hmac rejects non-numeric timestamps when tolerance is enabled', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const providerDefaults = {
+      webhookAuth: {
+        type: 'hmac',
+        secretKey: 'secret_6',
+        algorithm: 'sha256',
+        signatureHeader: 'x-signature',
+        timestampHeader: 'x-timestamp',
+        signatureEncoding: 'hex',
+        includeTimestamp: true,
+        payloadFormat: '{timestamp}.{body}',
+        toleranceSeconds: 300
+      }
+    };
+
+    await expect(
+      compat.validateWebhookRequest({
+        req: { headers: { 'x-signature': 'sig', 'x-timestamp': 'abc' } } as any,
+        method: 'POST',
+        url: 'https://example.test/voice/webhook?callConfigId=cfg_1',
+        providerDefaults
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 401, code: 'unauthorized' });
   });
 
   test('validateWebhookRequest: hmac can default headers and fill missing body/method/url', async () => {
@@ -640,6 +667,7 @@ describe('plugins/voice-compat/vapi', () => {
 
       expect(body.assistant.model.provider).toBe('google');
       expect(body.assistant.model.model).toBe('model_x');
+      expect(body.assistant.artifactPlan).toBeUndefined();
       expect(body.assistant.firstMessageMode).toBe('assistant-speaks-first-with-model-generated-message');
       expect(Array.isArray(body.assistant.model.messages)).toBe(true);
       expect(body.assistant.model.messages[0]?.role).toBe('system');
@@ -748,6 +776,8 @@ describe('plugins/voice-compat/vapi', () => {
       const body = JSON.parse(init.body);
       expect(body.assistant.server.url).toBe('https://example.test/voice/webhook?callConfigId=cfg_1');
       expect(body.assistant.model.temperature).toBe(0.9);
+      expect(body.assistant.artifactPlan.recordingEnabled).toBe(true);
+      expect(body.assistant.artifactPlan.recordingFormat).toBe('mp3');
       expect(body.assistant.transcriber.provider).toBe('transcriber_x');
       expect(body.assistant.transcriber.model).toBe('transcriber_model_x');
       expect(body.assistant.model.messages[0]?.role).toBe('system');
@@ -762,6 +792,7 @@ describe('plugins/voice-compat/vapi', () => {
         from: 'pn_1',
         callConfigId: 'cfg_1',
         callConfig: {
+          recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'mono' },
           assistantFirstTurn: { enabled: true, prompt: 'Hi', role: 'system' },
           realtimeSpec: {
             provider: 'vapi',
@@ -780,6 +811,35 @@ describe('plugins/voice-compat/vapi', () => {
       } as any);
 
       expect(res.providerCallId).toBe('call_2');
+    } finally {
+      fetchMock.restore();
+    }
+  });
+
+  test('createOutboundCall: maps recording.format=wav to artifactPlan.recordingFormat=wav;l16', async () => {
+    const fetchMock = installFetch(async (_url, init) => {
+      const body = JSON.parse(init.body);
+      expect(body.assistant.artifactPlan.recordingEnabled).toBe(true);
+      expect(body.assistant.artifactPlan.recordingFormat).toBe('wav;l16');
+      return { ok: true, status: 201, statusText: 'Created', json: async () => ({ id: 'call_wav' }) };
+    });
+
+    try {
+      const compat = new VapiVoiceCompat();
+      const res = await compat.createOutboundCall({
+        to: 'to',
+        from: 'from',
+        callConfigId: 'cfg_1',
+        callConfig: {
+          recording: { enabled: true, format: 'wav', channels: 'mono' },
+          realtimeSpec: { provider: 'vapi' }
+        },
+        voiceProvider: 'vapi',
+        mediaWsUrl: 'wss://example.test/voice/media?token=abc',
+        providerDefaults: { apiKey: 'api_key', webhookAuth: { type: 'bearer', token: 'webhook_tok' } }
+      } as any);
+
+      expect(res.providerCallId).toBe('call_wav');
     } finally {
       fetchMock.restore();
     }
@@ -949,6 +1009,40 @@ describe('plugins/voice-compat/vapi', () => {
       events: { emit: (evt: any) => emitted.push(evt) }
     } as any);
 
+    // ensure end-of-call-report can emit ended events when it is the first terminal webhook
+    await compat.createWebhookResponse({
+      callConfigId: 'cfg_2',
+      callConfig: { providerCallId: 'call_2' },
+      voiceProvider: 'vapi',
+      body: { message: { type: 'end-of-call-report', endedReason: 'z', call: { id: 'call_2' } } },
+      events: { emit: (evt: any) => emitted.push(evt) }
+    } as any);
+
+    await compat.createWebhookResponse({
+      callConfigId: 'cfg_3',
+      callConfig: { providerCallId: 'call_3' },
+      voiceProvider: 'vapi',
+      body: { message: { type: 'status-update', status: 'ended', call: { id: 'call_3' } } },
+      events: { emit: (evt: any) => emitted.push(evt) }
+    } as any);
+
+    await compat.createWebhookResponse({
+      callConfigId: 'cfg_4',
+      callConfig: { providerCallId: 'call_4' },
+      voiceProvider: 'vapi',
+      body: { message: { type: 'end-of-call-report', call: { id: 'call_4' } } },
+      events: { emit: (evt: any) => emitted.push(evt) }
+    } as any);
+
+    // cover ended-event dedupe fallback for empty keys (should not throw)
+    await compat.createWebhookResponse({
+      callConfigId: '',
+      callConfig: {},
+      voiceProvider: 'vapi',
+      body: { message: { type: 'end-of-call-report', endedReason: 'empty-key' } },
+      events: { emit: (evt: any) => emitted.push(evt) }
+    } as any);
+
     expect(emitted.some(e => e?.type === 'user_transcript.final' && String(e?.text).includes('hello'))).toBe(true);
     expect(emitted.some(e => e?.type === 'assistant_transcript.delta')).toBe(true);
     expect(emitted.some(e => e?.type === 'assistant_transcript.final' && String(e?.text).includes('bye'))).toBe(true);
@@ -960,7 +1054,23 @@ describe('plugins/voice-compat/vapi', () => {
     expect(emitted.some(e => e?.type === 'voice.assistant_audio.ended')).toBe(true);
     expect(emitted.some(e => e?.type === 'voice.playback.drained')).toBe(true);
     expect(emitted.some(e => e?.type === 'voice.call.connected')).toBe(true);
-    expect(emitted.some(e => e?.type === 'voice.call.ended' && e?.endedReason === 'x')).toBe(true);
+    const endedCall1 = emitted.filter(e => e?.type === 'voice.call.ended' && e?.providerCallId === 'call_1');
+    expect(endedCall1).toHaveLength(1);
+    expect(endedCall1[0]?.endedReason).toBe('x');
+
+    const endedCall2 = emitted.filter(e => e?.type === 'voice.call.ended' && e?.providerCallId === 'call_2');
+    expect(endedCall2).toHaveLength(1);
+    expect(endedCall2[0]?.endedReason).toBe('z');
+
+    const endedCall3 = emitted.filter(e => e?.type === 'voice.call.ended' && e?.providerCallId === 'call_3');
+    expect(endedCall3).toHaveLength(1);
+    expect(endedCall3[0]?.endedReason).toBeUndefined();
+
+    const endedCall4 = emitted.filter(e => e?.type === 'voice.call.ended' && e?.providerCallId === 'call_4');
+    expect(endedCall4).toHaveLength(1);
+    expect(endedCall4[0]?.endedReason).toBeUndefined();
+
+    expect(emitted.some(e => e?.type === 'voice.call.ended' && e?.endedReason === 'empty-key')).toBe(true);
   });
 
   test('endCall: posts end-call to monitor.controlUrl', async () => {
@@ -1206,6 +1316,328 @@ describe('plugins/voice-compat/vapi', () => {
       ).rejects.toBeInstanceOf(Error);
     } finally {
       fetchMock.restore();
+    }
+  });
+
+  test('getRecordingDownloadRequest: validates defaults and returns recording urls (stereo/mono)', async () => {
+    const compat = new VapiVoiceCompat();
+
+    await expect(
+      compat.getRecordingDownloadRequest({
+        callConfigId: 'cfg_1',
+        callConfig: { providerCallId: 'call_1', recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'mono' } },
+        voiceProvider: 'vapi',
+        providerDefaults: { apiKey: '' }
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 500, code: 'provider_config_error' });
+
+    await expect(
+      compat.getRecordingDownloadRequest({
+        callConfigId: 'cfg_1',
+        callConfig: { providerCallId: '', recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'mono' } },
+        voiceProvider: 'vapi',
+        providerDefaults: { apiKey: 'k' }
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 409, code: 'recording_not_ready' });
+
+    const fetchStereo = installFetch(async (url, init) => {
+      expect(String(init?.method ?? 'GET').toUpperCase()).toBe('GET');
+      expect(url).toBe('https://vapi.test/call/call_2');
+
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({
+          id: 'call_2',
+          artifact: {
+            recording: {
+              stereoUrl: 'https://cdn.example/rec_stereo.mp3',
+              mono: { combinedUrl: 'https://cdn.example/rec_mono.mp3' }
+            }
+          }
+        })
+      };
+    });
+
+    try {
+      const stereo = await compat.getRecordingDownloadRequest({
+        callConfigId: 'cfg_1',
+        callConfig: { providerCallId: 'call_2', recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'dual' } },
+        voiceProvider: 'vapi',
+        providerDefaults: { apiKey: 'k', apiBaseUrl: 'https://vapi.test' }
+      } as any);
+      expect(stereo.url).toBe('https://cdn.example/rec_stereo.mp3');
+      expect(stereo.headers).toEqual({});
+    } finally {
+      fetchStereo.restore();
+    }
+
+    const fetchMono = installFetch(async (url, init) => {
+      expect(String(init?.method ?? 'GET').toUpperCase()).toBe('GET');
+      expect(url).toBe('https://vapi.test/call/call_3');
+
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({
+          id: 'call_3',
+          artifact: {
+            recording: {
+              mono: { combinedUrl: 'https://cdn.example/rec_mono.wav' }
+            }
+          }
+        })
+      };
+    });
+
+    try {
+      const mono = await compat.getRecordingDownloadRequest({
+        callConfigId: 'cfg_1',
+        callConfig: { providerCallId: 'call_3', recording: { enabled: true, mode: 'provider', format: 'wav', channels: 'mono' } },
+        voiceProvider: 'vapi',
+        providerDefaults: { apiKey: 'k', apiBaseUrl: 'https://vapi.test' }
+      } as any);
+      expect(mono.url).toBe('https://cdn.example/rec_mono.wav');
+      expect(mono.headers).toEqual({});
+    } finally {
+      fetchMono.restore();
+    }
+
+    const fetchApiHost = installFetch(async (url, init) => {
+      expect(String(init?.method ?? 'GET').toUpperCase()).toBe('GET');
+      expect(url).toBe('https://vapi.test/call/call_4');
+
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({ id: 'call_4', artifact: { recording: 'https://vapi.test/recordings/call_4.mp3' } })
+      };
+    });
+
+    try {
+      const res = await compat.getRecordingDownloadRequest({
+        callConfigId: 'cfg_1',
+        callConfig: { providerCallId: 'call_4', recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'mono' } },
+        voiceProvider: 'vapi',
+        providerDefaults: { apiKey: 'api_key', apiBaseUrl: 'https://vapi.test' }
+      } as any);
+      expect(res.url).toBe('https://vapi.test/recordings/call_4.mp3');
+      expect(res.headers.Authorization).toBe('Bearer api_key');
+    } finally {
+      fetchApiHost.restore();
+    }
+  });
+
+  test('getRecordingDownloadRequest: throws recording_not_ready when recording url is missing', async () => {
+    const compat = new VapiVoiceCompat();
+
+    const fetchMock = installFetch(async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => ({ id: 'call_1', artifact: {} })
+    }));
+
+    try {
+      await expect(
+        compat.getRecordingDownloadRequest({
+          callConfigId: 'cfg_1',
+          callConfig: { providerCallId: 'call_1', recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'mono' } },
+          voiceProvider: 'vapi',
+          providerDefaults: { apiKey: 'k', apiBaseUrl: 'https://vapi.test' }
+        } as any)
+      ).rejects.toMatchObject({ statusCode: 409, code: 'recording_not_ready' });
+    } finally {
+      fetchMock.restore();
+    }
+  });
+
+  test('getRecordingDownloadRequest: handles invalid defaults, provider failures, and invalid recording urls', async () => {
+    const compat = new VapiVoiceCompat();
+
+    await expect(
+      compat.getRecordingDownloadRequest({
+        callConfigId: 'cfg_1',
+        callConfig: undefined,
+        voiceProvider: 'vapi',
+        providerDefaults: { apiKey: 'k', apiBaseUrl: 'https://vapi.test' }
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 409, code: 'recording_not_ready' });
+
+    await expect(
+      compat.getRecordingDownloadRequest({
+        callConfigId: 'cfg_1',
+        callConfig: { providerCallId: 'call_1', recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'mono' } },
+        voiceProvider: 'vapi',
+        providerDefaults: {}
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 500, code: 'provider_config_error' });
+
+    await expect(
+      compat.getRecordingDownloadRequest({
+        callConfigId: 'cfg_1',
+        callConfig: { providerCallId: 'call_1', recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'mono' } },
+        voiceProvider: 'vapi',
+        providerDefaults: { apiKey: 'k', apiBaseUrl: 'not a url' }
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 500, code: 'provider_config_error' });
+
+    const fetchDefaultBase = installFetch(async (url, init) => {
+      expect(String(init?.method ?? 'GET').toUpperCase()).toBe('GET');
+      expect(url).toBe('https://api.vapi.ai/call/call_1');
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({ id: 'call_1', artifact: { recording: 'https://cdn.example/rec.mp3' } })
+      };
+    });
+    try {
+      const res = await compat.getRecordingDownloadRequest({
+        callConfigId: 'cfg_1',
+        callConfig: { providerCallId: 'call_1', recording: { enabled: true, mode: 'provider', format: 'mp3' } },
+        voiceProvider: 'vapi',
+        providerDefaults: { apiKey: 'k', apiBaseUrl: '' }
+      } as any);
+      expect(res.url).toBe('https://cdn.example/rec.mp3');
+      expect(res.headers).toEqual({});
+    } finally {
+      fetchDefaultBase.restore();
+    }
+
+    const fetchThrow = installFetch(async () => { throw new Error('boom'); });
+    try {
+      await expect(
+        compat.getRecordingDownloadRequest({
+          callConfigId: 'cfg_1',
+          callConfig: { providerCallId: 'call_1', recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'mono' } },
+          voiceProvider: 'vapi',
+          providerDefaults: { apiKey: 'k', apiBaseUrl: 'https://vapi.test' }
+        } as any)
+      ).rejects.toMatchObject({ statusCode: 502, provider: 'vapi' });
+    } finally {
+      fetchThrow.restore();
+    }
+
+    const fetchThrowNoMessage = installFetch(async () => { throw { nope: true }; });
+    try {
+      await expect(
+        compat.getRecordingDownloadRequest({
+          callConfigId: 'cfg_1',
+          callConfig: { providerCallId: 'call_1', recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'mono' } },
+          voiceProvider: 'vapi',
+          providerDefaults: { apiKey: 'k', apiBaseUrl: 'https://vapi.test' }
+        } as any)
+      ).rejects.toMatchObject({ statusCode: 502, provider: 'vapi' });
+    } finally {
+      fetchThrowNoMessage.restore();
+    }
+
+    const fetchNotOk = installFetch(async () => ({ ok: false, status: 500, statusText: 'Boom', text: async () => 'nope' }));
+    try {
+      await expect(
+        compat.getRecordingDownloadRequest({
+          callConfigId: 'cfg_1',
+          callConfig: { providerCallId: 'call_1', recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'mono' } },
+          voiceProvider: 'vapi',
+          providerDefaults: { apiKey: 'k', apiBaseUrl: 'https://vapi.test' }
+        } as any)
+      ).rejects.toMatchObject({ statusCode: 500, provider: 'vapi' });
+    } finally {
+      fetchNotOk.restore();
+    }
+
+    const fetchNotOkEmpty = installFetch(async () => ({ ok: false, status: 500, statusText: 'Boom', text: async () => '' }));
+    try {
+      await expect(
+        compat.getRecordingDownloadRequest({
+          callConfigId: 'cfg_1',
+          callConfig: { providerCallId: 'call_1', recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'mono' } },
+          voiceProvider: 'vapi',
+          providerDefaults: { apiKey: 'k', apiBaseUrl: 'https://vapi.test' }
+        } as any)
+      ).rejects.toMatchObject({ statusCode: 500, provider: 'vapi' });
+    } finally {
+      fetchNotOkEmpty.restore();
+    }
+
+    const fetchNotOkTextThrows = installFetch(async () => ({
+      ok: false,
+      status: 500,
+      statusText: 'Boom',
+      text: async () => { throw new Error('boom'); }
+    }));
+    try {
+      await expect(
+        compat.getRecordingDownloadRequest({
+          callConfigId: 'cfg_1',
+          callConfig: { providerCallId: 'call_1', recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'mono' } },
+          voiceProvider: 'vapi',
+          providerDefaults: { apiKey: 'k', apiBaseUrl: 'https://vapi.test' }
+        } as any)
+      ).rejects.toMatchObject({ statusCode: 500, provider: 'vapi' });
+    } finally {
+      fetchNotOkTextThrows.restore();
+    }
+
+    const fetchJsonThrows = installFetch(async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => { throw new Error('boom'); }
+    }));
+    try {
+      await expect(
+        compat.getRecordingDownloadRequest({
+          callConfigId: 'cfg_1',
+          callConfig: { providerCallId: 'call_1', recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'mono' } },
+          voiceProvider: 'vapi',
+          providerDefaults: { apiKey: 'k', apiBaseUrl: 'https://vapi.test' }
+        } as any)
+      ).rejects.toMatchObject({ statusCode: 409, code: 'recording_not_ready' });
+    } finally {
+      fetchJsonThrows.restore();
+    }
+
+    const fetchBadRecordingUrl = installFetch(async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => ({ id: 'call_1', artifact: { recording: 'not a url' } })
+    }));
+    try {
+      await expect(
+        compat.getRecordingDownloadRequest({
+          callConfigId: 'cfg_1',
+          callConfig: { providerCallId: 'call_1', recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'mono' } },
+          voiceProvider: 'vapi',
+          providerDefaults: { apiKey: 'k', apiBaseUrl: 'https://vapi.test' }
+        } as any)
+      ).rejects.toMatchObject({ statusCode: 500, code: 'provider_error' });
+    } finally {
+      fetchBadRecordingUrl.restore();
+    }
+
+    const fetchBadRecordingProtocol = installFetch(async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => ({ id: 'call_1', artifact: { recording: 'file:///tmp/rec.mp3' } })
+    }));
+    try {
+      await expect(
+        compat.getRecordingDownloadRequest({
+          callConfigId: 'cfg_1',
+          callConfig: { providerCallId: 'call_1', recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'mono' } },
+          voiceProvider: 'vapi',
+          providerDefaults: { apiKey: 'k', apiBaseUrl: 'https://vapi.test' }
+        } as any)
+      ).rejects.toMatchObject({ statusCode: 500, code: 'provider_error' });
+    } finally {
+      fetchBadRecordingProtocol.restore();
     }
   });
 

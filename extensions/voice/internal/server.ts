@@ -776,25 +776,25 @@ export async function createVoiceServerRegistration(ctx: {
           const params: Record<string, string> = {};
           let webhookBodyText: string | undefined;
           let webhookBody: any | undefined;
-	          if (method === 'POST') {
-	            const contentType = String(req.headers?.['content-type'] ?? '').toLowerCase();
-	            if (contentType.includes('application/x-www-form-urlencoded')) {
-	              webhookBodyText = await readTextBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
-	              if (webhookBodyText) {
-	                const form = new URLSearchParams(webhookBodyText);
-	                for (const [k, v] of form.entries()) {
-	                  params[String(k)] = String(v);
-	                }
-	              }
-	            } else if (contentType.includes('application/json') || contentType.includes('+json')) {
-	              const bodyText = await readTextBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
-	              webhookBodyText = bodyText;
-	              const raw = bodyText.trim();
-	              if (!raw) {
-	                webhookBody = {};
-	              } else {
-	                try {
-	                  webhookBody = JSON.parse(raw);
+          if (method === 'POST') {
+            const contentType = String(req.headers?.['content-type'] ?? '').toLowerCase();
+            if (contentType.includes('application/x-www-form-urlencoded')) {
+              webhookBodyText = await readTextBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
+              if (webhookBodyText) {
+                const form = new URLSearchParams(webhookBodyText);
+                for (const [k, v] of form.entries()) {
+                  params[String(k)] = String(v);
+                }
+              }
+            } else if (contentType.includes('application/json') || contentType.includes('+json')) {
+              const bodyText = await readTextBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
+              webhookBodyText = bodyText;
+              const raw = bodyText.trim();
+              if (!raw) {
+                webhookBody = {};
+              } else {
+                try {
+                  webhookBody = JSON.parse(raw);
                 } catch {}
               }
             }
@@ -836,7 +836,6 @@ export async function createVoiceServerRegistration(ctx: {
                   providerDefaults,
                   store,
                   logger,
-                  events: { emit: (event: any) => emitCallEvent(callConfigId, event) },
                   metrics
                 });
               } catch (error: any) {
@@ -1519,14 +1518,6 @@ export async function createVoiceServerRegistration(ctx: {
           const recordingCfg = (callConfig as any)?.recording;
           if (!(recordingCfg && typeof recordingCfg === 'object' && (recordingCfg as any).enabled === true)) {
             writeJson(res, 409, { type: 'error', error: { message: 'Recording is not enabled for this call', code: 'recording_not_enabled' } });
-            return true;
-          }
-
-          const providerRecording = (recordingCfg as any)?.providerRecording;
-          const hasProviderArtifact = providerRecording && typeof providerRecording === 'object'
-            && (typeof (providerRecording as any).url === 'string' || typeof (providerRecording as any).id === 'string');
-          if (!hasProviderArtifact) {
-            writeJson(res, 409, { type: 'error', error: { message: 'Recording is not ready', code: 'recording_not_ready' } });
             return true;
           }
 
