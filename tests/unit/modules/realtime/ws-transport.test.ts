@@ -1,4 +1,5 @@
 import { createRequire } from 'module';
+import net from 'net';
 import { decodeWsMessage, decodeWsMessageAsync, createWsTransport } from '@/modules/realtime/internal/transport/ws.ts';
 
 const require = createRequire(import.meta.url);
@@ -238,5 +239,270 @@ describe('modules/realtime/internal/transport/ws', () => {
       // Now send should throw
       expect(() => transport.send('test')).toThrow('Transport is closed');
     });
+  });
+
+  describe('createWsTransport connect() behavior', () => {
+    test('emits ws_connect_timeout + closes when handshake stalls', async () => {
+      const sockets = new Set<any>();
+      const server = net.createServer((socket) => {
+        sockets.add(socket);
+        socket.on('close', () => sockets.delete(socket));
+        // Intentionally do not respond to the HTTP upgrade request.
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(0, '127.0.0.1', () => resolve());
+      });
+
+      try {
+        const address = server.address();
+        if (!address || typeof address === 'string') {
+          throw new Error('Expected TCP address');
+        }
+
+        const transport = createWsTransport({
+          url: `ws://127.0.0.1:${address.port}`,
+          connectTimeoutMs: 50,
+          maxConnectAttempts: 1
+        });
+
+        const events: any[] = [];
+        for await (const event of transport.events()) {
+          events.push(event);
+        }
+
+        expect(events.some(e => e?.type === 'error' && e?.code === 'ws_connect_timeout')).toBe(true);
+        expect(events.filter(e => e?.type === 'close').length).toBe(1);
+      } finally {
+        for (const socket of sockets) {
+          try {
+            socket.destroy();
+          } catch {}
+        }
+        await new Promise<void>(resolve => server.close(() => resolve()));
+      }
+    }, 10000);
+
+    test('retries pre-open connection errors until it can open', async () => {
+      const reservation = net.createServer();
+      await new Promise<void>((resolve, reject) => {
+        reservation.once('error', reject);
+        reservation.listen(0, '127.0.0.1', () => resolve());
+      });
+
+      const address = reservation.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Expected TCP address');
+      }
+      const port = address.port;
+      await new Promise<void>(resolve => reservation.close(() => resolve()));
+
+      const transport = createWsTransport({
+        url: `ws://127.0.0.1:${port}`,
+        connectTimeoutMs: 200,
+        maxConnectAttempts: 3
+      });
+
+      const events: any[] = [];
+      const collect = (async () => {
+        for await (const event of transport.events()) {
+          events.push(event);
+          if (event.type === 'open') {
+            transport.close();
+          }
+        }
+      })();
+
+      await new Promise<void>(resolve => setTimeout(resolve, 50));
+      const wss = new WebSocketServer({ port, host: '127.0.0.1' });
+      await new Promise<void>((resolve) => wss.once('listening', () => resolve()));
+
+      try {
+        await collect;
+      } finally {
+        await new Promise<void>(resolve => wss.close(() => resolve()));
+      }
+
+      expect(events.some(e => e?.type === 'open')).toBe(true);
+      expect(events.some(e => e?.type === 'error')).toBe(false);
+      expect(events.filter(e => e?.type === 'close').length).toBe(1);
+    }, 10000);
+
+    test('close() clears a pending retry timer (covers clearRetryTimer)', async () => {
+      const reservation = net.createServer();
+      await new Promise<void>((resolve, reject) => {
+        reservation.once('error', reject);
+        reservation.listen(0, '127.0.0.1', () => resolve());
+      });
+
+      const address = reservation.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Expected TCP address');
+      }
+      const port = address.port;
+      await new Promise<void>(resolve => reservation.close(() => resolve()));
+
+      const transport = createWsTransport({
+        url: `ws://127.0.0.1:${port}`,
+        connectTimeoutMs: 200,
+        maxConnectAttempts: 3
+      });
+
+      await new Promise<void>(resolve => setTimeout(resolve, 50));
+      transport.close();
+
+      const events: any[] = [];
+      for await (const event of transport.events()) {
+        events.push(event);
+      }
+
+      expect(events.filter(e => e?.type === 'close').length).toBe(1);
+    }, 10000);
+
+    test('supports connectTimeoutMs=0 and passes headers through to the server', async () => {
+      const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+      const headersSeen: any[] = [];
+
+      wss.on('connection', (_ws: any, req: any) => {
+        headersSeen.push(req?.headers ?? {});
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        const address = wss.address();
+        if (address && typeof address === 'object') {
+          resolve();
+          return;
+        }
+        wss.once('listening', resolve);
+        wss.once('error', reject);
+      });
+
+      const address = wss.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Expected TCP address');
+      }
+
+      const transport = createWsTransport({
+        url: `ws://127.0.0.1:${address.port}`,
+        connectTimeoutMs: 0,
+        headers: { 'x-test': 'ok' }
+      });
+
+      const events: any[] = [];
+      const collect = (async () => {
+        for await (const event of transport.events()) {
+          events.push(event);
+          if (event.type === 'open') {
+            transport.close();
+          }
+        }
+      })();
+
+      try {
+        await collect;
+      } finally {
+        await new Promise<void>(resolve => wss.close(() => resolve()));
+      }
+
+      expect(events.some(e => e?.type === 'open')).toBe(true);
+      expect(headersSeen.length).toBeGreaterThan(0);
+      expect(String(headersSeen[0]?.['x-test'] ?? '')).toBe('ok');
+      expect(events.filter(e => e?.type === 'close').length).toBe(1);
+    }, 10000);
+
+    test('supports connectTimeoutMs=0 when headers are omitted', async () => {
+      const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+      await new Promise<void>((resolve, reject) => {
+        const address = wss.address();
+        if (address && typeof address === 'object') {
+          resolve();
+          return;
+        }
+        wss.once('listening', resolve);
+        wss.once('error', reject);
+      });
+
+      const address = wss.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Expected TCP address');
+      }
+
+      const transport = createWsTransport({
+        url: `ws://127.0.0.1:${address.port}`,
+        connectTimeoutMs: 0
+      });
+
+      const events: any[] = [];
+      const collect = (async () => {
+        for await (const event of transport.events()) {
+          events.push(event);
+          if (event.type === 'open') {
+            transport.close();
+          }
+        }
+      })();
+
+      try {
+        await collect;
+      } finally {
+        await new Promise<void>(resolve => wss.close(() => resolve()));
+      }
+
+      expect(events.some(e => e?.type === 'open')).toBe(true);
+      expect(events.filter(e => e?.type === 'close').length).toBe(1);
+    }, 10000);
+
+    test('emits ws_error when an error occurs after open (covers opened error branch)', async () => {
+      const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+      let serverWs: any;
+
+      wss.on('connection', (ws: any) => {
+        serverWs = ws;
+        setTimeout(() => {
+          try {
+            // Send an invalid opcode frame to force a client-side protocol error.
+            ws?._socket?.write?.(Buffer.from([0x8b, 0x00]));
+            ws?._socket?.destroy?.(new Error('boom'));
+          } catch {}
+        }, 25);
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        const address = wss.address();
+        if (address && typeof address === 'object') {
+          resolve();
+          return;
+        }
+        wss.once('listening', resolve);
+        wss.once('error', reject);
+      });
+
+      const address = wss.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('Expected TCP address');
+      }
+
+      const transport = createWsTransport({
+        url: `ws://127.0.0.1:${address.port}`,
+        connectTimeoutMs: 200
+      });
+
+      const events: any[] = [];
+      for await (const event of transport.events()) {
+        events.push(event);
+      }
+
+      try {
+        expect(events.some(e => e?.type === 'open')).toBe(true);
+        expect(events.some(e => e?.type === 'error' && e?.code === 'ws_error')).toBe(true);
+        expect(events.filter(e => e?.type === 'close').length).toBe(1);
+      } finally {
+        try {
+          serverWs?.close?.();
+        } catch {}
+        await new Promise<void>(resolve => wss.close(() => resolve()));
+      }
+    }, 10000);
   });
 });

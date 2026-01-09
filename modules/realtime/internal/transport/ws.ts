@@ -1,6 +1,7 @@
 import { createRequire } from 'module';
 
 import { AsyncQueue } from '../../../../kernel/index.js';
+import { calculateBackoffDelay, setUnrefTimeout } from '../../../shared/index.js';
 
 type WsLike = {
   readyState: number;
@@ -66,18 +67,28 @@ export function decodeWsMessage(data: unknown): string {
   }
 }
 
-export function createWsTransport(options: { url: string; headers?: Record<string, string> }): RealtimeTransport {
+export function createWsTransport(options: {
+  url: string;
+  headers?: Record<string, string>;
+  connectTimeoutMs?: number;
+  maxConnectAttempts?: number;
+}): RealtimeTransport {
   const require = createRequire(import.meta.url);
   const wsLib = require('ws');
-
-  const ws: WsLike = new wsLib.WebSocket(options.url, { headers: options.headers ?? {} });
   const WS_OPEN: number = wsLib.WebSocket.OPEN;
 
   const queue = new AsyncQueue<RealtimeTransportEvent>();
 
-  // Split state: sendClosed guards send(), queueEnded guards queue termination
+  // Split state: sendClosed guards send(), queueEnded guards queue termination.
   let sendClosed = false;
   let queueEnded = false;
+
+  const connectTimeoutMs = Math.max(0, Math.floor(options.connectTimeoutMs ?? 20000));
+  const maxConnectAttempts = Math.max(1, Math.floor(options.maxConnectAttempts ?? 3));
+
+  let ws!: WsLike;
+  let connectTimer: NodeJS.Timeout | undefined;
+  let retryTimer: NodeJS.Timeout | undefined;
 
   const endQueueOnce = () => {
     if (queueEnded) return;
@@ -86,23 +97,105 @@ export function createWsTransport(options: { url: string; headers?: Record<strin
     queue.close();
   };
 
-  ws.on('open', () => {
-    queue.push({ type: 'open' });
-  });
+  const clearConnectTimer = () => {
+    if (!connectTimer) return;
+    clearTimeout(connectTimer);
+    connectTimer = undefined;
+  };
 
-  ws.on('message', (data: unknown) => {
-    const text = decodeWsMessage(data);
-    queue.push({ type: 'message', data: text });
-  });
+  const clearRetryTimer = () => {
+    if (!retryTimer) return;
+    clearTimeout(retryTimer);
+    retryTimer = undefined;
+  };
 
-  ws.on('error', (err: any) => {
-    queue.push({ type: 'error', error: err, code: 'ws_error' });
-  });
+  const scheduleRetry = (attemptIndex: number) => {
+    clearRetryTimer();
+    const delayMs = calculateBackoffDelay(attemptIndex, 250, 2000);
+    retryTimer = setUnrefTimeout(() => {
+      retryTimer = undefined;
+      startConnectAttempt();
+    }, delayMs);
+  };
 
-  ws.on('close', () => {
-    sendClosed = true;
-    endQueueOnce();
-  });
+  let connectAttempt = 0;
+
+  const startConnectAttempt = () => {
+    connectAttempt += 1;
+    const attemptNo = connectAttempt;
+
+    let opened = false;
+    let attemptFailure: { code: string; error?: unknown } = {
+      code: 'ws_close',
+      error: new Error('Realtime websocket closed before open')
+    };
+
+    const socket: WsLike = new wsLib.WebSocket(
+      options.url,
+      connectTimeoutMs > 0
+        ? { headers: options.headers ?? {}, handshakeTimeout: connectTimeoutMs }
+        : { headers: options.headers ?? {} }
+    );
+    ws = socket;
+
+    clearConnectTimer();
+    if (connectTimeoutMs > 0) {
+      connectTimer = setUnrefTimeout(() => {
+        attemptFailure = { code: 'ws_connect_timeout', error: new Error('Realtime websocket connect timeout') };
+        try { socket.terminate(); } catch {}
+      }, connectTimeoutMs);
+    }
+
+    socket.on('open', () => {
+      opened = true;
+      clearConnectTimer();
+      queue.push({ type: 'open' });
+    });
+
+    socket.on('message', (data: unknown) => {
+      const text = decodeWsMessage(data);
+      queue.push({ type: 'message', data: text });
+    });
+
+    socket.on('error', (err: any) => {
+      if (opened) {
+        queue.push({ type: 'error', error: err, code: 'ws_error' });
+        return;
+      }
+
+      if (attemptFailure.code === 'ws_close') {
+        attemptFailure = { code: 'ws_error', error: err };
+      }
+      clearConnectTimer();
+      try { socket.terminate(); } catch {}
+    });
+
+    socket.on('close', () => {
+      clearConnectTimer();
+
+      if (sendClosed) {
+        endQueueOnce();
+        return;
+      }
+
+      if (opened) {
+        sendClosed = true;
+        endQueueOnce();
+        return;
+      }
+
+      if (attemptNo < maxConnectAttempts) {
+        scheduleRetry(attemptNo - 1);
+        return;
+      }
+
+      queue.push({ type: 'error', error: attemptFailure.error, code: attemptFailure.code });
+      sendClosed = true;
+      endQueueOnce();
+    });
+  };
+
+  startConnectAttempt();
 
   return {
     send(data: string) {
@@ -114,7 +207,13 @@ export function createWsTransport(options: { url: string; headers?: Record<strin
       return queue.iterate();
     },
     close() {
-      if (sendClosed) return;
+      clearConnectTimer();
+      clearRetryTimer();
+      if (sendClosed) {
+        endQueueOnce();
+        return;
+      }
+
       sendClosed = true;
       try {
         if (ws.readyState === WS_OPEN) {
