@@ -653,6 +653,53 @@ describe('plugins/voice-modules/twilio-media-streams — bridge coverage cases',
     jest.useRealTimers();
   });
 
+  test('clamps maxPendingOutboundFrames to >= 1 (defensive) when configured <= 0', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+    const secret = 'secret';
+    const token = makeToken(secret);
+
+    const session = new MockRealtimeSession();
+    session.push({ type: 'ready', sessionId: 's1' });
+
+    const bridge = createTwilioMediaStreamsBridge({
+      createSession: async () => session,
+      security: { tokenSecret: secret },
+      limits: { maxPendingOutboundFrames: 0, startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0 },
+      audio: { pacing: { enabled: false }, markEveryMs: 1000000 }
+    });
+
+    const ws = new MockWebSocket();
+    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+    ws.emitMessage(startMessage({ customParameters: { from: 'x', to: 'y' } }));
+    await flush();
+
+    session.push({
+      type: 'assistant_audio.chunk',
+      frame: {
+        format: 'g711_ulaw',
+        sampleRateHz: 8000,
+        channels: 1,
+        // 320 bytes @ 8kHz ulaw mono is 40ms (2 frames at the default 20ms frame size).
+        dataBase64: bytesToBase64(new Uint8Array(320).fill(0xff))
+      }
+    });
+
+    let sentMedia = 0;
+    for (let i = 0; i < 20; i++) {
+      await flush();
+      sentMedia = ws.sent.map(s => JSON.parse(s)).filter(m => m.event === 'media').length;
+      if (sentMedia > 0) break;
+    }
+
+    // If we allowed maxPendingOutboundFrames=0, we'd enqueue the entire chunk on overflow (2 frames).
+    // The bridge must clamp to at least 1 so overflow keeps only the most recent frame.
+    expect(sentMedia).toBe(1);
+
+    ws.emitMessage(stopMessage({}));
+    await task;
+    jest.useRealTimers();
+  });
+
   test('mark/dtmf before start are ignored; connected is accepted', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
     const secret = 'secret';
@@ -699,6 +746,44 @@ describe('plugins/voice-modules/twilio-media-streams — bridge coverage cases',
 
     expect(onDtmf).toHaveBeenCalledWith(expect.objectContaining({ digit: '9' }));
     expect(session.sendDTMF).toHaveBeenCalledWith('9');
+
+    ws.emitMessage(stopMessage({}));
+    await task;
+    jest.useRealTimers();
+  });
+
+  test('compacts internal queues after large drains (covers compaction path)', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+    const secret = 'secret';
+    const token = makeToken(secret);
+
+    const session = new MockRealtimeSession();
+    session.sendDTMF = jest.fn((_digit: string) => undefined as any);
+    session.push({ type: 'ready', sessionId: 's1' });
+
+    const bridge = createTwilioMediaStreamsBridge({
+      createSession: async () => session,
+      security: { tokenSecret: secret },
+      limits: { startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0 },
+      audio: { pacing: { enabled: false }, markEveryMs: 1000000 }
+    });
+
+    const ws = new MockWebSocket();
+    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+    ws.emitMessage(startMessage({ customParameters: { from: 'x', to: 'y' } }));
+    await flush();
+
+    // Enqueue enough DTMF digits to force the ResettableQueue head beyond the compaction threshold.
+    for (let i = 0; i < 1500; i++) {
+      ws.emitMessage(dtmfMessage({ digit: String(i % 10) }));
+    }
+
+    for (let i = 0; i < 5000; i++) {
+      await flush();
+      if (session.sendDTMF.mock.calls.length >= 1100) break;
+    }
+
+    expect(session.sendDTMF.mock.calls.length).toBeGreaterThanOrEqual(1100);
 
     ws.emitMessage(stopMessage({}));
     await task;
@@ -1234,6 +1319,171 @@ describe('plugins/voice-modules/twilio-media-streams — bridge coverage cases',
       if (sawClear) break;
     }
     expect(sawClear).toBe(true);
+
+    ws.emitMessage(stopMessage({}));
+    await task;
+    jest.useRealTimers();
+  });
+
+  test('uses default maxPendingOutboundFrames when configured as non-finite', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+    const secret = 'secret';
+    const token = makeToken(secret);
+
+    const session = new MockRealtimeSession();
+    session.push({ type: 'ready', sessionId: 's1' });
+
+    const bridge = createTwilioMediaStreamsBridge({
+      createSession: async () => session,
+      security: { tokenSecret: secret },
+      limits: { maxPendingOutboundFrames: Number.NaN, startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0 },
+      audio: { pacing: { enabled: false }, markEveryMs: 1000000 }
+    });
+
+    const ws = new MockWebSocket();
+    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+    ws.emitMessage(startMessage({ customParameters: { from: 'x', to: 'y' } }));
+    await flush();
+
+    session.push({
+      type: 'assistant_audio.chunk',
+      frame: {
+        format: 'g711_ulaw',
+        sampleRateHz: 8000,
+        channels: 1,
+        // 320 bytes @ 8kHz ulaw mono is 40ms (2 frames at the default 20ms frame size).
+        dataBase64: bytesToBase64(new Uint8Array(320).fill(0xff))
+      }
+    });
+
+    let sentMedia = 0;
+    for (let i = 0; i < 50; i++) {
+      await flush();
+      sentMedia = ws.sent.map(s => JSON.parse(s)).filter(m => m.event === 'media').length;
+      if (sentMedia >= 2) break;
+    }
+
+    expect(sentMedia).toBe(2);
+
+    ws.emitMessage(stopMessage({}));
+    await task;
+    jest.useRealTimers();
+  });
+
+  test('keeps entire chunk on overflow when framed.length <= maxPendingOutboundFrames', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+    const secret = 'secret';
+    const token = makeToken(secret);
+
+    let releasePace: (() => void) | undefined;
+    const paceGate = new Promise<void>((resolve) => {
+      releasePace = resolve;
+    });
+    const pacer = {
+      paceBytes: async () => await paceGate,
+      reset: jest.fn(() => {})
+    };
+
+    const onError = jest.fn();
+
+    const session = new MockRealtimeSession();
+    session.push({ type: 'ready', sessionId: 's1' });
+
+    const bridge = createTwilioMediaStreamsBridge({
+      createSession: async () => session,
+      security: { tokenSecret: secret },
+      limits: { maxPendingOutboundFrames: 3, startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0 },
+      audio: { pacing: { enabled: true, pacer }, markEveryMs: 1000000 },
+      callbacks: { onError }
+    });
+
+    const ws = new MockWebSocket();
+    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+    ws.emitMessage(startMessage({ customParameters: { from: 'x', to: 'y' } }));
+    await flush();
+
+    // First chunk: exactly 3 frames (60ms) so it does not overflow and starts the outbound pump.
+    session.push({
+      type: 'assistant_audio.chunk',
+      frame: {
+        format: 'g711_ulaw',
+        sampleRateHz: 8000,
+        channels: 1,
+        dataBase64: bytesToBase64(new Uint8Array(480).fill(0xff))
+      }
+    });
+
+    // Second chunk: 2 frames. It should overflow due to backlog (2 pending + 2 new > max 3),
+    // but since framed.length (2) <= max (3), the chunk should be kept intact (no slice).
+    session.push({
+      type: 'assistant_audio.chunk',
+      frame: {
+        format: 'g711_ulaw',
+        sampleRateHz: 8000,
+        channels: 1,
+        dataBase64: bytesToBase64(new Uint8Array(320).fill(0xff))
+      }
+    });
+
+    let sawClear = false;
+    for (let i = 0; i < 50; i++) {
+      await flush();
+      sawClear = ws.sent.map(s => JSON.parse(s)).some(m => m.event === 'clear');
+      if (sawClear) break;
+    }
+
+    expect(sawClear).toBe(true);
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'outbound_backpressure' }));
+    expect(pacer.reset).toHaveBeenCalled();
+
+    // Allow the outbound pump to proceed after clearPlayback so we can observe the enqueued chunk.
+    releasePace?.();
+
+    let sentMedia = 0;
+    for (let i = 0; i < 100; i++) {
+      await flush();
+      sentMedia = ws.sent.map(s => JSON.parse(s)).filter(m => m.event === 'media').length;
+      if (sentMedia >= 2) break;
+    }
+
+    expect(sentMedia).toBe(2);
+
+    ws.emitMessage(stopMessage({}));
+    await task;
+    jest.useRealTimers();
+  });
+
+  test('does not compact internal queues while head <= half (covers no-compaction path)', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+    const secret = 'secret';
+    const token = makeToken(secret);
+
+    const session = new MockRealtimeSession();
+    session.sendDTMF = jest.fn((_digit: string) => undefined as any);
+    session.push({ type: 'ready', sessionId: 's1' });
+
+    const bridge = createTwilioMediaStreamsBridge({
+      createSession: async () => session,
+      security: { tokenSecret: secret },
+      limits: { startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0 },
+      audio: { pacing: { enabled: false }, markEveryMs: 1000000 }
+    });
+
+    const ws = new MockWebSocket();
+    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+    ws.emitMessage(startMessage({ customParameters: { from: 'x', to: 'y' } }));
+    await flush();
+
+    for (let i = 0; i < 3000; i++) {
+      ws.emitMessage(dtmfMessage({ digit: String(i % 10) }));
+    }
+
+    for (let i = 0; i < 5000; i++) {
+      await flush();
+      if (session.sendDTMF.mock.calls.length >= 1100) break;
+    }
+
+    expect(session.sendDTMF.mock.calls.length).toBeGreaterThanOrEqual(1100);
 
     ws.emitMessage(stopMessage({}));
     await task;

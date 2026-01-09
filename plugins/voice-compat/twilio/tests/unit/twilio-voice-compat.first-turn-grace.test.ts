@@ -7,6 +7,7 @@ describe('plugins/voice-compat/twilio — firstTurnGraceMs wiring', () => {
   afterEach(() => {
     if (prevSecret === undefined) delete process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
     else process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = prevSecret;
+    jest.resetModules();
     jest.restoreAllMocks();
   });
 

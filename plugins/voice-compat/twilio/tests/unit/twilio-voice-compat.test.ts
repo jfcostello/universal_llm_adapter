@@ -444,7 +444,7 @@ describe('plugins/voice-compat/twilio', () => {
         },
         voiceProvider: 'twilio',
         registry,
-        providerDefaults: { accountSid: 'AC123', authToken: 'token', apiBaseUrl: 'https://api.example.test' }
+        providerDefaults: {}
       } as any);
 
       ws.emitMessage(startMessage());

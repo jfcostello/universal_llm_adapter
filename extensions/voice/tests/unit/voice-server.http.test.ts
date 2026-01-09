@@ -2164,6 +2164,50 @@ describe('extensions/voice: server http handlers', () => {
     expect(callConfig?.providerConfig).toEqual({ foo: { bar: 1 } });
   });
 
+  test('POST /voice/calls rejects providerConfig when it is not an object', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+
+    const store = createInMemoryVoiceCallConfigStore();
+
+    const createOutboundCall = jest.fn(async () => ({ providerCallId: 'pc_1' }));
+    const providerPlugins: any = {
+      getManifest: jest.fn(async () => ({ defaults: {} })),
+      getCompat: jest.fn(async () => ({ createOutboundCall }))
+    };
+
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+    });
+
+    const res = createMockRes();
+    await expect(
+      reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1', host: 'localhost' },
+          body: {
+            to: 'to',
+            from: 'from',
+            realtimeSpec: {},
+            voiceProvider: 'test',
+            providerConfig: 'nope'
+          }
+        }),
+        res
+      )
+    ).resolves.toBe(true);
+
+    expect(String(res.writeHead.mock.calls[0][0])).toBe('400');
+    expect(createOutboundCall).not.toHaveBeenCalled();
+  });
+
   test('POST /voice/calls rejects negative timeouts.firstTurnGraceMs', async () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
 

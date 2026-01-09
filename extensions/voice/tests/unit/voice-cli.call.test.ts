@@ -1159,8 +1159,19 @@ describe('extensions/voice CLI', () => {
     const previousExitCode = process.exitCode;
     process.exitCode = undefined;
 
+    const previousStdinDesc = Object.getOwnPropertyDescriptor(process, 'stdin')!;
+    const previousStdoutDesc = Object.getOwnPropertyDescriptor(process, 'stdout')!;
+    const previousStderrDesc = Object.getOwnPropertyDescriptor(process, 'stderr')!;
+
+    const fakeStdin = Readable.from([]);
+    const fakeStdout = createCaptureStream();
+    const fakeStderr = createCaptureStream();
+
+    Object.defineProperty(process, 'stdin', { value: fakeStdin, configurable: true });
+    Object.defineProperty(process, 'stdout', { value: fakeStdout.stream, configurable: true });
+    Object.defineProperty(process, 'stderr', { value: fakeStderr.stream, configurable: true });
+
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    const stderrWriteSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
 
     try {
       await runVoiceCli({
@@ -1172,7 +1183,9 @@ describe('extensions/voice CLI', () => {
       expect(errorSpy).toHaveBeenCalled();
     } finally {
       errorSpy.mockRestore();
-      stderrWriteSpy.mockRestore();
+      Object.defineProperty(process, 'stdin', previousStdinDesc);
+      Object.defineProperty(process, 'stdout', previousStdoutDesc);
+      Object.defineProperty(process, 'stderr', previousStderrDesc);
       process.exitCode = previousExitCode;
     }
   });

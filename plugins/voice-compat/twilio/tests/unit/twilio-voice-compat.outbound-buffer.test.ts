@@ -12,6 +12,7 @@ describe('plugins/voice-compat/twilio — outbound buffer wiring', () => {
     if (prevCap === undefined) delete process.env.LLM_ADAPTER_TWILIO_MEDIA_STREAMS_OUTBOUND_BUFFER_MAX_FRAMES_CAP;
     else process.env.LLM_ADAPTER_TWILIO_MEDIA_STREAMS_OUTBOUND_BUFFER_MAX_FRAMES_CAP = prevCap;
 
+    jest.resetModules();
     jest.restoreAllMocks();
   });
 
@@ -182,6 +183,57 @@ describe('plugins/voice-compat/twilio — outbound buffer wiring', () => {
           registry: {},
           // @ts-expect-error
           providerDefaults: { mediaStreams: 'nope' }
+        })
+      ).rejects.toMatchObject({ statusCode: 500, code: 'provider_config_error' });
+    });
+  });
+
+  test('rejects invalid LLM_ADAPTER_TWILIO_MEDIA_STREAMS_OUTBOUND_BUFFER_MAX_FRAMES_CAP', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+    process.env.LLM_ADAPTER_TWILIO_MEDIA_STREAMS_OUTBOUND_BUFFER_MAX_FRAMES_CAP = 'nope';
+
+    await jest.isolateModulesAsync(async () => {
+      jest.unstable_mockModule('../../../../voice-modules/twilio-media-streams/index.js', () => ({
+        createTwilioMediaStreamsBridge: () => ({ handleConnection: async () => {} })
+      }));
+
+      const TwilioVoiceCompat = (await import('../../index.ts')).default;
+      const compat = new TwilioVoiceCompat();
+
+      await expect(
+        compat.handleMediaConnection({
+          ws: {},
+          req: new http.IncomingMessage(null as any),
+          callConfigId: 'cfg_1',
+          callConfig: { realtimeSpec: {} },
+          voiceProvider: 'twilio',
+          registry: {},
+          providerDefaults: {}
+        })
+      ).rejects.toMatchObject({ statusCode: 500, code: 'provider_config_error' });
+    });
+  });
+
+  test('rejects provider default outboundBufferMaxFrames when it is invalid (<= 0)', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+
+    await jest.isolateModulesAsync(async () => {
+      jest.unstable_mockModule('../../../../voice-modules/twilio-media-streams/index.js', () => ({
+        createTwilioMediaStreamsBridge: () => ({ handleConnection: async () => {} })
+      }));
+
+      const TwilioVoiceCompat = (await import('../../index.ts')).default;
+      const compat = new TwilioVoiceCompat();
+
+      await expect(
+        compat.handleMediaConnection({
+          ws: {},
+          req: new http.IncomingMessage(null as any),
+          callConfigId: 'cfg_1',
+          callConfig: { realtimeSpec: {} },
+          voiceProvider: 'twilio',
+          registry: {},
+          providerDefaults: { mediaStreams: { outboundBufferMaxFrames: 0 } }
         })
       ).rejects.toMatchObject({ statusCode: 500, code: 'provider_config_error' });
     });
