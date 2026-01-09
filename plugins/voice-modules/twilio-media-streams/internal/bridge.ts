@@ -176,6 +176,7 @@ function safeClose(ws: TwilioMediaStreamsWsLike, code: number, reason: string): 
 
 class ResettableQueue<T> {
   private queue: T[] = [];
+  private head = 0;
   private waiting: Array<(value: T | null) => void> = [];
   private closed = false;
   private generation = 0;
@@ -188,16 +189,27 @@ class ResettableQueue<T> {
   }
 
   size(): number {
-    return this.queue.length;
+    return this.queue.length - this.head;
   }
 
   currentGeneration(): number {
     return this.generation;
   }
 
+  private maybeCompact(): void {
+    // Avoid unbounded growth and keep dequeue O(1) without shift().
+    if (this.head <= 1024) return;
+    if (this.head <= this.queue.length / 2) return;
+
+    this.queue = this.queue.slice(this.head);
+    this.head = 0;
+  }
+
   async next(): Promise<{ value: T; generation: number } | null> {
-    if (this.queue.length > 0) {
-      return { value: this.queue.shift()!, generation: this.generation };
+    if (this.head < this.queue.length) {
+      const value = this.queue[this.head++]!;
+      this.maybeCompact();
+      return { value, generation: this.generation };
     }
     if (this.closed) return null;
     return await new Promise(resolve => {
@@ -210,6 +222,7 @@ class ResettableQueue<T> {
 
   clear() {
     this.queue = [];
+    this.head = 0;
     this.generation++;
   }
 
@@ -217,6 +230,7 @@ class ResettableQueue<T> {
     this.closed = true;
     for (const fn of this.waiting.splice(0, this.waiting.length)) fn(null);
     this.queue = [];
+    this.head = 0;
   }
 }
 
@@ -571,6 +585,13 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
                 if (wouldOverflow) {
                   callbacks.onError?.({ message: 'Outbound backpressure', code: 'outbound_backpressure', metadata: call });
                   clearPlayback(call);
+
+                  const capped = maxPendingOutboundFrames > 0 && framed.length > maxPendingOutboundFrames
+                    ? framed.slice(framed.length - maxPendingOutboundFrames)
+                    : framed;
+                  for (const frame of capped) {
+                    outboundAudioQueue.push({ kind: 'audio', bytes: frame });
+                  }
                 } else {
                   for (const frame of framed) {
                     outboundAudioQueue.push({ kind: 'audio', bytes: frame });

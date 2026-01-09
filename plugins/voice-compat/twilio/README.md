@@ -71,6 +71,8 @@ This is **dynamic** (LLM-generated) and does not use pre-recorded audio. The pro
 
 - `callConfig.providerConfig.mediaStreams.outboundBufferMaxFrames` (optional, positive integer):
   - overrides `defaults.mediaStreams.outboundBufferMaxFrames` for this call.
+- The resolved value (defaults + per-call override) is capped by:
+  - `LLM_ADAPTER_TWILIO_MEDIA_STREAMS_OUTBOUND_BUFFER_MAX_FRAMES_CAP` (default: `300000`; `0` disables the cap).
 
 When `assistantFirstTurn.enabled=true`, the silence timeout is armed after the first `assistant_audio.end` event (or after the applicable fallback window if `assistant_audio.end` is never emitted).
 

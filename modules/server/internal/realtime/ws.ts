@@ -199,7 +199,7 @@ export async function attachRealtimeWsServer(options: {
       const first = await withTimeout(
         iterator.next(),
         remainingMs,
-        Object.assign(new Error('Realtime WS open handshake timeout'), { code: 'ws_open_timeout' })
+        Object.assign(new Error('Realtime WS open handshake timeout (ready)'), { code: 'ws_open_timeout' })
       );
       if (first.done) {
         failAndClose('Realtime session closed before ready', 'closed_before_ready');
@@ -293,7 +293,7 @@ export async function attachRealtimeWsServer(options: {
             session = await withTimeout(
               Promise.resolve(options.createSession({ registry: options.registry, spec: msg.spec })),
               openHandshakeTimeoutMs,
-              Object.assign(new Error('Realtime WS open handshake timeout'), { code: 'ws_open_timeout' })
+              Object.assign(new Error('Realtime WS open handshake timeout (createSession)'), { code: 'ws_open_timeout' })
             );
             if (closed) {
               try {

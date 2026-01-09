@@ -636,9 +636,17 @@ describe('plugins/voice-modules/twilio-media-streams — bridge coverage cases',
       if (sawClear) break;
     }
 
+    let sawMedia = false;
+    for (let i = 0; i < 10; i++) {
+      await flush();
+      sawMedia = ws.sent.map(s => JSON.parse(s)).some(m => m.event === 'media');
+      if (sawMedia) break;
+    }
+
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'outbound_backpressure' }));
     expect(session.interrupt).not.toHaveBeenCalled();
     expect(sawClear).toBe(true);
+    expect(sawMedia).toBe(true);
 
     ws.emitMessage(stopMessage({}));
     await task;

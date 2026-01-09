@@ -446,6 +446,7 @@ describe('server/internal/realtime/ws', () => {
 
       const err = await waitForMessage(messages, m => m?.type === 'error' && m?.error?.code === 'ws_open_timeout', 2000);
       expect(err.error.message).toContain('open handshake timeout');
+      expect(err.error.message).toContain('createSession');
 
       await closePromise;
       try { ws.close(); } catch {}
@@ -479,6 +480,7 @@ describe('server/internal/realtime/ws', () => {
 
       const err = await waitForMessage(messages, m => m?.type === 'error' && m?.error?.code === 'ws_open_timeout', 2000);
       expect(err.error.message).toContain('open handshake timeout');
+      expect(err.error.message).toContain('(ready)');
 
       await closePromise;
       try { ws.close(); } catch {}

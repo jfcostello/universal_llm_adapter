@@ -172,6 +172,7 @@ In `digit` mode, each key press is injected as a user turn and committed immedia
 - Outbound audio buffering is bounded by `maxPendingOutboundFrames` (default: `15000`, ~5 min at 20ms frames). If the pending queue would exceed this limit, the bridge:
   - emits `callbacks.onError({ code: "outbound_backpressure" })`
   - sends a Twilio `{ event: "clear" }` to stop playback
+  - clears the queued backlog and keeps the most recent audio chunk (up to the buffer limit)
   - does **not** interrupt the session
 
 #### Mark kinds

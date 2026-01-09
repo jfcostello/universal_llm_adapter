@@ -549,6 +549,17 @@ export default class TwilioVoiceCompat {
       Boolean(assistantFirstTurnCfg && typeof assistantFirstTurnCfg === 'object' && (assistantFirstTurnCfg as any).enabled === true) &&
       Boolean(String((assistantFirstTurnCfg as any).prompt ?? '').trim());
 
+    const outboundBufferMaxFramesCap = (() => {
+      const raw = String(process.env.LLM_ADAPTER_TWILIO_MEDIA_STREAMS_OUTBOUND_BUFFER_MAX_FRAMES_CAP ?? '').trim();
+      if (!raw) return 300000;
+      const n = Number(raw);
+      const out = Math.floor(n);
+      if (!Number.isFinite(n) || out < 0) {
+        throw makeProviderConfigError('Invalid LLM_ADAPTER_TWILIO_MEDIA_STREAMS_OUTBOUND_BUFFER_MAX_FRAMES_CAP');
+      }
+      return out;
+    })();
+
     const parseOutboundBufferMaxFrames = (value: any, label: string, errorKind: 'validation' | 'provider'): number | undefined => {
       if (value === undefined || value === null || value === '') return undefined;
       const n = Number(value);
@@ -559,6 +570,13 @@ export default class TwilioVoiceCompat {
         }
         throw makeHttpError({ message: `Invalid ${label}`, statusCode: 400, code: 'validation_error' });
       }
+      if (outboundBufferMaxFramesCap > 0 && out > outboundBufferMaxFramesCap) {
+        const message = `Invalid ${label} (max allowed: ${outboundBufferMaxFramesCap})`;
+        if (errorKind === 'provider') {
+          throw makeProviderConfigError(message);
+        }
+        throw makeHttpError({ message, statusCode: 400, code: 'validation_error' });
+      }
       return out;
     };
 
@@ -567,11 +585,13 @@ export default class TwilioVoiceCompat {
       providerDefaultsRaw && typeof providerDefaultsRaw === 'object' && !Array.isArray(providerDefaultsRaw)
         ? providerDefaultsRaw
         : {};
-    const providerMediaStreams = (providerDefaults as any)?.mediaStreams;
+    const providerMediaStreamsRaw = (providerDefaults as any)?.mediaStreams;
     const mediaStreamsDefaults =
-      providerMediaStreams && typeof providerMediaStreams === 'object' && !Array.isArray(providerMediaStreams)
-        ? providerMediaStreams
-        : {};
+      providerMediaStreamsRaw === undefined || providerMediaStreamsRaw === null
+        ? {}
+        : providerMediaStreamsRaw && typeof providerMediaStreamsRaw === 'object' && !Array.isArray(providerMediaStreamsRaw)
+          ? providerMediaStreamsRaw
+          : (() => { throw makeProviderConfigError('Invalid defaults.mediaStreams'); })();
     const defaultOutboundBufferMaxFrames = parseOutboundBufferMaxFrames(
       (mediaStreamsDefaults as any).outboundBufferMaxFrames,
       'defaults.mediaStreams.outboundBufferMaxFrames',
@@ -583,11 +603,13 @@ export default class TwilioVoiceCompat {
       providerConfigRaw && typeof providerConfigRaw === 'object' && !Array.isArray(providerConfigRaw)
         ? providerConfigRaw
         : {};
-    const providerMediaCfg = (providerConfig as any)?.mediaStreams;
+    const providerMediaCfgRaw = (providerConfig as any)?.mediaStreams;
     const mediaStreamsCfg =
-      providerMediaCfg && typeof providerMediaCfg === 'object' && !Array.isArray(providerMediaCfg)
-        ? providerMediaCfg
-        : {};
+      providerMediaCfgRaw === undefined || providerMediaCfgRaw === null
+        ? {}
+        : providerMediaCfgRaw && typeof providerMediaCfgRaw === 'object' && !Array.isArray(providerMediaCfgRaw)
+          ? providerMediaCfgRaw
+          : (() => { throw makeHttpError({ message: 'Invalid providerConfig.mediaStreams', statusCode: 400, code: 'validation_error' }); })();
     const outboundBufferMaxFrames = parseOutboundBufferMaxFrames(
       (mediaStreamsCfg as any).outboundBufferMaxFrames,
       'providerConfig.mediaStreams.outboundBufferMaxFrames',
