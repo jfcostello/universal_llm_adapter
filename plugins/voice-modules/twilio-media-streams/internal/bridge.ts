@@ -39,7 +39,7 @@ export interface TwilioMediaStreamsBridgeLimits {
   maxSessionDurationMs?: number;
   startTimeoutMs?: number;
   maxPendingInboundFrames?: number;
-  maxPendingOutboundAudioMs?: number;
+  maxPendingOutboundFrames?: number;
   firstTurnGraceMs?: number;
 }
 
@@ -88,7 +88,7 @@ const DEFAULT_LIMITS: Required<TwilioMediaStreamsBridgeLimits> = {
   maxSessionDurationMs: 3600000,
   startTimeoutMs: 5000,
   maxPendingInboundFrames: 200,
-  maxPendingOutboundAudioMs: 10000,
+  maxPendingOutboundFrames: 15000,
   firstTurnGraceMs: 0
 };
 
@@ -563,18 +563,14 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
                   frameMs
                 });
 
-                const maxPendingOutboundFrames = Math.max(0, Math.floor(limits.maxPendingOutboundAudioMs / frameMs));
+                const maxPendingOutboundFramesRaw = Number(limits.maxPendingOutboundFrames);
+                const maxPendingOutboundFrames = Number.isFinite(maxPendingOutboundFramesRaw)
+                  ? Math.max(0, Math.floor(maxPendingOutboundFramesRaw))
+                  : DEFAULT_LIMITS.maxPendingOutboundFrames;
                 const wouldOverflow = outboundAudioQueue.size() + framed.length > maxPendingOutboundFrames;
                 if (wouldOverflow) {
                   callbacks.onError?.({ message: 'Outbound backpressure', code: 'outbound_backpressure', metadata: call });
                   clearPlayback(call);
-                  try {
-                    await localSession.interrupt({ reason: 'outbound_backpressure' });
-                  } catch (err: any) {
-                    callbacks.onError?.({ message: err?.message ?? String(err), code: 'session_interrupt_failed', metadata });
-                    void closeAll();
-                    return;
-                  }
                 } else {
                   for (const frame of framed) {
                     outboundAudioQueue.push({ kind: 'audio', bytes: frame });

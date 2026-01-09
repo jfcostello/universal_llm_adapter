@@ -35,6 +35,8 @@ Optional:
 - `defaults.outbound.webhookUrl` (required when `mode: "url"`)
 - `defaults.outbound.timeoutMs` (default: `15000`)
   - Timeout for the outbound call REST request.
+- `defaults.mediaStreams.outboundBufferMaxFrames` (default: `15000`)
+  - Max pending outbound audio frames buffered in the media bridge (used to absorb bursty realtime generation vs real-time playback).
 
 ## Supported voice extension features
 
@@ -64,6 +66,11 @@ This is **dynamic** (LLM-generated) and does not use pre-recorded audio. The pro
 - `callConfig.timeouts.silenceAssistantAudioStartFallbackMs` (optional):
   - when `assistantFirstTurn.enabled=true`, treats assistant audio as ended this many milliseconds after the first-turn `commit()` if no `assistant_audio.*` events are ever emitted.
   - default: `max(3000, silenceTimeoutMs)`.
+
+### Media bridge buffering
+
+- `callConfig.providerConfig.mediaStreams.outboundBufferMaxFrames` (optional, positive integer):
+  - overrides `defaults.mediaStreams.outboundBufferMaxFrames` for this call.
 
 When `assistantFirstTurn.enabled=true`, the silence timeout is armed after the first `assistant_audio.end` event (or after the applicable fallback window if `assistant_audio.end` is never emitted).
 

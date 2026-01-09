@@ -354,6 +354,7 @@ Other options (optional):
 - `--idempotency-key <key>`
 - `--ttl-seconds <seconds>` (default: `900`)
 - `--metadata <json>` / `--metadata-file <path>`
+- `--provider-config <json>` / `--provider-config-file <path>`
 - `--request-id <id>`
 - `--assistant-first-turn <json>` / `--assistant-first-turn-file <path>`
 - `--timeouts <json>` / `--timeouts-file <path>`

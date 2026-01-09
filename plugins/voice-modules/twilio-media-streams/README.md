@@ -48,7 +48,7 @@ const bridge = createTwilioMediaStreamsBridge({
     maxSessionDurationMs: 3600000,
     startTimeoutMs: 5000,
     maxPendingInboundFrames: 200,
-    maxPendingOutboundAudioMs: 10000,
+    maxPendingOutboundFrames: 15000,
     firstTurnGraceMs: 0
   },
   audio: {
@@ -169,10 +169,10 @@ In `digit` mode, each key press is injected as a user turn and committed immedia
 - Assistant audio chunks (`assistant_audio.chunk`) are converted to **g711_ulaw @ 8000 Hz mono**, framed into `frameMs` chunks, then sent as Twilio `media` messages.
 - `mark` messages are emitted periodically (`markEveryMs`) to track playback progress (via Twilio inbound `mark` acknowledgements).
 - On `assistant_audio.end`, the bridge enqueues a **drain mark** (name: `d<N>`) after all pending outbound audio frames. When Twilio acknowledges that mark, `callbacks.onMark({ kind: "drain" })` fires, which is suitable for “playback fully drained” signals.
-- Outbound audio buffering is bounded by `maxPendingOutboundAudioMs`. If the pending queue would exceed this limit, the bridge:
+- Outbound audio buffering is bounded by `maxPendingOutboundFrames` (default: `15000`, ~5 min at 20ms frames). If the pending queue would exceed this limit, the bridge:
   - emits `callbacks.onError({ code: "outbound_backpressure" })`
   - sends a Twilio `{ event: "clear" }` to stop playback
-  - interrupts the session (`session.interrupt({ reason: "outbound_backpressure" })`)
+  - does **not** interrupt the session
 
 #### Mark kinds
 

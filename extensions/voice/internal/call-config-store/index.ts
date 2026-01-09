@@ -45,6 +45,7 @@ export interface VoiceCallConfigV1 {
 
   voiceProvider: string;
   metadata?: Record<string, any>;
+  providerConfig?: Record<string, any>;
 
   providerCallId?: string;
   assistantFirstTurn?: VoiceAssistantFirstTurnConfig;

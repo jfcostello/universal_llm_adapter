@@ -270,8 +270,19 @@ llm-adapter voice call --server-url <url> --to <number> --from <number> --voice-
 | `--voice-provider <id>` | Voice provider id |
 | `--system-prompt <text>` | System prompt text |
 | `--system-prompt-file <path>` | Path to a system prompt file |
+| `--metadata <json>` | Metadata JSON object (stored on the call config) |
+| `--metadata-file <path>` | Path to metadata JSON file |
+| `--provider-config <json>` | Provider config JSON object (stored on the call config) |
+| `--provider-config-file <path>` | Path to provider config JSON file |
+| `--request-id <id>` | Optional request id (sent as `x-request-id` and stored on the call config) |
 | `--realtime-spec <json>` | Realtime session spec as JSON string |
 | `--realtime-spec-file <path>` | Path to realtime session spec JSON file |
+| `--assistant-first-turn <json>` | assistantFirstTurn JSON object |
+| `--assistant-first-turn-file <path>` | Path to assistantFirstTurn JSON file |
+| `--timeouts <json>` | timeouts JSON object |
+| `--timeouts-file <path>` | Path to timeouts JSON file |
+| `--recording <json>` | recording JSON object |
+| `--recording-file <path>` | Path to recording JSON file |
 | `--pretty` | Pretty print output |
 
 **Example:**

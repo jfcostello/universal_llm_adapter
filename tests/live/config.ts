@@ -1,4 +1,6 @@
 
+import { normalizeFlag } from '../../modules/shared/index.js';
+
 export interface TestRun {
   name: string;
   llmPriority: Array<{ provider: string; model: string }>;
@@ -19,6 +21,17 @@ export interface RealtimeTestRun {
   name: string;
   provider: string;
   model: string;
+}
+
+function shouldIncludeVapiRealtimeRun(): boolean {
+  const providerFilter = String(process.env.LLM_TEST_PROVIDERS ?? '').trim();
+  if (providerFilter) {
+    const requestedProviders = providerFilter.split(',').map(p => p.trim().toLowerCase());
+    if (requestedProviders.includes('vapi')) return true;
+  }
+
+  // Vapi realtime runs require a funded account; keep them opt-in for the default realtime suite.
+  return normalizeFlag(process.env.LLM_LIVE_ENABLE_VAPI_REALTIME, false);
 }
 
 /**
@@ -107,13 +120,18 @@ export const realtimeTestRuns: RealtimeTestRun[] = [
     name: 'grok',
     provider: 'grok',
     model: 'realtime'
-  },
-  {
-    name: 'vapi',
-    provider: 'vapi',
-    model: 'gpt-4o-mini'
   }
-];
+].concat(
+  shouldIncludeVapiRealtimeRun()
+    ? [
+        {
+          name: 'vapi',
+          provider: 'vapi',
+          model: 'gpt-4o-mini'
+        }
+      ]
+    : []
+);
 
 /**
  * Filter test runs based on LLM_TEST_PROVIDERS environment variable.

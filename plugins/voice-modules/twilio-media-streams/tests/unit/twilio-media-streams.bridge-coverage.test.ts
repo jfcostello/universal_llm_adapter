@@ -596,7 +596,7 @@ describe('plugins/voice-modules/twilio-media-streams — bridge coverage cases',
     jest.useRealTimers();
   });
 
-  test('outbound backpressure clears playback and interrupts', async () => {
+  test('outbound backpressure clears playback without interrupt', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
     const secret = 'secret';
     const token = makeToken(secret);
@@ -608,7 +608,7 @@ describe('plugins/voice-modules/twilio-media-streams — bridge coverage cases',
     const bridge = createTwilioMediaStreamsBridge({
       createSession: async () => session,
       security: { tokenSecret: secret },
-      limits: { maxPendingOutboundAudioMs: 20, startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0 },
+      limits: { maxPendingOutboundFrames: 1, startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0 },
       audio: { pacing: { enabled: false }, markEveryMs: 1000 },
       callbacks: { onError }
     });
@@ -637,90 +637,11 @@ describe('plugins/voice-modules/twilio-media-streams — bridge coverage cases',
     }
 
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'outbound_backpressure' }));
-    expect(session.interrupt).toHaveBeenCalledWith({ reason: 'outbound_backpressure' });
+    expect(session.interrupt).not.toHaveBeenCalled();
     expect(sawClear).toBe(true);
 
     ws.emitMessage(stopMessage({}));
     await task;
-    jest.useRealTimers();
-  });
-
-  test('outbound backpressure closes when interrupt fails', async () => {
-    jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
-    const secret = 'secret';
-    const token = makeToken(secret);
-    const onError = jest.fn();
-
-    const session = new MockRealtimeSession();
-    session.interrupt.mockRejectedValueOnce(new Error('boom'));
-    session.push({ type: 'ready', sessionId: 's1' });
-
-    const bridge = createTwilioMediaStreamsBridge({
-      createSession: async () => session,
-      security: { tokenSecret: secret },
-      limits: { maxPendingOutboundAudioMs: 20, startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0 },
-      audio: { pacing: { enabled: false }, markEveryMs: 1000 },
-      callbacks: { onError }
-    });
-
-    const ws = new MockWebSocket();
-    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
-    ws.emitMessage(startMessage({ customParameters: { from: 'x', to: 'y' } }));
-    await flush();
-
-    session.push({
-      type: 'assistant_audio.chunk',
-      frame: {
-        format: 'g711_ulaw',
-        sampleRateHz: 8000,
-        channels: 1,
-        dataBase64: bytesToBase64(new Uint8Array(320).fill(0xff))
-      }
-    });
-
-    await task;
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'outbound_backpressure' }));
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'session_interrupt_failed', message: 'boom' }));
-    jest.useRealTimers();
-  });
-
-  test('outbound backpressure uses String(err) fallback when interrupt rejects non-Error', async () => {
-    jest.useFakeTimers().setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
-    const secret = 'secret';
-    const token = makeToken(secret);
-    const onError = jest.fn();
-
-    const session = new MockRealtimeSession();
-    // @ts-expect-error
-    session.interrupt.mockRejectedValueOnce('boom');
-    session.push({ type: 'ready', sessionId: 's1' });
-
-    const bridge = createTwilioMediaStreamsBridge({
-      createSession: async () => session,
-      security: { tokenSecret: secret },
-      limits: { maxPendingOutboundAudioMs: 20, startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0 },
-      audio: { pacing: { enabled: false }, markEveryMs: 1000 },
-      callbacks: { onError }
-    });
-
-    const ws = new MockWebSocket();
-    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
-    ws.emitMessage(startMessage({ customParameters: { from: 'x', to: 'y' } }));
-    await flush();
-
-    session.push({
-      type: 'assistant_audio.chunk',
-      frame: {
-        format: 'g711_ulaw',
-        sampleRateHz: 8000,
-        channels: 1,
-        dataBase64: bytesToBase64(new Uint8Array(320).fill(0xff))
-      }
-    });
-
-    await task;
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'outbound_backpressure' }));
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'session_interrupt_failed', message: 'boom' }));
     jest.useRealTimers();
   });
 

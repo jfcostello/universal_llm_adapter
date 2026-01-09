@@ -1783,6 +1783,15 @@ export async function createVoiceServerRegistration(ctx: {
               return { ...(out ?? {}), requestId: requestIdToStore };
             })();
 
+            const providerConfigRaw = (body as any)?.providerConfig;
+            const providerConfig =
+              providerConfigRaw === undefined || providerConfigRaw === null
+                ? undefined
+                : asPlainObject(providerConfigRaw);
+            if (providerConfigRaw !== undefined && providerConfigRaw !== null && !providerConfig) {
+              throw makeHttpError({ message: 'Invalid providerConfig', statusCode: 400, code: 'validation_error' });
+            }
+
             await store.putConfig(
               {
                 version: 1,
@@ -1796,6 +1805,7 @@ export async function createVoiceServerRegistration(ctx: {
                 realtimeSpec,
                 voiceProvider,
                 ...(metadata ? { metadata } : {}),
+                ...(providerConfig ? { providerConfig } : {}),
                 ...(assistantFirstTurn ? { assistantFirstTurn } : {}),
                 ...(timeouts ? { timeouts } : {}),
                 ...(recording ? { recording } : {})

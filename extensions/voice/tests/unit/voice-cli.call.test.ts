@@ -352,6 +352,7 @@ describe('extensions/voice CLI', () => {
         realtimeSpec: { transport: { type: 'ws' } },
         ttlSeconds: 900,
         metadata: { foo: 1 },
+        providerConfig: { foo: { bar: 1 } },
         assistantFirstTurn: { enabled: true, prompt: 'hello', role: 'user', delayMs: 250, missingPromptBehavior: 'reject' },
         timeouts: { callTimeoutMs: 1234, silenceTimeoutMs: 5678 },
         recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'mono' }
@@ -386,6 +387,8 @@ describe('extensions/voice CLI', () => {
           '{"transport":{"type":"ws"}}',
           '--metadata',
           '{"foo":1}',
+          '--provider-config',
+          '{"foo":{"bar":1}}',
           '--assistant-first-turn',
           '{"enabled":true,"prompt":"hello","role":"user","delayMs":250,"missingPromptBehavior":"reject"}',
           '--timeouts-file',

@@ -8,6 +8,9 @@
     "outbound": {
       "mode": "twiml",
       "timeoutMs": 15000
+    },
+    "mediaStreams": {
+      "outboundBufferMaxFrames": 15000
     }
   }
 }
