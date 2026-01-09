@@ -579,14 +579,14 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
 
                 const maxPendingOutboundFramesRaw = Number(limits.maxPendingOutboundFrames);
                 const maxPendingOutboundFrames = Number.isFinite(maxPendingOutboundFramesRaw)
-                  ? Math.max(0, Math.floor(maxPendingOutboundFramesRaw))
+                  ? Math.max(1, Math.floor(maxPendingOutboundFramesRaw))
                   : DEFAULT_LIMITS.maxPendingOutboundFrames;
                 const wouldOverflow = outboundAudioQueue.size() + framed.length > maxPendingOutboundFrames;
                 if (wouldOverflow) {
                   callbacks.onError?.({ message: 'Outbound backpressure', code: 'outbound_backpressure', metadata: call });
                   clearPlayback(call);
 
-                  const capped = maxPendingOutboundFrames > 0 && framed.length > maxPendingOutboundFrames
+                  const capped = framed.length > maxPendingOutboundFrames
                     ? framed.slice(framed.length - maxPendingOutboundFrames)
                     : framed;
                   for (const frame of capped) {
