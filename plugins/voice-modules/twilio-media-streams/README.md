@@ -66,6 +66,14 @@ const bridge = createTwilioMediaStreamsBridge({
 });
 ```
 
+#### Breaking change: outbound buffer config
+
+This module **does not support** `limits.maxPendingOutboundAudioMs` (time-based). It was replaced by the frames-based `limits.maxPendingOutboundFrames`.
+
+Migration:
+- `maxPendingOutboundFrames = ceil(maxPendingOutboundAudioMs / frameMs)`
+- `frameMs` is `audio.frameMs` (default: `20`)
+
 Then, for each incoming WebSocket connection:
 
 ```ts
