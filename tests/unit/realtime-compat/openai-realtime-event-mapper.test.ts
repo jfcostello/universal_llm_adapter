@@ -23,8 +23,19 @@ describe('realtime-compat/openai — event mapper', () => {
   });
 
   test('maps VAD start/stop', () => {
+    expect(
+      mapOpenAIRealtimeServerEvent({ type: 'input_audio_buffer.speech_started', audio_start_ms: 1000 }, makeState())[0]
+    ).toEqual({
+      type: 'user_speech.started',
+      audioStartMs: 1000
+    });
     expect(mapOpenAIRealtimeServerEvent({ type: 'input_audio_buffer.speech_started' }, makeState())[0]).toEqual({
       type: 'user_speech.started'
+    });
+
+    expect(mapOpenAIRealtimeServerEvent({ type: 'input_audio_buffer.speech_stopped', audio_end_ms: 2000 }, makeState())[0]).toEqual({
+      type: 'user_speech.stopped',
+      audioEndMs: 2000
     });
     expect(mapOpenAIRealtimeServerEvent({ type: 'input_audio_buffer.speech_stopped' }, makeState())[0]).toEqual({
       type: 'user_speech.stopped'

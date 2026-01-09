@@ -258,6 +258,8 @@ describe('extensions/voice: server http handlers', () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     process.env.LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS = '1';
 
+    const registry = { __testRegistry: true };
+
     const store = createInMemoryVoiceCallConfigStore();
     await store.putConfig(
       {
@@ -283,7 +285,7 @@ describe('extensions/voice: server http handlers', () => {
 
     const reg = await createVoiceServerRegistration({
       server: {} as any,
-      registry: {},
+      registry,
       pluginsPath: './plugins',
       upgradeRouter: {} as any,
       store,
@@ -301,6 +303,7 @@ describe('extensions/voice: server http handlers', () => {
     await expect(reg.handleHttp(req, res)).resolves.toBe(true);
     expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
     expect(createWebhookResponse).toHaveBeenCalled();
+    expect(createWebhookResponse.mock.calls[0][0].registry).toBe(registry);
     const mediaWsUrl = createWebhookResponse.mock.calls[0][0].mediaWsUrl;
     expect(String(mediaWsUrl)).toContain('wss://example.com/voice/media?token=');
   });

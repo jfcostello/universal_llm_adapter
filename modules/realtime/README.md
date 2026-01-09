@@ -157,13 +157,18 @@ These events are the stable contract that:
 ### User speech + transcript
 
 - `user_speech.started`
-  - `{ type: 'user_speech.started' }`
+  - `{ type: 'user_speech.started', audioStartMs? }`
 - `user_speech.stopped`
-  - `{ type: 'user_speech.stopped' }`
+  - `{ type: 'user_speech.stopped', audioEndMs? }`
 - `user_transcript.delta`
   - `{ type: 'user_transcript.delta', textDelta }`
 - `user_transcript.final`
   - `{ type: 'user_transcript.final', text }`
+
+Optional timing fields (provider-dependent):
+- `audioStartMs` / `audioEndMs` are millisecond offsets on the **input-audio timeline** indicating where speech began/ended.
+- These are monotonic **within a session** and are not intended as wall-clock timestamps.
+- Core may use these for barge-in causality guards (see below).
 
 ### DTMF (touch tones)
 
@@ -235,6 +240,10 @@ Separately, when you call `session.interrupt()` explicitly, the controller emits
 - `{ type: 'playback.clear_requested', reason: 'interrupt' }`
 
 Downstream transports should listen for `playback.clear_requested` and immediately stop playback / drop queued audio.
+
+Causality guard (when supported by the provider compat):
+- If `user_speech.started.audioStartMs` and `user_speech.stopped.audioEndMs` are available, core suppresses barge-in triggers (`user_speech.started`, `user_transcript.delta`) that belong to an earlier audio turn (e.g., late transcript deltas after a new response begins).
+- This prevents stale transcription events from repeatedly cancelling/clearing playback and truncating audible output.
 
 ---
 

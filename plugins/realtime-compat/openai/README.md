@@ -53,6 +53,7 @@ Common events include:
 - `ready`
 - `assistant_audio.chunk` / `assistant_audio.end`
 - `assistant_transcript.delta` / `assistant_transcript.final`
+- `user_speech.started` / `user_speech.stopped` (when VAD boundary events are emitted; includes `audioStartMs` / `audioEndMs` when available)
 - `user_transcript.delta` / `user_transcript.final` (when transcription is enabled)
 - tool calling: `tool_call.*` (when tools are enabled)
 - `usage`, `error`, `timeout`, `closed`

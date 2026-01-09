@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import type http from 'http';
 
-import { LruMap, ProviderExecutionError } from '../../../kernel/index.js';
+import { LruMap, ProviderExecutionError, safeJsonParse } from '../../../kernel/index.js';
 import { safeEqual } from '../../../modules/security/index.js';
 import { makeHttpError } from '../../../modules/shared/index.js';
 
@@ -45,6 +45,110 @@ function parseBearerToken(value: string): string {
 function normalizePlainObject(value: any): Record<string, any> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return value as Record<string, any>;
+}
+
+function normalizeToolArgs(value: any): Record<string, any> {
+  if (typeof value === 'string') {
+    const parsed = safeJsonParse(value);
+    if (parsed === undefined) {
+      throw new Error('invalid_tool_arguments');
+    }
+    return normalizePlainObject(parsed);
+  }
+  return normalizePlainObject(value);
+}
+
+function stripToSingleLine(value: string): string {
+  return String(value)
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s\s+/g, ' ')
+    .trim();
+}
+
+type ExtractedToolCall = { toolCallId: string; name: string; args: Record<string, any>; parseError?: string };
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  const limit = Math.max(1, Math.floor(concurrency));
+
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () =>
+    (async () => {
+      while (true) {
+        const index = nextIndex++;
+        if (index >= items.length) return;
+        results[index] = await fn(items[index]!, index);
+      }
+    })()
+  );
+
+  await Promise.all(workers);
+  return results;
+}
+
+function extractToolCallsFromMessage(message: Record<string, any>): ExtractedToolCall[] {
+  const toolCalls: ExtractedToolCall[] = [];
+
+  const seen = new Set<string>();
+  const pushToolCall = (toolCall: ExtractedToolCall) => {
+    const toolCallId = String(toolCall.toolCallId).trim();
+    if (seen.has(toolCallId)) return;
+    seen.add(toolCallId);
+    toolCalls.push(toolCall);
+  };
+
+  const toolCallList = Array.isArray((message as any).toolCallList) ? (message as any).toolCallList : [];
+  for (const raw of toolCallList) {
+    const obj = normalizePlainObject(raw);
+    const toolCallId = String(obj.id ?? obj.toolCallId ?? '').trim();
+    const name = String(obj.name ?? obj.function?.name ?? '').trim();
+    if (!toolCallId || !name) continue;
+
+    const argsRaw =
+      obj.parameters ??
+      obj.arguments ??
+      obj.function?.parameters ??
+      obj.function?.arguments;
+
+    let args: Record<string, any> = {};
+    let parseError: string | undefined;
+    try {
+      args = normalizeToolArgs(argsRaw);
+    } catch {
+      parseError = 'invalid_tool_arguments';
+      args = {};
+    }
+    pushToolCall({ toolCallId, name, args, ...(parseError ? { parseError } : {}) });
+  }
+
+  const toolWithToolCallList = Array.isArray((message as any).toolWithToolCallList) ? (message as any).toolWithToolCallList : [];
+  for (const raw of toolWithToolCallList) {
+    const obj = normalizePlainObject(raw);
+    const toolCall = normalizePlainObject(obj.toolCall);
+    const toolCallId = String(toolCall.id ?? obj.toolCallId ?? '').trim();
+    const name = String(obj.name ?? toolCall.name ?? toolCall.function?.name ?? '').trim();
+    if (!toolCallId || !name) continue;
+    const argsRaw =
+      toolCall.parameters ??
+      toolCall.arguments ??
+      toolCall.function?.parameters ??
+      toolCall.function?.arguments;
+    let args: Record<string, any> = {};
+    let parseError: string | undefined;
+    try {
+      args = normalizeToolArgs(argsRaw);
+    } catch {
+      parseError = 'invalid_tool_arguments';
+      args = {};
+    }
+    pushToolCall({ toolCallId, name, args, ...(parseError ? { parseError } : {}) });
+  }
+
+  return toolCalls;
 }
 
 function readSettingString(settings: any, name: string, aliases: string[] = []): string | undefined {
@@ -391,7 +495,7 @@ export default class VapiVoiceCompat {
     const assistant: any = {
       ...(assistantFirstTurnActive ? { firstMessageMode: 'assistant-speaks-first-with-model-generated-message' } : { firstMessageMode: 'assistant-waits-for-user' }),
       modelOutputInMessagesEnabled: true,
-      serverMessages: ['status-update', 'speech-update', 'transcript', 'end-of-call-report'],
+      serverMessages: ['status-update', 'speech-update', 'transcript', 'end-of-call-report', 'tool-calls', 'function-call'],
       server: {
         url: webhookUrl,
         headers: { Authorization: `Bearer ${webhookAuth.token}` }
@@ -446,7 +550,15 @@ export default class VapiVoiceCompat {
     return { providerCallId };
   }
 
-  async createWebhookResponse(options: { callConfigId: string; callConfig?: any; voiceProvider: string; body?: any; bodyText?: string; events?: { emit?: (event: any) => void } }): Promise<{
+  async createWebhookResponse(options: {
+    callConfigId: string;
+    callConfig?: any;
+    voiceProvider: string;
+    body?: any;
+    bodyText?: string;
+    events?: { emit?: (event: any) => void };
+    registry?: any;
+  }): Promise<{
     status: number;
     headers: Record<string, string>;
     body: string;
@@ -464,7 +576,104 @@ export default class VapiVoiceCompat {
       } catch {}
     };
 
-    if (type.startsWith('transcript')) {
+    if (type === 'tool-calls' || type === 'function-call') {
+      const callConfigId = String(options.callConfigId).trim();
+      const metadata = {
+        ...(callConfigId ? { callConfigId } : {}),
+        ...(providerCallId ? { providerCallId } : {})
+      };
+
+      const callConfig = normalizePlainObject(options.callConfig);
+      const realtimeSpec = normalizePlainObject(callConfig.realtimeSpec);
+      const provider = String(realtimeSpec.provider ?? options.voiceProvider).trim();
+      const model = String(realtimeSpec.model ?? '').trim();
+
+      const toolCalls: ExtractedToolCall[] = [];
+      try {
+        if (type === 'tool-calls') {
+          toolCalls.push(...extractToolCallsFromMessage(message));
+        } else {
+          const functionCall = normalizePlainObject(message.functionCall);
+          const toolCallId = String(functionCall.id ?? message.toolCallId ?? '').trim();
+          const name = String(functionCall.name ?? '').trim();
+          const argsRaw = functionCall.parameters ?? functionCall.arguments;
+          if (toolCallId && name) {
+            let args: Record<string, any> = {};
+            let parseError: string | undefined;
+            try {
+              args = normalizeToolArgs(argsRaw);
+            } catch {
+              parseError = 'invalid_tool_arguments';
+              args = {};
+            }
+            toolCalls.push({ toolCallId, name, args, ...(parseError ? { parseError } : {}) });
+          }
+        }
+      } catch (err: any) {
+        const toolCallIdFallback = String(message.toolCallId ?? '').trim() || `tool_${Date.now()}`;
+        const nameFallback = String(message?.functionCall?.name ?? message?.name ?? '').trim() || 'tool';
+        const error = stripToSingleLine(err?.message ?? String(err));
+        return {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ results: [{ name: nameFallback, toolCallId: toolCallIdFallback, error }] })
+        };
+      }
+
+      if (toolCalls.length === 0) {
+        return {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ results: [] })
+        };
+      }
+
+      const getProcessRoutes = options.registry?.getProcessRoutes;
+      if (typeof getProcessRoutes !== 'function') {
+        return {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            results: toolCalls.map(tc => ({
+              name: tc.name,
+              toolCallId: tc.toolCallId,
+              error: tc.parseError ? tc.parseError : 'tool_execution_unavailable'
+            }))
+          })
+        };
+      }
+
+      const routes = await getProcessRoutes.call(options.registry).catch(() => []);
+      const { ToolCoordinator } = await import('../../../modules/tools/index.js');
+      const coordinator = new ToolCoordinator(Array.isArray(routes) ? routes : []);
+
+      const results = await mapWithConcurrency(
+        toolCalls,
+        Math.min(4, toolCalls.length),
+        async (tc): Promise<{ name: string; toolCallId: string; result?: string; error?: string }> => {
+          if (tc.parseError) {
+            return { name: tc.name, toolCallId: tc.toolCallId, error: tc.parseError };
+          }
+
+          try {
+            const invoked = await coordinator.routeAndInvoke(tc.name, tc.toolCallId, tc.args, { provider, model, metadata });
+            const payload = invoked && typeof invoked === 'object' && 'result' in invoked ? (invoked as any).result : invoked;
+            const text = stripToSingleLine(typeof payload === 'string' ? payload : JSON.stringify(payload));
+            return { name: tc.name, toolCallId: tc.toolCallId, result: text };
+          } catch (err: any) {
+            const message = stripToSingleLine(err?.message ?? String(err));
+            const error = message.endsWith('undefined') || message.endsWith('null') ? 'tool_invocation_failed' : message;
+            return { name: tc.name, toolCallId: tc.toolCallId, error };
+          }
+        }
+      );
+
+      return {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ results })
+      };
+    } else if (type.startsWith('transcript')) {
       const roleRaw = String(message.role ?? '').trim().toLowerCase();
       const role = roleRaw === 'assistant' ? 'assistant' : roleRaw === 'user' ? 'user' : '';
       const transcript = String(message.transcript ?? '').trim();

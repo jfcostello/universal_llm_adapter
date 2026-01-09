@@ -70,3 +70,21 @@ Additional HMAC settings supported:
 - `includeTimestamp` (default: `true`)
 - `payloadFormat` (default: `{timestamp}.{body}`; supports `{body}`, `{timestamp}`, `{method}`, `{url}`, `{svix-id}`)
 - `toleranceSeconds` (default: `300`; `0` disables tolerance checks)
+
+## Tool calling (Server URL webhooks)
+
+This compat supports tool calling via Vapi Server URL webhooks:
+
+- Outbound call creation requests tool-call webhooks by including `tool-calls` and `function-call` in `assistant.serverMessages`.
+- On webhook messages with `message.type = "tool-calls"` (preferred) or `message.type = "function-call"` (legacy), tool calls are extracted and routed through the adapter’s standard process routing (via `plugins/processes/*.json`).
+- Multiple tool calls are executed with bounded concurrency; `results` preserve the original tool-call order.
+- Tool-call webhook responses are always HTTP `200` with a JSON body:
+  - `{ "results": [] }` when no tool calls are present
+  - `{ "results": [{ "name", "toolCallId", "result" }, ...] }` for successful tool calls
+  - `{ "results": [{ "name", "toolCallId", "error" }, ...] }` for failures
+- `result` and `error` values are always single-line strings.
+
+Error behavior:
+- Invalid tool argument payloads: `error = "invalid_tool_arguments"`
+- Tool execution unavailable (missing registry / process routes): `error = "tool_execution_unavailable"`
+- Tool invocation failures: `error` is the thrown error message (single-line), or `error = "tool_invocation_failed"` when a usable message cannot be derived.
