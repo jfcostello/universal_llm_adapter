@@ -138,6 +138,18 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
   let reconnectTimer: NodeJS.Timeout | undefined;
   let setupTimer: NodeJS.Timeout | undefined;
 
+  const clearReconnectTimer = () => {
+    if (!reconnectTimer) return;
+    clearTimeout(reconnectTimer);
+    reconnectTimer = undefined;
+  };
+
+  const clearSetupTimer = () => {
+    if (!setupTimer) return;
+    clearTimeout(setupTimer);
+    setupTimer = undefined;
+  };
+
   const emitReadyOnce = () => {
     if (readySent) return;
     readySent = true;
@@ -153,6 +165,9 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
   const emitClosedOnce = (reason: Extract<RealtimeEvent, { type: 'closed' }>['reason']) => {
     if (closed) return;
     closed = true;
+    clearReconnectTimer();
+    clearSetupTimer();
+    pendingSends.length = 0;
     queue.push({ type: 'closed', reason });
     queue.close();
   };
@@ -161,23 +176,11 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
     if (closed) throw new Error('Realtime session is closed');
   };
 
-  const clearReconnectTimer = () => {
-    if (!reconnectTimer) return;
-    clearTimeout(reconnectTimer);
-    reconnectTimer = undefined;
-  };
-
-  const clearSetupTimer = () => {
-    if (!setupTimer) return;
-    clearTimeout(setupTimer);
-    setupTimer = undefined;
-  };
-
   const failSetup = (options: { code: string; message: string; reason: Extract<RealtimeEvent, { type: 'closed' }>['reason'] }) => {
     if (closed) return;
     clearReconnectTimer();
     clearSetupTimer();
-    pendingSends.splice(0, pendingSends.length);
+    pendingSends.length = 0;
 
     emitReadyOnce();
     queue.push({ type: 'error', code: options.code, message: options.message });
@@ -237,6 +240,7 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
   };
 
   const connect = () => {
+    if (closed) return;
     const socket: WsLike = new wsLib.WebSocket(url, { headers: endpoint.headers });
     ws = socket;
 
@@ -395,10 +399,7 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
     },
     async close() {
       if (closed) return;
-      closed = true;
-      clearReconnectTimer();
-      clearSetupTimer();
-      pendingSends.splice(0, pendingSends.length);
+      emitClosedOnce('client_close');
       try {
         if (ws.readyState === WS_OPEN) {
           ws.close(1000, 'client_close');
@@ -406,8 +407,6 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
           ws.terminate();
         }
       } catch {}
-      queue.push({ type: 'closed', reason: 'client_close' });
-      queue.close();
     }
   };
 }
