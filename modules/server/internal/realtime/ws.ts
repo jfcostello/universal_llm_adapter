@@ -153,6 +153,7 @@ export async function attachRealtimeWsServer(options: {
     let session: any | undefined;
     let openSeen = false;
     let closed = false;
+    let stopping = false;
 
     let idleTimeoutMs = options.config.idleTimeoutMs;
     let specIdleTimeoutAfterReadyMs: number | undefined;
@@ -178,6 +179,8 @@ export async function attachRealtimeWsServer(options: {
     };
 
     const failAndClose = (message: string, code?: string) => {
+      if (stopping) return;
+      stopping = true;
       send({ type: 'error', error: { message, ...(code ? { code } : {}) } });
       try { ws.close(); } catch {}
     };
@@ -250,7 +253,11 @@ export async function attachRealtimeWsServer(options: {
       }, options.config.maxSessionDurationMs);
     }
 
-    ws.on('message', async (data: any) => {
+    let messageChain: Promise<void> = Promise.resolve();
+
+    const handleMessage = async (data: any): Promise<void> => {
+      if (closed || stopping) return;
+
       scheduleIdleCheck();
 
       const buf = Buffer.from(data as any);
@@ -295,7 +302,7 @@ export async function attachRealtimeWsServer(options: {
               openHandshakeTimeoutMs,
               Object.assign(new Error('Realtime WS open handshake timeout (createSession)'), { code: 'ws_open_timeout' })
             );
-            if (closed) {
+            if (closed || stopping) {
               try {
                 await session?.close?.();
               } catch {}
@@ -347,6 +354,11 @@ export async function attachRealtimeWsServer(options: {
       } catch (err: any) {
         failAndClose(err?.message ?? String(err), err?.code);
       }
+    };
+
+    ws.on('message', (data: any) => {
+      messageChain = messageChain
+        .then(() => handleMessage(data));
     });
   });
 

@@ -12,6 +12,7 @@ import {
   buildTwilioMediaMessage,
   parseTwilioInboundMessage
 } from './messages.js';
+import { ResettableQueue } from './resettable-queue.js';
 
 export type TwilioRequestLike = { url?: string | undefined };
 
@@ -174,66 +175,6 @@ function safeClose(ws: TwilioMediaStreamsWsLike, code: number, reason: string): 
   } catch {}
 }
 
-class ResettableQueue<T> {
-  private queue: T[] = [];
-  private head = 0;
-  private waiting: Array<(value: T | null) => void> = [];
-  private closed = false;
-  private generation = 0;
-
-  push(item: T) {
-    if (this.closed) return;
-    const next = this.waiting.shift();
-    if (next) next(item);
-    else this.queue.push(item);
-  }
-
-  size(): number {
-    return this.queue.length - this.head;
-  }
-
-  currentGeneration(): number {
-    return this.generation;
-  }
-
-  private maybeCompact(): void {
-    // Avoid unbounded growth and keep dequeue O(1) without shift().
-    if (this.head <= 1024) return;
-    if (this.head <= this.queue.length / 2) return;
-
-    this.queue = this.queue.slice(this.head);
-    this.head = 0;
-  }
-
-  async next(): Promise<{ value: T; generation: number } | null> {
-    if (this.head < this.queue.length) {
-      const value = this.queue[this.head++]!;
-      this.maybeCompact();
-      return { value, generation: this.generation };
-    }
-    if (this.closed) return null;
-    return await new Promise(resolve => {
-      this.waiting.push((value) => {
-        if (value === null) resolve(null);
-        else resolve({ value, generation: this.generation });
-      });
-    });
-  }
-
-  clear() {
-    this.queue = [];
-    this.head = 0;
-    this.generation++;
-  }
-
-  close() {
-    this.closed = true;
-    for (const fn of this.waiting.splice(0, this.waiting.length)) fn(null);
-    this.queue = [];
-    this.head = 0;
-  }
-}
-
 type OutboundItem =
   | { kind: 'audio'; bytes: Uint8Array }
   | { kind: 'mark'; name: string; markKind: 'periodic' | 'drain' };
@@ -366,6 +307,10 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
 
             const { value, generation } = next;
 
+            if (value === null) {
+              continue;
+            }
+
             if (generation !== outboundAudioQueue.currentGeneration()) {
               continue;
             }
@@ -419,12 +364,11 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
       const startInboundPump = (localSession: RealtimeSession) => {
         void (async () => {
           while (true) {
-            const next = await inboundAudioQueue.next();
-            if (!next) return;
+            const frame = await inboundAudioQueue.nextValue();
+            if (frame === null) return;
             try {
               const target = sessionReadyAudioInput;
               if (target) {
-                const frame = next.value;
                 const inputSpec: AudioSpec = {
                   format: frame.format as AudioSpec['format'],
                   sampleRateHz: Number(frame.sampleRateHz),
@@ -449,7 +393,7 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
                 }
               }
 
-              await localSession.sendAudio(next.value);
+              await localSession.sendAudio(frame);
             } catch (err: any) {
               callbacks.onError?.({ message: err?.message ?? String(err), code: 'session_send_audio_failed', metadata });
               void closeAll();
@@ -462,10 +406,10 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
       const startDtmfPump = (localSession: RealtimeSession) => {
         void (async () => {
           while (true) {
-            const next = await dtmfQueue.next();
-            if (!next) return;
+            const digit = await dtmfQueue.nextValue();
+            if (digit === null) return;
             try {
-              await localSession.sendDTMF(next.value);
+              await localSession.sendDTMF(digit);
             } catch (err: any) {
               callbacks.onError?.({ message: err?.message ?? String(err), code: 'session_send_dtmf_failed', metadata });
               void closeAll();

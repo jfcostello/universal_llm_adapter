@@ -504,13 +504,10 @@ export default class TwilioVoiceCompat {
       throw makeHttpError({ message: 'Invalid timeouts.firstTurnGraceMs', statusCode: 400, code: 'validation_error' });
     }
 
-    const realtimeProvider = String((realtimeSpec as any)?.provider ?? '').trim();
     const firstTurnGraceMs =
       firstTurnGraceMsExplicit !== undefined
         ? Math.floor(firstTurnGraceMsExplicit)
-        : realtimeProvider === 'grok'
-          ? 500
-          : undefined;
+        : undefined;
 
     const silenceAssistantAudioEndFallbackMsRaw = (timeouts as any)?.silenceAssistantAudioEndFallbackMs;
     const silenceAssistantAudioEndFallbackMs =
@@ -559,6 +556,9 @@ export default class TwilioVoiceCompat {
       }
       return out;
     })();
+    if (outboundBufferMaxFramesCap === 0) {
+      safeLog('warning', 'voice.media.outbound_buffer_cap_disabled', { ...baseFields, cap: outboundBufferMaxFramesCap });
+    }
 
     const parseOutboundBufferMaxFrames = (value: any, label: string, errorKind: 'validation' | 'provider'): number | undefined => {
       if (value === undefined || value === null || value === '') return undefined;
@@ -626,6 +626,9 @@ export default class TwilioVoiceCompat {
     let waitingForFirstAssistantAudioEnd = assistantFirstTurnEnabled;
     let assistantAudioActive = false;
     let callEnded = false;
+
+    const outboundBackpressureThrottleMs = 5000;
+    let lastOutboundBackpressureLogAtMs = 0;
 
     const clearCallTimeout = () => {
       if (callTimeoutTimer) {
@@ -907,12 +910,29 @@ export default class TwilioVoiceCompat {
           }
         },
         onError: ({ message, code, metadata }) => {
+          const codeStr = code !== undefined ? String(code) : '';
+          if (codeStr === 'outbound_backpressure') {
+            const nowMs = Date.now();
+            if (nowMs - lastOutboundBackpressureLogAtMs >= outboundBackpressureThrottleMs) {
+              lastOutboundBackpressureLogAtMs = nowMs;
+              safeLog('warning', 'voice.media.outbound_backpressure', {
+                ...baseFields,
+                ...(metadata?.streamSid ? { providerStreamId: metadata.streamSid } : {}),
+                ...(metadata?.callSid ? { providerCallId: metadata.callSid } : {}),
+                code: codeStr,
+                message: String(message)
+              });
+              safeMetric('compatError', 'media_bridge', baseFields.voiceProvider);
+            }
+            return;
+          }
+
           safeLog('error', 'voice.media.bridge_error', {
             ...baseFields,
             ...systemPromptField,
             ...(metadata?.streamSid ? { providerStreamId: metadata.streamSid } : {}),
             ...(metadata?.callSid ? { providerCallId: metadata.callSid } : {}),
-            code: String(code),
+            code: codeStr,
             message: String(message)
           });
           safeMetric('compatError', 'media_bridge', baseFields.voiceProvider);

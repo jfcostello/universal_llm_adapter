@@ -238,4 +238,36 @@ describe('plugins/voice-compat/twilio — outbound buffer wiring', () => {
       ).rejects.toMatchObject({ statusCode: 500, code: 'provider_config_error' });
     });
   });
+
+  test('logs a warning when outboundBufferMaxFrames cap is disabled (cap=0)', async () => {
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+    process.env.LLM_ADAPTER_TWILIO_MEDIA_STREAMS_OUTBOUND_BUFFER_MAX_FRAMES_CAP = '0';
+
+    await jest.isolateModulesAsync(async () => {
+      jest.unstable_mockModule('../../../../voice-modules/twilio-media-streams/index.js', () => ({
+        createTwilioMediaStreamsBridge: () => ({ handleConnection: async () => {} })
+      }));
+
+      const TwilioVoiceCompat = (await import('../../index.ts')).default;
+      const compat = new TwilioVoiceCompat();
+
+      const logger = { warning: jest.fn() };
+
+      await compat.handleMediaConnection({
+        ws: {},
+        req: new http.IncomingMessage(null as any),
+        callConfigId: 'cfg_1',
+        callConfig: { realtimeSpec: {} },
+        voiceProvider: 'twilio',
+        registry: {},
+        providerDefaults: {},
+        logger
+      });
+
+      expect(logger.warning).toHaveBeenCalledWith(
+        'voice.media.outbound_buffer_cap_disabled',
+        expect.objectContaining({ callConfigId: 'cfg_1', voiceProvider: 'twilio', cap: 0 })
+      );
+    });
+  });
 });

@@ -183,6 +183,65 @@ class EnvelopeQueue {
   }
 }
 
+function formatRecentRealtimeEnvelopes(envelopes: RealtimeServerEnvelope[], limit: number): string {
+  const max = Math.max(0, Math.floor(limit));
+  const recent = max > 0 ? envelopes.slice(Math.max(0, envelopes.length - max)) : [];
+
+  const describe = (env: RealtimeServerEnvelope): string => {
+    if (!env || typeof env !== 'object') return 'unknown';
+    if (env.type === 'error') {
+      const message = String(env.error?.message ?? '').trim();
+      const code = env.error?.code !== undefined ? String(env.error.code) : '';
+      return `error${code ? `:${code}` : ''}${message ? ` ${message}` : ''}`;
+    }
+
+    const type = String((env as any)?.event?.type ?? '').trim();
+    if (!type) return 'event';
+
+    // Avoid logging bulky payloads on failure paths (e.g., base64 audio).
+    if (type === 'assistant_audio.chunk') return 'event:assistant_audio.chunk [omitted]';
+    if (type === 'assistant_audio.end') return 'event:assistant_audio.end';
+    if (type === 'user_transcript.delta') return 'event:user_transcript.delta [omitted]';
+    if (type === 'assistant_transcript.delta') return 'event:assistant_transcript.delta [omitted]';
+
+    const name = String((env as any)?.event?.name ?? '').trim();
+    return `event:${type}${name ? ` name=${name}` : ''}`;
+  };
+
+  return recent.map((env, idx) => `${idx + 1}. ${describe(env)}`).join('\n');
+}
+
+function createRealtimeWaitForEventTimeoutError(options: {
+  transport: 'cli' | 'server';
+  want: string;
+  stepTimeoutMs: number;
+  envelopes: RealtimeServerEnvelope[];
+  stderr: string;
+}): Error {
+  const recent = formatRecentRealtimeEnvelopes(options.envelopes, 25);
+  const stderrTail = String(options.stderr || '').trim().slice(-2000);
+
+  const details = [
+    `- transport: ${options.transport}`,
+    `- want: ${options.want}`,
+    `- timeoutMs: ${options.stepTimeoutMs}`,
+    `- envelopesSeen: ${options.envelopes.length}`
+  ];
+  if (stderrTail) {
+    details.push(`- stderrTail: ${stderrTail}`);
+  }
+
+  const body = [
+    `Timed out waiting for realtime event '${options.want}' (${options.stepTimeoutMs}ms)`,
+    '',
+    'Diagnostics:',
+    ...details,
+    ...(recent ? ['', 'Recent envelopes (most recent last):', recent] : [])
+  ].join('\n');
+
+  return new Error(body);
+}
+
 async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealtimeScenarioResult> {
   const script = getUnifiedCliScript();
   const args = ['realtime', '--plugins', options.pluginsPath ?? './plugins'];
@@ -310,7 +369,13 @@ async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealti
           while ((seenEventCounts.get(want) ?? 0) < targetCount) {
             const remainingMs = deadline - Date.now();
             if (remainingMs <= 0) {
-              throw new Error(`Timed out waiting for realtime event '${want}' (${stepTimeoutMs}ms)`);
+              throw createRealtimeWaitForEventTimeoutError({
+                transport: 'cli',
+                want,
+                stepTimeoutMs,
+                envelopes,
+                stderr
+              });
             }
 
             let env: RealtimeServerEnvelope;
@@ -318,7 +383,13 @@ async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealti
               env = await q.next(remainingMs);
             } catch (err: any) {
               if (err instanceof Error && err.message.startsWith('Timed out waiting for realtime envelope')) {
-                throw new Error(`Timed out waiting for realtime event '${want}' (${stepTimeoutMs}ms)`);
+                throw createRealtimeWaitForEventTimeoutError({
+                  transport: 'cli',
+                  want,
+                  stepTimeoutMs,
+                  envelopes,
+                  stderr
+                });
               }
               throw err;
             }
@@ -489,7 +560,13 @@ async function runViaServer(options: RunRealtimeScenarioOptions): Promise<RunRea
           while ((seenEventCounts.get(want) ?? 0) < targetCount) {
             const remainingMs = deadline - Date.now();
             if (remainingMs <= 0) {
-              throw new Error(`Timed out waiting for realtime event '${want}' (${stepTimeoutMs}ms)`);
+              throw createRealtimeWaitForEventTimeoutError({
+                transport: 'server',
+                want,
+                stepTimeoutMs,
+                envelopes,
+                stderr
+              });
             }
 
             let env: RealtimeServerEnvelope;
@@ -497,7 +574,13 @@ async function runViaServer(options: RunRealtimeScenarioOptions): Promise<RunRea
               env = await q.next(remainingMs);
             } catch (err: any) {
               if (err instanceof Error && err.message.startsWith('Timed out waiting for realtime envelope')) {
-                throw new Error(`Timed out waiting for realtime event '${want}' (${stepTimeoutMs}ms)`);
+                throw createRealtimeWaitForEventTimeoutError({
+                  transport: 'server',
+                  want,
+                  stepTimeoutMs,
+                  envelopes,
+                  stderr
+                });
               }
               throw err;
             }

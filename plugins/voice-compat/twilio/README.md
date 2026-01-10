@@ -59,7 +59,7 @@ This is **dynamic** (LLM-generated) and does not use pre-recorded audio. The pro
   - enforced adapter-side during the media bridge (hang up after no user input for the configured duration).
 - `callConfig.timeouts.firstTurnGraceMs` (optional, non-negative):
   - forwarded to the Twilio media-streams bridge as `limits.firstTurnGraceMs` (see `plugins/voice-modules/twilio-media-streams/README.md`).
-  - When omitted, this compat defaults to `500` only when `callConfig.realtimeSpec.provider === "grok"`; otherwise it is disabled.
+  - When omitted, it is disabled.
 - `callConfig.timeouts.silenceAssistantAudioEndFallbackMs` (optional):
   - when `assistantFirstTurn.enabled=true`, treats assistant audio as ended this many milliseconds after the first `assistant_audio.chunk` if `assistant_audio.end` is never emitted.
   - default: `min(2000, max(500, silenceTimeoutMs))`.
@@ -73,6 +73,7 @@ This is **dynamic** (LLM-generated) and does not use pre-recorded audio. The pro
   - overrides `defaults.mediaStreams.outboundBufferMaxFrames` for this call.
 - The resolved value (defaults + per-call override) is capped by:
   - `LLM_ADAPTER_TWILIO_MEDIA_STREAMS_OUTBOUND_BUFFER_MAX_FRAMES_CAP` (default: `300000`; `0` disables the cap).
+  - When the cap is disabled (`0`), the compat logs a warning at media WS connect time.
 
 When `assistantFirstTurn.enabled=true`, the silence timeout is armed after the first `assistant_audio.end` event (or after the applicable fallback window if `assistant_audio.end` is never emitted).
 
