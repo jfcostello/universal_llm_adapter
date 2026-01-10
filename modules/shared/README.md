@@ -102,6 +102,19 @@ const completed = await sleepWithSignal(5000, abortController.signal);
 // completed === false if aborted before 5s elapses
 ```
 
+### `isPlainObject(value)`
+
+Checks whether a value is a "plain" object (prototype is `Object.prototype` or `null`), suitable for JSON-style payload validation.
+
+```typescript
+import { isPlainObject } from '../shared/index.js';
+
+isPlainObject({}); // true
+isPlainObject(Object.create(null)); // true
+isPlainObject([]); // false
+isPlainObject(new Date()); // false
+```
+
 ### `setUnrefTimeout(callback, ms)`
 
 Sets a timeout and (when supported) calls `.unref()` so it won’t keep the Node.js process alive.

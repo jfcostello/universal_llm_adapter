@@ -90,6 +90,8 @@ Key fields:
   - `inputStream`: optional local media stream to attach as microphone input before offer creation.
   - `onRemoteStream`: callback invoked with the remote media stream for playback.
   - `dataChannelLabel`: override the data-channel label used for JSON events.
+- `handshake`: session setup acknowledgment behavior (support varies by compat).
+  - `readyFallbackMs`: setup/ack timeout window (defaults to 10 seconds).
 - `systemPrompt`: optional system prompt for the session.
 - `observability`: optional observability config for the session (same schema as LLM calls).
   - Records one `LLM_REQUEST`/`LLM_RESPONSE` pair per `commit()`.

@@ -7,7 +7,7 @@ import { createRequire } from 'module';
 
 import { mapErrorToHttp } from '../../../modules/transport/index.js';
 import { createSignedWsToken, verifySignedWsToken } from '../../../modules/security/index.js';
-import { calculateBackoffDelay, makeHttpError, normalizeFlag, readTrimmedStringProperty, sleep } from '../../../modules/shared/index.js';
+import { calculateBackoffDelay, isPlainObject, makeHttpError, normalizeFlag, readTrimmedStringProperty, sleep } from '../../../modules/shared/index.js';
 import {
   applyCors,
   applySecurityHeaders,
@@ -146,7 +146,7 @@ function normalizeIdempotencyKey(value: string): string {
 }
 
 function asPlainObject(value: unknown): Record<string, any> | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  if (!isPlainObject(value)) return undefined;
   return value as Record<string, any>;
 }
 

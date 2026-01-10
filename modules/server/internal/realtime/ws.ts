@@ -358,7 +358,8 @@ export async function attachRealtimeWsServer(options: {
 
     ws.on('message', (data: any) => {
       messageChain = messageChain
-        .then(() => handleMessage(data));
+        .then(() => handleMessage(data))
+        .catch(() => closeAll());
     });
   });
 
