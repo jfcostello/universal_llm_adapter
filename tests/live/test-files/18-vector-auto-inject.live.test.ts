@@ -10,6 +10,10 @@ const STORE_ID = 'qdrant-cloud';
 const TOKEN = `AUTO_INJECT_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
 const SECRET = `AUTO_INJECT_SECRET_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function readOpenRouterEmbeddingProviderId(): string {
   const raw = fs.readFileSync(path.join(process.cwd(), 'plugins', 'embeddings', 'openrouter.json'), 'utf-8');
   const parsed = JSON.parse(raw);
@@ -64,6 +68,44 @@ function readOpenRouterEmbeddingProviderId(): string {
 
     expect(seedResult.code).toBe(0);
     expect(seedRes?.success).toBe(true);
+
+    // External vector stores can be eventually consistent; ensure the freshly upserted point is queryable
+    // before running the LLM auto-inject path (which is intended to be deterministic).
+    const waitForSeedVisible = async (timeoutMs: number) => {
+      const startedAt = Date.now();
+      let attempt = 0;
+
+      while (Date.now() - startedAt < timeoutMs) {
+        attempt += 1;
+
+        const { result: queryResult, response: queryRes } = await runVectorOnce({
+          testFileBase: TEST_FILE,
+          testName: `seed_visible_${attempt}`,
+          spec: {
+            operation: 'query',
+            store: STORE_ID,
+            collection,
+            embeddingPriority: [{ provider: embeddingProviderId }],
+            settings: { includePayload: true },
+            input: {
+              query: TOKEN,
+              topK: 1
+            }
+          }
+        });
+
+        const payloadText = String((queryRes as any)?.results?.[0]?.payload?.text ?? '');
+        if (queryResult.code === 0 && queryRes?.success === true && payloadText.includes(TOKEN)) {
+          return;
+        }
+
+        await sleep(250);
+      }
+
+      throw new Error('Timed out waiting for seeded vector chunk to become queryable');
+    };
+
+    await waitForSeedVisible(10_000);
   }, 180_000);
 
   afterAll(async () => {
