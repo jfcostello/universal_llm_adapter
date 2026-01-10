@@ -7,7 +7,7 @@ import { createGeminiRealtimeCompatSession } from '@/plugins/realtime-compat/gem
 const require = createRequire(import.meta.url);
 const wsLib = require('ws');
 
-async function startWsServer() {
+async function startWsServer(options?: { closeOnSetup?: boolean }) {
   const wss = new wsLib.WebSocketServer({ port: 0 });
   const messages: any[] = [];
 
@@ -17,8 +17,13 @@ async function startWsServer() {
     socket = ws;
     requestUrl = req?.url;
     ws.on('message', (data: any) => {
+      const shouldClose = options?.closeOnSetup === true;
       try {
-        messages.push(JSON.parse(data.toString()));
+        const parsed = JSON.parse(data.toString());
+        messages.push(parsed);
+        if (shouldClose && parsed?.setup) {
+          try { ws.close(); } catch {}
+        }
       } catch {
         messages.push({ type: '__unparsed__', raw: data.toString() });
       }
@@ -250,6 +255,113 @@ describe('integration/realtime-compat/gemini session', () => {
 
       await session.close();
       await it.next();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('reconnects when the websocket closes before setupComplete', async () => {
+    const server = await startWsServer();
+    try {
+      const session = createGeminiRealtimeCompatSession({
+        provider: {
+          id: 'google',
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
+        } as any,
+        spec: { provider: 'google', model: 'm', turnDetection: { mode: 'manual_commit' } }
+      } as any);
+
+      await waitForMessage(server.messages, m => m?.setup?.model === 'models/m', 2000);
+
+      const it = session.events()[Symbol.asyncIterator]();
+      const first = await it.next();
+      expect(first.value.type).toBe('ready');
+
+      await session.sendText({ role: 'user', text: 'hi' });
+      await session.commit();
+      await new Promise(res => setTimeout(res, 25));
+      expect(server.messages.some(m => m?.clientContent)).toBe(false);
+
+      const setupCountBefore = server.messages.filter(m => m?.setup?.model === 'models/m').length;
+      server.closeClient();
+
+      const waitForSetupCount = async (count: number, timeoutMs: number) => {
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+          const current = server.messages.filter(m => m?.setup?.model === 'models/m').length;
+          if (current >= count) return;
+          await new Promise(res => setTimeout(res, 10));
+        }
+        throw new Error('Timed out waiting for reconnect setup message');
+      };
+
+      await waitForSetupCount(setupCountBefore + 1, 5000);
+      server.sendToClient({ setupComplete: {} });
+
+      await waitForMessage(server.messages, m => m?.clientContent?.turnComplete === false, 2000);
+      await waitForMessage(server.messages, m => m?.clientContent?.turnComplete === true, 2000);
+
+      await session.close();
+      await it.next();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('does not reconnect after close (covers connect closed guard)', async () => {
+    const server = await startWsServer({ closeOnSetup: true });
+    try {
+      const session = createGeminiRealtimeCompatSession({
+        provider: {
+          id: 'google',
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
+        } as any,
+        spec: { provider: 'google', model: 'm', turnDetection: { mode: 'manual_commit' } }
+      } as any);
+
+      await waitForMessage(server.messages, m => m?.setup?.model === 'models/m', 2000);
+      await new Promise(res => setTimeout(res, 50));
+
+      await session.close();
+
+      await new Promise(res => setTimeout(res, 800));
+      const setupCount = server.messages.filter(m => m?.setup?.model === 'models/m').length;
+      expect(setupCount).toBe(1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('stops reconnecting after max attempts', async () => {
+    const server = await startWsServer({ closeOnSetup: true });
+    try {
+      const session = createGeminiRealtimeCompatSession({
+        provider: {
+          id: 'google',
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
+        } as any,
+        spec: { provider: 'google', model: 'm', turnDetection: { mode: 'manual_commit' } }
+      } as any);
+
+      const waitForSetupCount = async (count: number, timeoutMs: number) => {
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+          const current = server.messages.filter(m => m?.setup?.model === 'models/m').length;
+          if (current >= count) return;
+          await new Promise(res => setTimeout(res, 10));
+        }
+        throw new Error('Timed out waiting for reconnect attempts');
+      };
+
+      await waitForSetupCount(4, 10000);
+      await new Promise(res => setTimeout(res, 2000));
+      const finalSetupCount = server.messages.filter(m => m?.setup?.model === 'models/m').length;
+      expect(finalSetupCount).toBe(4);
+
+      await session.close();
     } finally {
       await server.close();
     }
@@ -661,7 +773,7 @@ describe('integration/realtime-compat/gemini session', () => {
     }
   });
 
-  test('methods reject before websocket open (covers ws-not-open guard)', async () => {
+  test('methods buffer before websocket open', async () => {
     const server = await startWsServer();
     try {
       const session = createGeminiRealtimeCompatSession({
@@ -673,7 +785,7 @@ describe('integration/realtime-compat/gemini session', () => {
         spec: { provider: 'google', model: 'm' }
       } as any);
 
-      await expect(session.sendText({ text: 'hi' })).rejects.toThrow('Realtime websocket not open');
+      await expect(session.sendText({ text: 'hi' })).resolves.toBeUndefined();
       await session.close();
     } finally {
       await server.close();

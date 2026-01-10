@@ -35,6 +35,8 @@ Optional:
 - `defaults.outbound.webhookUrl` (required when `mode: "url"`)
 - `defaults.outbound.timeoutMs` (default: `15000`)
   - Timeout for the outbound call REST request.
+- `defaults.mediaStreams.outboundBufferMaxFrames` (default: `15000`)
+  - Max pending outbound audio frames buffered in the media bridge (used to absorb bursty realtime generation vs real-time playback).
 
 ## Supported voice extension features
 
@@ -57,13 +59,21 @@ This is **dynamic** (LLM-generated) and does not use pre-recorded audio. The pro
   - enforced adapter-side during the media bridge (hang up after no user input for the configured duration).
 - `callConfig.timeouts.firstTurnGraceMs` (optional, non-negative):
   - forwarded to the Twilio media-streams bridge as `limits.firstTurnGraceMs` (see `plugins/voice-modules/twilio-media-streams/README.md`).
-  - When omitted, this compat defaults to `500` only when `callConfig.realtimeSpec.provider === "grok"`; otherwise it is disabled.
+  - When omitted, it is disabled.
 - `callConfig.timeouts.silenceAssistantAudioEndFallbackMs` (optional):
   - when `assistantFirstTurn.enabled=true`, treats assistant audio as ended this many milliseconds after the first `assistant_audio.chunk` if `assistant_audio.end` is never emitted.
   - default: `min(2000, max(500, silenceTimeoutMs))`.
 - `callConfig.timeouts.silenceAssistantAudioStartFallbackMs` (optional):
   - when `assistantFirstTurn.enabled=true`, treats assistant audio as ended this many milliseconds after the first-turn `commit()` if no `assistant_audio.*` events are ever emitted.
   - default: `max(3000, silenceTimeoutMs)`.
+
+### Media bridge buffering
+
+- `callConfig.providerConfig.mediaStreams.outboundBufferMaxFrames` (optional, positive integer):
+  - overrides `defaults.mediaStreams.outboundBufferMaxFrames` for this call.
+- The resolved value (defaults + per-call override) is capped by:
+  - `LLM_ADAPTER_TWILIO_MEDIA_STREAMS_OUTBOUND_BUFFER_MAX_FRAMES_CAP` (default: `300000`; `0` disables the cap).
+  - When the cap is disabled (`0`), the compat logs a warning at media WS connect time.
 
 When `assistantFirstTurn.enabled=true`, the silence timeout is armed after the first `assistant_audio.end` event (or after the applicable fallback window if `assistant_audio.end` is never emitted).
 

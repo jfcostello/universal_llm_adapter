@@ -446,6 +446,7 @@ describe('server/internal/realtime/ws', () => {
 
       const err = await waitForMessage(messages, m => m?.type === 'error' && m?.error?.code === 'ws_open_timeout', 2000);
       expect(err.error.message).toContain('open handshake timeout');
+      expect(err.error.message).toContain('createSession');
 
       await closePromise;
       try { ws.close(); } catch {}
@@ -479,6 +480,7 @@ describe('server/internal/realtime/ws', () => {
 
       const err = await waitForMessage(messages, m => m?.type === 'error' && m?.error?.code === 'ws_open_timeout', 2000);
       expect(err.error.message).toContain('open handshake timeout');
+      expect(err.error.message).toContain('(ready)');
 
       await closePromise;
       try { ws.close(); } catch {}
@@ -595,6 +597,129 @@ describe('server/internal/realtime/ws', () => {
       expect(session.commit).toHaveBeenCalled();
       expect(session.interrupt).toHaveBeenCalledWith({ reason: 'interrupt' });
       expect(session.close).toHaveBeenCalled();
+
+      try { ws.close(); } catch {}
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('processes messages sequentially (commit waits for sendText)', async () => {
+    let closeResolve: (() => void) | undefined;
+    const closed = new Promise<void>((resolve) => {
+      closeResolve = resolve;
+    });
+
+    let unblockSendText: (() => void) | undefined;
+    const sendTextBlocked = new Promise<void>((resolve) => {
+      unblockSendText = resolve;
+    });
+
+    const session = {
+      sendText: jest.fn().mockImplementation(async () => {
+        await sendTextBlocked;
+      }),
+      commit: jest.fn().mockResolvedValue(undefined),
+      close: jest.fn().mockImplementation(async () => closeResolve?.()),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's-1' };
+        await closed;
+        yield { type: 'closed', reason: 'client_close' };
+      }
+    };
+
+    const createSession = jest.fn().mockResolvedValue(session);
+    const harness = await startHarness({
+      config: { path: '/realtime/ws', maxMessageBytes: 1024 * 1024, idleTimeoutMs: 0, maxConcurrentSessions: 20, maxAudioBytesPerSecond: 256000, maxSessionDurationMs: 0 },
+      createSession
+    });
+
+    try {
+      const { ws, messages, closePromise } = await openWs(toWsUrl(harness.url, '/realtime/ws'));
+
+      ws.send(JSON.stringify({ type: 'open', protocolVersion: 1, spec: { any: true } }));
+      await waitForMessage(messages, m => m?.type === 'event' && m?.event?.type === 'ready', 2000);
+
+      ws.send(JSON.stringify({ type: 'send_text', text: 'hi', role: 'user' }));
+      ws.send(JSON.stringify({ type: 'commit' }));
+
+      await new Promise(res => setTimeout(res, 50));
+      expect(session.sendText).toHaveBeenCalledTimes(1);
+      expect(session.commit).not.toHaveBeenCalled();
+
+      unblockSendText?.();
+
+      const start = Date.now();
+      while (session.commit.mock.calls.length === 0 && Date.now() - start < 2000) {
+        await new Promise(res => setTimeout(res, 10));
+      }
+      expect(session.commit).toHaveBeenCalledTimes(1);
+
+      ws.send(JSON.stringify({ type: 'close' }));
+      await waitForMessage(messages, m => m?.type === 'event' && m?.event?.type === 'closed', 2000);
+      await closePromise;
+
+      try { ws.close(); } catch {}
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('drops queued message handling after stopping and prevents duplicate failAndClose', async () => {
+    let closeResolve: (() => void) | undefined;
+    const closed = new Promise<void>((resolve) => {
+      closeResolve = resolve;
+    });
+
+    let rejectSendText: ((err: any) => void) | undefined;
+    const sendTextBlocked = new Promise<void>((_resolve, reject) => {
+      rejectSendText = reject;
+    });
+
+    const session = {
+      sendText: jest.fn().mockImplementation(async () => {
+        await sendTextBlocked;
+      }),
+      close: jest.fn().mockImplementation(async () => closeResolve?.()),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's-1' };
+        await new Promise(res => setTimeout(res, 100));
+        throw Object.assign(new Error('boom'), { code: 'events_failed' });
+      }
+    };
+
+    const harness = await startHarness({
+      config: { path: '/realtime/ws', maxMessageBytes: 1024 * 1024, idleTimeoutMs: 0, maxConcurrentSessions: 20, maxAudioBytesPerSecond: 256000, maxSessionDurationMs: 0 },
+      createSession: jest.fn().mockResolvedValue(session)
+    });
+
+    try {
+      const { ws, messages, closePromise } = await openWs(toWsUrl(harness.url, '/realtime/ws'));
+
+      ws.send(JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }));
+      await waitForMessage(messages, m => m?.type === 'event' && m?.event?.type === 'ready', 2000);
+
+      ws.send(JSON.stringify({ type: 'send_text', text: 'hi', role: 'user' }));
+      ws.send(JSON.stringify({ type: 'send_text', text: 'ignored', role: 'user' }));
+
+      const startSendText = Date.now();
+      while (session.sendText.mock.calls.length === 0 && Date.now() - startSendText < 2000) {
+        await new Promise(res => setTimeout(res, 10));
+      }
+      expect(session.sendText).toHaveBeenCalledTimes(1);
+
+      // Wait for the event pump failure to trigger failAndClose once.
+      await waitForMessage(messages, m => m?.type === 'error' && String(m?.error?.message).includes('boom'), 2000);
+      expect(messages.filter(m => m?.type === 'error').length).toBe(1);
+
+      // Fail send_text so the queued message can be evaluated against the stopping guard.
+      rejectSendText?.(new Error('sendText failed'));
+
+      await closePromise;
+
+      // The second failure should not emit an additional error envelope.
+      expect(messages.filter(m => m?.type === 'error').length).toBe(1);
+      expect(session.sendText).toHaveBeenCalledTimes(1);
 
       try { ws.close(); } catch {}
     } finally {

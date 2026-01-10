@@ -37,6 +37,17 @@ function mediaMessage(options: { streamSid?: string; payloadBase64?: string }) {
   });
 }
 
+function stopMessage(options: { streamSid?: string }) {
+  return JSON.stringify({
+    event: 'stop',
+    streamSid: options.streamSid ?? 'MZ123'
+  });
+}
+
+function flush(): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, 0));
+}
+
 describe('plugins/voice-modules/twilio-media-streams (limits + security)', () => {
   test('rejects missing token', async () => {
     const bridge = createTwilioMediaStreamsBridge({
@@ -185,5 +196,52 @@ describe('plugins/voice-modules/twilio-media-streams (limits + security)', () =>
     await task;
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'audio_rate_limited' }));
     jest.useRealTimers();
+  });
+
+  test('clamps maxPendingOutboundFrames to >= 1 to avoid permanent backpressure clears', async () => {
+    const secret = 'secret';
+    const token = makeToken(secret);
+
+    const session = new MockRealtimeSession();
+    session.push({
+      type: 'ready',
+      sessionId: 's1',
+      audio: {
+        input: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1 },
+        output: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1 }
+      }
+    });
+
+    const onError = jest.fn();
+    const bridge = createTwilioMediaStreamsBridge({
+      createSession: async () => session,
+      security: { tokenSecret: secret },
+      limits: { startTimeoutMs: 0, idleTimeoutMs: 0, maxSessionDurationMs: 0, maxPendingOutboundFrames: 0 },
+      audio: { pacing: { enabled: false } },
+      callbacks: { onError }
+    });
+
+    const ws = new MockWebSocket();
+    const task = bridge.handleConnection(ws as any, { url: `/ws?token=${encodeURIComponent(token)}` });
+
+    ws.emitMessage(startMessage({}));
+    await flush();
+
+    // Send 40ms of assistant audio => two 20ms Twilio media frames.
+    const outBytes = new Uint8Array(320).fill(0xab);
+    session.push({
+      type: 'assistant_audio.chunk',
+      frame: { format: 'g711_ulaw', sampleRateHz: 8000, channels: 1, dataBase64: Buffer.from(outBytes).toString('base64') }
+    });
+    await flush();
+
+    const sent = ws.sent.map(s => JSON.parse(s));
+    const media = sent.filter(m => m.event === 'media');
+    expect(media).toHaveLength(1);
+    expect(Buffer.from(media[0].media.payload, 'base64')).toHaveLength(160);
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'outbound_backpressure' }));
+
+    ws.emitMessage(stopMessage({}));
+    await task;
   });
 });

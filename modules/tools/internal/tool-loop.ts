@@ -85,16 +85,29 @@ export function runToolLoop(
 
 const TERMINAL_TOOL_RESULT_OVERRIDE_KEY = 'tool_type_response_override_terminal';
 
-function resolveFollowUpToolChoice(toolChoice?: ToolChoice): ToolChoice | undefined {
-  // "required" is intended to ensure *at least one* tool call occurs.
-  // After tools have been executed, relax to auto to avoid providers that interpret
-  // "required" as "must keep calling tools".
+function resolveFollowUpToolChoice(toolChoice: ToolChoice | undefined, calledTools: ReadonlySet<string>): ToolChoice | undefined {
+  // `toolChoice: "required"` is intended to ensure *at least one* tool call occurs on the initial turn.
+  // After tools have been executed, relax to auto to avoid providers that interpret required as
+  // "must keep calling tools" (preventing a final assistant response).
   if (toolChoice === 'required') {
     return 'auto';
   }
+
   if (toolChoice && typeof toolChoice === 'object' && toolChoice.type === 'required') {
-    return 'auto';
+    const allowed = Array.isArray(toolChoice.allowed) ? toolChoice.allowed : [];
+    if (allowed.length === 0) {
+      return 'auto';
+    }
+
+    const allAllowedSeen = allowed.every(name => {
+      if (calledTools.has(name)) return true;
+      const sanitized = sanitizeToolName(name);
+      return calledTools.has(sanitized);
+    });
+
+    return allAllowedSeen ? 'auto' : toolChoice;
   }
+
   return toolChoice;
 }
 
@@ -165,12 +178,18 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
   const toolByName = new Map<string, UnifiedTool>(tools.map(tool => [tool.name, tool]));
   const allToolResults: Array<{ tool: string; result: any }> = [];
   const allToolCalls: ToolCall[] = [];
+  const calledToolNames = new Set<string>();
 
   let response = initialResponse;
   let forceFinalize = false;
   let terminalStop = false;
 
   while (response.toolCalls && response.toolCalls.length > 0 && !forceFinalize) {
+    for (const call of response.toolCalls) {
+      calledToolNames.add(call.name);
+      calledToolNames.add(sanitizeToolName(call.name));
+    }
+
     logger.info('Tool calls detected', {
       provider: providerManifest.id,
       model,
@@ -396,7 +415,7 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
       providerSettings,
       messages,
       tools,
-      resolveFollowUpToolChoice(toolChoice),
+      resolveFollowUpToolChoice(toolChoice, calledToolNames),
       providerExtras,
       logger,
       followUpRunContext
@@ -518,6 +537,7 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
   const toolByName = new Map<string, UnifiedTool>(tools.map(tool => [tool.name, tool]));
 
   const emittedToolCalls: ToolCall[] = [];
+  const calledToolNames = new Set<string>();
 
   let followUpContent = '';
   let latestUsage: UsageStats | undefined;
@@ -549,6 +569,13 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
 
   while (true) {
     if (toolCallsToExecute.length > 0) {
+      for (const call of toolCallsToExecute) {
+        const name = typeof call?.name === 'string' ? call.name : '';
+        if (!name) continue;
+        calledToolNames.add(name);
+        calledToolNames.add(sanitizeToolName(name));
+      }
+
       appendAssistantCalls(toolCallsToExecute, toolCallReasoning);
       let terminalStopThisRound = false;
 
@@ -693,7 +720,7 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
       providerSettings,
       messages,
       budget.exhausted ? [] : tools,
-      budget.exhausted ? 'none' : resolveFollowUpToolChoice(toolChoice),
+      budget.exhausted ? 'none' : resolveFollowUpToolChoice(toolChoice, calledToolNames),
       providerExtras,
       logger,
       runContext

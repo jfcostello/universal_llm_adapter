@@ -7,10 +7,11 @@ describe('plugins/voice-compat/twilio — firstTurnGraceMs wiring', () => {
   afterEach(() => {
     if (prevSecret === undefined) delete process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
     else process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = prevSecret;
+    jest.resetModules();
     jest.restoreAllMocks();
   });
 
-  test('defaults grace only for grok and allows explicit override (including 0)', async () => {
+  test('does not default grace and allows explicit override (including 0)', async () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
 
     await jest.isolateModulesAsync(async () => {
@@ -36,7 +37,7 @@ describe('plugins/voice-compat/twilio — firstTurnGraceMs wiring', () => {
         providerDefaults: {}
       });
 
-      expect(captured?.limits?.firstTurnGraceMs).toBe(500);
+      expect(captured?.limits?.firstTurnGraceMs).toBeUndefined();
 
       captured = undefined;
       await compat.handleMediaConnection({

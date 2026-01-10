@@ -504,13 +504,10 @@ export default class TwilioVoiceCompat {
       throw makeHttpError({ message: 'Invalid timeouts.firstTurnGraceMs', statusCode: 400, code: 'validation_error' });
     }
 
-    const realtimeProvider = String((realtimeSpec as any)?.provider ?? '').trim();
     const firstTurnGraceMs =
       firstTurnGraceMsExplicit !== undefined
         ? Math.floor(firstTurnGraceMsExplicit)
-        : realtimeProvider === 'grok'
-          ? 500
-          : undefined;
+        : undefined;
 
     const silenceAssistantAudioEndFallbackMsRaw = (timeouts as any)?.silenceAssistantAudioEndFallbackMs;
     const silenceAssistantAudioEndFallbackMs =
@@ -549,6 +546,76 @@ export default class TwilioVoiceCompat {
       Boolean(assistantFirstTurnCfg && typeof assistantFirstTurnCfg === 'object' && (assistantFirstTurnCfg as any).enabled === true) &&
       Boolean(String((assistantFirstTurnCfg as any).prompt ?? '').trim());
 
+    const outboundBufferMaxFramesCap = (() => {
+      const raw = String(process.env.LLM_ADAPTER_TWILIO_MEDIA_STREAMS_OUTBOUND_BUFFER_MAX_FRAMES_CAP ?? '').trim();
+      if (!raw) return 300000;
+      const n = Number(raw);
+      const out = Math.floor(n);
+      if (!Number.isFinite(n) || out < 0) {
+        throw makeProviderConfigError('Invalid LLM_ADAPTER_TWILIO_MEDIA_STREAMS_OUTBOUND_BUFFER_MAX_FRAMES_CAP');
+      }
+      return out;
+    })();
+    if (outboundBufferMaxFramesCap === 0) {
+      safeLog('warning', 'voice.media.outbound_buffer_cap_disabled', { ...baseFields, cap: outboundBufferMaxFramesCap });
+    }
+
+    const parseOutboundBufferMaxFrames = (value: any, label: string, errorKind: 'validation' | 'provider'): number | undefined => {
+      if (value === undefined || value === null || value === '') return undefined;
+      const n = Number(value);
+      const out = Math.floor(n);
+      if (!Number.isFinite(n) || out <= 0) {
+        if (errorKind === 'provider') {
+          throw makeProviderConfigError(`Invalid ${label}`);
+        }
+        throw makeHttpError({ message: `Invalid ${label}`, statusCode: 400, code: 'validation_error' });
+      }
+      if (outboundBufferMaxFramesCap > 0 && out > outboundBufferMaxFramesCap) {
+        const message = `Invalid ${label} (max allowed: ${outboundBufferMaxFramesCap})`;
+        if (errorKind === 'provider') {
+          throw makeProviderConfigError(message);
+        }
+        throw makeHttpError({ message, statusCode: 400, code: 'validation_error' });
+      }
+      return out;
+    };
+
+    const providerDefaultsRaw = options.providerDefaults;
+    const providerDefaults =
+      providerDefaultsRaw && typeof providerDefaultsRaw === 'object' && !Array.isArray(providerDefaultsRaw)
+        ? providerDefaultsRaw
+        : {};
+    const providerMediaStreamsRaw = (providerDefaults as any)?.mediaStreams;
+    const mediaStreamsDefaults =
+      providerMediaStreamsRaw === undefined || providerMediaStreamsRaw === null
+        ? {}
+        : providerMediaStreamsRaw && typeof providerMediaStreamsRaw === 'object' && !Array.isArray(providerMediaStreamsRaw)
+          ? providerMediaStreamsRaw
+          : (() => { throw makeProviderConfigError('Invalid defaults.mediaStreams'); })();
+    const defaultOutboundBufferMaxFrames = parseOutboundBufferMaxFrames(
+      (mediaStreamsDefaults as any).outboundBufferMaxFrames,
+      'defaults.mediaStreams.outboundBufferMaxFrames',
+      'provider'
+    );
+
+    const providerConfigRaw = (callConfig as any)?.providerConfig;
+    const providerConfig =
+      providerConfigRaw && typeof providerConfigRaw === 'object' && !Array.isArray(providerConfigRaw)
+        ? providerConfigRaw
+        : {};
+    const providerMediaCfgRaw = (providerConfig as any)?.mediaStreams;
+    const mediaStreamsCfg =
+      providerMediaCfgRaw === undefined || providerMediaCfgRaw === null
+        ? {}
+        : providerMediaCfgRaw && typeof providerMediaCfgRaw === 'object' && !Array.isArray(providerMediaCfgRaw)
+          ? providerMediaCfgRaw
+          : (() => { throw makeHttpError({ message: 'Invalid providerConfig.mediaStreams', statusCode: 400, code: 'validation_error' }); })();
+    const outboundBufferMaxFrames = parseOutboundBufferMaxFrames(
+      (mediaStreamsCfg as any).outboundBufferMaxFrames,
+      'providerConfig.mediaStreams.outboundBufferMaxFrames',
+      'validation'
+    ) ?? defaultOutboundBufferMaxFrames;
+
     let providerCallId: string | undefined;
     let providerStreamId: string | undefined;
 
@@ -559,6 +626,9 @@ export default class TwilioVoiceCompat {
     let waitingForFirstAssistantAudioEnd = assistantFirstTurnEnabled;
     let assistantAudioActive = false;
     let callEnded = false;
+
+    const outboundBackpressureThrottleMs = 5000;
+    let lastOutboundBackpressureLogAtMs = 0;
 
     const clearCallTimeout = () => {
       if (callTimeoutTimer) {
@@ -740,7 +810,13 @@ export default class TwilioVoiceCompat {
           voiceProvider: String(options.voiceProvider)
         }
       },
-      ...(firstTurnGraceMs !== undefined ? { limits: { firstTurnGraceMs } } : {}),
+      ...(() => {
+        const limits = {
+          ...(firstTurnGraceMs !== undefined ? { firstTurnGraceMs } : {}),
+          ...(outboundBufferMaxFrames !== undefined ? { maxPendingOutboundFrames: outboundBufferMaxFrames } : {})
+        };
+        return Object.keys(limits).length > 0 ? { limits } : {};
+      })(),
       callbacks: {
         onCallStart: (metadata) => {
           providerCallId = metadata.callSid;
@@ -834,12 +910,29 @@ export default class TwilioVoiceCompat {
           }
         },
         onError: ({ message, code, metadata }) => {
+          const codeStr = code !== undefined ? String(code) : '';
+          if (codeStr === 'outbound_backpressure') {
+            const nowMs = Date.now();
+            if (nowMs - lastOutboundBackpressureLogAtMs >= outboundBackpressureThrottleMs) {
+              lastOutboundBackpressureLogAtMs = nowMs;
+              safeLog('warning', 'voice.media.outbound_backpressure', {
+                ...baseFields,
+                ...(metadata?.streamSid ? { providerStreamId: metadata.streamSid } : {}),
+                ...(metadata?.callSid ? { providerCallId: metadata.callSid } : {}),
+                code: codeStr,
+                message: String(message)
+              });
+              safeMetric('compatError', 'media_bridge', baseFields.voiceProvider);
+            }
+            return;
+          }
+
           safeLog('error', 'voice.media.bridge_error', {
             ...baseFields,
             ...systemPromptField,
             ...(metadata?.streamSid ? { providerStreamId: metadata.streamSid } : {}),
             ...(metadata?.callSid ? { providerCallId: metadata.callSid } : {}),
-            code: String(code),
+            code: codeStr,
             message: String(message)
           });
           safeMetric('compatError', 'media_bridge', baseFields.voiceProvider);

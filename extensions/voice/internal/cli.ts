@@ -202,6 +202,8 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
     .option('--system-prompt-file <path>', 'Path to a system prompt file')
     .option('--metadata <json>', 'Metadata JSON object (stored on the call config)')
     .option('--metadata-file <path>', 'Path to metadata JSON file')
+    .option('--provider-config <json>', 'Provider config JSON object (stored on the call config)')
+    .option('--provider-config-file <path>', 'Path to provider config JSON file')
     .option('--request-id <id>', 'Optional request id (sent as x-request-id and stored on the call config)')
     .option('--realtime-spec <json>', 'Realtime session spec as JSON string')
     .option('--realtime-spec-file <path>', 'Path to realtime session spec JSON file')
@@ -241,6 +243,11 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
         });
 
         const metadata = readOptionalJsonObject({ json: options.metadata, jsonFile: options.metadataFile, context: '--metadata' });
+        const providerConfig = readOptionalJsonObject({
+          json: options.providerConfig,
+          jsonFile: options.providerConfigFile,
+          context: '--provider-config'
+        });
         const requestId = typeof options.requestId === 'string' ? options.requestId.trim() : '';
         const assistantFirstTurn = readOptionalJsonObject({
           json: options.assistantFirstTurn,
@@ -275,6 +282,7 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
           realtimeSpec,
           ...(systemPrompt !== undefined ? { systemPrompt } : {}),
           ...(metadata !== undefined ? { metadata } : {}),
+          ...(providerConfig !== undefined ? { providerConfig } : {}),
           ...(assistantFirstTurn !== undefined ? { assistantFirstTurn } : {}),
           ...(timeouts !== undefined ? { timeouts } : {}),
           ...(recording !== undefined ? { recording } : {}),

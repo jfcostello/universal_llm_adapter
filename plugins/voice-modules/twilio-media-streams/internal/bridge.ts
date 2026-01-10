@@ -12,6 +12,7 @@ import {
   buildTwilioMediaMessage,
   parseTwilioInboundMessage
 } from './messages.js';
+import { ResettableQueue } from './resettable-queue.js';
 
 export type TwilioRequestLike = { url?: string | undefined };
 
@@ -39,7 +40,7 @@ export interface TwilioMediaStreamsBridgeLimits {
   maxSessionDurationMs?: number;
   startTimeoutMs?: number;
   maxPendingInboundFrames?: number;
-  maxPendingOutboundAudioMs?: number;
+  maxPendingOutboundFrames?: number;
   firstTurnGraceMs?: number;
 }
 
@@ -88,7 +89,7 @@ const DEFAULT_LIMITS: Required<TwilioMediaStreamsBridgeLimits> = {
   maxSessionDurationMs: 3600000,
   startTimeoutMs: 5000,
   maxPendingInboundFrames: 200,
-  maxPendingOutboundAudioMs: 10000,
+  maxPendingOutboundFrames: 15000,
   firstTurnGraceMs: 0
 };
 
@@ -172,52 +173,6 @@ function safeClose(ws: TwilioMediaStreamsWsLike, code: number, reason: string): 
   try {
     ws.close(code, reason);
   } catch {}
-}
-
-class ResettableQueue<T> {
-  private queue: T[] = [];
-  private waiting: Array<(value: T | null) => void> = [];
-  private closed = false;
-  private generation = 0;
-
-  push(item: T) {
-    if (this.closed) return;
-    const next = this.waiting.shift();
-    if (next) next(item);
-    else this.queue.push(item);
-  }
-
-  size(): number {
-    return this.queue.length;
-  }
-
-  currentGeneration(): number {
-    return this.generation;
-  }
-
-  async next(): Promise<{ value: T; generation: number } | null> {
-    if (this.queue.length > 0) {
-      return { value: this.queue.shift()!, generation: this.generation };
-    }
-    if (this.closed) return null;
-    return await new Promise(resolve => {
-      this.waiting.push((value) => {
-        if (value === null) resolve(null);
-        else resolve({ value, generation: this.generation });
-      });
-    });
-  }
-
-  clear() {
-    this.queue = [];
-    this.generation++;
-  }
-
-  close() {
-    this.closed = true;
-    for (const fn of this.waiting.splice(0, this.waiting.length)) fn(null);
-    this.queue = [];
-  }
 }
 
 type OutboundItem =
@@ -352,6 +307,10 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
 
             const { value, generation } = next;
 
+            if (value === null) {
+              continue;
+            }
+
             if (generation !== outboundAudioQueue.currentGeneration()) {
               continue;
             }
@@ -405,12 +364,11 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
       const startInboundPump = (localSession: RealtimeSession) => {
         void (async () => {
           while (true) {
-            const next = await inboundAudioQueue.next();
-            if (!next) return;
+            const frame = await inboundAudioQueue.nextValue();
+            if (frame === null) return;
             try {
               const target = sessionReadyAudioInput;
               if (target) {
-                const frame = next.value;
                 const inputSpec: AudioSpec = {
                   format: frame.format as AudioSpec['format'],
                   sampleRateHz: Number(frame.sampleRateHz),
@@ -435,7 +393,7 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
                 }
               }
 
-              await localSession.sendAudio(next.value);
+              await localSession.sendAudio(frame);
             } catch (err: any) {
               callbacks.onError?.({ message: err?.message ?? String(err), code: 'session_send_audio_failed', metadata });
               void closeAll();
@@ -448,10 +406,10 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
       const startDtmfPump = (localSession: RealtimeSession) => {
         void (async () => {
           while (true) {
-            const next = await dtmfQueue.next();
-            if (!next) return;
+            const digit = await dtmfQueue.nextValue();
+            if (digit === null) return;
             try {
-              await localSession.sendDTMF(next.value);
+              await localSession.sendDTMF(digit);
             } catch (err: any) {
               callbacks.onError?.({ message: err?.message ?? String(err), code: 'session_send_dtmf_failed', metadata });
               void closeAll();
@@ -563,17 +521,20 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
                   frameMs
                 });
 
-                const maxPendingOutboundFrames = Math.max(0, Math.floor(limits.maxPendingOutboundAudioMs / frameMs));
+                const maxPendingOutboundFramesRaw = Number(limits.maxPendingOutboundFrames);
+                const maxPendingOutboundFrames = Number.isFinite(maxPendingOutboundFramesRaw)
+                  ? Math.max(1, Math.floor(maxPendingOutboundFramesRaw))
+                  : DEFAULT_LIMITS.maxPendingOutboundFrames;
                 const wouldOverflow = outboundAudioQueue.size() + framed.length > maxPendingOutboundFrames;
                 if (wouldOverflow) {
                   callbacks.onError?.({ message: 'Outbound backpressure', code: 'outbound_backpressure', metadata: call });
                   clearPlayback(call);
-                  try {
-                    await localSession.interrupt({ reason: 'outbound_backpressure' });
-                  } catch (err: any) {
-                    callbacks.onError?.({ message: err?.message ?? String(err), code: 'session_interrupt_failed', metadata });
-                    void closeAll();
-                    return;
+
+                  const capped = framed.length > maxPendingOutboundFrames
+                    ? framed.slice(framed.length - maxPendingOutboundFrames)
+                    : framed;
+                  for (const frame of capped) {
+                    outboundAudioQueue.push({ kind: 'audio', bytes: frame });
                   }
                 } else {
                   for (const frame of framed) {

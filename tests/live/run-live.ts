@@ -70,6 +70,10 @@ function isRealtimePattern(raw: string): boolean {
 async function main() {
   const preImportPatterns = getTestPathPatternsFromJestArgs(process.argv.slice(2));
   const preImportWantsRealtime = preImportPatterns.some((pattern) => isRealtimePattern(String(pattern)));
+
+  dotenv.config({ path: path.join(rootDir, '.env') });
+
+  // Override any env-derived value so live runs behave deterministically based on the selected jest patterns.
   process.env.LLM_LIVE_WANTS_REALTIME = preImportWantsRealtime ? '1' : '0';
 
   const { maxWorkersDefault, realtimeTestRuns } = await import('./config.ts');
@@ -90,8 +94,6 @@ async function main() {
       jestArgs[idx] = '--testPathPattern=tests[\\\\/]live[\\\\/]test-files(?![\\\\/]\\d+-realtime)';
     }
   }
-
-  dotenv.config({ path: path.join(rootDir, '.env') });
 
   const baseEnv: NodeJS.ProcessEnv = { ...process.env, LLM_LIVE: '1' };
   if (provider) baseEnv.LLM_TEST_PROVIDERS = provider;

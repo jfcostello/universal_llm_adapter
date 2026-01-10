@@ -352,6 +352,7 @@ describe('extensions/voice CLI', () => {
         realtimeSpec: { transport: { type: 'ws' } },
         ttlSeconds: 900,
         metadata: { foo: 1 },
+        providerConfig: { foo: { bar: 1 } },
         assistantFirstTurn: { enabled: true, prompt: 'hello', role: 'user', delayMs: 250, missingPromptBehavior: 'reject' },
         timeouts: { callTimeoutMs: 1234, silenceTimeoutMs: 5678 },
         recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'mono' }
@@ -386,6 +387,8 @@ describe('extensions/voice CLI', () => {
           '{"transport":{"type":"ws"}}',
           '--metadata',
           '{"foo":1}',
+          '--provider-config',
+          '{"foo":{"bar":1}}',
           '--assistant-first-turn',
           '{"enabled":true,"prompt":"hello","role":"user","delayMs":250,"missingPromptBehavior":"reject"}',
           '--timeouts-file',
@@ -1156,8 +1159,19 @@ describe('extensions/voice CLI', () => {
     const previousExitCode = process.exitCode;
     process.exitCode = undefined;
 
+    const previousStdinDesc = Object.getOwnPropertyDescriptor(process, 'stdin')!;
+    const previousStdoutDesc = Object.getOwnPropertyDescriptor(process, 'stdout')!;
+    const previousStderrDesc = Object.getOwnPropertyDescriptor(process, 'stderr')!;
+
+    const fakeStdin = Readable.from([]);
+    const fakeStdout = createCaptureStream();
+    const fakeStderr = createCaptureStream();
+
+    Object.defineProperty(process, 'stdin', { value: fakeStdin, configurable: true });
+    Object.defineProperty(process, 'stdout', { value: fakeStdout.stream, configurable: true });
+    Object.defineProperty(process, 'stderr', { value: fakeStderr.stream, configurable: true });
+
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    const stderrWriteSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
 
     try {
       await runVoiceCli({
@@ -1169,7 +1183,9 @@ describe('extensions/voice CLI', () => {
       expect(errorSpy).toHaveBeenCalled();
     } finally {
       errorSpy.mockRestore();
-      stderrWriteSpy.mockRestore();
+      Object.defineProperty(process, 'stdin', previousStdinDesc);
+      Object.defineProperty(process, 'stdout', previousStdoutDesc);
+      Object.defineProperty(process, 'stderr', previousStderrDesc);
       process.exitCode = previousExitCode;
     }
   });

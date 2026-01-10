@@ -81,6 +81,9 @@ LLM_TEST_PROVIDERS=google npm run test:live:realtime
 LLM_TEST_PROVIDERS=grok npm run test:live:realtime
 LLM_TEST_PROVIDERS=vapi npm run test:live:realtime
 
+# Include Vapi in the default realtime suite (no LLM_TEST_PROVIDERS filter)
+LLM_LIVE_ENABLE_VAPI_REALTIME=1 npm run test:live:realtime
+
 # Enforce CLI/server parity (runs twice)
 npm run test:live:realtime -- --transport=both
 ```
