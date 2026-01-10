@@ -294,6 +294,72 @@ describe('server/internal/realtime/ws', () => {
     }
   });
 
+  test('releases limiter slot when message handling throws (messageChain resilient)', async () => {
+    const originalOn = wsLib.WebSocketServer.prototype.on;
+    let connectionCount = 0;
+
+    (wsLib.WebSocketServer.prototype as any).on = function (event: string, cb: any) {
+      if (event !== 'connection') return originalOn.call(this, event, cb);
+
+      return originalOn.call(this, event, (ws: any, req: any) => {
+        connectionCount += 1;
+        if (connectionCount === 1) {
+          const originalSend = ws.send.bind(ws);
+          let sendCalls = 0;
+          ws.send = (...args: any[]) => {
+            sendCalls += 1;
+            if (sendCalls >= 2) {
+              throw new Error('ws.send failed');
+            }
+            return originalSend(...args);
+          };
+        }
+        return cb(ws, req);
+      });
+    };
+
+    let closeResolve: (() => void) | undefined;
+    const closed = new Promise<void>((resolve) => {
+      closeResolve = resolve;
+    });
+    const session = {
+      close: jest.fn().mockImplementation(async () => closeResolve?.()),
+      events: async function* () {
+        yield { type: 'ready', sessionId: 's' };
+        await closed;
+        yield { type: 'closed', reason: 'client_close' };
+      }
+    };
+
+    const harness = await startHarness({
+      config: { path: '/realtime/ws', maxMessageBytes: 1024 * 1024, idleTimeoutMs: 0, maxConcurrentSessions: 1, maxAudioBytesPerSecond: 256000, maxSessionDurationMs: 0 },
+      createSession: jest.fn().mockResolvedValue(session)
+    });
+
+    try {
+      const { ws, messages, closePromise } = await openWs(toWsUrl(harness.url, '/realtime/ws'));
+
+      ws.send(JSON.stringify({ type: 'open', protocolVersion: 1, spec: {} }));
+      await waitForMessage(messages, m => m?.type === 'event' && m?.event?.type === 'ready', 2000);
+
+      // Trigger failAndClose -> send(error). The wrapped server ws.send throws on the second send.
+      ws.send('{not-json');
+
+      await closePromise;
+      expect(session.close).toHaveBeenCalled();
+
+      // If the limiter slot leaked, this would fail with 503 (maxConcurrentSessions=1).
+      const second = await openWs(toWsUrl(harness.url, '/realtime/ws'));
+      try {
+        second.ws.close();
+      } catch {}
+      await second.closePromise;
+    } finally {
+      (wsLib.WebSocketServer.prototype as any).on = originalOn;
+      await harness.close();
+    }
+  });
+
   test('enforces maxAudioBytesPerSecond for send_audio', async () => {
     let closeResolve: (() => void) | undefined;
     const closed = new Promise<void>((resolve) => {

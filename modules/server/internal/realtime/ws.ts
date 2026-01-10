@@ -358,7 +358,14 @@ export async function attachRealtimeWsServer(options: {
 
     ws.on('message', (data: any) => {
       messageChain = messageChain
-        .then(() => handleMessage(data));
+        .then(() => handleMessage(data))
+        .catch(async (err) => {
+          try {
+            const { getRealtimeLogger } = await import('../../../logging/index.js');
+            getRealtimeLogger().error('realtime.ws.message_chain_failed', { error: err });
+          } catch {}
+          await closeAll();
+        });
     });
   });
 

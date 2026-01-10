@@ -7,7 +7,7 @@ import { createRequire } from 'module';
 
 import { mapErrorToHttp } from '../../../modules/transport/index.js';
 import { createSignedWsToken, verifySignedWsToken } from '../../../modules/security/index.js';
-import { calculateBackoffDelay, makeHttpError, normalizeFlag, readTrimmedStringProperty, sleep } from '../../../modules/shared/index.js';
+import { calculateBackoffDelay, isPlainObject, makeHttpError, normalizeFlag, readTrimmedStringProperty, sleep } from '../../../modules/shared/index.js';
 import {
   applyCors,
   applySecurityHeaders,
@@ -146,7 +146,7 @@ function normalizeIdempotencyKey(value: string): string {
 }
 
 function asPlainObject(value: unknown): Record<string, any> | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  if (!isPlainObject(value)) return undefined;
   return value as Record<string, any>;
 }
 
@@ -1770,11 +1770,17 @@ export async function createVoiceServerRegistration(ctx: {
               ...(systemPrompt !== undefined ? { systemPrompt } : {})
             });
 
+            const metadataRaw = (body as any)?.metadata;
+            const metadataObj =
+              metadataRaw === undefined || metadataRaw === null
+                ? undefined
+                : asPlainObject(metadataRaw);
+            if (metadataRaw !== undefined && metadataRaw !== null && !metadataObj) {
+              throw makeHttpError({ message: 'Invalid metadata', statusCode: 400, code: 'validation_error' });
+            }
+
             const metadata = (() => {
-              const raw = body?.metadata;
-              const out = raw && typeof raw === 'object' && !Array.isArray(raw)
-                ? { ...(raw as Record<string, any>) }
-                : undefined;
+              const out = metadataObj ? { ...(metadataObj as Record<string, any>) } : undefined;
 
               const existingRaw = readTrimmedStringProperty(out, 'requestId');
               const existing = existingRaw ? normalizeRequestId(existingRaw) : undefined;

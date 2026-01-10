@@ -80,6 +80,36 @@ async function waitForMessage(messages: any[], predicate: (m: any) => boolean, t
   throw new Error('Timed out waiting for message');
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  const ms = Math.max(0, Math.floor(timeoutMs));
+  if (ms === 0) return await promise;
+
+  return await new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label} (${ms}ms)`)), ms);
+    promise
+      .then(resolve, reject)
+      .finally(() => clearTimeout(timer));
+  });
+}
+
+async function waitForSessionEvent(options: {
+  iterator: AsyncIterator<any>;
+  predicate: (evt: any) => boolean;
+  timeoutMs?: number;
+}): Promise<any> {
+  const timeoutMs = options.timeoutMs ?? 2000;
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    const remainingMs = Math.max(0, timeoutMs - (Date.now() - start));
+    const next = await withTimeout(options.iterator.next(), remainingMs, 'session event');
+    if (next.done) throw new Error('Session ended before expected event');
+    if (options.predicate(next.value)) return next.value;
+  }
+
+  throw new Error('Timed out waiting for session event');
+}
+
 describe('integration/realtime-compat/gemini session', () => {
   test('throws when provider realtime config is missing', async () => {
     expect(() =>
@@ -343,8 +373,12 @@ describe('integration/realtime-compat/gemini session', () => {
           compat: 'gemini',
           endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
-        spec: { provider: 'google', model: 'm', turnDetection: { mode: 'manual_commit' } }
+        spec: { provider: 'google', model: 'm', turnDetection: { mode: 'manual_commit' }, handshake: { readyFallbackMs: 60000 } }
       } as any);
+
+      const it = session.events()[Symbol.asyncIterator]();
+      const first = await it.next();
+      expect(first.value.type).toBe('ready');
 
       const waitForSetupCount = async (count: number, timeoutMs: number) => {
         const start = Date.now();
@@ -361,6 +395,60 @@ describe('integration/realtime-compat/gemini session', () => {
       const finalSetupCount = server.messages.filter(m => m?.setup?.model === 'models/m').length;
       expect(finalSetupCount).toBe(4);
 
+      const error = await waitForSessionEvent({
+        iterator: it,
+        predicate: (evt) => evt?.type === 'error' && evt?.code === 'setup_incomplete',
+        timeoutMs: 5000
+      });
+      expect(String(error.message)).toContain('setupComplete');
+
+      const closed = await waitForSessionEvent({
+        iterator: it,
+        predicate: (evt) => evt?.type === 'closed',
+        timeoutMs: 2000
+      });
+      expect(closed.reason).toBe('error');
+
+      await expect(session.sendText({ text: 'hi' } as any)).rejects.toThrow('closed');
+      await session.close();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('closes when setupComplete deadline is exceeded', async () => {
+    const server = await startWsServer();
+    try {
+      const session = createGeminiRealtimeCompatSession({
+        provider: {
+          id: 'google',
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
+        } as any,
+        spec: { provider: 'google', model: 'm', turnDetection: { mode: 'manual_commit' }, handshake: { readyFallbackMs: 200 } }
+      } as any);
+
+      await waitForMessage(server.messages, m => m?.setup?.model === 'models/m', 2000);
+
+      const it = session.events()[Symbol.asyncIterator]();
+      const first = await it.next();
+      expect(first.value.type).toBe('ready');
+
+      const error = await waitForSessionEvent({
+        iterator: it,
+        predicate: (evt) => evt?.type === 'error' && evt?.code === 'setup_timeout',
+        timeoutMs: 5000
+      });
+      expect(String(error.message)).toContain('setupComplete');
+
+      const closed = await waitForSessionEvent({
+        iterator: it,
+        predicate: (evt) => evt?.type === 'closed',
+        timeoutMs: 2000
+      });
+      expect(closed.reason).toBe('timeout');
+
+      await expect(session.sendText({ text: 'hi' } as any)).rejects.toThrow('closed');
       await session.close();
     } finally {
       await server.close();

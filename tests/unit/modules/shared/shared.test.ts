@@ -15,6 +15,7 @@ import {
   truncateUtf8Bytes,
   safeJsonStringify,
   flattenPrimitiveStrings,
+  isPlainObject,
   type Deferred
 } from '@/modules/shared/index.ts';
 
@@ -308,6 +309,31 @@ describe('modules/shared', () => {
       expect(deferred.promise instanceof Promise).toBe(true);
       expect(typeof deferred.resolve).toBe('function');
       expect(typeof deferred.reject).toBe('function');
+    });
+  });
+
+  describe('isPlainObject', () => {
+    test('returns true for Object and null-prototype objects', () => {
+      expect(isPlainObject({})).toBe(true);
+      expect(isPlainObject({ a: 1 })).toBe(true);
+      expect(isPlainObject(Object.create(null))).toBe(true);
+    });
+
+    test('returns false for non-objects and arrays', () => {
+      expect(isPlainObject(null)).toBe(false);
+      expect(isPlainObject(undefined)).toBe(false);
+      expect(isPlainObject('x')).toBe(false);
+      expect(isPlainObject(123)).toBe(false);
+      expect(isPlainObject([])).toBe(false);
+      expect(isPlainObject([1, 2, 3])).toBe(false);
+    });
+
+    test('returns false for class instances', () => {
+      class Test {
+        public value = 1;
+      }
+      expect(isPlainObject(new Test())).toBe(false);
+      expect(isPlainObject(new Date())).toBe(false);
     });
   });
 

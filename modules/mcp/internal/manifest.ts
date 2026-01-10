@@ -1,5 +1,6 @@
 import { JsonObject, MCPServerConfig } from '../../../kernel/index.js';
 import { ManifestError } from '../../../kernel/index.js';
+import { isPlainObject } from '../../shared/index.js';
 
 type RawServerConfig = Partial<MCPServerConfig> & {
   command?: unknown;
@@ -172,8 +173,3 @@ function validateString(value: unknown, field: string, id: string, sourceName: s
   }
   return value;
 }
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-

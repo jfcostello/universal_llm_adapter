@@ -7,7 +7,7 @@ import type {
   RealtimeEvent,
   RealtimeSessionSpec
 } from '../../../../kernel/index.js';
-import { AsyncQueue, LruMap, resolveRealtimeToolCallTrackingMaxEntries, sanitizeToolName } from '../../../../kernel/index.js';
+import { AsyncQueue, LruMap, resolveRealtimeReadyFallbackMs, resolveRealtimeToolCallTrackingMaxEntries, sanitizeToolName } from '../../../../kernel/index.js';
 import { calculateBackoffDelay, setUnrefTimeout } from '../../../../modules/shared/index.js';
 import { buildGeminiActivityEndMessage, buildGeminiActivityStartMessage, buildGeminiCommitTextTurnMessage, buildGeminiInterruptMessage, buildGeminiRealtimeAudioMessage, buildGeminiRealtimeTextMessage, buildGeminiSendTextMessage, buildGeminiSetupMessage, buildGeminiToolResponseMessage } from './commands.js';
 import { convertSessionAudioToProviderPcm16_16k } from './audio.js';
@@ -133,8 +133,22 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
   const pendingSends: any[] = [];
 
   const MAX_RECONNECT_ATTEMPTS = 3;
+  const setupCompleteTimeoutMs = resolveRealtimeReadyFallbackMs(spec);
   let reconnectAttempt = 0;
   let reconnectTimer: NodeJS.Timeout | undefined;
+  let setupTimer: NodeJS.Timeout | undefined;
+
+  const clearReconnectTimer = () => {
+    if (!reconnectTimer) return;
+    clearTimeout(reconnectTimer);
+    reconnectTimer = undefined;
+  };
+
+  const clearSetupTimer = () => {
+    if (!setupTimer) return;
+    clearTimeout(setupTimer);
+    setupTimer = undefined;
+  };
 
   const emitReadyOnce = () => {
     if (readySent) return;
@@ -151,12 +165,47 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
   const emitClosedOnce = (reason: Extract<RealtimeEvent, { type: 'closed' }>['reason']) => {
     if (closed) return;
     closed = true;
+    clearReconnectTimer();
+    clearSetupTimer();
+    pendingSends.length = 0;
     queue.push({ type: 'closed', reason });
     queue.close();
   };
 
   const ensureOpen = () => {
     if (closed) throw new Error('Realtime session is closed');
+  };
+
+  const failSetup = (options: { code: string; message: string; reason: Extract<RealtimeEvent, { type: 'closed' }>['reason'] }) => {
+    if (closed) return;
+    clearReconnectTimer();
+    clearSetupTimer();
+    pendingSends.length = 0;
+
+    emitReadyOnce();
+    queue.push({ type: 'error', code: options.code, message: options.message });
+
+    try {
+      if (ws && ws.readyState === WS_OPEN) {
+        ws.close(1000, 'setup_failed');
+      } else if (ws) {
+        ws.terminate();
+      }
+    } catch {}
+
+    emitClosedOnce(options.reason);
+  };
+
+  const scheduleSetupTimer = () => {
+    clearSetupTimer();
+    setupTimer = setUnrefTimeout(() => {
+      setupTimer = undefined;
+      failSetup({
+        code: 'setup_timeout',
+        reason: 'timeout',
+        message: `Realtime session setup was not acknowledged (missing setupComplete) within ${setupCompleteTimeoutMs}ms`
+      });
+    }, setupCompleteTimeoutMs);
   };
 
   const sendOrBuffer = (msg: any) => {
@@ -167,10 +216,10 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
     send(ws, msg);
   };
 
-  const scheduleReconnect = () => {
-    if (closed) return;
-    if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) return;
-    if (reconnectTimer) return;
+  const scheduleReconnect = (): boolean => {
+    if (closed) return false;
+    if (reconnectTimer) return true;
+    if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) return false;
 
     const delayMs = calculateBackoffDelay(reconnectAttempt, 250, 2000);
     reconnectAttempt += 1;
@@ -186,17 +235,19 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
 
       connect();
     }, delayMs);
+
+    return true;
   };
 
   const connect = () => {
     if (closed) return;
-
     const socket: WsLike = new wsLib.WebSocket(url, { headers: endpoint.headers });
     ws = socket;
 
     socket.on('open', () => {
       emitReadyOnce();
       send(socket, setupMessage);
+      scheduleSetupTimer();
     });
 
     socket.on('message', (data: any) => {
@@ -211,6 +262,7 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
 
       if (parsed?.setupComplete && !setupComplete) {
         setupComplete = true;
+        clearSetupTimer();
         reconnectAttempt = 0;
         emitReadyOnce();
         for (const msg of pendingSends.splice(0)) send(socket, msg);
@@ -229,13 +281,27 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
       emitReadyOnce();
       queue.push({ type: 'error', message: String(err), code: 'ws_error' });
       if (!setupComplete) {
-        scheduleReconnect();
+        clearSetupTimer();
+        if (!scheduleReconnect()) {
+          failSetup({
+            code: 'setup_incomplete',
+            reason: 'error',
+            message: `Realtime session setup was not acknowledged (missing setupComplete) after ${MAX_RECONNECT_ATTEMPTS} reconnect attempts`
+          });
+        }
       }
     });
 
     socket.on('close', () => {
       if (!setupComplete) {
-        scheduleReconnect();
+        clearSetupTimer();
+        if (!scheduleReconnect()) {
+          failSetup({
+            code: 'setup_incomplete',
+            reason: 'error',
+            message: `Realtime session setup was not acknowledged (missing setupComplete) after ${MAX_RECONNECT_ATTEMPTS} reconnect attempts`
+          });
+        }
         return;
       }
       emitReadyOnce();
@@ -331,18 +397,16 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
     events() {
       return queue.iterate();
     },
-	    async close() {
-	      if (closed) return;
-	      closed = true;
-	      try {
-	        if (ws.readyState === WS_OPEN) {
-	          ws.close(1000, 'client_close');
-	        } else {
+    async close() {
+      if (closed) return;
+      emitClosedOnce('client_close');
+      try {
+        if (ws.readyState === WS_OPEN) {
+          ws.close(1000, 'client_close');
+        } else {
           ws.terminate();
         }
       } catch {}
-      queue.push({ type: 'closed', reason: 'client_close' });
-      queue.close();
     }
   };
 }
