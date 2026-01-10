@@ -128,7 +128,9 @@ describe('server/internal/realtime/ws', () => {
       const fakeSocket: any = { write: jest.fn(), destroy: jest.fn() };
       harness.server.emit('upgrade', { url: '/realtime/ws' } as any, fakeSocket as any, Buffer.alloc(0));
       await new Promise(res => setTimeout(res, 0));
-      expect(String(fakeSocket.write.mock.calls[0][0])).toContain('401 Unauthorized');
+      const resText = String(fakeSocket.write.mock.calls[0][0]);
+      expect(resText).toContain('401 Unauthorized');
+      expect(resText).not.toContain('missing credentials');
       expect(fakeSocket.destroy).toHaveBeenCalled();
     } finally {
       await harness.close();

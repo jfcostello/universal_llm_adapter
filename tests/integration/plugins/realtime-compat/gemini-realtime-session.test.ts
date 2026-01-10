@@ -57,6 +57,11 @@ async function startWsServer(options?: { closeOnSetup?: boolean }) {
     socket.close();
   };
 
+  const closeClientWithReason = (code: number, reason: string) => {
+    if (!socket) throw new Error('No socket connected');
+    socket.close(code, reason);
+  };
+
   const waitForConnection = async (timeoutMs = 2000) => {
     const start = Date.now();
     while (!socket) {
@@ -67,7 +72,17 @@ async function startWsServer(options?: { closeOnSetup?: boolean }) {
 
   const getRequestUrl = () => requestUrl;
 
-  return { urlTemplate, messages, sendToClient, sendRawToClient, closeClient, waitForConnection, getRequestUrl, close };
+  return {
+    urlTemplate,
+    messages,
+    sendToClient,
+    sendRawToClient,
+    closeClient,
+    closeClientWithReason,
+    waitForConnection,
+    getRequestUrl,
+    close
+  };
 }
 
 async function waitForMessage(messages: any[], predicate: (m: any) => boolean, timeoutMs = 2000): Promise<any> {
@@ -482,6 +497,48 @@ describe('integration/realtime-compat/gemini session', () => {
     }
   });
 
+  test('emits an error with close code/reason when websocket closes abnormally after setupComplete', async () => {
+    const server = await startWsServer();
+    try {
+      const session = createGeminiRealtimeCompatSession({
+        provider: {
+          id: 'google',
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
+        } as any,
+        spec: { provider: 'google', model: 'm', turnDetection: { mode: 'manual_commit' } }
+      } as any);
+
+      await waitForMessage(server.messages, m => m?.setup?.model === 'models/m', 2000);
+      server.sendToClient({ setupComplete: {} });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      const first = await it.next();
+      expect(first.value.type).toBe('ready');
+
+      server.closeClientWithReason(1011, 'boom');
+
+      const error = await waitForSessionEvent({
+        iterator: it,
+        predicate: (evt) => evt?.type === 'error' && evt?.code === 'ws_close',
+        timeoutMs: 5000
+      });
+      expect(String(error.message)).toContain('1011');
+      expect(String(error.message)).toContain('boom');
+
+      const closed = await waitForSessionEvent({
+        iterator: it,
+        predicate: (evt) => evt?.type === 'closed',
+        timeoutMs: 5000
+      });
+      expect(closed.reason).toBe('provider_close');
+
+      await session.close();
+    } finally {
+      await server.close();
+    }
+  });
+
   test('sends text/audio/commit/interrupt/tool responses with expected message shapes', async () => {
     const server = await startWsServer();
     try {
@@ -706,6 +763,41 @@ describe('integration/realtime-compat/gemini session', () => {
           break;
         }
       }
+
+      await session.close();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('emits ws_close without reason when websocket closes abnormally after setupComplete with empty reason', async () => {
+    const server = await startWsServer();
+    try {
+      const session = createGeminiRealtimeCompatSession({
+        provider: {
+          id: 'google',
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
+        } as any,
+        spec: { provider: 'google', model: 'm', turnDetection: { mode: 'manual_commit' } }
+      } as any);
+
+      await waitForMessage(server.messages, m => m?.setup?.model === 'models/m', 2000);
+      server.sendToClient({ setupComplete: {} });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      const first = await it.next();
+      expect(first.value.type).toBe('ready');
+
+      server.closeClientWithReason(1011, '');
+
+      const error = await waitForSessionEvent({
+        iterator: it,
+        predicate: (evt) => evt?.type === 'error' && evt?.code === 'ws_close',
+        timeoutMs: 5000
+      });
+      expect(String(error.message)).toContain('1011');
+      expect(String(error.message)).not.toContain('reason=');
 
       await session.close();
     } finally {

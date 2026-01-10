@@ -163,7 +163,6 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
   };
 
   const emitClosedOnce = (reason: Extract<RealtimeEvent, { type: 'closed' }>['reason']) => {
-    if (closed) return;
     closed = true;
     clearReconnectTimer();
     clearSetupTimer();
@@ -292,7 +291,18 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
       }
     });
 
-    socket.on('close', () => {
+    socket.on('close', (code: number, reason: any) => {
+      if (closed) return;
+
+      const closeCode = Number(code);
+      let closeReason = '';
+      try {
+        if (reason) {
+          closeReason = Buffer.from(reason as any).toString('utf-8');
+        }
+      } catch {}
+      closeReason = closeReason.trim();
+
       if (!setupComplete) {
         clearSetupTimer();
         if (!scheduleReconnect()) {
@@ -305,6 +315,14 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
         return;
       }
       emitReadyOnce();
+      const normalCloseCodes = new Set([1000, 1001, 1005]);
+      if (Number.isFinite(closeCode) && !normalCloseCodes.has(closeCode)) {
+        queue.push({
+          type: 'error',
+          code: 'ws_close',
+          message: `Realtime websocket closed unexpectedly (code=${closeCode}${closeReason ? `, reason=${closeReason}` : ''})`
+        });
+      }
       emitClosedOnce('provider_close');
     });
   };

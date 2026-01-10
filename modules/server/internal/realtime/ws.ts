@@ -110,7 +110,18 @@ export async function attachRealtimeWsServer(options: {
       await options.authorizeUpgrade(req);
     } catch (err: any) {
       const statusCode = Number(err?.statusCode ?? 401);
-      writeHttpResponse(socket, statusCode, statusTextFor(statusCode), err?.message ?? 'Unauthorized');
+      const statusText = statusTextFor(statusCode);
+      writeHttpResponse(socket, statusCode, statusText, statusText);
+      void (async () => {
+        try {
+          const { getRealtimeLogger } = await import('../../../logging/index.js');
+          getRealtimeLogger().warning('realtime.ws.upgrade_rejected', {
+            statusCode,
+            statusText,
+            error: err
+          });
+        } catch {}
+      })();
       socket.destroy();
       return true;
     }

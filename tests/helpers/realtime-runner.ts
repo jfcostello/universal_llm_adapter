@@ -198,6 +198,17 @@ function formatRecentRealtimeEnvelopes(envelopes: RealtimeServerEnvelope[], limi
     const type = String((env as any)?.event?.type ?? '').trim();
     if (!type) return 'event';
 
+    if (type === 'closed') {
+      const reason = String((env as any)?.event?.reason ?? '').trim();
+      return `event:closed${reason ? ` reason=${reason}` : ''}`;
+    }
+
+    if (type === 'error') {
+      const message = String((env as any)?.event?.message ?? '').trim();
+      const code = (env as any)?.event?.code !== undefined ? String((env as any).event.code) : '';
+      return `event:error${code ? `:${code}` : ''}${message ? ` ${message}` : ''}`;
+    }
+
     // Avoid logging bulky payloads on failure paths (e.g., base64 audio).
     if (type === 'assistant_audio.chunk') return 'event:assistant_audio.chunk [omitted]';
     if (type === 'assistant_audio.end') return 'event:assistant_audio.end';
@@ -240,6 +251,46 @@ function createRealtimeWaitForEventTimeoutError(options: {
   ].join('\n');
 
   return new Error(body);
+}
+
+function createRealtimeClosedBeforeExpectedEventError(options: {
+  transport: 'cli' | 'server';
+  want: string;
+  stepTimeoutMs: number;
+  envelopes: RealtimeServerEnvelope[];
+  stderr: string;
+  closedEvent: any;
+}): Error {
+  const recent = formatRecentRealtimeEnvelopes(options.envelopes, 25);
+  const stderrTail = String(options.stderr || '').trim().slice(-2000);
+
+  const closeReason = String(options.closedEvent?.reason ?? '').trim();
+
+  const details = [
+    `- transport: ${options.transport}`,
+    `- want: ${options.want}`,
+    `- timeoutMs: ${options.stepTimeoutMs}`,
+    `- closeReason: ${closeReason || 'unknown'}`,
+    `- envelopesSeen: ${options.envelopes.length}`
+  ];
+  if (stderrTail) {
+    details.push(`- stderrTail: ${stderrTail}`);
+  }
+
+  const body = [
+    `Realtime session closed before expected event '${options.want}'`,
+    '',
+    'Diagnostics:',
+    ...details,
+    ...(recent ? ['', 'Recent envelopes (most recent last):', recent] : [])
+  ].join('\n');
+
+  const error = Object.assign(new Error(body), {
+    code: 'realtime_closed_before_expected_event',
+    closeReason: closeReason || undefined,
+    envelopes: options.envelopes
+  });
+  return error;
 }
 
 async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealtimeScenarioResult> {
@@ -394,6 +445,16 @@ async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealti
               throw err;
             }
             if (env.type === 'error') throw new Error(env.error?.message ?? 'Realtime CLI error');
+            if (env.type === 'event' && env.event?.type === 'closed' && want !== 'closed') {
+              throw createRealtimeClosedBeforeExpectedEventError({
+                transport: 'cli',
+                want,
+                stepTimeoutMs,
+                envelopes,
+                stderr,
+                closedEvent: env.event
+              });
+            }
           }
 
           claimedEventCounts.set(want, alreadyClaimed + 1);
@@ -585,6 +646,16 @@ async function runViaServer(options: RunRealtimeScenarioOptions): Promise<RunRea
               throw err;
             }
             if (env.type === 'error') throw new Error(env.error?.message ?? 'Realtime WS error');
+            if (env.type === 'event' && env.event?.type === 'closed' && want !== 'closed') {
+              throw createRealtimeClosedBeforeExpectedEventError({
+                transport: 'server',
+                want,
+                stepTimeoutMs,
+                envelopes,
+                stderr,
+                closedEvent: env.event
+              });
+            }
           }
 
           claimedEventCounts.set(want, alreadyClaimed + 1);
@@ -622,8 +693,46 @@ async function runViaServer(options: RunRealtimeScenarioOptions): Promise<RunRea
 }
 
 export async function runRealtimeScenario(options: RunRealtimeScenarioOptions): Promise<RunRealtimeScenarioResult> {
-  if (getTransport(options.env) === 'server') {
-    return runViaServer(options);
+  const transport = getTransport(options.env);
+  const env = options.env || process.env;
+
+  const maxAttemptsEnv = env.LLM_REALTIME_RUNNER_MAX_ATTEMPTS;
+  const maxAttemptsRaw = maxAttemptsEnv !== undefined ? Number(maxAttemptsEnv) : 2;
+  const maxAttempts = Number.isFinite(maxAttemptsRaw) ? Math.max(1, Math.floor(maxAttemptsRaw)) : 2;
+
+  const shouldRetry = (err: unknown, attempt: number): boolean => {
+    if (attempt >= maxAttempts) return false;
+    if (!(err instanceof Error)) return false;
+    if (String((err as any)?.code ?? '') !== 'realtime_closed_before_expected_event') return false;
+
+    const closeReason = String((err as any)?.closeReason ?? '').trim();
+    if (closeReason && closeReason !== 'provider_close') return false;
+
+    const envelopes = Array.isArray((err as any)?.envelopes) ? (err as any).envelopes as RealtimeServerEnvelope[] : [];
+    const eventTypes = envelopes
+      .filter(e => e?.type === 'event')
+      .map(e => String((e as any)?.event?.type ?? '').trim())
+      .filter(Boolean);
+
+    // Retry only if we never made meaningful progress (e.g., ready -> closed).
+    const nonTrivial = eventTypes.filter(t => t !== 'ready' && t !== 'closed');
+    if (nonTrivial.length > 0) return false;
+
+    return true;
+  };
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return transport === 'server' ? await runViaServer(options) : await runViaCli(options);
+    } catch (err) {
+      if (!shouldRetry(err, attempt)) {
+        throw err;
+      }
+      // Bounded, deterministic backoff so full-suite runs don't dead-end on transient early closes.
+      const delayMs = Math.min(2000, 250 * attempt);
+      await sleep(delayMs);
+    }
   }
-  return runViaCli(options);
+
+  throw new Error('Unreachable');
 }
