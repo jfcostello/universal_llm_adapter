@@ -525,7 +525,9 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
     runContext
   } = options;
 
-  const compat = await registry.getCompatModule(providerManifest.compat);
+  const compat = typeof (registry as any).getCompatModuleForProvider === 'function'
+    ? await (registry as any).getCompatModuleForProvider(providerManifest.id)
+    : await registry.getCompatModule(providerManifest.compat);
   const preserveToolResults = runtime.preserveToolResults ?? 3;
   const preserveReasoning = runtime.preserveReasoning ?? 3;
 

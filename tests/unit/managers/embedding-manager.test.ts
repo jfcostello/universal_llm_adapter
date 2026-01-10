@@ -224,6 +224,32 @@ describe('managers/embedding-manager', () => {
       expect(dims).toBe(128);
     });
 
+    test('prefers getEmbeddingCompatForProvider when available', async () => {
+      const compat = {
+        embed: jest.fn(),
+        getDimensions: jest.fn().mockReturnValue(64)
+      };
+
+      const registry = {
+        getEmbeddingProvider: jest.fn().mockResolvedValue({
+          id: 'test-provider',
+          kind: 'test-kind',
+          endpoint: { urlTemplate: 'http://test', headers: {} },
+          model: 'test-model',
+          dimensions: 64
+        }),
+        getEmbeddingCompatForProvider: jest.fn().mockResolvedValue(compat),
+        getEmbeddingCompat: jest.fn()
+      };
+
+      const manager = new EmbeddingManager(registry as any);
+      const dims = await manager.getDimensions('test-provider');
+
+      expect(dims).toBe(64);
+      expect(registry.getEmbeddingCompatForProvider).toHaveBeenCalledWith('test-provider');
+      expect(registry.getEmbeddingCompat).not.toHaveBeenCalled();
+    });
+
     test('passes model to compat getDimensions', async () => {
       const compat = {
         embed: jest.fn(),
@@ -290,6 +316,32 @@ describe('managers/embedding-manager', () => {
       const result = await manager.validate('test-provider');
 
       expect(result).toBe(true);
+      expect(compat.validate).toHaveBeenCalled();
+    });
+
+    test('prefers getEmbeddingCompatForProvider when available', async () => {
+      const compat = {
+        embed: jest.fn(),
+        getDimensions: jest.fn(),
+        validate: jest.fn().mockResolvedValue(true)
+      };
+
+      const registry = {
+        getEmbeddingProvider: jest.fn().mockResolvedValue({
+          id: 'test-provider',
+          kind: 'test-kind',
+          endpoint: { urlTemplate: 'http://test', headers: {} },
+          model: 'test-model',
+          dimensions: 64
+        }),
+        getEmbeddingCompatForProvider: jest.fn().mockResolvedValue(compat),
+        getEmbeddingCompat: jest.fn()
+      };
+
+      const manager = new EmbeddingManager(registry as any);
+      await expect(manager.validate('test-provider')).resolves.toBe(true);
+      expect(registry.getEmbeddingCompatForProvider).toHaveBeenCalledWith('test-provider');
+      expect(registry.getEmbeddingCompat).not.toHaveBeenCalled();
       expect(compat.validate).toHaveBeenCalled();
     });
 

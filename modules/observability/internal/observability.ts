@@ -652,7 +652,9 @@ async function getOrCreateSharedExporter(
 
   const createPromise = (async () => {
     const manifest = await registry.getObservabilityProvider(config.provider);
-    const compat = await registry.getObservabilityCompat(manifest.compat);
+    const compat = typeof (registry as any).getObservabilityCompatForProvider === 'function'
+      ? await (registry as any).getObservabilityCompatForProvider(manifest.id)
+      : await registry.getObservabilityCompat(manifest.compat);
 
     const exporter = new ObservabilityExporter(config, compat, manifest);
     runtime.exportersByKey.set(key, exporter);

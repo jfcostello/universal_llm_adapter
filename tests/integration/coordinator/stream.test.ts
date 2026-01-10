@@ -584,9 +584,9 @@ describe('coordinator/runStream', () => {
     const coordinator = new LLMCoordinator(registry);
 
     jest.spyOn(coordinator['toolCoordinator'], 'routeAndInvoke').mockResolvedValue({ result: { echoed: 'hi' } });
-    jest.spyOn(registry, 'getCompatModule').mockReturnValue({
+    jest.spyOn(registry, 'getCompatModuleForProvider').mockResolvedValue({
       parseStreamChunk: (chunk: any) => chunk
-    });
+    } as any);
 
     let streamCall = 0;
     jest.spyOn(LLMManager.prototype, 'streamProvider').mockImplementation(async function* () {

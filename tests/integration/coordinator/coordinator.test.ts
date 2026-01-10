@@ -554,7 +554,7 @@ describe('coordinator/coordinator integration', () => {
           kind: 'memory',
           defaultCollection: 'test'
         });
-      const compatSpy = jest.spyOn((coordinator as any).registry, 'getVectorStoreCompat')
+      const compatSpy = jest.spyOn((coordinator as any).registry, 'getVectorStoreCompatForStore')
         .mockResolvedValue(mockVectorStoreCompat);
       const embeddingProviderSpy = jest.spyOn((coordinator as any).registry, 'getEmbeddingProvider')
         .mockResolvedValue({
@@ -562,7 +562,7 @@ describe('coordinator/coordinator integration', () => {
           kind: 'openrouter',
           endpoint: { urlTemplate: 'http://test.com' }
         });
-      const embeddingCompatSpy = jest.spyOn((coordinator as any).registry, 'getEmbeddingCompat')
+      const embeddingCompatSpy = jest.spyOn((coordinator as any).registry, 'getEmbeddingCompatForProvider')
         .mockResolvedValue(mockEmbeddingCompat);
 
       const mockResponse: LLMResponse = {
