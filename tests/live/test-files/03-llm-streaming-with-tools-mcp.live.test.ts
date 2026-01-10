@@ -33,6 +33,8 @@ function parseMcpTimestampFromToolResult(raw: string): number {
     const systemPrompt = [
       'You are a conformance test agent.',
       'You MUST call tools exactly as the user instructs.',
+      'You MUST do the requested tool calls in the requested order (MCP first, then test.echo).',
+      'You MUST NOT output any final answer text until AFTER you have called tool test.echo at least once and received its tool result.',
       'The evaluator will FAIL you if you do not call tool test.echo at least once before answering.',
       'You MUST NOT guess or copy example values; you MUST compute your final answer from the MCP tool result.',
       'After tools run, reply with only what the user asked for, and nothing else.'
