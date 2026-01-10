@@ -1770,11 +1770,17 @@ export async function createVoiceServerRegistration(ctx: {
               ...(systemPrompt !== undefined ? { systemPrompt } : {})
             });
 
+            const metadataRaw = (body as any)?.metadata;
+            const metadataObj =
+              metadataRaw === undefined || metadataRaw === null
+                ? undefined
+                : asPlainObject(metadataRaw);
+            if (metadataRaw !== undefined && metadataRaw !== null && !metadataObj) {
+              throw makeHttpError({ message: 'Invalid metadata', statusCode: 400, code: 'validation_error' });
+            }
+
             const metadata = (() => {
-              const raw = body?.metadata;
-              const out = raw && typeof raw === 'object' && !Array.isArray(raw)
-                ? { ...(raw as Record<string, any>) }
-                : undefined;
+              const out = metadataObj ? { ...(metadataObj as Record<string, any>) } : undefined;
 
               const existingRaw = readTrimmedStringProperty(out, 'requestId');
               const existing = existingRaw ? normalizeRequestId(existingRaw) : undefined;
