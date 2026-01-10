@@ -6,6 +6,7 @@ export * from './internal/logger.js';
 export * from './internal/errors.js';
 export * from './internal/defaults.js';
 export * from './internal/config.js';
+export * from './internal/adapter-paths.js';
 export * from './internal/paths.js';
 export * from './internal/registry.js';
 export * from './internal/embedding-spec-types.js';
