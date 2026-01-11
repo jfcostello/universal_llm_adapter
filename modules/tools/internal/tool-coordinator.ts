@@ -1,4 +1,6 @@
 import { spawn } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 import axios from 'axios';
 import { minimatch } from 'minimatch';
 import { ProcessRouteManifest, VectorContextConfig, ToolExecutionError, getDefaults } from '../../../kernel/index.js';
@@ -31,6 +33,7 @@ export class ToolCoordinator {
   private registry?: PluginRegistry;
   private vectorToolName: string = 'vector_search';
   private vectorSearchAliasMap?: Record<string, string>;
+  private warnedInvokeModuleCwdFallback = new Set<string>();
 
   constructor(
     private routes: ProcessRouteManifest[],
@@ -292,14 +295,12 @@ export class ToolCoordinator {
     route: ProcessRouteManifest,
     ctx: ToolContext,
     options: { signal?: AbortSignal }
-  ): Promise<any> {
+	  ): Promise<any> {
     if (!route.invoke.module) {
       throw new ToolExecutionError('Module route missing module field');
     }
 
-    const modulePath = route.invoke.module.startsWith('.')
-      ? `${process.cwd()}/${route.invoke.module}`
-      : route.invoke.module;
+    const modulePath = this.resolveInvokeModulePath(route, route.invoke.module);
 
     const module = await this.loadModule(modulePath);
     const fn = route.invoke.function || 'handle';
@@ -428,8 +429,83 @@ export class ToolCoordinator {
     return { result };
   }
 
-  protected async loadModule(modulePath: string): Promise<any> {
+	  protected async loadModule(modulePath: string): Promise<any> {
     return import(modulePath);
+  }
+
+  private resolveInvokeModulePath(route: ProcessRouteManifest, moduleSpecifier: string): string {
+    const raw = String(moduleSpecifier);
+
+    if (raw.startsWith('file:') || raw.startsWith('node:') || path.isAbsolute(raw)) {
+      return raw;
+    }
+
+    const source = this.registry?.getManifestSource?.('processes', route.id);
+    if (source) {
+      const manifestFilePath = typeof (source as any).filePath === 'string' ? String((source as any).filePath) : '';
+      const packRoot = typeof (source as any).root === 'string' ? String((source as any).root) : '';
+
+      const candidates: Array<{ kind: 'manifestDir' | 'packRoot' | 'cwd'; value: string }> = [];
+      if (manifestFilePath) {
+        candidates.push({ kind: 'manifestDir', value: path.resolve(path.dirname(manifestFilePath), raw) });
+      }
+      if (packRoot) {
+        candidates.push({ kind: 'packRoot', value: path.resolve(packRoot, raw) });
+      }
+      candidates.push({ kind: 'cwd', value: path.resolve(process.cwd(), raw) });
+
+      for (const candidate of candidates) {
+        if (!fs.existsSync(candidate.value)) continue;
+        if (candidate.kind === 'cwd') {
+          this.warnInvokeModuleCwdFallback(route, raw, candidate.value, source);
+        }
+        return candidate.value;
+      }
+
+      if (!this.looksLikeFilePath(raw)) {
+        return raw;
+      }
+
+      throw new ToolExecutionError(
+        `Module route '${route.id}' could not resolve module '${raw}'. Tried: ${candidates.map(c => c.value).join(', ')}`
+      );
+    }
+
+    if (raw.startsWith('.')) {
+      return path.resolve(process.cwd(), raw);
+    }
+    return raw;
+  }
+
+  private looksLikeFilePath(value: string): boolean {
+    if (value.startsWith('.') || value.startsWith('/') || value.startsWith('file:')) {
+      return true;
+    }
+    return path.extname(value) !== '';
+  }
+
+  private warnInvokeModuleCwdFallback(
+    route: ProcessRouteManifest,
+    moduleSpecifier: string,
+    resolvedPath: string,
+    source: any
+  ): void {
+    if (this.warnedInvokeModuleCwdFallback.has(route.id)) return;
+    this.warnedInvokeModuleCwdFallback.add(route.id);
+
+    try {
+      console.warn('process_route.invoke_module.cwd_fallback', {
+        routeId: route.id,
+        module: moduleSpecifier,
+        resolvedPath,
+        source: {
+          kind: typeof source?.kind === 'string' ? source.kind : undefined,
+          root: typeof source?.root === 'string' ? source.root : undefined,
+          filePath: typeof source?.filePath === 'string' ? source.filePath : undefined,
+          precedence: typeof source?.precedence === 'number' ? source.precedence : undefined
+        }
+      });
+    } catch {}
   }
 
   protected spawnProcess(command: string, args: string[], options: any) {

@@ -65,6 +65,9 @@ describe('core/registry', () => {
 
       const routes = await registry.getProcessRoutes();
       expect(routes.some(route => route.id === 'echo-module')).toBe(true);
+      const routeSource = registry.getManifestSource('processes', 'echo-module');
+      expect(routeSource?.root).toBe(fs.realpathSync(pluginsDir));
+      expect(routeSource?.filePath).toBe(fs.realpathSync(path.join(pluginsDir, 'processes', 'echo.module.json')));
 
       await expect(registry.getTool('missing.tool')).rejects.toThrow(ManifestError);
       await expect(registry.getProvider('missing')).rejects.toThrow(ManifestError);
@@ -111,6 +114,63 @@ describe('core/registry', () => {
       expect(warnSpy).toHaveBeenCalled();
       expect(warnSpy.mock.calls.length).toBeGreaterThan(1);
       warnSpy.mockRestore();
+    });
+  });
+
+  test('skips process route manifests missing id (warns, non-strict)', async () => {
+    process.env.TEST_LLM_ENDPOINT = 'http://localhost';
+
+    await withTempCwd('registry-process-missing-id', async (dir) => {
+      const pluginsDir = path.join(dir, 'plugins');
+      copyFixturePlugins(pluginsDir);
+
+      fs.writeFileSync(
+        path.join(pluginsDir, 'processes', 'missing-id.json'),
+        JSON.stringify(
+          {
+            match: { type: 'exact', pattern: 'missing.id' },
+            invoke: { kind: 'module', module: './noop.mjs' }
+          },
+          null,
+          2
+        ),
+        'utf-8'
+      );
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const registry = new PluginRegistry(pluginsDir);
+      const routes = await registry.getProcessRoutes();
+
+      expect(routes.some(route => (route as any).match?.pattern === 'missing.id')).toBe(false);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Skipping process route manifest'));
+
+      warnSpy.mockRestore();
+    });
+  });
+
+  test('validateAll throws when a process route manifest is missing id (strict)', async () => {
+    process.env.TEST_LLM_ENDPOINT = 'http://localhost';
+
+    await withTempCwd('registry-process-missing-id-strict', async (dir) => {
+      const pluginsDir = path.join(dir, 'plugins');
+      copyFixturePlugins(pluginsDir);
+
+      fs.writeFileSync(
+        path.join(pluginsDir, 'processes', 'missing-id.json'),
+        JSON.stringify(
+          {
+            match: { type: 'exact', pattern: 'missing.id' },
+            invoke: { kind: 'module', module: './noop.mjs' }
+          },
+          null,
+          2
+        ),
+        'utf-8'
+      );
+
+      const registry = new PluginRegistry('plugins');
+      await expect(registry.validateAll()).rejects.toThrow(ManifestError);
     });
   });
 

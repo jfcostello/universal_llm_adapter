@@ -680,7 +680,7 @@ class RealtimeSessionController implements RealtimeSession {
       this.toolCoordinatorPromise = (async () => {
         const routes = await this.options.registry.getProcessRoutes();
         const { ToolCoordinator } = await import('../../tools/index.js');
-        return new ToolCoordinator(routes as any) as unknown as ToolCoordinatorLike;
+        return new ToolCoordinator(routes as any, undefined, { registry: this.options.registry as any }) as unknown as ToolCoordinatorLike;
       })();
     }
     return await this.toolCoordinatorPromise;

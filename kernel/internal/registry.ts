@@ -892,15 +892,31 @@ export class PluginRegistry {
     if (this.mode === 'legacy') {
       const files = glob.sync('processes/*.json', { cwd: this.rootPath });
       for (const file of files) {
+        const fullPath = path.join(this.rootPath, file);
+        const source: ManifestSourceMeta = { kind: 'local', root: this.rootPath, filePath: fullPath, precedence: 0 };
+
         if (options.strict) {
-          const route = loadJsonFile(path.join(this.rootPath, file)) as ProcessRouteManifest;
+          const route = loadJsonFile(fullPath) as ProcessRouteManifest;
+          const id = typeof (route as any)?.id === 'string' ? String((route as any).id) : '';
+          if (!id) {
+            throw new ManifestError(`Invalid process route manifest '${fullPath}': missing id`);
+          }
+
           this.processRoutes.push(route);
+          this.setManifestSource('processes', id, source);
           continue;
         }
 
         try {
-          const route = loadJsonFile(path.join(this.rootPath, file)) as ProcessRouteManifest;
+          const route = loadJsonFile(fullPath) as ProcessRouteManifest;
+          const id = typeof (route as any)?.id === 'string' ? String((route as any).id) : '';
+          if (!id) {
+            console.warn(`Skipping process route manifest ${file}: missing id`);
+            continue;
+          }
+
           this.processRoutes.push(route);
+          this.setManifestSource('processes', id, source);
         } catch (error: any) {
           console.warn(`Skipping process route manifest ${file}: ${error.message}`);
         }

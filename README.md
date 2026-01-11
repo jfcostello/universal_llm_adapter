@@ -256,7 +256,7 @@ Process routing (how tools are invoked) lives in `plugins/processes/*.json`:
   "match": { "type": "exact", "pattern": "test.echo" },
   "invoke": {
     "kind": "module",
-    "module": "./dist/plugins/modules/test-echo/index.js",
+    "module": "../dist/plugins/modules/test-echo/index.js",
     "function": "handle"
   },
   "timeoutMs": 5000
