@@ -20,6 +20,12 @@ curl http://127.0.0.1:3000/run \
 
 ---
 
+## External packs
+
+To load plugins/extensions from directories **outside** the core repo, configure pack roots via `llm-adapter.paths.json` (or `LLM_ADAPTER_PATHS_FILE`).
+
+See [README-PACKS.md](README-PACKS.md).
+
 ## Starting the Server
 
 ### Via CLI

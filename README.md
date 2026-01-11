@@ -27,6 +27,12 @@ llm-adapter serve --port 3000
 
 See [README-CLI.md](README-CLI.md) for complete CLI documentation and [README-SERVER.md](README-SERVER.md) for server documentation.
 
+## External packs
+
+To keep plugins/extensions/config overlays **outside** the core repo (so core updates don’t overwrite user-owned changes), configure pack roots via `llm-adapter.paths.json`.
+
+See [README-PACKS.md](README-PACKS.md).
+
 ## Extensions
 
 Extensions are **large, optional features** that bolt new “services” onto the adapter’s **server** and **CLI** (new endpoints, new commands) without polluting core modules.
