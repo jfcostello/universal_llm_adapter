@@ -49,6 +49,7 @@ const PATHS_FILE_NAME = 'llm-adapter.paths.json';
 const PATHS_FILE_ENV_VAR = 'LLM_ADAPTER_PATHS_FILE';
 
 let cached: AdapterPathsConfig | null | undefined;
+let cachedCwd: string | undefined;
 
 function isPlainObject(value: unknown): value is Record<string, any> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -199,17 +200,24 @@ function resolvePathsFileBySearch(cwd: string): { filePath: string; source: Adap
 
 export function resetAdapterPathsConfigCache(): void {
   cached = undefined;
+  cachedCwd = undefined;
 }
 
 export function getAdapterPathsConfig(): AdapterPathsConfig | null {
-  if (cached !== undefined) {
+  const cwd = process.cwd();
+
+  if (cached !== undefined && cachedCwd === cwd) {
     return cached;
   }
 
-  const cwd = process.cwd();
+  // Invalidate cache if process.cwd() changes (common in unit tests and CLIs).
+  cached = undefined;
+  cachedCwd = undefined;
+
   const resolved = resolvePathsFileBySearch(cwd);
   if (!resolved) {
     cached = null;
+    cachedCwd = cwd;
     return cached;
   }
 
@@ -217,6 +225,7 @@ export function getAdapterPathsConfig(): AdapterPathsConfig | null {
     const raw = loadJsonFile(resolved.filePath);
     const normalized = normalizeConfig(cwd, raw);
     cached = { filePath: resolved.filePath, source: resolved.source, ...normalized };
+    cachedCwd = cwd;
     return cached;
   } catch (err: any) {
     try {
@@ -224,7 +233,7 @@ export function getAdapterPathsConfig(): AdapterPathsConfig | null {
     } catch {}
 
     cached = null;
+    cachedCwd = cwd;
     return cached;
   }
 }
-

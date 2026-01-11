@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { getAdapterPathsConfig } from './adapter-paths.js';
+import { deepMerge, isPlainObject } from './deep-merge.js';
 import { loadJsonFile } from './config.js';
 import type { DefaultSettings } from './types.js';
 import { PACKAGE_ROOT } from './paths.js';
@@ -163,25 +164,6 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
 
 let cachedDefaults: DefaultSettings | null = null;
 
-function isPlainObject(value: unknown): value is Record<string, any> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function deepMerge(base: any, overlay: any): any {
-  const merged: any = { ...base };
-
-  for (const [key, value] of Object.entries(overlay)) {
-    if (key in merged && isPlainObject(merged[key]) && isPlainObject(value)) {
-      merged[key] = deepMerge(merged[key], value);
-      continue;
-    }
-
-    merged[key] = value;
-  }
-
-  return merged;
-}
-
 /**
  * Get the default settings, loading from JSON file if available.
  * Results are cached after first load for performance.
@@ -220,7 +202,7 @@ export function getDefaults(): DefaultSettings {
       try {
         const raw = loadJsonFile(filePath);
         if (isPlainObject(raw)) {
-          merged = deepMerge(merged, raw);
+          merged = deepMerge(merged as Record<string, any>, raw);
         }
       } catch {}
     }

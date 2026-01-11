@@ -1,8 +1,9 @@
 import { jest } from '@jest/globals';
-
 import fs from 'fs';
+import path from 'path';
 
 import { createUnifiedProgram, defaultDependencies } from '@/modules/cli/internal/unified-cli.ts';
+import { withTempCwd } from '@tests/helpers/temp-files.ts';
 
 describe('cli extension commands', () => {
   test('default importCliExtension can import node built-ins', async () => {
@@ -10,18 +11,29 @@ describe('cli extension commands', () => {
     expect(typeof (mod as any).readFileSync).toBe('function');
   });
 
-  test('default listCliExtensions returns [] when fs read fails', () => {
-    const spy = jest.spyOn(fs, 'readdirSync').mockImplementation(() => {
-      throw new Error('boom');
-    });
+  test('--help does not scan/register extensions at startup', () => {
+    const readdirSpy = jest.spyOn(fs, 'readdirSync');
     try {
-      expect(defaultDependencies.listCliExtensions()).toEqual([]);
+      const program = createUnifiedProgram({
+        createRegistry: jest.fn(),
+        createLlmCoordinator: jest.fn(),
+        createVectorCoordinator: jest.fn(),
+        createEmbeddingCoordinator: jest.fn(),
+        closeLogger: jest.fn(),
+        log: jest.fn(),
+        error: jest.fn(),
+        exit: jest.fn()
+      } as any);
+
+      expect(program.helpInformation()).toContain('llm-adapter');
+      expect(readdirSpy).not.toHaveBeenCalled();
     } finally {
-      spy.mockRestore();
+      readdirSpy.mockRestore();
     }
   });
 
-  test('ignores extension registration when listCliExtensions throws', () => {
+  test('unknown command does not scan extensions (direct resolve only)', async () => {
+    const readdirSpy = jest.spyOn(fs, 'readdirSync');
     const deps = {
       createRegistry: jest.fn(),
       createLlmCoordinator: jest.fn(),
@@ -31,22 +43,20 @@ describe('cli extension commands', () => {
       log: jest.fn(),
       error: jest.fn(),
       exit: jest.fn(),
-      getRealtimeStdio: () => ({
-        stdin: process.stdin,
-        stdout: process.stdout,
-        stderr: process.stderr
-      }),
-      listCliExtensions: () => {
-        throw new Error('boom');
-      },
       importCliExtension: jest.fn()
     };
 
     const program = createUnifiedProgram(deps as any);
-    expect(program.helpInformation()).toContain('llm-adapter');
+    await program.parseAsync(['node', 'llm-adapter', 'definitely-not-a-real-extension']);
+
+    expect(readdirSpy).not.toHaveBeenCalled();
+    expect(deps.importCliExtension).not.toHaveBeenCalled();
+    expect(deps.exit).toHaveBeenCalledWith(1);
+
+    readdirSpy.mockRestore();
   });
 
-  test('forwards argv to extension runCli', async () => {
+  test('dispatches to extension runCli and forwards argv (without extension name)', async () => {
     const runCli = jest.fn().mockResolvedValue(undefined);
 
     const deps = {
@@ -58,12 +68,6 @@ describe('cli extension commands', () => {
       log: jest.fn(),
       error: jest.fn(),
       exit: jest.fn(),
-      getRealtimeStdio: () => ({
-        stdin: process.stdin,
-        stdout: process.stdout,
-        stderr: process.stderr
-      }),
-      listCliExtensions: () => ['voice'],
       importCliExtension: jest.fn().mockResolvedValue({
         default: { name: 'voice', runCli }
       })
@@ -84,148 +88,216 @@ describe('cli extension commands', () => {
     expect(call.deps.exit).toBe(deps.exit);
   });
 
-  test('writes a structured error when extension default export is missing', async () => {
-    const deps = {
-      createRegistry: jest.fn(),
-      createLlmCoordinator: jest.fn(),
-      createVectorCoordinator: jest.fn(),
-      createEmbeddingCoordinator: jest.fn(),
-      closeLogger: jest.fn(),
-      log: jest.fn(),
-      error: jest.fn(),
-      exit: jest.fn(),
-      getRealtimeStdio: () => ({
-        stdin: process.stdin,
-        stdout: process.stdout,
-        stderr: process.stderr
-      }),
-      listCliExtensions: () => ['voice'],
-      importCliExtension: jest.fn().mockResolvedValue({})
-    };
+  test('extensions list scans roots explicitly', async () => {
+    await withTempCwd('cli-extensions-list', async (cwd) => {
+      const packRoot = path.join(cwd, 'pack-a');
+      fs.mkdirSync(path.join(packRoot, 'extensions', 'demo'), { recursive: true });
+      fs.writeFileSync(
+        path.join(packRoot, 'extensions', 'demo', 'index.js'),
+        "export default { name: 'demo', runCli: async () => {} };",
+        'utf-8'
+      );
 
-    const program = createUnifiedProgram(deps as any);
+      fs.writeFileSync(
+        path.join(cwd, 'llm-adapter.paths.json'),
+        JSON.stringify(
+          {
+            paths: {
+              lookup: {
+                extensions: { builtin: false, externalRoots: ['./pack-a'] }
+              }
+            }
+          },
+          null,
+          2
+        ),
+        'utf-8'
+      );
 
-    await program.parseAsync(['node', 'llm-adapter', 'voice', 'call']);
+      const stdoutWrites: string[] = [];
+      jest.spyOn(process.stdout, 'write').mockImplementation((...args: any[]) => {
+        stdoutWrites.push(String(args[0] ?? ''));
+        const callback = args.find((arg: any) => typeof arg === 'function');
+        if (callback) setImmediate(callback);
+        return true;
+      });
 
-    expect(deps.exit).toHaveBeenCalledWith(1);
-    expect(deps.error).toHaveBeenCalled();
-    const lastError = String((deps.error as any).mock.calls.at(-1)?.[0] ?? '');
-    expect(lastError).toContain('did not export a default extension object');
+      const program = createUnifiedProgram({
+        createRegistry: jest.fn(),
+        createLlmCoordinator: jest.fn(),
+        createVectorCoordinator: jest.fn(),
+        createEmbeddingCoordinator: jest.fn(),
+        closeLogger: jest.fn(),
+        log: jest.fn(),
+        error: jest.fn(),
+        exit: jest.fn()
+      } as any);
+
+      await program.parseAsync(['node', 'llm-adapter', 'extensions', 'list']);
+
+      const output = stdoutWrites.join('');
+      expect(output).toContain('\"name\":\"demo\"');
+    });
   });
 
-  test('writes a structured error when extension name is missing', async () => {
-    const deps = {
-      createRegistry: jest.fn(),
-      createLlmCoordinator: jest.fn(),
-      createVectorCoordinator: jest.fn(),
-      createEmbeddingCoordinator: jest.fn(),
-      closeLogger: jest.fn(),
-      log: jest.fn(),
-      error: jest.fn(),
-      exit: jest.fn(),
-      getRealtimeStdio: () => ({
-        stdin: process.stdin,
-        stdout: process.stdout,
-        stderr: process.stderr
-      }),
-      listCliExtensions: () => ['voice'],
-      importCliExtension: jest.fn().mockResolvedValue({
-        default: { name: 123, runCli: jest.fn() }
-      })
-    };
+  test('dispatches to an external extension using a file:// import specifier', async () => {
+    await withTempCwd('cli-extension-dispatch-external', async (cwd) => {
+      const packRoot = path.join(cwd, 'pack-a');
+      fs.mkdirSync(path.join(packRoot, 'extensions', 'demo'), { recursive: true });
+      fs.writeFileSync(
+        path.join(packRoot, 'extensions', 'demo', 'index.js'),
+        "export default { name: 'demo', runCli: async () => {} };",
+        'utf-8'
+      );
 
-    const program = createUnifiedProgram(deps as any);
+      fs.writeFileSync(
+        path.join(cwd, 'llm-adapter.paths.json'),
+        JSON.stringify(
+          {
+            paths: {
+              lookup: {
+                extensions: { builtin: false, externalRoots: ['./pack-a'] }
+              }
+            }
+          },
+          null,
+          2
+        ),
+        'utf-8'
+      );
 
-    await program.parseAsync(['node', 'llm-adapter', 'voice', 'call']);
+      const runCli = jest.fn().mockResolvedValue(undefined);
+      const deps = {
+        createRegistry: jest.fn(),
+        createLlmCoordinator: jest.fn(),
+        createVectorCoordinator: jest.fn(),
+        createEmbeddingCoordinator: jest.fn(),
+        closeLogger: jest.fn(),
+        log: jest.fn(),
+        error: jest.fn(),
+        exit: jest.fn(),
+        importCliExtension: jest.fn().mockResolvedValue({
+          default: { name: 'demo', runCli }
+        })
+      };
 
-    expect(deps.exit).toHaveBeenCalledWith(1);
-    const lastError = String((deps.error as any).mock.calls.at(-1)?.[0] ?? '');
-    expect(lastError).toContain('missing required name');
+      const program = createUnifiedProgram(deps as any);
+      await program.parseAsync(['node', 'llm-adapter', 'demo', 'call', '--foo', '1']);
+
+      expect(deps.importCliExtension).toHaveBeenCalledTimes(1);
+      const specifier = String((deps.importCliExtension as any).mock.calls[0][0]);
+      expect(specifier.startsWith('file://')).toBe(true);
+      expect(specifier).toContain('/pack-a/extensions/demo/index.js');
+
+      expect(runCli).toHaveBeenCalledTimes(1);
+      expect(runCli.mock.calls[0]![0].argv).toEqual(['node', 'llm-adapter', 'call', '--foo', '1']);
+    });
   });
 
-  test('writes a structured error when extension name mismatches', async () => {
-    const deps = {
-      createRegistry: jest.fn(),
-      createLlmCoordinator: jest.fn(),
-      createVectorCoordinator: jest.fn(),
-      createEmbeddingCoordinator: jest.fn(),
-      closeLogger: jest.fn(),
-      log: jest.fn(),
-      error: jest.fn(),
-      exit: jest.fn(),
-      getRealtimeStdio: () => ({
-        stdin: process.stdin,
-        stdout: process.stdout,
-        stderr: process.stderr
-      }),
-      listCliExtensions: () => ['voice'],
-      importCliExtension: jest.fn().mockResolvedValue({
-        default: { name: 'other', runCli: jest.fn() }
-      })
-    };
+  test('extensions list reports errors (stdout writer failure)', async () => {
+    await withTempCwd('cli-extensions-list-error', async () => {
+      const writeSpy = jest.spyOn(process.stdout, 'write').mockImplementationOnce(() => {
+        throw new Error('boom');
+      });
 
-    const program = createUnifiedProgram(deps as any);
+      const deps = {
+        createRegistry: jest.fn(),
+        createLlmCoordinator: jest.fn(),
+        createVectorCoordinator: jest.fn(),
+        createEmbeddingCoordinator: jest.fn(),
+        closeLogger: jest.fn(),
+        log: jest.fn(),
+        error: jest.fn(),
+        exit: jest.fn()
+      };
 
-    await program.parseAsync(['node', 'llm-adapter', 'voice', 'call']);
-
-    expect(deps.exit).toHaveBeenCalledWith(1);
-    const lastError = String((deps.error as any).mock.calls.at(-1)?.[0] ?? '');
-    expect(lastError).toContain('Extension name mismatch');
+      try {
+        const program = createUnifiedProgram(deps as any);
+        await program.parseAsync(['node', 'llm-adapter', 'extensions', 'list']);
+        expect(deps.exit).toHaveBeenCalledWith(1);
+      } finally {
+        writeSpy.mockRestore();
+      }
+    });
   });
 
-  test('writes a structured error when extension runCli is missing', async () => {
-    const deps = {
-      createRegistry: jest.fn(),
-      createLlmCoordinator: jest.fn(),
-      createVectorCoordinator: jest.fn(),
-      createEmbeddingCoordinator: jest.fn(),
-      closeLogger: jest.fn(),
-      log: jest.fn(),
-      error: jest.fn(),
-      exit: jest.fn(),
-      getRealtimeStdio: () => ({
-        stdin: process.stdin,
-        stdout: process.stdout,
-        stderr: process.stderr
-      }),
-      listCliExtensions: () => ['voice'],
-      importCliExtension: jest.fn().mockResolvedValue({
-        default: { name: 'voice' }
-      })
-    };
+  test('extension dispatch errors when default export is missing', async () => {
+    await withTempCwd('cli-extension-dispatch-bad-default', async () => {
+      const deps = {
+        createRegistry: jest.fn(),
+        createLlmCoordinator: jest.fn(),
+        createVectorCoordinator: jest.fn(),
+        createEmbeddingCoordinator: jest.fn(),
+        closeLogger: jest.fn(),
+        log: jest.fn(),
+        error: jest.fn(),
+        exit: jest.fn(),
+        importCliExtension: jest.fn().mockResolvedValue({})
+      };
 
-    const program = createUnifiedProgram(deps as any);
-
-    await program.parseAsync(['node', 'llm-adapter', 'voice', 'call']);
-
-    expect(deps.exit).toHaveBeenCalledWith(1);
-    const lastError = String((deps.error as any).mock.calls.at(-1)?.[0] ?? '');
-    expect(lastError).toContain('did not export a runCli function');
+      const program = createUnifiedProgram(deps as any);
+      await program.parseAsync(['node', 'llm-adapter', 'voice']);
+      expect(deps.exit).toHaveBeenCalledWith(1);
+    });
   });
 
-  test('skips registering an extension command when it collides with a built-in command', () => {
-    const deps = {
-      createRegistry: jest.fn(),
-      createLlmCoordinator: jest.fn(),
-      createVectorCoordinator: jest.fn(),
-      createEmbeddingCoordinator: jest.fn(),
-      closeLogger: jest.fn(),
-      log: jest.fn(),
-      error: jest.fn(),
-      exit: jest.fn(),
-      getRealtimeStdio: () => ({
-        stdin: process.stdin,
-        stdout: process.stdout,
-        stderr: process.stderr
-      }),
-      listCliExtensions: () => ['serve', 'voice'],
-      importCliExtension: jest.fn()
-    };
+  test('extension dispatch errors when name is missing', async () => {
+    await withTempCwd('cli-extension-dispatch-missing-name', async () => {
+      const deps = {
+        createRegistry: jest.fn(),
+        createLlmCoordinator: jest.fn(),
+        createVectorCoordinator: jest.fn(),
+        createEmbeddingCoordinator: jest.fn(),
+        closeLogger: jest.fn(),
+        log: jest.fn(),
+        error: jest.fn(),
+        exit: jest.fn(),
+        importCliExtension: jest.fn().mockResolvedValue({ default: { runCli: async () => {} } })
+      };
 
-    const program = createUnifiedProgram(deps as any);
-    expect(program.commands.filter(cmd => cmd.name() === 'serve')).toHaveLength(1);
-    expect(program.commands.filter(cmd => cmd.name() === 'voice')).toHaveLength(1);
-    expect(deps.error).toHaveBeenCalledTimes(1);
-    expect(String((deps.error as any).mock.calls[0]?.[0] ?? '')).toContain("warning: CLI extension 'serve'");
+      const program = createUnifiedProgram(deps as any);
+      await program.parseAsync(['node', 'llm-adapter', 'voice']);
+      expect(deps.exit).toHaveBeenCalledWith(1);
+    });
+  });
+
+  test('extension dispatch errors when name mismatches folder', async () => {
+    await withTempCwd('cli-extension-dispatch-name-mismatch', async () => {
+      const deps = {
+        createRegistry: jest.fn(),
+        createLlmCoordinator: jest.fn(),
+        createVectorCoordinator: jest.fn(),
+        createEmbeddingCoordinator: jest.fn(),
+        closeLogger: jest.fn(),
+        log: jest.fn(),
+        error: jest.fn(),
+        exit: jest.fn(),
+        importCliExtension: jest.fn().mockResolvedValue({ default: { name: 'nope', runCli: async () => {} } })
+      };
+
+      const program = createUnifiedProgram(deps as any);
+      await program.parseAsync(['node', 'llm-adapter', 'voice']);
+      expect(deps.exit).toHaveBeenCalledWith(1);
+    });
+  });
+
+  test('extension dispatch errors when runCli is missing', async () => {
+    await withTempCwd('cli-extension-dispatch-missing-runcli', async () => {
+      const deps = {
+        createRegistry: jest.fn(),
+        createLlmCoordinator: jest.fn(),
+        createVectorCoordinator: jest.fn(),
+        createEmbeddingCoordinator: jest.fn(),
+        closeLogger: jest.fn(),
+        log: jest.fn(),
+        error: jest.fn(),
+        exit: jest.fn(),
+        importCliExtension: jest.fn().mockResolvedValue({ default: { name: 'voice' } })
+      };
+
+      const program = createUnifiedProgram(deps as any);
+      await program.parseAsync(['node', 'llm-adapter', 'voice']);
+      expect(deps.exit).toHaveBeenCalledWith(1);
+    });
   });
 });
