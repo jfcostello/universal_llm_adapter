@@ -3,7 +3,7 @@ import {
   pcm16leBytesToG711UlawBytes,
   resamplePcm16leBytes,
   splitBytesIntoFrames
-} from '../../../../modules/audio/index.js';
+} from '../../../../../../modules/audio/index.js';
 
 export type BridgeAudioFormat = 'pcm16' | 'g711_ulaw' | 'g711_alaw';
 

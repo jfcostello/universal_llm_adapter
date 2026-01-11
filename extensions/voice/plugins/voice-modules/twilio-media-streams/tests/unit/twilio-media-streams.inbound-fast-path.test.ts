@@ -72,7 +72,7 @@ describe('plugins/voice-modules/twilio-media-streams — inbound fast-path', () 
         frameAudioBytes
       }));
 
-      const { createTwilioMediaStreamsBridge } = await import('@/plugins/voice-modules/twilio-media-streams/index.ts');
+      const { createTwilioMediaStreamsBridge } = await import('@/extensions/voice/plugins/voice-modules/twilio-media-streams/index.ts');
 
       const session = new MockRealtimeSession();
       session.push({
@@ -115,4 +115,3 @@ describe('plugins/voice-modules/twilio-media-streams — inbound fast-path', () 
     });
   });
 });
-

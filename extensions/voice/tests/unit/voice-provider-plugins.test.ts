@@ -313,4 +313,21 @@ describe('extensions/voice: provider plugins loader', () => {
       await fs.rm(tmp, { recursive: true, force: true });
     }
   });
+
+  test('defaults pluginsPath to the built-in voice extension plugins root', async () => {
+    const plugins = createVoiceProviderPlugins({});
+    const manifests = await plugins.listManifests();
+    expect(manifests.some(m => m.id === 'test')).toBe(true);
+  });
+
+  test('treats a missing pluginsPath directory as an empty manifest set', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-provider-plugins-'));
+    try {
+      const missing = path.join(tmp, 'missing-root');
+      const plugins = createVoiceProviderPlugins({ pluginsPath: missing });
+      await expect(plugins.listManifests()).resolves.toEqual([]);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
 });

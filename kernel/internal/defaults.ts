@@ -126,15 +126,7 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
     },
     securityHeadersEnabled: true,
     extensions: {
-      enabled: [],
-      voice: {
-        events: {
-          keepAliveIntervalMs: 15000
-        },
-        mediaWs: {
-          tokenFromMessageTimeoutMs: 5000
-        }
-      }
+      enabled: []
     }
   },
   paths: {

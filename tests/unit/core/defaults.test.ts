@@ -123,7 +123,7 @@ describe('core/defaults', () => {
       expect(server.cors.enabled).toBe(false);
       expect(server.securityHeadersEnabled).toBe(true);
       expect(server.extensions?.enabled).toEqual([]);
-      expect(Number((server.extensions as any)?.voice?.events?.keepAliveIntervalMs)).toBe(15000);
+      expect((server.extensions as any)?.voice).toBeUndefined();
     });
 
     test('returns correct paths defaults', async () => {

@@ -265,7 +265,7 @@ Ensure `x-forwarded-proto` / `x-forwarded-host` are correct so the server genera
 
 ## Testing
 
-- Voice extension suite: `npm run test:extensions:voice`
+- Voice extension suite: `npm run test:extensions -- --testPathPattern=extensions/voice`
 
 ## Observability
 

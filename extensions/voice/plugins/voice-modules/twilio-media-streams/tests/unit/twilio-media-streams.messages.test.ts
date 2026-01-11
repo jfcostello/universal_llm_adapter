@@ -3,7 +3,7 @@ import {
   buildTwilioMarkMessage,
   buildTwilioMediaMessage,
   parseTwilioInboundMessage
-} from '@/plugins/voice-modules/twilio-media-streams/internal/messages.ts';
+} from '@/extensions/voice/plugins/voice-modules/twilio-media-streams/internal/messages.ts';
 
 describe('plugins/voice-modules/twilio-media-streams — message parsing/building', () => {
   test('parses connected', () => {

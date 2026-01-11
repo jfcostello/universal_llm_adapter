@@ -1,6 +1,6 @@
 import type http from 'http';
 
-import { makeHttpError } from '../../../modules/shared/index.js';
+import { makeHttpError } from '../../../../../modules/shared/index.js';
 
 export default class TestVoiceCompat {
   async validateWebhookRequest(options: { req: http.IncomingMessage }) {

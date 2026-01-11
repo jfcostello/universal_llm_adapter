@@ -39,6 +39,11 @@ function isUnder(dirName: string, filePath: string): boolean {
   return rel === dirName || rel.startsWith(`${dirName}/`);
 }
 
+function isUnderExtensionPlugins(filePath: string): boolean {
+  const rel = toRepoRelative(filePath);
+  return rel.startsWith('extensions/') && rel.includes('/plugins/');
+}
+
 function isInAnyTestsDir(filePath: string): boolean {
   const rel = toRepoRelative(filePath);
   return (
@@ -124,7 +129,8 @@ describe('guardrails/repo', () => {
     const files = walk(ROOT_DIR)
       .filter(f => f.endsWith('.ts'))
       .filter(f => !isInAnyTestsDir(f))
-      .filter(f => !isUnder('plugins', f));
+      .filter(f => !isUnder('plugins', f))
+      .filter(f => !isUnderExtensionPlugins(f));
 
     const offenders: Array<{ file: string; token: string }> = [];
 
@@ -147,7 +153,8 @@ describe('guardrails/repo', () => {
       .map(p => path.join(ROOT_DIR, p))
       .filter(f => fs.existsSync(f))
       .filter(f => !isUnder('tests', f))
-      .filter(f => !isUnder('plugins', f));
+      .filter(f => !isUnder('plugins', f))
+      .filter(f => !isUnderExtensionPlugins(f));
 
     for (const file of trackedDocs) {
       const rel = toRepoRelative(file);

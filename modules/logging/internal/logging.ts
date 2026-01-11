@@ -1,7 +1,6 @@
 import { LLMLogger } from './llm-logger.js';
 import { EmbeddingLogger } from './embedding-logger.js';
 import { VectorLogger } from './vector-logger.js';
-import { VoiceLogger } from './voice-logger.js';
 import { RealtimeLogger } from './realtime-logger.js';
 import type { LoggingDeps } from '../../../kernel/index.js';
 import type { LoggerCorrelationId } from '../../../kernel/index.js';
@@ -9,7 +8,6 @@ import type { LoggerCorrelationId } from '../../../kernel/index.js';
 let llmLogger: AdapterLogger | null = null;
 let embeddingLogger: EmbeddingLogger | null = null;
 let vectorLogger: VectorLogger | null = null;
-let voiceLogger: VoiceLogger | null = null;
 let realtimeLogger: RealtimeLogger | null = null;
 
 export * from './base-logger.js';
@@ -17,7 +15,6 @@ export * from './llm-logger.js';
 export * from './embedding-logger.js';
 export * from './vector-logger.js';
 export * from './json-line-file-logger.js';
-export * from './voice-logger.js';
 export * from './realtime-logger.js';
 export * from './retention.js';
 export * from './retention-manager.js';
@@ -46,13 +43,6 @@ export function getVectorLogger(correlationId?: LoggerCorrelationId): VectorLogg
   return correlationId ? vectorLogger.withCorrelation(correlationId) : vectorLogger;
 }
 
-export function getVoiceLogger(correlationId?: LoggerCorrelationId): VoiceLogger {
-  if (!voiceLogger) {
-    voiceLogger = new VoiceLogger();
-  }
-  return correlationId ? voiceLogger.withCorrelation(correlationId) : voiceLogger;
-}
-
 export function getRealtimeLogger(correlationId?: LoggerCorrelationId): RealtimeLogger {
   if (!realtimeLogger) {
     realtimeLogger = new RealtimeLogger();
@@ -70,7 +60,6 @@ export async function closeLogger(): Promise<void> {
   if (llmLogger) closers.push(llmLogger.close());
   if (embeddingLogger) closers.push(embeddingLogger.close());
   if (vectorLogger) closers.push(vectorLogger.close());
-  if (voiceLogger) closers.push(voiceLogger.close());
   if (realtimeLogger) closers.push(realtimeLogger.close());
 
   await Promise.all(closers);
@@ -78,7 +67,6 @@ export async function closeLogger(): Promise<void> {
   llmLogger = null;
   embeddingLogger = null;
   vectorLogger = null;
-  voiceLogger = null;
   realtimeLogger = null;
 }
 

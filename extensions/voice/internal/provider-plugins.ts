@@ -3,7 +3,8 @@ import * as path from 'path';
 import { pathToFileURL } from 'url';
 
 import { glob } from 'glob';
-import { loadJsonFile, ManifestError, PACKAGE_ROOT } from '../../../kernel/index.js';
+import { loadJsonFile, ManifestError } from '../../../kernel/index.js';
+import { VOICE_EXTENSION_PLUGINS_ROOT } from './paths.js';
 
 export interface VoiceProviderManifest {
   id: string;
@@ -47,35 +48,20 @@ function parseVoiceProviderManifest(value: any, filePath: string): VoiceProvider
   return { id, kind, ...(defaults ? { defaults } : {}) };
 }
 
-function getCompatRootCandidates(pluginsRoot: string): string[] {
-  return [
-    path.resolve(PACKAGE_ROOT, 'plugins', 'voice-compat'),
-    path.join(pluginsRoot, 'voice-compat'),
-    path.resolve(process.cwd(), 'plugins', 'voice-compat')
-  ];
-}
-
 function resolveCompatEntry(pluginsRoot: string, kind: string): string | undefined {
-  const candidates = getCompatRootCandidates(pluginsRoot);
-  const visited = new Set<string>();
+  const root = path.resolve(path.join(pluginsRoot, 'voice-compat'));
+  if (!fs.existsSync(root)) return undefined;
 
-  for (const candidateRoot of candidates) {
-    const root = path.resolve(candidateRoot);
-    if (visited.has(root)) continue;
-    visited.add(root);
-    if (!fs.existsSync(root)) continue;
+  const dir = path.join(root, kind);
+  const dirIndexJs = path.join(dir, 'index.js');
+  const dirIndexTs = path.join(dir, 'index.ts');
+  if (fs.existsSync(dirIndexJs)) return dirIndexJs;
+  if (fs.existsSync(dirIndexTs)) return dirIndexTs;
 
-    const dir = path.join(root, kind);
-    const dirIndexJs = path.join(dir, 'index.js');
-    const dirIndexTs = path.join(dir, 'index.ts');
-    if (fs.existsSync(dirIndexJs)) return dirIndexJs;
-    if (fs.existsSync(dirIndexTs)) return dirIndexTs;
-
-    const fileJs = path.join(root, `${kind}.js`);
-    const fileTs = path.join(root, `${kind}.ts`);
-    if (fs.existsSync(fileJs)) return fileJs;
-    if (fs.existsSync(fileTs)) return fileTs;
-  }
+  const fileJs = path.join(root, `${kind}.js`);
+  const fileTs = path.join(root, `${kind}.ts`);
+  if (fs.existsSync(fileJs)) return fileJs;
+  if (fs.existsSync(fileTs)) return fileTs;
 
   return undefined;
 }
@@ -85,13 +71,14 @@ function getDefaultOrFirstExport(imported: Record<string, any>): any {
 }
 
 export function createVoiceProviderPlugins(options: {
-  pluginsPath: string;
+  pluginsPath?: string;
   importModule?: (href: string) => Promise<any>;
   logger?: { warning?: (message: string, data?: any) => void };
 }): VoiceProviderPlugins {
-  const pluginsRoot = path.isAbsolute(options.pluginsPath)
-    ? options.pluginsPath
-    : path.resolve(process.cwd(), options.pluginsPath);
+  const pluginsPath = String(options.pluginsPath ?? '').trim() || VOICE_EXTENSION_PLUGINS_ROOT;
+  const pluginsRoot = path.isAbsolute(pluginsPath)
+    ? pluginsPath
+    : path.resolve(process.cwd(), pluginsPath);
 
   const importModule = options.importModule ?? (async (href: string) => import(href));
   const safeWarn = (message: string, data?: any) => {
@@ -116,6 +103,7 @@ export function createVoiceProviderPlugins(options: {
     if (manifestsLoaded) return;
     manifestsLoaded = true;
 
+    if (!fs.existsSync(pluginsRoot)) return;
     const files = glob.sync('voice-providers/*.json', { cwd: pluginsRoot });
     for (const rel of files) {
       const fullPath = path.join(pluginsRoot, rel);

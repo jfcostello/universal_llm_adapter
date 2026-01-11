@@ -1,9 +1,9 @@
 import crypto from 'crypto';
 import type http from 'http';
 
-import { LruMap, ProviderExecutionError, safeJsonParse } from '../../../kernel/index.js';
-import { safeEqual } from '../../../modules/security/index.js';
-import { makeHttpError } from '../../../modules/shared/index.js';
+import { LruMap, ProviderExecutionError, safeJsonParse } from '../../../../../kernel/index.js';
+import { safeEqual } from '../../../../../modules/security/index.js';
+import { makeHttpError } from '../../../../../modules/shared/index.js';
 
 const ENDED_EVENT_DEDUPE = new LruMap<string, true>(20_000, { label: 'voice.vapi.ended_events' });
 
@@ -644,7 +644,7 @@ export default class VapiVoiceCompat {
       }
 
       const routes = await getProcessRoutes.call(options.registry).catch(() => []);
-      const { ToolCoordinator } = await import('../../../modules/tools/index.js');
+      const { ToolCoordinator } = await import('../../../../../modules/tools/index.js');
       const coordinator = new ToolCoordinator(Array.isArray(routes) ? routes : []);
 
       const results = await mapWithConcurrency(

@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 import { bytesToBase64 } from '@/modules/audio/index.ts';
 import { createSignedWsToken } from '@/modules/security/index.ts';
-import { createTwilioMediaStreamsBridge } from '@/plugins/voice-modules/twilio-media-streams/index.ts';
+import { createTwilioMediaStreamsBridge } from '@/extensions/voice/plugins/voice-modules/twilio-media-streams/index.ts';
 import { MockRealtimeSession } from '@tests/helpers/mock-realtime-session.ts';
 import { MockWebSocket } from '@tests/helpers/mock-ws.ts';
 

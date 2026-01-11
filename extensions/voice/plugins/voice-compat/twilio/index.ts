@@ -3,10 +3,10 @@ import type http from 'http';
 import fs from 'fs';
 import path from 'path';
 
-import { ProviderExecutionError } from '../../../kernel/index.js';
-import { safeEqual } from '../../../modules/security/index.js';
-import { calculateBackoffDelay, makeHttpError } from '../../../modules/shared/index.js';
-import { createRealtimeSession } from '../../../modules/realtime/index.js';
+import { ProviderExecutionError } from '../../../../../kernel/index.js';
+import { safeEqual } from '../../../../../modules/security/index.js';
+import { calculateBackoffDelay, makeHttpError } from '../../../../../modules/shared/index.js';
+import { createRealtimeSession } from '../../../../../modules/realtime/index.js';
 import { createTwilioMediaStreamsBridge } from '../../voice-modules/twilio-media-streams/index.js';
 import { wrapAssistantFirstTurnEvents } from './internal/assistant-first-turn-events.js';
 
@@ -217,7 +217,7 @@ export default class TwilioVoiceCompat {
 
     let stamp = new Date().toISOString().replace(/[:.]/g, '-');
     try {
-      const { createIsoFilenameStamp } = await import('../../../modules/logging/index.js');
+      const { createIsoFilenameStamp } = await import('../../../../../modules/logging/index.js');
       stamp = createIsoFilenameStamp();
     } catch {
       // best-effort
@@ -299,7 +299,8 @@ export default class TwilioVoiceCompat {
 
     // Apply retention parity (best-effort).
     try {
-      const { applyRetentionOnce, VOICE_MAX_FILES, VOICE_MAX_AGE_DAYS } = await import('../../../modules/logging/index.js');
+      const { applyRetentionOnce } = await import('../../../../../modules/logging/index.js');
+      const { VOICE_MAX_FILES, VOICE_MAX_AGE_DAYS } = await import('../../../shared/logging-retention.js');
       applyRetentionOnce(path.join(process.cwd(), 'logs', 'voice', 'twilio'), {
         includeDirs: true,
         match: (d: any) => d.isDirectory() && d.name.startsWith('call-'),

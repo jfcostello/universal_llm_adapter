@@ -1,5 +1,5 @@
 import { base64ToBytes, bytesToBase64 } from '@/modules/audio/index.ts';
-import { convertAudioBytes, frameAudioBytes, type AudioSpec } from '@/plugins/voice-modules/twilio-media-streams/internal/audio.ts';
+import { convertAudioBytes, frameAudioBytes, type AudioSpec } from '@/extensions/voice/plugins/voice-modules/twilio-media-streams/internal/audio.ts';
 
 function pcm16leBytes(values: number[]): Uint8Array {
   const out = new Uint8Array(values.length * 2);

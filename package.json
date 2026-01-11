@@ -59,7 +59,6 @@
     "dev": "tsx watch bin/cli.ts serve",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config jest.unit.config.js",
     "test:extensions": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config jest.extensions.config.js",
-    "test:extensions:voice": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config jest.extensions.voice.config.js",
     "test:all": "tsx tests/live/run-all.ts",
     "test:live": "tsx tests/live/run-live.ts",
     "test:live:realtime": "tsx tests/live/run-live.ts --testPathPattern=tests[\\\\/]live[\\\\/]test-files[\\\\/][0-9]+-realtime",

@@ -20,6 +20,7 @@ import {
 
 import type { VoiceProviderPlugins } from './provider-plugins.js';
 import { createVoiceProviderPlugins } from './provider-plugins.js';
+import { VOICE_EXTENSION_PLUGINS_ROOT } from './paths.js';
 import type {
   VoiceAssistantFirstTurnConfig,
   VoiceCallConfigStore,
@@ -509,6 +510,7 @@ export async function createVoiceServerRegistration(ctx: {
   server: http.Server;
   registry: any;
   pluginsPath: string;
+  voicePluginsPath?: string;
   upgradeRouter: any;
   store?: VoiceCallConfigStore;
   providerPlugins?: VoiceProviderPlugins;
@@ -548,7 +550,7 @@ export async function createVoiceServerRegistration(ctx: {
 
   const rateLimiter = createRateLimiter(rateLimitConfig);
 
-  let cachedLoggingModule: { getVoiceLogger: (correlationId?: string) => VoiceLogger } | undefined;
+  let cachedVoiceLoggingModule: { getVoiceLogger: (correlationId?: string) => VoiceLogger; closeVoiceLogger: () => Promise<void> } | undefined;
   const resolveLogger = async (correlationId?: string): Promise<VoiceLogger | undefined> => {
     if (ctx.logging?.getLogger) {
       try {
@@ -559,10 +561,10 @@ export async function createVoiceServerRegistration(ctx: {
     }
 
     try {
-      if (!cachedLoggingModule) {
-        cachedLoggingModule = await import('../../../modules/logging/index.js');
+      if (!cachedVoiceLoggingModule) {
+        cachedVoiceLoggingModule = await import('./logging.js');
       }
-      return cachedLoggingModule.getVoiceLogger(correlationId);
+      return cachedVoiceLoggingModule.getVoiceLogger(correlationId);
     } catch {
       return undefined;
     }
@@ -583,7 +585,7 @@ export async function createVoiceServerRegistration(ctx: {
   const providerPlugins =
     ctx.providerPlugins ??
     createVoiceProviderPlugins({
-      pluginsPath: ctx.pluginsPath,
+      pluginsPath: ctx.voicePluginsPath ?? VOICE_EXTENSION_PLUGINS_ROOT,
       logger: {
         warning: (message: string, data?: any) => {
           void (async () => {
@@ -725,6 +727,9 @@ export async function createVoiceServerRegistration(ctx: {
     } catch {}
     try {
       await storeInit.close?.();
+    } catch {}
+    try {
+      await cachedVoiceLoggingModule?.closeVoiceLogger?.();
     } catch {}
   };
 

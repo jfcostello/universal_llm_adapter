@@ -1274,7 +1274,7 @@ describe('plugins/voice-compat/vapi', () => {
       ]
     };
 
-    const { ToolCoordinator } = await import('../../../../../modules/tools/index.js');
+    const { ToolCoordinator } = await import('../../../../../../../modules/tools/index.js');
     const original = ToolCoordinator.prototype.routeAndInvoke;
 
     ToolCoordinator.prototype.routeAndInvoke = async () => {

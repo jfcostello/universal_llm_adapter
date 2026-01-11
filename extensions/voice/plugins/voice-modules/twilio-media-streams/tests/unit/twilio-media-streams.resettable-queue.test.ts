@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 
-import { ResettableQueue } from '@/plugins/voice-modules/twilio-media-streams/internal/resettable-queue.ts';
+import { ResettableQueue } from '@/extensions/voice/plugins/voice-modules/twilio-media-streams/internal/resettable-queue.ts';
 
 describe('plugins/voice-modules/twilio-media-streams: ResettableQueue', () => {
   afterEach(() => {
