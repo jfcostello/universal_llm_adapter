@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { getAdapterPathsConfig } from './adapter-paths.js';
 import { loadJsonFile } from './config.js';
 import type { DefaultSettings } from './types.js';
 import { PACKAGE_ROOT } from './paths.js';
@@ -162,6 +163,25 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
 
 let cachedDefaults: DefaultSettings | null = null;
 
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function deepMerge(base: any, overlay: any): any {
+  const merged: any = { ...base };
+
+  for (const [key, value] of Object.entries(overlay)) {
+    if (key in merged && isPlainObject(merged[key]) && isPlainObject(value)) {
+      merged[key] = deepMerge(merged[key], value);
+      continue;
+    }
+
+    merged[key] = value;
+  }
+
+  return merged;
+}
+
 /**
  * Get the default settings, loading from JSON file if available.
  * Results are cached after first load for performance.
@@ -173,6 +193,39 @@ let cachedDefaults: DefaultSettings | null = null;
  */
 export function getDefaults(): DefaultSettings {
   if (cachedDefaults) {
+    return cachedDefaults;
+  }
+
+  const pathsConfig = getAdapterPathsConfig();
+  if (pathsConfig) {
+    const cwd = process.cwd();
+    const cfg = pathsConfig.paths.lookup.configs.defaults;
+    const localPluginsRoot = path.resolve(cwd, pathsConfig.paths.plugins ?? './plugins');
+    const builtinPluginsRoot = path.resolve(PACKAGE_ROOT, 'plugins');
+
+    const roots = [
+      { enabled: cfg.builtin, root: builtinPluginsRoot },
+      { enabled: cfg.local, root: localPluginsRoot },
+      ...cfg.externalRoots.map(root => ({ enabled: true, root }))
+    ]
+      .filter(item => item.enabled)
+      .map(item => path.resolve(item.root));
+
+    const mergedFiles = Array.from(new Set(roots))
+      .filter(root => fs.existsSync(root))
+      .map(root => path.join(root, 'configs', 'defaults.json'));
+
+    let merged: any = { ...FALLBACK_DEFAULTS };
+    for (const filePath of mergedFiles) {
+      try {
+        const raw = loadJsonFile(filePath);
+        if (isPlainObject(raw)) {
+          merged = deepMerge(merged, raw);
+        }
+      } catch {}
+    }
+
+    cachedDefaults = merged as DefaultSettings;
     return cachedDefaults;
   }
 

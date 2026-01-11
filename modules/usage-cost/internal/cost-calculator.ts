@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { UsageStats } from '../../../kernel/index.js';
-import { loadJsonFile, PACKAGE_ROOT } from '../../../kernel/index.js';
+import { getAdapterPathsConfig, loadJsonFile, PACKAGE_ROOT } from '../../../kernel/index.js';
 import { getPromptTokensIncludeCached } from '../../usage/index.js';
 
 export interface UsageCostRates {
@@ -14,6 +14,10 @@ export type UsageCostTable = Record<string, Record<string, UsageCostRates>>;
 
 const COST_TABLE_FILENAME = 'usage-costs.json';
 let cachedTable: UsageCostTable | null | undefined;
+
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
 
 function resolveCostTablePaths(): string[] {
   const candidates = [
@@ -52,6 +56,75 @@ function normalizeRates(raw: any): UsageCostRates | undefined {
 export function loadUsageCostTable(): UsageCostTable | undefined {
   if (cachedTable !== undefined) {
     return cachedTable ?? undefined;
+  }
+
+  const pathsConfig = getAdapterPathsConfig();
+  if (pathsConfig) {
+    const cwd = process.cwd();
+    const cfg = pathsConfig.paths.lookup.configs.usageCosts;
+    const localPluginsRoot = path.resolve(cwd, pathsConfig.paths.plugins ?? './plugins');
+    const builtinPluginsRoot = path.resolve(PACKAGE_ROOT, 'plugins');
+
+    const roots = [
+      { enabled: cfg.builtin, root: builtinPluginsRoot },
+      { enabled: cfg.local, root: localPluginsRoot },
+      ...cfg.externalRoots.map(root => ({ enabled: true, root }))
+    ]
+      .filter(item => item.enabled)
+      .map(item => path.resolve(item.root));
+
+    const resolvedRoots = Array.from(new Set(roots)).filter(root => fs.existsSync(root));
+
+    const warnOnOverride = Boolean(pathsConfig.paths.lookup.warnOnOverride);
+    const lastSourceByKey = warnOnOverride ? new Map<string, { filePath: string }>() : null;
+
+    const merged: UsageCostTable = {};
+    let loadedAny = false;
+
+    for (const root of resolvedRoots) {
+      const filePath = path.join(root, 'configs', COST_TABLE_FILENAME);
+      try {
+        const data = loadJsonFile(filePath);
+        if (!isPlainObject(data)) continue;
+
+        loadedAny = true;
+
+        for (const [provider, providerEntry] of Object.entries(data)) {
+          if (!isPlainObject(providerEntry)) continue;
+
+          merged[provider] ??= {};
+          for (const [model, modelEntry] of Object.entries(providerEntry)) {
+            if (!isPlainObject(modelEntry)) continue;
+
+            const providerOut = merged[provider] as Record<string, any>;
+            const key = `${provider}:${model}`;
+
+            if (model in providerOut && warnOnOverride) {
+              const previous = lastSourceByKey?.get(key);
+              try {
+                console.warn('usage_costs.override', {
+                  provider,
+                  model,
+                  previous,
+                  next: { filePath }
+                });
+              } catch {}
+            }
+
+            providerOut[model] = modelEntry;
+            lastSourceByKey?.set(key, { filePath });
+          }
+        }
+      } catch {}
+    }
+
+    if (!loadedAny) {
+      cachedTable = null;
+      return undefined;
+    }
+
+    cachedTable = merged;
+    return cachedTable;
   }
 
   const paths = resolveCostTablePaths();
