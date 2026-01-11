@@ -706,9 +706,6 @@ npm test -- --coverage
 # Run extension tests (kept separate from core)
 npm run test:extensions
 
-# Run voice extension tests
-npm run test:extensions:voice
-
 # Run live tests (require API keys)
 npm run test:live
 

@@ -17,7 +17,7 @@ describe('server: extensions httpConfig', () => {
       const { createServer } = await import('@/modules/server/index.ts');
 
       const running = await createServer({
-        extensions: { enabled: ['voice'] },
+        extensions: { enabled: ['demo'] },
         deps: {
           getDefaults: () => ({
             server: {
@@ -31,8 +31,8 @@ describe('server: extensions httpConfig', () => {
               queueTimeoutMs: 0,
               securityHeadersEnabled: true,
               extensions: {
-                enabled: ['voice'],
-                voice: { assistantFirstTurn: { enabled: true } }
+                enabled: ['demo'],
+                demo: { foo: true }
               }
             }
           }),
@@ -44,8 +44,8 @@ describe('server: extensions httpConfig', () => {
 
       try {
         expect(capturedHttpConfig?.extensions).toEqual({
-          enabled: ['voice'],
-          voice: { assistantFirstTurn: { enabled: true } }
+          enabled: ['demo'],
+          demo: { foo: true }
         });
       } finally {
         await running.close();

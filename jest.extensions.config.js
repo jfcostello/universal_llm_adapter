@@ -3,8 +3,7 @@ import baseConfig from './jest.config.js';
 export default {
   ...baseConfig,
   testMatch: [
-    '<rootDir>/extensions/**/tests/**/*.test.ts',
-    '<rootDir>/plugins/voice-*/**/tests/**/*.test.ts'
+    '<rootDir>/extensions/**/tests/**/*.test.ts'
   ],
   testPathIgnorePatterns: [
     ...(baseConfig.testPathIgnorePatterns ?? []),
@@ -13,7 +12,6 @@ export default {
   ],
   collectCoverageFrom: [
     '<rootDir>/extensions/**/*.ts',
-    '<rootDir>/plugins/voice-*/**/*.ts',
     '!<rootDir>/dist/**',
     '!<rootDir>/node_modules/**',
     '!<rootDir>/**/tests/**',

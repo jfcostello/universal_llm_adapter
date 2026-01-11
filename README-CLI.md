@@ -31,7 +31,6 @@ llm-adapter <command> [options]
 | `serve` | Start HTTP/SSE server |
 | `realtime` | Realtime session over stdin/stdout JSON protocol |
 | `realtime client-secret` | Mint a short-lived realtime WebRTC client secret |
-| `voice call` | Create an outbound voice call (server endpoint) |
 
 ---
 
@@ -240,59 +239,6 @@ llm-adapter vector upsert --spec '<json>' [options]
 **Options:** Same as `vector query`.
 
 ---
-
-## Voice Extension Commands
-
-### `llm-adapter voice call`
-
-Create an outbound voice call by calling the server `POST /voice/calls` endpoint.
-
-Requires:
-- A running server with the voice extension enabled (`llm-adapter serve --extension voice`)
-- Server auth enabled (the `/voice/calls` endpoint requires auth)
-
-```bash
-llm-adapter voice call --server-url <url> --to <number> --from <number> --voice-provider <id> \\
-  --realtime-spec '<json>' [options]
-```
-
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--server-url <url>` | Base URL of a running adapter server |
-| `--api-key <key>` | API key for server auth (sent as `x-api-key` by default) |
-| `--api-key-header-name <name>` | Header name for API key (default: `x-api-key`) |
-| `--idempotency-key <key>` | Optional idempotency key (sent as `Idempotency-Key`) |
-| `--ttl-seconds <seconds>` | TTL for stored call config (default: `900`) |
-| `--to <number>` | Destination phone number |
-| `--from <number>` | Caller ID / from number |
-| `--voice-provider <id>` | Voice provider id |
-| `--system-prompt <text>` | System prompt text |
-| `--system-prompt-file <path>` | Path to a system prompt file |
-| `--metadata <json>` | Metadata JSON object (stored on the call config) |
-| `--metadata-file <path>` | Path to metadata JSON file |
-| `--provider-config <json>` | Provider config JSON object (stored on the call config) |
-| `--provider-config-file <path>` | Path to provider config JSON file |
-| `--request-id <id>` | Optional request id (sent as `x-request-id` and stored on the call config) |
-| `--realtime-spec <json>` | Realtime session spec as JSON string |
-| `--realtime-spec-file <path>` | Path to realtime session spec JSON file |
-| `--assistant-first-turn <json>` | assistantFirstTurn JSON object |
-| `--assistant-first-turn-file <path>` | Path to assistantFirstTurn JSON file |
-| `--timeouts <json>` | timeouts JSON object |
-| `--timeouts-file <path>` | Path to timeouts JSON file |
-| `--recording <json>` | recording JSON object |
-| `--recording-file <path>` | Path to recording JSON file |
-| `--pretty` | Pretty print output |
-
-**Example:**
-
-```bash
-llm-adapter voice call --server-url http://127.0.0.1:3000 \\
-  --api-key <apiKey> \\
-  --to "<to>" --from "<from>" --voice-provider "<voiceProviderId>" \\
-  --realtime-spec '{}'
-```
 
 ### `llm-adapter vector delete`
 

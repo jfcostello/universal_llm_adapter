@@ -1461,13 +1461,13 @@ describe('cli/internal/unified-cli', () => {
         'llm-adapter',
         'serve',
         '--extension',
-        'voice',
+        'demo',
         '--extension',
         'other'
       ]);
 
       const serverOptions = mockDeps.createServer.mock.calls[0][0];
-      expect(serverOptions.extensions).toEqual({ enabled: ['voice', 'other'] });
+      expect(serverOptions.extensions).toEqual({ enabled: ['demo', 'other'] });
     });
 
     test('passes realtime options', async () => {

@@ -40,7 +40,6 @@ export default {
     '!<rootDir>/**/tests/**',
     '!<rootDir>/**/__tests__/**',
     '!<rootDir>/extensions/**',
-    '!<rootDir>/plugins/voice-*/**',
     '!<rootDir>/jest.config.js',
     '!<rootDir>/examples/**',
     '!<rootDir>/**/.history/**'

@@ -1,6 +1,8 @@
 import { jest } from '@jest/globals';
 import { createRequire } from 'module';
+import fs from 'fs';
 import http from 'http';
+import path from 'path';
 
 import { createServer, createServerHandlerWithDefaults } from '@/modules/server/index.ts';
 
@@ -120,51 +122,75 @@ describe('utils/server index default branches', () => {
     await running.close();
   });
 
-  test('createServer loads enabled extensions and allows them to intercept /voice/*', async () => {
-    const running = await createServer({
-      extensions: { enabled: ['voice'] },
-      deps: {
-        getDefaults: () => DEFAULTS_WITHOUT_NESTED,
-        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
-        createCoordinator: jest.fn(),
-        closeLogger: jest.fn().mockResolvedValue(undefined)
-      }
-    } as any);
+  test('createServer loads enabled extensions and allows them to intercept /demo/*', async () => {
+    const extensionDir = path.join(process.cwd(), 'extensions', 'demo');
+    fs.mkdirSync(extensionDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(extensionDir, 'index.ts'),
+      `export default {\n` +
+        `  name: 'demo',\n` +
+        `  registerServer: () => ({\n` +
+        `    handleHttp: (req, res) => {\n` +
+        `      if (req.url?.startsWith('/demo/')) {\n` +
+        `        res.statusCode = 200;\n` +
+        `        res.setHeader('content-type', 'application/json');\n` +
+        `        res.end(JSON.stringify({ ok: true }));\n` +
+        `        return true;\n` +
+        `      }\n` +
+        `      return false;\n` +
+        `    }\n` +
+        `  })\n` +
+        `};\n`,
+      'utf-8'
+    );
 
-    const voiceRes = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
-      http
-        .get(`${running.url}/voice/test`, (res) => {
-          const chunks: Buffer[] = [];
-          res.on('data', (c) => chunks.push(Buffer.from(c)));
-          res.on('end', () => {
-            resolve({ statusCode: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf-8') });
-          });
-        })
-        .on('error', reject);
-    });
+    let running: any;
+    try {
+      running = await createServer({
+        extensions: { enabled: ['demo'] },
+        deps: {
+          getDefaults: () => DEFAULTS_WITHOUT_NESTED,
+          createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+          createCoordinator: jest.fn(),
+          closeLogger: jest.fn().mockResolvedValue(undefined)
+        }
+      } as any);
 
-    expect(voiceRes.statusCode).toBe(404);
-    expect(JSON.parse(voiceRes.body)).toEqual({
-      type: 'error',
-      error: { message: 'Not found', code: 'not_found' }
-    });
+      const demoRes = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
+        http
+          .get(`${running.url}/demo/test`, (res) => {
+            const chunks: Buffer[] = [];
+            res.on('data', (c) => chunks.push(Buffer.from(c)));
+            res.on('end', () => {
+              resolve({ statusCode: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf-8') });
+            });
+          })
+          .on('error', reject);
+      });
 
-    const healthRes = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
-      http
-        .get(`${running.url}/health`, (res) => {
-          const chunks: Buffer[] = [];
-          res.on('data', (c) => chunks.push(Buffer.from(c)));
-          res.on('end', () => {
-            resolve({ statusCode: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf-8') });
-          });
-        })
-        .on('error', reject);
-    });
+      expect(demoRes.statusCode).toBe(200);
+      expect(JSON.parse(demoRes.body)).toEqual({ ok: true });
 
-    expect(healthRes.statusCode).toBe(200);
-    expect(JSON.parse(healthRes.body)).toEqual({ ok: true });
+      const healthRes = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
+        http
+          .get(`${running.url}/health`, (res) => {
+            const chunks: Buffer[] = [];
+            res.on('data', (c) => chunks.push(Buffer.from(c)));
+            res.on('end', () => {
+              resolve({ statusCode: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf-8') });
+            });
+          })
+          .on('error', reject);
+      });
 
-    await running.close();
+      expect(healthRes.statusCode).toBe(200);
+      expect(JSON.parse(healthRes.body)).toEqual({ ok: true });
+    } finally {
+      try {
+        await running?.close?.();
+      } catch {}
+      fs.rmSync(extensionDir, { recursive: true, force: true });
+    }
   });
 
   test('createServer optionally validates plugins once per registry when LLM_ADAPTER_VALIDATE_PLUGINS=1', async () => {

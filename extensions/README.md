@@ -22,7 +22,7 @@ Example:
 {
   "server": {
     "extensions": {
-      "enabled": ["voice"]
+      "enabled": ["demo"]
     }
   }
 }
@@ -42,4 +42,3 @@ Extensions own their tests and they are **not** run by `npm test`.
 
 - Core tests: `npm test`
 - Extension tests: `npm run test:extensions`
-- Voice extension tests: `npm run test:extensions:voice`

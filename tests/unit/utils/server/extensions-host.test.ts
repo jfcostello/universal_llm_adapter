@@ -201,7 +201,7 @@ describe('server/internal/extensions/host', () => {
     const importExtension = jest.fn();
 
     const host = await loadServerExtensions({
-      enabled: 'voice' as any,
+      enabled: 'demo' as any,
       server,
       registry: {},
       pluginsPath: './plugins',

@@ -63,18 +63,18 @@ describe('cli extension commands', () => {
         stdout: process.stdout,
         stderr: process.stderr
       }),
-      listCliExtensions: () => ['voice'],
+      listCliExtensions: () => ['demo'],
       importCliExtension: jest.fn().mockResolvedValue({
-        default: { name: 'voice', runCli }
+        default: { name: 'demo', runCli }
       })
     };
 
     const program = createUnifiedProgram(deps as any);
 
-    await program.parseAsync(['node', 'llm-adapter', 'voice', 'call', '--foo', '1']);
+    await program.parseAsync(['node', 'llm-adapter', 'demo', 'call', '--foo', '1']);
 
     expect(deps.importCliExtension).toHaveBeenCalledTimes(1);
-    expect(deps.importCliExtension).toHaveBeenCalledWith('../../../extensions/voice/index.js');
+    expect(deps.importCliExtension).toHaveBeenCalledWith('../../../extensions/demo/index.js');
 
     expect(runCli).toHaveBeenCalledTimes(1);
     const call = runCli.mock.calls[0]![0];
@@ -99,13 +99,13 @@ describe('cli extension commands', () => {
         stdout: process.stdout,
         stderr: process.stderr
       }),
-      listCliExtensions: () => ['voice'],
+      listCliExtensions: () => ['demo'],
       importCliExtension: jest.fn().mockResolvedValue({})
     };
 
     const program = createUnifiedProgram(deps as any);
 
-    await program.parseAsync(['node', 'llm-adapter', 'voice', 'call']);
+    await program.parseAsync(['node', 'llm-adapter', 'demo', 'call']);
 
     expect(deps.exit).toHaveBeenCalledWith(1);
     expect(deps.error).toHaveBeenCalled();
@@ -128,7 +128,7 @@ describe('cli extension commands', () => {
         stdout: process.stdout,
         stderr: process.stderr
       }),
-      listCliExtensions: () => ['voice'],
+      listCliExtensions: () => ['demo'],
       importCliExtension: jest.fn().mockResolvedValue({
         default: { name: 123, runCli: jest.fn() }
       })
@@ -136,7 +136,7 @@ describe('cli extension commands', () => {
 
     const program = createUnifiedProgram(deps as any);
 
-    await program.parseAsync(['node', 'llm-adapter', 'voice', 'call']);
+    await program.parseAsync(['node', 'llm-adapter', 'demo', 'call']);
 
     expect(deps.exit).toHaveBeenCalledWith(1);
     const lastError = String((deps.error as any).mock.calls.at(-1)?.[0] ?? '');
@@ -158,7 +158,7 @@ describe('cli extension commands', () => {
         stdout: process.stdout,
         stderr: process.stderr
       }),
-      listCliExtensions: () => ['voice'],
+      listCliExtensions: () => ['demo'],
       importCliExtension: jest.fn().mockResolvedValue({
         default: { name: 'other', runCli: jest.fn() }
       })
@@ -166,7 +166,7 @@ describe('cli extension commands', () => {
 
     const program = createUnifiedProgram(deps as any);
 
-    await program.parseAsync(['node', 'llm-adapter', 'voice', 'call']);
+    await program.parseAsync(['node', 'llm-adapter', 'demo', 'call']);
 
     expect(deps.exit).toHaveBeenCalledWith(1);
     const lastError = String((deps.error as any).mock.calls.at(-1)?.[0] ?? '');
@@ -188,15 +188,15 @@ describe('cli extension commands', () => {
         stdout: process.stdout,
         stderr: process.stderr
       }),
-      listCliExtensions: () => ['voice'],
+      listCliExtensions: () => ['demo'],
       importCliExtension: jest.fn().mockResolvedValue({
-        default: { name: 'voice' }
+        default: { name: 'demo' }
       })
     };
 
     const program = createUnifiedProgram(deps as any);
 
-    await program.parseAsync(['node', 'llm-adapter', 'voice', 'call']);
+    await program.parseAsync(['node', 'llm-adapter', 'demo', 'call']);
 
     expect(deps.exit).toHaveBeenCalledWith(1);
     const lastError = String((deps.error as any).mock.calls.at(-1)?.[0] ?? '');
@@ -218,13 +218,13 @@ describe('cli extension commands', () => {
         stdout: process.stdout,
         stderr: process.stderr
       }),
-      listCliExtensions: () => ['serve', 'voice'],
+      listCliExtensions: () => ['serve', 'demo'],
       importCliExtension: jest.fn()
     };
 
     const program = createUnifiedProgram(deps as any);
     expect(program.commands.filter(cmd => cmd.name() === 'serve')).toHaveLength(1);
-    expect(program.commands.filter(cmd => cmd.name() === 'voice')).toHaveLength(1);
+    expect(program.commands.filter(cmd => cmd.name() === 'demo')).toHaveLength(1);
     expect(deps.error).toHaveBeenCalledTimes(1);
     expect(String((deps.error as any).mock.calls[0]?.[0] ?? '')).toContain("warning: CLI extension 'serve'");
   });
