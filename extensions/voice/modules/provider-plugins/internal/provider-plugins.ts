@@ -3,7 +3,7 @@ import * as path from 'path';
 import { pathToFileURL } from 'url';
 
 import { glob } from 'glob';
-import { loadJsonFile, ManifestError } from '../../../../../kernel/index.js';
+import { loadJsonFile, ManifestError, resolveModuleEntryInRoot } from '../../../../../kernel/index.js';
 import { VOICE_EXTENSION_PLUGINS_ROOT } from '../../shared/index.js';
 
 export interface VoiceProviderManifest {
@@ -50,20 +50,7 @@ function parseVoiceProviderManifest(value: any, filePath: string): VoiceProvider
 
 function resolveCompatEntry(pluginsRoot: string, kind: string): string | undefined {
   const root = path.resolve(path.join(pluginsRoot, 'compat'));
-  if (!fs.existsSync(root)) return undefined;
-
-  const dir = path.join(root, kind);
-  const dirIndexJs = path.join(dir, 'index.js');
-  const dirIndexTs = path.join(dir, 'index.ts');
-  if (fs.existsSync(dirIndexJs)) return dirIndexJs;
-  if (fs.existsSync(dirIndexTs)) return dirIndexTs;
-
-  const fileJs = path.join(root, `${kind}.js`);
-  const fileTs = path.join(root, `${kind}.ts`);
-  if (fs.existsSync(fileJs)) return fileJs;
-  if (fs.existsSync(fileTs)) return fileTs;
-
-  return undefined;
+  return resolveModuleEntryInRoot(root, kind);
 }
 
 function getDefaultOrFirstExport(imported: Record<string, any>): any {

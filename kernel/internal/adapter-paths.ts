@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { loadJsonFile } from './config.js';
 import { isPlainObject } from './deep-merge.js';
+import { normalizeExternalRoots } from './normalize-external-roots.js';
 
 export type AdapterPathsConfigSource = 'env' | 'cwd' | 'walk-up';
 
@@ -60,23 +61,6 @@ function normalizeString(value: unknown): string | undefined {
 
 function normalizeBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
-}
-
-function normalizeExternalRoots(cwd: string, raw: unknown): string[] {
-  const list = Array.isArray(raw) ? raw : [];
-  const result: string[] = [];
-  const seen = new Set<string>();
-
-  for (const item of list) {
-    const s = normalizeString(item);
-    if (!s) continue;
-    const resolved = path.isAbsolute(s) ? s : path.resolve(cwd, s);
-    if (seen.has(resolved)) continue;
-    seen.add(resolved);
-    result.push(resolved);
-  }
-
-  return result;
 }
 
 function normalizeAreaOverride(cwd: string, value: unknown): AdapterPathsConfigLookupAreaOverride | undefined {

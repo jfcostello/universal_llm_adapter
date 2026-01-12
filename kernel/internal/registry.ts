@@ -3,6 +3,8 @@ import * as path from 'path';
 import { pathToFileURL } from 'url';
 import { glob } from 'glob';
 import { loadJsonFile } from './config.js';
+import { resolveModuleEntryInRoot } from './fs-module-entry.js';
+import { normalizeExternalRoots } from './normalize-external-roots.js';
 import { PACKAGE_ROOT } from './paths.js';
 import {
   ProviderManifest,
@@ -113,24 +115,7 @@ export class PluginRegistry {
   }
 
   private normalizeLookupConfig(cwd: string, lookup?: PluginRegistryLookupConfig): NormalizedPluginRegistryLookupConfig {
-    const normalizeExternalRoots = (raw: unknown): string[] => {
-      const list = Array.isArray(raw) ? raw : [];
-      const result: string[] = [];
-      const seen = new Set<string>();
-
-      for (const item of list) {
-        const trimmed = typeof item === 'string' ? item.trim() : '';
-        if (!trimmed) continue;
-        const resolved = path.isAbsolute(trimmed) ? trimmed : path.resolve(cwd, trimmed);
-        if (seen.has(resolved)) continue;
-        seen.add(resolved);
-        result.push(resolved);
-      }
-
-      return result;
-    };
-
-    const externalRoots = normalizeExternalRoots(lookup?.externalRoots);
+    const externalRoots = normalizeExternalRoots(cwd, lookup?.externalRoots);
 
     const areas: Record<string, PluginRegistryLookupAreaConfig> = {};
     if (lookup?.areas && typeof lookup.areas === 'object') {
@@ -144,7 +129,7 @@ export class PluginRegistry {
           ...(typeof (value as any).local === 'boolean' ? { local: Boolean((value as any).local) } : {}),
           ...(areaExternal
             ? {
-                externalRoots: normalizeExternalRoots(areaExternal)
+                externalRoots: normalizeExternalRoots(cwd, areaExternal)
               }
             : {})
         };
@@ -242,25 +227,6 @@ export class PluginRegistry {
     ];
   }
 
-  private resolvePluginCodeEntryInRoot(root: string, moduleName: string): string | undefined {
-    // Prefer module directories: <root>/<name>/index.(js|ts)
-    const dir = path.join(root, moduleName);
-    const dirIndexJs = path.join(dir, 'index.js');
-    const dirIndexTs = path.join(dir, 'index.ts');
-
-    if (fs.existsSync(dirIndexJs)) return dirIndexJs;
-    if (fs.existsSync(dirIndexTs)) return dirIndexTs;
-
-    // Fall back to legacy single-file modules: <root>/<name>.(js|ts)
-    const fileJs = path.join(root, `${moduleName}.js`);
-    const fileTs = path.join(root, `${moduleName}.ts`);
-
-    if (fs.existsSync(fileJs)) return fileJs;
-    if (fs.existsSync(fileTs)) return fileTs;
-
-    return undefined;
-  }
-
   private resolvePluginCodeEntry(
     area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat' | 'observability-compat',
     moduleName: string
@@ -275,7 +241,7 @@ export class PluginRegistry {
 
       if (!fs.existsSync(root)) continue;
 
-      const found = this.resolvePluginCodeEntryInRoot(root, moduleName);
+      const found = resolveModuleEntryInRoot(root, moduleName);
       if (found) return found;
     }
 
@@ -299,7 +265,7 @@ export class PluginRegistry {
     if (preferred) {
       const preferredRoot = path.join(preferred, area);
       if (fs.existsSync(preferredRoot)) {
-        const preferredEntry = this.resolvePluginCodeEntryInRoot(preferredRoot, moduleName);
+        const preferredEntry = resolveModuleEntryInRoot(preferredRoot, moduleName);
         if (preferredEntry) {
           if (this.lookup?.warnOnOverride) {
             const rootsHighToLow = this.getPackRootsLowToHigh(area, 'code').slice().reverse();
@@ -310,7 +276,7 @@ export class PluginRegistry {
               const codeRoot = path.join(root.root, area);
               if (!fs.existsSync(codeRoot)) continue;
 
-              const found = this.resolvePluginCodeEntryInRoot(codeRoot, moduleName);
+              const found = resolveModuleEntryInRoot(codeRoot, moduleName);
               if (found) {
                 overridden.push({ root: root.root, kind: root.kind, precedence: root.precedence, modulePath: found });
               }
@@ -342,7 +308,7 @@ export class PluginRegistry {
       const codeRoot = path.join(root.root, area);
       if (!fs.existsSync(codeRoot)) continue;
 
-      const found = this.resolvePluginCodeEntryInRoot(codeRoot, moduleName);
+      const found = resolveModuleEntryInRoot(codeRoot, moduleName);
       if (found) {
         hits.push({ root: root.root, kind: root.kind, precedence: root.precedence, modulePath: found });
       }
