@@ -5,6 +5,7 @@ import path from 'path';
 import { jest } from '@jest/globals';
 
 import VapiVoiceCompat from '../../index.ts';
+import { withTempCwd } from '@tests/helpers/temp-files.ts';
 
 type FakeFetchResponse = {
   ok: boolean;
@@ -1149,6 +1150,58 @@ describe('plugins/compat/vapi', () => {
     expect(res.status).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.results).toEqual([{ name: 'test.echo', toolCallId: 'tc_2', result: '[R:5]dlrow' }]);
+  });
+
+  test('createWebhookResponse: tool-calls resolve relocatable module routes via registry manifest source (not cwd)', async () => {
+    const repoRoot = process.cwd();
+    const compat = new VapiVoiceCompat();
+
+    await withTempCwd('vapi-webhook-tool-calls-manifest-source', async () => {
+      const registry = {
+        getProcessRoutes: async () => [
+          {
+            id: 'test-echo',
+            match: { type: 'exact', pattern: 'test.echo' },
+            invoke: { kind: 'module', module: '../dist/plugins/modules/test-echo/index.js', function: 'handle' },
+            timeoutMs: 1000
+          }
+        ],
+        getManifestSource: (area: string, id: string) =>
+          area === 'processes' && id === 'test-echo'
+            ? {
+                kind: 'builtin',
+                root: path.join(repoRoot, 'plugins'),
+                filePath: path.join(repoRoot, 'plugins', 'processes', 'test.echo.json'),
+                precedence: 0
+              }
+            : undefined
+      };
+
+      const res = await compat.createWebhookResponse({
+        callConfigId: 'cfg_1',
+        callConfig: { providerCallId: 'call_1', realtimeSpec: { provider: 'vapi', model: 'model_x' } },
+        voiceProvider: 'vapi',
+        registry,
+        body: {
+          message: {
+            type: 'tool-calls',
+            call: { id: 'call_1' },
+            toolWithToolCallList: [],
+            toolCallList: [
+              {
+                id: 'tc_1',
+                type: 'function',
+                function: { name: 'test.echo', arguments: JSON.stringify({ message: 'hello' }) }
+              }
+            ]
+          }
+        }
+      } as any);
+
+      expect(res.status).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.results).toEqual([{ name: 'test.echo', toolCallId: 'tc_1', result: '[R:5]olleh' }]);
+    });
   });
 
   test('createWebhookResponse: returns tool error in results when tool execution fails', async () => {

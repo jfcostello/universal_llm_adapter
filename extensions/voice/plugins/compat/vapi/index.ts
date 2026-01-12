@@ -645,7 +645,7 @@ export default class VapiVoiceCompat {
 
       const routes = await getProcessRoutes.call(options.registry).catch(() => []);
       const { ToolCoordinator } = await import('../../../../../modules/tools/index.js');
-      const coordinator = new ToolCoordinator(Array.isArray(routes) ? routes : []);
+      const coordinator = new ToolCoordinator(Array.isArray(routes) ? routes : [], undefined, { registry: options.registry });
 
       const results = await mapWithConcurrency(
         toolCalls,
