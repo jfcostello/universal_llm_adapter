@@ -263,8 +263,31 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
   let extensionsHandleHttp: ((req: http.IncomingMessage, res: http.ServerResponse) => Promise<boolean>) | undefined;
   const handler: http.RequestListener = async (req, res) => {
     if (extensionsHandleHttp) {
-      const handled = await extensionsHandleHttp(req, res);
-      if (handled) return;
+      try {
+        const handled = await extensionsHandleHttp(req, res);
+        if (handled) return;
+      } catch (error: any) {
+        try {
+          const { mapErrorToHttp } = await import('../transport/index.js');
+          const mapped = mapErrorToHttp(error);
+          if (!res.headersSent) {
+            res.setHeader('content-type', 'application/json');
+            res.statusCode = mapped.status;
+          }
+          if (!res.writableEnded) {
+            res.end(JSON.stringify(mapped.body));
+          }
+        } catch {
+          if (!res.headersSent) {
+            res.statusCode = 500;
+            res.setHeader('content-type', 'application/json');
+          }
+          if (!res.writableEnded) {
+            res.end(JSON.stringify({ type: 'error', error: { message: 'Server error', code: 'internal' } }));
+          }
+        }
+        return;
+      }
     }
     await coreHandler(req, res);
   };

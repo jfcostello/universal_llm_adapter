@@ -1,8 +1,11 @@
 import { jest } from '@jest/globals';
 import { createRequire } from 'module';
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
 
 import { createServer, createServerHandlerWithDefaults } from '@/modules/server/index.ts';
+import { withTempCwd } from '@tests/helpers/temp-files.ts';
 
 const DEFAULTS_WITHOUT_NESTED = {
   server: {
@@ -165,6 +168,73 @@ describe('utils/server index default branches', () => {
     expect(JSON.parse(healthRes.body)).toEqual({ ok: true });
 
     await running.close();
+  });
+
+  test('createServer returns an HTTP error when an enabled extension handler throws', async () => {
+    await withTempCwd('server-extension-throws', async (cwd) => {
+      const packRoot = path.join(cwd, 'pack-a');
+      fs.mkdirSync(path.join(packRoot, 'extensions', 'boom'), { recursive: true });
+      fs.writeFileSync(
+        path.join(packRoot, 'extensions', 'boom', 'index.js'),
+        [
+          "module.exports = {",
+          "  name: 'boom',",
+          "  registerServer: () => ({",
+          "    handleHttp: () => { throw new Error('boom'); }",
+          "  })",
+          "};"
+        ].join('\n'),
+        'utf-8'
+      );
+
+      fs.writeFileSync(
+        path.join(cwd, 'llm-adapter.paths.json'),
+        JSON.stringify(
+          {
+            paths: {
+              lookup: {
+                extensions: { builtin: false, externalRoots: ['./pack-a'] }
+              }
+            }
+          },
+          null,
+          2
+        ),
+        'utf-8'
+      );
+
+      const running = await createServer({
+        extensions: { enabled: ['boom'] },
+        deps: {
+          getDefaults: () => DEFAULTS_WITHOUT_NESTED,
+          createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+          createCoordinator: jest.fn(),
+          closeLogger: jest.fn().mockResolvedValue(undefined)
+        }
+      } as any);
+
+      try {
+        const res = await new Promise<{ statusCode: number; body: any }>((resolve, reject) => {
+          http
+            .get(`${running.url}/health`, (r) => {
+              const chunks: Buffer[] = [];
+              r.on('data', (c) => chunks.push(Buffer.from(c)));
+              r.on('end', () => {
+                resolve({ statusCode: r.statusCode ?? 0, body: JSON.parse(Buffer.concat(chunks).toString('utf-8')) });
+              });
+            })
+            .on('error', reject);
+        });
+
+        expect(res.statusCode).toBe(500);
+        expect(res.body).toEqual({
+          type: 'error',
+          error: { message: 'boom', code: 'internal' }
+        });
+      } finally {
+        await running.close();
+      }
+    });
   });
 
   test('createServer optionally validates plugins once per registry when LLM_ADAPTER_VALIDATE_PLUGINS=1', async () => {
@@ -382,5 +452,78 @@ describe('utils/server index default branches', () => {
 
     // If security headers are disabled, we should not set any security headers.
     expect(res.setHeader).not.toHaveBeenCalled();
+  });
+
+  test('createServer falls back to a generic HTTP error if writing the mapped extension error fails', async () => {
+    await withTempCwd('server-extension-throws-error-response-fails', async (cwd) => {
+      const packRoot = path.join(cwd, 'pack-a');
+      fs.mkdirSync(path.join(packRoot, 'extensions', 'boom'), { recursive: true });
+      fs.writeFileSync(
+        path.join(packRoot, 'extensions', 'boom', 'index.js'),
+        [
+          "module.exports = {",
+          "  name: 'boom',",
+          "  registerServer: () => ({",
+          "    handleHttp: () => { throw new Error('boom'); }",
+          "  })",
+          "};"
+        ].join('\n'),
+        'utf-8'
+      );
+
+      fs.writeFileSync(
+        path.join(cwd, 'llm-adapter.paths.json'),
+        JSON.stringify(
+          {
+            paths: {
+              lookup: {
+                extensions: { builtin: false, externalRoots: ['./pack-a'] }
+              }
+            }
+          },
+          null,
+          2
+        ),
+        'utf-8'
+      );
+
+      const running = await createServer({
+        extensions: { enabled: ['boom'] },
+        deps: {
+          getDefaults: () => DEFAULTS_WITHOUT_NESTED,
+          createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+          createCoordinator: jest.fn(),
+          closeLogger: jest.fn().mockResolvedValue(undefined)
+        }
+      } as any);
+
+      try {
+        const requestHandler = running.server.listeners('request')[0] as any;
+        expect(typeof requestHandler).toBe('function');
+
+        const res: any = {
+          headersSent: false,
+          writableEnded: false,
+          statusCode: 0,
+          setHeader: jest.fn()
+            .mockImplementationOnce(() => {
+              throw new Error('setHeader boom');
+            })
+            .mockImplementation(() => undefined),
+          end: jest.fn()
+        };
+
+        await requestHandler({ method: 'GET', url: '/health' } as any, res);
+
+        expect(res.statusCode).toBe(500);
+        expect(res.end).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(String(res.end.mock.calls[0]![0]))).toEqual({
+          type: 'error',
+          error: { message: 'Server error', code: 'internal' }
+        });
+      } finally {
+        await running.close();
+      }
+    });
   });
 });
