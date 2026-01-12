@@ -51,6 +51,9 @@ describe('cli extension commands', () => {
 
     expect(readdirSpy).not.toHaveBeenCalled();
     expect(deps.importCliExtension).not.toHaveBeenCalled();
+    expect(deps.error).toHaveBeenCalledWith(
+      expect.stringContaining('\"code\":\"extension_not_found\"')
+    );
     expect(deps.exit).toHaveBeenCalledWith(1);
 
     readdirSpy.mockRestore();

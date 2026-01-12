@@ -828,12 +828,19 @@ export function createUnifiedProgram(
     .allowUnknownOption(true)
     .helpOption(false)
     .action(async (_options, command) => {
-      const extName = command.args[0];
+      const extName = String(command.args[0]).trim();
       try {
         const { loadExtensionDefaults, resolveExtensionEntry } = await import('../../extensions/index.js');
         const resolved = resolveExtensionEntry(extName);
 
         if (!resolved) {
+          deps.error(JSON.stringify({
+            type: 'error',
+            error: {
+              message: `Extension '${extName}' not found. Run 'llm-adapter extensions list' to enumerate available extensions.`,
+              code: 'extension_not_found'
+            }
+          }));
           deps.exit(1);
           return;
         }
