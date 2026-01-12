@@ -94,7 +94,18 @@ function resolveSensitiveKeyPatterns(overrides?: string[]): string[] {
   const defaults = getDefaults();
   const fromConfig = readSensitiveKeysFromDefaults(defaults);
   const normalized = normalizeKeyPatterns(fromConfig);
-  return normalized.length > 0 ? normalized : FALLBACK_SENSITIVE_KEYS;
+  if (normalized.length === 0) return FALLBACK_SENSITIVE_KEYS;
+
+  const merged = [...FALLBACK_SENSITIVE_KEYS, ...normalized];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const pattern of merged) {
+    const key = pattern.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(pattern);
+  }
+  return out;
 }
 
 function escapeRegExp(value: string): string {

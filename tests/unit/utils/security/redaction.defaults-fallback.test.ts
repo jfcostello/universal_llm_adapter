@@ -67,4 +67,28 @@ describe('utils/security/redaction (defaults fallback)', () => {
       'https://api.example.com/?key=***1234'
     );
   });
+
+  test('always includes built-in sensitive keys even when defaults provides a non-empty subset', async () => {
+    const unstableMockModule = (jest as unknown as { unstable_mockModule?: typeof jest.unstable_mockModule })
+      .unstable_mockModule;
+    if (!unstableMockModule) {
+      throw new Error('jest.unstable_mockModule is not available in this environment');
+    }
+
+    jest.resetModules();
+
+    await unstableMockModule('../../../../kernel/index.js', () => ({
+      __esModule: true,
+      getDefaults: () => ({
+        security: { redaction: { sensitiveKeys: ['authorization'] } }
+      })
+    }));
+
+    const security = await import('@/modules/security/index.ts');
+
+    // `key` is part of the built-in fallback list and must still be redacted even if defaults provides a subset list.
+    expect(security.redactUrlQueryCredentials('https://api.example.com?key=abcd1234')).toBe(
+      'https://api.example.com/?key=***1234'
+    );
+  });
 });
