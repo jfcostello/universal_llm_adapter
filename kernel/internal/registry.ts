@@ -113,11 +113,24 @@ export class PluginRegistry {
   }
 
   private normalizeLookupConfig(cwd: string, lookup?: PluginRegistryLookupConfig): NormalizedPluginRegistryLookupConfig {
-    const baseExternal = Array.isArray(lookup?.externalRoots) ? lookup!.externalRoots : [];
-    const externalRoots = baseExternal
-      .map(v => (typeof v === 'string' ? v.trim() : ''))
-      .filter(Boolean)
-      .map(v => (path.isAbsolute(v) ? v : path.resolve(cwd, v)));
+    const normalizeExternalRoots = (raw: unknown): string[] => {
+      const list = Array.isArray(raw) ? raw : [];
+      const result: string[] = [];
+      const seen = new Set<string>();
+
+      for (const item of list) {
+        const trimmed = typeof item === 'string' ? item.trim() : '';
+        if (!trimmed) continue;
+        const resolved = path.isAbsolute(trimmed) ? trimmed : path.resolve(cwd, trimmed);
+        if (seen.has(resolved)) continue;
+        seen.add(resolved);
+        result.push(resolved);
+      }
+
+      return result;
+    };
+
+    const externalRoots = normalizeExternalRoots(lookup?.externalRoots);
 
     const areas: Record<string, PluginRegistryLookupAreaConfig> = {};
     if (lookup?.areas && typeof lookup.areas === 'object') {
@@ -131,10 +144,7 @@ export class PluginRegistry {
           ...(typeof (value as any).local === 'boolean' ? { local: Boolean((value as any).local) } : {}),
           ...(areaExternal
             ? {
-                externalRoots: areaExternal
-                  .map((v: unknown): string => (typeof v === 'string' ? v.trim() : ''))
-                  .filter((v: string): v is string => Boolean(v))
-                  .map((v: string) => (path.isAbsolute(v) ? v : path.resolve(cwd, v)))
+                externalRoots: normalizeExternalRoots(areaExternal)
               }
             : {})
         };
@@ -291,6 +301,35 @@ export class PluginRegistry {
       if (fs.existsSync(preferredRoot)) {
         const preferredEntry = this.resolvePluginCodeEntryInRoot(preferredRoot, moduleName);
         if (preferredEntry) {
+          if (this.lookup?.warnOnOverride) {
+            const rootsHighToLow = this.getPackRootsLowToHigh(area, 'code').slice().reverse();
+            const overridden: Array<{ root: string; kind: PluginRegistrySourceKind; precedence: number; modulePath: string }> = [];
+
+            for (const root of rootsHighToLow) {
+              if (root.root === preferred) continue;
+              const codeRoot = path.join(root.root, area);
+              if (!fs.existsSync(codeRoot)) continue;
+
+              const found = this.resolvePluginCodeEntryInRoot(codeRoot, moduleName);
+              if (found) {
+                overridden.push({ root: root.root, kind: root.kind, precedence: root.precedence, modulePath: found });
+              }
+            }
+
+            if (overridden.length > 0) {
+              const preferredMeta = rootsHighToLow.find(r => r.root === preferred);
+              const winner = preferredMeta ?? { kind: 'external' as PluginRegistrySourceKind, root: preferred, precedence: -1 };
+              try {
+                console.warn('plugin_registry.code_override', {
+                  area,
+                  moduleName,
+                  winner: { kind: winner.kind, root: winner.root, precedence: winner.precedence, modulePath: preferredEntry },
+                  overridden: overridden.map(h => ({ kind: h.kind, root: h.root, precedence: h.precedence, modulePath: h.modulePath }))
+                });
+              } catch {}
+            }
+          }
+
           return { modulePath: preferredEntry, key: cacheKey };
         }
       }
@@ -526,7 +565,7 @@ export class PluginRegistry {
     if (this.providersLoaded) return;
 
     if (this.mode === 'legacy') {
-      const files = glob.sync('providers/*.json', { cwd: this.rootPath });
+      const files = glob.sync('providers/*.json', { cwd: this.rootPath }).sort();
       for (const file of files) {
         if (options.strict) {
           const manifest = loadJsonFile(path.join(this.rootPath, file)) as ProviderManifest;
@@ -548,7 +587,7 @@ export class PluginRegistry {
 
     const roots = this.getPackRootsLowToHigh('providers', 'manifests');
     for (const root of roots) {
-      const files = glob.sync('providers/*.json', { cwd: root.root });
+      const files = glob.sync('providers/*.json', { cwd: root.root }).sort();
       for (const file of files) {
         const fullPath = path.join(root.root, file);
         const source: ManifestSourceMeta = { kind: root.kind, root: root.root, filePath: fullPath, precedence: root.precedence };
@@ -596,7 +635,7 @@ export class PluginRegistry {
     if (this.realtimeProvidersLoaded) return;
 
     if (this.mode === 'legacy') {
-      const files = glob.sync('realtime-providers/*.json', { cwd: this.rootPath });
+      const files = glob.sync('realtime-providers/*.json', { cwd: this.rootPath }).sort();
       for (const file of files) {
         if (options.strict) {
           const manifest = loadJsonFile(path.join(this.rootPath, file)) as RealtimeProviderManifest;
@@ -618,7 +657,7 @@ export class PluginRegistry {
 
     const roots = this.getPackRootsLowToHigh('realtime-providers', 'manifests');
     for (const root of roots) {
-      const files = glob.sync('realtime-providers/*.json', { cwd: root.root });
+      const files = glob.sync('realtime-providers/*.json', { cwd: root.root }).sort();
       for (const file of files) {
         const fullPath = path.join(root.root, file);
         const source: ManifestSourceMeta = { kind: root.kind, root: root.root, filePath: fullPath, precedence: root.precedence };
@@ -666,7 +705,7 @@ export class PluginRegistry {
     if (this.toolsLoaded) return;
 
     if (this.mode === 'legacy') {
-      const files = glob.sync('tools/*.json', { cwd: this.rootPath });
+      const files = glob.sync('tools/*.json', { cwd: this.rootPath }).sort();
       for (const file of files) {
         if (options.strict) {
           const tool = loadJsonFile(path.join(this.rootPath, file)) as UnifiedTool;
@@ -688,7 +727,7 @@ export class PluginRegistry {
 
     const roots = this.getPackRootsLowToHigh('tools', 'manifests');
     for (const root of roots) {
-      const files = glob.sync('tools/*.json', { cwd: root.root });
+      const files = glob.sync('tools/*.json', { cwd: root.root }).sort();
       for (const file of files) {
         const fullPath = path.join(root.root, file);
         const source: ManifestSourceMeta = { kind: root.kind, root: root.root, filePath: fullPath, precedence: root.precedence };
@@ -738,7 +777,7 @@ export class PluginRegistry {
     const { parseMCPManifest } = await import('../../modules/mcp/index.js');
 
     if (this.mode === 'legacy') {
-      const files = glob.sync('mcp/*.json', { cwd: this.rootPath });
+      const files = glob.sync('mcp/*.json', { cwd: this.rootPath }).sort();
       for (const file of files) {
         if (options.strict) {
           const manifestPath = path.join(this.rootPath, file);
@@ -768,7 +807,7 @@ export class PluginRegistry {
 
     const roots = this.getPackRootsLowToHigh('mcp', 'manifests');
     for (const root of roots) {
-      const files = glob.sync('mcp/*.json', { cwd: root.root });
+      const files = glob.sync('mcp/*.json', { cwd: root.root }).sort();
       for (const file of files) {
         const manifestPath = path.join(root.root, file);
         const source: ManifestSourceMeta = { kind: root.kind, root: root.root, filePath: manifestPath, precedence: root.precedence };
@@ -820,7 +859,7 @@ export class PluginRegistry {
     if (this.vectorStoresLoaded) return;
 
     if (this.mode === 'legacy') {
-      const files = glob.sync('vector/*.json', { cwd: this.rootPath });
+      const files = glob.sync('vector/*.json', { cwd: this.rootPath }).sort();
       for (const file of files) {
         if (options.strict) {
           const store = loadJsonFile(path.join(this.rootPath, file)) as VectorStoreConfig;
@@ -842,7 +881,7 @@ export class PluginRegistry {
 
     const roots = this.getPackRootsLowToHigh('vector', 'manifests');
     for (const root of roots) {
-      const files = glob.sync('vector/*.json', { cwd: root.root });
+      const files = glob.sync('vector/*.json', { cwd: root.root }).sort();
       for (const file of files) {
         const fullPath = path.join(root.root, file);
         const source: ManifestSourceMeta = { kind: root.kind, root: root.root, filePath: fullPath, precedence: root.precedence };
@@ -890,7 +929,7 @@ export class PluginRegistry {
     if (this.processRoutesLoaded) return;
 
     if (this.mode === 'legacy') {
-      const files = glob.sync('processes/*.json', { cwd: this.rootPath });
+      const files = glob.sync('processes/*.json', { cwd: this.rootPath }).sort();
       for (const file of files) {
         const fullPath = path.join(this.rootPath, file);
         const source: ManifestSourceMeta = { kind: 'local', root: this.rootPath, filePath: fullPath, precedence: 0 };
@@ -929,7 +968,7 @@ export class PluginRegistry {
     const routesById = new Map<string, ProcessRouteManifest>();
     const roots = this.getPackRootsLowToHigh('processes', 'manifests');
     for (const root of roots) {
-      const files = glob.sync('processes/*.json', { cwd: root.root });
+      const files = glob.sync('processes/*.json', { cwd: root.root }).sort();
       for (const file of files) {
         const fullPath = path.join(root.root, file);
         const source: ManifestSourceMeta = { kind: root.kind, root: root.root, filePath: fullPath, precedence: root.precedence };
@@ -979,7 +1018,7 @@ export class PluginRegistry {
     if (this.embeddingProvidersLoaded) return;
 
     if (this.mode === 'legacy') {
-      const files = glob.sync('embeddings/*.json', { cwd: this.rootPath });
+      const files = glob.sync('embeddings/*.json', { cwd: this.rootPath }).sort();
       for (const file of files) {
         if (options.strict) {
           const config = loadJsonFile(path.join(this.rootPath, file)) as EmbeddingProviderConfig;
@@ -1001,7 +1040,7 @@ export class PluginRegistry {
 
     const roots = this.getPackRootsLowToHigh('embeddings', 'manifests');
     for (const root of roots) {
-      const files = glob.sync('embeddings/*.json', { cwd: root.root });
+      const files = glob.sync('embeddings/*.json', { cwd: root.root }).sort();
       for (const file of files) {
         const fullPath = path.join(root.root, file);
         const source: ManifestSourceMeta = { kind: root.kind, root: root.root, filePath: fullPath, precedence: root.precedence };
@@ -1049,7 +1088,7 @@ export class PluginRegistry {
     if (this.observabilityProvidersLoaded) return;
 
     if (this.mode === 'legacy') {
-      const files = glob.sync('observability-providers/*.json', { cwd: this.rootPath });
+      const files = glob.sync('observability-providers/*.json', { cwd: this.rootPath }).sort();
       for (const file of files) {
         if (options.strict) {
           const manifest = loadJsonFile(path.join(this.rootPath, file)) as ObservabilityProviderManifest;
@@ -1071,7 +1110,7 @@ export class PluginRegistry {
 
     const roots = this.getPackRootsLowToHigh('observability-providers', 'manifests');
     for (const root of roots) {
-      const files = glob.sync('observability-providers/*.json', { cwd: root.root });
+      const files = glob.sync('observability-providers/*.json', { cwd: root.root }).sort();
       for (const file of files) {
         const fullPath = path.join(root.root, file);
         const source: ManifestSourceMeta = { kind: root.kind, root: root.root, filePath: fullPath, precedence: root.precedence };
@@ -1128,24 +1167,29 @@ export class PluginRegistry {
     await this.loadObservabilityProvidersInternal({ strict: true });
 
     // Validate that referenced plugin code modules exist and can be imported.
-    for (const provider of this.providers.values()) {
-      await this.ensureCompatModuleLoaded(provider.compat);
+    for (const [id, provider] of this.providers.entries()) {
+      const preferredPackRoot = this.getManifestSource('providers', id)?.root;
+      await this.ensureCompatModuleLoaded(provider.compat, { preferredPackRoot });
     }
 
-    for (const provider of this.realtimeProviders.values()) {
-      await this.ensureRealtimeCompatLoaded(provider.compat);
+    for (const [id, provider] of this.realtimeProviders.entries()) {
+      const preferredPackRoot = this.getManifestSource('realtime-providers', id)?.root;
+      await this.ensureRealtimeCompatLoaded(provider.compat, { preferredPackRoot });
     }
 
-    for (const store of this.vectorStores.values()) {
-      await this.ensureVectorStoreCompatLoaded(store.kind);
+    for (const [id, store] of this.vectorStores.entries()) {
+      const preferredPackRoot = this.getManifestSource('vector', id)?.root;
+      await this.ensureVectorStoreCompatLoaded(store.kind, { preferredPackRoot });
     }
 
-    for (const embedding of this.embeddingProviders.values()) {
-      await this.ensureEmbeddingCompatLoaded(embedding.kind);
+    for (const [id, embedding] of this.embeddingProviders.entries()) {
+      const preferredPackRoot = this.getManifestSource('embeddings', id)?.root;
+      await this.ensureEmbeddingCompatLoaded(embedding.kind, { preferredPackRoot });
     }
 
-    for (const observability of this.observabilityProviders.values()) {
-      await this.ensureObservabilityCompatLoaded(observability.compat);
+    for (const [id, observability] of this.observabilityProviders.entries()) {
+      const preferredPackRoot = this.getManifestSource('observability-providers', id)?.root;
+      await this.ensureObservabilityCompatLoaded(observability.compat, { preferredPackRoot });
     }
   }
 

@@ -849,6 +849,8 @@ describe('plugins/voice-compat/twilio', () => {
   });
 
   test('handleMediaConnection logs call_logs.persist_failed when persistCallLogs throws', async () => {
+    const prevCallLogsEnabled = process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
+    process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED = '1';
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
 
@@ -884,10 +886,64 @@ describe('plugins/voice-compat/twilio', () => {
       expect(logger.warning.mock.calls.some(([msg]) => msg === 'voice.twilio.call_logs.persist_failed')).toBe(true);
     } finally {
       persistSpy.mockRestore();
+      if (prevCallLogsEnabled === undefined) {
+        delete process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
+      } else {
+        process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED = prevCallLogsEnabled;
+      }
+    }
+  });
+
+  test('handleMediaConnection defaults call log capture to enabled when LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED is unset', async () => {
+    const prevCallLogsEnabled = process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
+    delete process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
+
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+    const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
+
+    const { registry } = createRegistryHarness();
+    const logger = createSpyLogger();
+
+    const compat = new TwilioVoiceCompat();
+    const persistSpy = jest.spyOn(compat as any, 'persistCallLogs').mockImplementation(async () => {
+      throw new Error('boom');
+    });
+
+    try {
+      const ws = new MockWebSocket();
+      const task = compat.handleMediaConnection({
+        ws: ws as any,
+        req: { url: `/voice/media?token=${encodeURIComponent(token)}` } as any,
+        callConfigId: 'cfg_1',
+        callConfig: {
+          realtimeSpec: { provider: 'realtime_p1' }
+        },
+        voiceProvider: 'twilio',
+        registry,
+        logger,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token', apiBaseUrl: 'https://api.example.test' }
+      } as any);
+
+      ws.emitMessage(startMessage());
+      await flush();
+      ws.emitMessage(stopMessage());
+      await task;
+      await flush();
+
+      expect(logger.warning.mock.calls.some(([msg]) => msg === 'voice.twilio.call_logs.persist_failed')).toBe(true);
+    } finally {
+      persistSpy.mockRestore();
+      if (prevCallLogsEnabled === undefined) {
+        delete process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
+      } else {
+        process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED = prevCallLogsEnabled;
+      }
     }
   });
 
   test('handleMediaConnection uses String(error) fallback when persistCallLogs throws non-Error', async () => {
+    const prevCallLogsEnabled = process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
+    process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED = '1';
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
 
@@ -925,6 +981,11 @@ describe('plugins/voice-compat/twilio', () => {
       expect(warning?.[1]).toMatchObject({ message: 'boom' });
     } finally {
       persistSpy.mockRestore();
+      if (prevCallLogsEnabled === undefined) {
+        delete process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
+      } else {
+        process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED = prevCallLogsEnabled;
+      }
     }
   });
 
@@ -951,7 +1012,7 @@ describe('plugins/voice-compat/twilio', () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
 
-    const { registry } = createRegistryHarness();
+    const { registry, createSession } = createRegistryHarness();
     const logger = createSpyLogger();
 
     const compat = new TwilioVoiceCompat();
@@ -971,6 +1032,8 @@ describe('plugins/voice-compat/twilio', () => {
 
     ws.emitMessage(startMessage());
     await task;
+
+    expect(createSession).not.toHaveBeenCalled();
 
     const logged = JSON.stringify(logger.error.mock.calls);
     expect(logged).toContain('voice.media.bridge_error');

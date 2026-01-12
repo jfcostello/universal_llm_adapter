@@ -496,6 +496,51 @@ describe('utils/tools/tool-coordinator success paths', () => {
     loadSpy.mockRestore();
   });
 
+  test('invokeModule preserves npm package subpath specifiers (with extensions) when registry source is present', async () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-process-pack-'));
+    try {
+      const packRoot = path.join(tmpRoot, 'pack');
+      const manifestPath = path.join(packRoot, 'processes', 'echo.json');
+      fs.mkdirSync(path.join(packRoot, 'processes'), { recursive: true });
+
+      const registry = {
+        getManifestSource: (area: string, id: string) =>
+          area === 'processes' && id === 'module-package-subpath'
+            ? { kind: 'external', root: packRoot, filePath: manifestPath, precedence: 0 }
+            : undefined
+      } as any;
+
+      const route = {
+        id: 'module-package-subpath',
+        match: { type: 'exact', pattern: 'module.pkg.subpath' },
+        invoke: { kind: 'module', module: '@scope/pkg/dist/handler.js', function: 'handle' }
+      };
+
+      const coordinator = new ToolCoordinator([route as any], undefined, { registry });
+      const proto = Object.getPrototypeOf(coordinator) as any;
+      const timeoutSpy = jest
+        .spyOn(coordinator as any, 'createTimeout')
+        .mockImplementation(() => new Promise<never>(() => {}));
+
+      const loadSpy = jest.spyOn(proto, 'loadModule').mockResolvedValue({
+        handle: async (ctx: any) => ({ result: { ok: true, tool: ctx.toolName } })
+      });
+
+      const result = await coordinator.routeAndInvoke('module.pkg.subpath', 'call-9', {}, {
+        provider: 'p',
+        model: 'm'
+      });
+
+      timeoutSpy.mockRestore();
+      expect(result).toEqual({ result: { ok: true, tool: 'module.pkg.subpath' } });
+      expect(loadSpy).toHaveBeenCalledWith('@scope/pkg/dist/handler.js');
+
+      loadSpy.mockRestore();
+    } finally {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
   test('invokeModule throws when a registry-owned module route cannot resolve a path-like module specifier', async () => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-process-pack-'));
     try {

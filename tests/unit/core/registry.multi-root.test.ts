@@ -188,7 +188,46 @@ describe('core/registry (multi-root)', () => {
         // Call a second time to ensure early-return paths for both manifests and plugin code caches are exercised.
         await expect(registry.validateAll()).resolves.toBeUndefined();
 
+        const compat = await registry.getCompatModuleForProvider('p');
+        expect((compat as any).__marker).toBe('B');
+
+        const compatModules = (registry as any).compatModules as Map<string, any>;
+        expect(compatModules.size).toBe(1);
+        expect(Array.from(compatModules.keys())[0]).toContain('@@');
+
         expect(warnSpy.mock.calls.some(([msg]) => msg === 'plugin_registry.override')).toBe(true);
+        expect(warnSpy.mock.calls.some(([msg]) => msg === 'plugin_registry.code_override')).toBe(true);
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+  });
+
+  test('emits code override warnings when resolving a compat module without preferredPackRoot', async () => {
+    await withTempCwd('registry-multi-root-code-override-warning', async (cwd) => {
+      const rootA = path.join(cwd, 'pack-a');
+      const rootB = path.join(cwd, 'pack-b');
+      fs.mkdirSync(rootA, { recursive: true });
+      fs.mkdirSync(rootB, { recursive: true });
+
+      writeCjsClass(rootA, 'compat', 'foo', 'A');
+      writeCjsClass(rootB, 'compat', 'foo', 'B');
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const registry = new PluginRegistry({
+          pluginsPath: './plugins',
+          lookup: {
+            warnOnOverride: true,
+            builtinManifests: false,
+            builtinCode: false,
+            local: false,
+            externalRoots: [rootA, rootB]
+          }
+        });
+
+        const compat = await registry.getCompatModule('foo');
+        expect((compat as any).__marker).toBe('B');
         expect(warnSpy.mock.calls.some(([msg]) => msg === 'plugin_registry.code_override')).toBe(true);
       } finally {
         warnSpy.mockRestore();
@@ -325,6 +364,33 @@ describe('core/registry (multi-root)', () => {
       const provider = await registry.getProvider('local-provider');
       expect(provider.id).toBe('local-provider');
       expect(registry.getManifestSource('providers', 'local-provider')?.kind).toBe('local');
+    });
+  });
+
+  test('dedupes externalRoots (base + per-area) while preserving order', async () => {
+    await withTempCwd('registry-multi-root-dedupe-external-roots', async (cwd) => {
+      const rootA = path.join(cwd, 'pack-a');
+      const rootB = path.join(cwd, 'pack-b');
+      fs.mkdirSync(rootA, { recursive: true });
+      fs.mkdirSync(rootB, { recursive: true });
+
+      const registry = new PluginRegistry({
+        pluginsPath: './plugins',
+        lookup: {
+          warnOnOverride: true,
+          builtinManifests: false,
+          builtinCode: false,
+          local: false,
+          externalRoots: [rootA, rootA, rootB, rootA],
+          areas: {
+            compat: { externalRoots: [rootB, rootB] }
+          }
+        }
+      });
+
+      const lookup = (registry as any).lookup as any;
+      expect(lookup.base.externalRoots).toEqual([rootA, rootB]);
+      expect(lookup.areas.compat.externalRoots).toEqual([rootB]);
     });
   });
 

@@ -2,6 +2,10 @@ import baseConfig from './jest.config.js';
 
 export default {
   ...baseConfig,
+  setupFiles: [
+    ...(baseConfig.setupFiles ?? []),
+    '<rootDir>/tests/setup/extensions-env.cjs'
+  ],
   testMatch: [
     '<rootDir>/extensions/**/tests/**/*.test.ts',
     '<rootDir>/extensions/**/plugins/**/tests/**/*.test.ts'

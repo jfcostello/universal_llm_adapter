@@ -61,6 +61,59 @@ describe('utils/server createServerHandler', () => {
     securityHeadersEnabled: true
   };
 
+  test('handles GET /extensions/list', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config
+    });
+
+    const req = makeReq('GET', '/extensions/list');
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(200);
+    const parsed = JSON.parse(out.body);
+    expect(parsed.type).toBe('response');
+    expect(Array.isArray(parsed.data)).toBe(true);
+    expect(parsed.data.length).toBeGreaterThan(0);
+    expect(parsed.data.some((e: any) => e?.name === 'voice')).toBe(true);
+    expect(parsed.data[0]).toEqual(expect.objectContaining({
+      name: expect.any(String),
+      kind: expect.any(String),
+      root: expect.any(String)
+    }));
+  });
+
+  test('handles GET /extensions/list errors', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, auth: { enabled: true } }
+    });
+
+    const req = makeReq('GET', '/extensions/list');
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(401);
+    const parsed = JSON.parse(out.body);
+    expect(parsed.type).toBe('error');
+    expect(parsed.error.code).toBe('unauthorized');
+  });
+
   test('handles /vector/run with vector coordinator', async () => {
     const vectorExecute = jest.fn().mockResolvedValue({ ok: true });
     const handler = createServerHandler({

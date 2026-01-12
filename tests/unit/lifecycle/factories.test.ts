@@ -15,6 +15,7 @@ describe('lifecycle/internal/factories', () => {
       const PluginRegistryMock = jest.fn().mockImplementation(() => mockRegistry);
 
       (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
+        isPlainObject: (value: unknown) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
         PluginRegistry: PluginRegistryMock,
         getAdapterPathsConfig: () => null
       }));
@@ -31,6 +32,7 @@ describe('lifecycle/internal/factories', () => {
       const PluginRegistryMock = jest.fn().mockImplementation(() => mockRegistry);
 
       (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
+        isPlainObject: (value: unknown) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
         PluginRegistry: PluginRegistryMock,
         getAdapterPathsConfig: () => ({
           filePath: '/tmp/llm-adapter.paths.json',
@@ -78,6 +80,7 @@ describe('lifecycle/internal/factories', () => {
       const PluginRegistryMock = jest.fn().mockImplementation(() => mockRegistry);
 
       (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
+        isPlainObject: (value: unknown) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
         PluginRegistry: PluginRegistryMock,
         getAdapterPathsConfig: () => ({
           filePath: '/tmp/llm-adapter.paths.json',
@@ -125,6 +128,7 @@ describe('lifecycle/internal/factories', () => {
       const PluginRegistryMock = jest.fn().mockImplementation(() => mockRegistry);
 
       (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
+        isPlainObject: (value: unknown) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
         PluginRegistry: PluginRegistryMock,
         getAdapterPathsConfig: () => ({
           filePath: '/tmp/llm-adapter.paths.json',

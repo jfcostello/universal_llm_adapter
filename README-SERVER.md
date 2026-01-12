@@ -208,6 +208,20 @@ curl http://127.0.0.1:3000/ready
 {"ok": false}
 ```
 
+### Extensions List
+
+```
+GET /extensions/list
+```
+
+Lists available extensions across configured pack roots (same shape as `llm-adapter extensions list`).
+
+**Example:**
+
+```bash
+curl http://127.0.0.1:3000/extensions/list
+```
+
 ### Realtime WebSocket
 
 ```

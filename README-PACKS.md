@@ -14,7 +14,7 @@ The adapter looks for `llm-adapter.paths.json` in this order:
 
 If no file is found, the adapter falls back to the legacy single-root behavior.
 
-> Note: the JSON loader supports `${ENV_VAR}` substitution (and `${ENV_VAR?}` for required env vars).
+> Note: the JSON loader supports `${ENV_VAR}` substitution (required), `${ENV_VAR?}` (optional), and `${ENV_VAR:-default}` (fallback default).
 
 ## What is a “pack root”?
 
@@ -78,4 +78,3 @@ An extension can ship a per-extension defaults file:
 - `extensions/<name>/defaults.json`
 
 The server loads this only when the extension is enabled, and merges it with `server.extensions[<name>]` (legacy override wins).
-

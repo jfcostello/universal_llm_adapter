@@ -334,6 +334,7 @@ describe('modules/usage-cost loading fallback', () => {
     (jest as any).unstable_mockModule('fs', () => fsMock);
     (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
       __esModule: true,
+      isPlainObject: (value: unknown) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
       PACKAGE_ROOT: process.cwd(),
       getAdapterPathsConfig: () => null,
       loadJsonFile: () => {
@@ -364,6 +365,7 @@ describe('modules/usage-cost loading fallback', () => {
 
     (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
       __esModule: true,
+      isPlainObject: (value: unknown) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
       PACKAGE_ROOT: pkgRoot,
       getAdapterPathsConfig: () => null,
       loadJsonFile: (filePath: string) => {
@@ -399,6 +401,7 @@ describe('modules/usage-cost loading fallback', () => {
 
     (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
       __esModule: true,
+      isPlainObject: (value: unknown) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
       PACKAGE_ROOT: pkgRoot,
       getAdapterPathsConfig: () => null,
       loadJsonFile: (filePath: string) => {

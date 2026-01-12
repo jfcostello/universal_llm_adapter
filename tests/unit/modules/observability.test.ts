@@ -1925,6 +1925,7 @@ describe('modules/observability', () => {
 
       // Mock the kernel module to return defaults with no provider
       jest.unstable_mockModule('@/kernel/index.ts', () => ({
+        isPlainObject: (value: unknown) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
         getNoopObservabilityDeps: () => ({
           isEnabled: () => false,
           getExporter: () => ({
@@ -2412,6 +2413,7 @@ describe('modules/observability', () => {
       };
 
       (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
+        isPlainObject: (value: unknown) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
         getNoopObservabilityDeps: () => ({
           isEnabled: () => false,
           getExporter: () => ({

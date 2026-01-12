@@ -126,6 +126,8 @@ Artifacts are best-effort (permissions vary by account/project). When available,
 Retention is applied using the same max-files / max-age policy as other voice logs.
 
 Controls:
+- `LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED` (default: `true`)
+  - Set to `0` / `false` / `off` to disable call log capture.
 - `LLM_ADAPTER_TWILIO_CALL_LOGS_MAX_PAGES` (default: `25`)
   - Hard cap for paginated resources (`events`, `recordings`, `debugger-events`).
 - `LLM_ADAPTER_TWILIO_CALL_LOGS_MAX_RETRIES` (default: `2`)

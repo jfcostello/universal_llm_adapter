@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { UsageStats } from '../../../kernel/index.js';
-import { getAdapterPathsConfig, loadJsonFile, PACKAGE_ROOT } from '../../../kernel/index.js';
+import { getAdapterPathsConfig, isPlainObject, loadJsonFile, PACKAGE_ROOT } from '../../../kernel/index.js';
 import { getPromptTokensIncludeCached } from '../../usage/index.js';
 
 export interface UsageCostRates {
@@ -14,10 +14,6 @@ export type UsageCostTable = Record<string, Record<string, UsageCostRates>>;
 
 const COST_TABLE_FILENAME = 'usage-costs.json';
 let cachedTable: UsageCostTable | null | undefined;
-
-function isPlainObject(value: unknown): value is Record<string, any> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
 
 function resolveCostTablePaths(): string[] {
   const candidates = [

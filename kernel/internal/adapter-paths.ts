@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { loadJsonFile } from './config.js';
+import { isPlainObject } from './deep-merge.js';
 
 export type AdapterPathsConfigSource = 'env' | 'cwd' | 'walk-up';
 
@@ -50,10 +51,6 @@ const PATHS_FILE_ENV_VAR = 'LLM_ADAPTER_PATHS_FILE';
 
 let cached: AdapterPathsConfig | null | undefined;
 let cachedCwd: string | undefined;
-
-function isPlainObject(value: unknown): value is Record<string, any> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
 
 function normalizeString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;

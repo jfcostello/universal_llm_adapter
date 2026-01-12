@@ -16,6 +16,7 @@ describe('root switchboard', () => {
       jest.unstable_mockModule('../../kernel/index.js', () => {
         kernelImports += 1;
         return {
+          isPlainObject: (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
           getDefaults: () => ({ defaults: true })
         };
       });

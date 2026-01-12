@@ -76,6 +76,57 @@ describe('plugins/voice-compat/twilio: call log capture', () => {
     expect(fetchSpy.mock.calls[1]?.[0]?.url).toBe('https://api.twilio.com/next');
   });
 
+  test('fetchJsonWithRetry retries on 429 and 5xx responses', async () => {
+    const fetchSpy = jest
+      .spyOn(globalThis as any, 'fetch')
+      .mockResolvedValueOnce(new Response('rate limited', { status: 429 }) as any)
+      .mockResolvedValueOnce(new Response('server error', { status: 500 }) as any)
+      .mockResolvedValueOnce(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }) as any);
+
+    try {
+      const mod = await import('../../index.js');
+      const TwilioVoiceCompat = (mod as any).default;
+      const compat = new TwilioVoiceCompat();
+
+      await expect((compat as any).fetchJsonWithRetry({
+        url: 'https://api.example.test/test.json',
+        headers: {},
+        maxRetries: 2,
+        baseDelayMs: 0,
+        maxDelayMs: 0
+      })).resolves.toEqual({});
+
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test('fetchJsonWithRetry tolerates failures reading error bodies', async () => {
+    const fetchSpy = jest
+      .spyOn(globalThis as any, 'fetch')
+      .mockResolvedValueOnce({ ok: false, status: 500, text: async () => { throw new Error('boom'); } } as any)
+      .mockResolvedValueOnce(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }) as any);
+
+    try {
+      const mod = await import('../../index.js');
+      const TwilioVoiceCompat = (mod as any).default;
+      const compat = new TwilioVoiceCompat();
+
+      await expect((compat as any).fetchJsonWithRetry({
+        url: 'https://api.example.test/test.json',
+        headers: {},
+        maxRetries: 1,
+        baseDelayMs: 0,
+        maxDelayMs: 0
+      })).resolves.toEqual({});
+
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   test('persistCallLogs is a no-op when providerCallId is undefined', async () => {
     await withTempCwd('twilio-call-logs-no-callid', async (cwd) => {
       const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockImplementation(async () => {
@@ -115,6 +166,60 @@ describe('plugins/voice-compat/twilio: call log capture', () => {
 
         expect(fetchSpy).not.toHaveBeenCalled();
         expect(fs.existsSync(path.join(cwd, 'logs', 'voice', 'twilio'))).toBe(false);
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+  });
+
+  test('persistCallLogs treats non-object providerDefaults as empty', async () => {
+    await withTempCwd('twilio-call-logs-non-object-defaults', async (cwd) => {
+      const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockImplementation(async () => {
+        throw new Error('fetch should not be called');
+      });
+
+      try {
+        const mod = await import('../../index.js');
+        const TwilioVoiceCompat = (mod as any).default;
+        const compat = new TwilioVoiceCompat();
+
+        await expect((compat as any).persistCallLogs({
+          callConfigId: 'cfg_1',
+          providerCallId: 'CA123',
+          providerDefaults: [] as any
+        })).resolves.toBeUndefined();
+
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(fs.existsSync(path.join(cwd, 'logs', 'voice', 'twilio'))).toBe(false);
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+  });
+
+  test('persistCallLogs logs invalid JSON responses as failures', async () => {
+    await withTempCwd('twilio-call-logs-invalid-json', async () => {
+      const fetchSpy = jest
+        .spyOn(globalThis as any, 'fetch')
+        .mockResolvedValueOnce(new Response('not-json', { status: 200, headers: { 'Content-Type': 'application/json' } }) as any)
+        .mockResolvedValue(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }) as any);
+
+      const logger: any = { warning: jest.fn() };
+
+      try {
+        const mod = await import('../../index.js');
+        const TwilioVoiceCompat = (mod as any).default;
+        const compat = new TwilioVoiceCompat();
+
+        await expect((compat as any).persistCallLogs({
+          callConfigId: 'cfg_1',
+          providerCallId: 'CA123',
+          providerDefaults: { accountSid: 'AC123', authToken: 'token', apiBaseUrl: 'https://api.example.test' },
+          logger
+        })).resolves.toBeUndefined();
+
+        const warning = logger.warning.mock.calls.find(([msg]) => msg === 'voice.twilio.call_logs.call_failed');
+        expect(warning?.[1]).toMatchObject({ message: 'Malformed response: invalid JSON' });
       } finally {
         fetchSpy.mockRestore();
       }

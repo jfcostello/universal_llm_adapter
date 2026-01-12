@@ -1,5 +1,7 @@
 export function isPlainObject(value: unknown): value is Record<string, any> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
 }
 
 export function deepMerge(base: Record<string, any>, overlay: Record<string, any>): Record<string, any> {
@@ -16,4 +18,3 @@ export function deepMerge(base: Record<string, any>, overlay: Record<string, any
 
   return merged;
 }
-

@@ -478,10 +478,7 @@ export class ToolCoordinator {
   }
 
   private looksLikeFilePath(value: string): boolean {
-    if (value.startsWith('.') || value.startsWith('/') || value.startsWith('file:')) {
-      return true;
-    }
-    return path.extname(value) !== '';
+    return value.startsWith('.') || value.startsWith('/') || value.startsWith('file:');
   }
 
   private warnInvokeModuleCwdFallback(

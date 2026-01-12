@@ -250,7 +250,7 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
       const touch = () => {
         if (!Number.isFinite(limits.idleTimeoutMs) || limits.idleTimeoutMs <= 0) return;
         if (idleTimer) clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => {
+        idleTimer = setUnrefTimeout(() => {
           callbacks.onError?.({ message: 'WS idle timeout', code: 'ws_idle_timeout', metadata });
           safeClose(ws, 1000, 'Idle timeout');
         }, limits.idleTimeoutMs);
@@ -569,13 +569,13 @@ export function createTwilioMediaStreamsBridge(options: TwilioMediaStreamsBridge
 
       touch();
       if (Number.isFinite(limits.maxSessionDurationMs) && limits.maxSessionDurationMs > 0) {
-        durationTimer = setTimeout(() => {
+        durationTimer = setUnrefTimeout(() => {
           callbacks.onError?.({ message: 'WS max session duration exceeded', code: 'ws_max_duration', metadata });
           safeClose(ws, 1000, 'Max duration');
         }, limits.maxSessionDurationMs);
       }
       if (Number.isFinite(limits.startTimeoutMs) && limits.startTimeoutMs > 0) {
-        startTimer = setTimeout(() => {
+        startTimer = setUnrefTimeout(() => {
           callbacks.onError?.({ message: 'Missing start event', code: 'missing_start', metadata });
           safeClose(ws, 1008, 'Missing start');
         }, limits.startTimeoutMs);

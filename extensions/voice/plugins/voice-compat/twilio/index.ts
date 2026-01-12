@@ -74,6 +74,16 @@ function sleepUnref(ms: number): Promise<void> | undefined {
   });
 }
 
+function isCallLogCaptureEnabled(): boolean {
+  const raw = process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
+  if (raw === undefined || raw === null || raw === '') return true;
+  const normalized = String(raw).trim().toLowerCase();
+  if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off' || normalized === 'disabled') {
+    return false;
+  }
+  return true;
+}
+
 function makeProviderConfigError(message: string): Error {
   return makeHttpError({ message, statusCode: 500, code: 'provider_config_error' });
 }
@@ -765,17 +775,25 @@ export default class TwilioVoiceCompat {
             providerCallMetadata: metadata
           }
         };
-        const session = await createRealtimeSession(options.registry, mergedSpec);
-        if (!assistantFirstTurnEnabled) return session;
+        const assistantFirstTurn = (() => {
+          if (!assistantFirstTurnEnabled) return undefined;
 
-        const prompt = String((assistantFirstTurnCfg as any).prompt);
-        const roleRaw = String((assistantFirstTurnCfg as any).role ?? 'user');
-        const role = roleRaw === 'system' ? 'system' : 'user';
-        const delayMsRaw = (assistantFirstTurnCfg as any).delayMs;
-        const delayMs = delayMsRaw === undefined || delayMsRaw === null || delayMsRaw === '' ? 0 : Number(delayMsRaw);
-        if (!Number.isFinite(delayMs) || delayMs < 0) {
-          throw makeHttpError({ message: 'Invalid assistantFirstTurn.delayMs', statusCode: 400, code: 'validation_error' });
-        }
+          const prompt = String((assistantFirstTurnCfg as any).prompt);
+          const roleRaw = String((assistantFirstTurnCfg as any).role ?? 'user');
+          const role: 'system' | 'user' = roleRaw === 'system' ? 'system' : 'user';
+          const delayMsRaw = (assistantFirstTurnCfg as any).delayMs;
+          const delayMs = delayMsRaw === undefined || delayMsRaw === null || delayMsRaw === '' ? 0 : Number(delayMsRaw);
+          if (!Number.isFinite(delayMs) || delayMs < 0) {
+            throw makeHttpError({ message: 'Invalid assistantFirstTurn.delayMs', statusCode: 400, code: 'validation_error' });
+          }
+
+          return { prompt, role, delayMs };
+        })();
+
+        const session = await createRealtimeSession(options.registry, mergedSpec);
+        if (!assistantFirstTurn) return session;
+
+        const { prompt, role, delayMs } = assistantFirstTurn;
 
         const originalEvents = session.events.bind(session);
         session.events = wrapAssistantFirstTurnEvents({
@@ -946,7 +964,7 @@ export default class TwilioVoiceCompat {
     } finally {
       clearAllTimers();
 
-      if (providerCallId) {
+      if (providerCallId && isCallLogCaptureEnabled()) {
         void (async () => {
           try {
             await this.persistCallLogs({
