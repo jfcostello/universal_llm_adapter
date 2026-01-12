@@ -144,6 +144,7 @@ export function listExtensions(): ResolvedExtensionEntry[] {
     let entries: fs.Dirent[] = [];
     try {
       entries = fs.readdirSync(extensionsDir, { withFileTypes: true });
+      entries.sort((a, b) => a.name.localeCompare(b.name));
     } catch {
       continue;
     }
@@ -210,4 +211,3 @@ export function mergeExtensionConfig(
 
   return isPlainObject(legacyConfig) ? legacyConfig : undefined;
 }
-
