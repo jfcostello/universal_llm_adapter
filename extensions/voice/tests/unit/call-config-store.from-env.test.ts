@@ -23,7 +23,7 @@ describe('extensions/voice: call-config store (from-env)', () => {
     delete process.env.LLM_ADAPTER_VOICE_CALL_CONFIG_REDIS_URL;
     delete process.env.LLM_ADAPTER_VOICE_CALL_CONFIG_REDIS_PREFIX;
 
-    const { createVoiceCallConfigStoreFromEnv } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceCallConfigStoreFromEnv } = await import('../../modules/call-config-store/index.js');
     const res = await createVoiceCallConfigStoreFromEnv();
 
     expect(res.kind).toBe('memory');
@@ -52,7 +52,7 @@ describe('extensions/voice: call-config store (from-env)', () => {
     delete process.env.LLM_ADAPTER_VOICE_CALL_CONFIG_REDIS_URL;
     delete process.env.LLM_ADAPTER_VOICE_CALL_CONFIG_REDIS_PREFIX;
 
-    const { createVoiceCallConfigStoreFromEnv } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceCallConfigStoreFromEnv } = await import('../../modules/call-config-store/index.js');
     const res = await createVoiceCallConfigStoreFromEnv();
 
     expect(res.kind).toBe('memory');
@@ -63,7 +63,7 @@ describe('extensions/voice: call-config store (from-env)', () => {
     delete process.env.LLM_ADAPTER_VOICE_CALL_CONFIG_REDIS_URL;
     delete process.env.LLM_ADAPTER_VOICE_CALL_CONFIG_REDIS_PREFIX;
 
-    const { createVoiceCallConfigStoreFromEnv } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceCallConfigStoreFromEnv } = await import('../../modules/call-config-store/index.js');
     await expect(createVoiceCallConfigStoreFromEnv()).rejects.toThrow('Invalid LLM_ADAPTER_VOICE_CALL_CONFIG_STORE');
   });
 
@@ -72,7 +72,7 @@ describe('extensions/voice: call-config store (from-env)', () => {
     delete process.env.LLM_ADAPTER_VOICE_CALL_CONFIG_REDIS_URL;
     delete process.env.LLM_ADAPTER_VOICE_CALL_CONFIG_REDIS_PREFIX;
 
-    const { createVoiceCallConfigStoreFromEnv } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceCallConfigStoreFromEnv } = await import('../../modules/call-config-store/index.js');
     await expect(createVoiceCallConfigStoreFromEnv()).rejects.toThrow('Missing LLM_ADAPTER_VOICE_CALL_CONFIG_REDIS_URL');
   });
 
@@ -96,7 +96,7 @@ describe('extensions/voice: call-config store (from-env)', () => {
     const createClient = jest.fn(() => fakeClient);
     (jest as any).unstable_mockModule('redis', () => ({ createClient }));
 
-    const { createVoiceCallConfigStoreFromEnv } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceCallConfigStoreFromEnv } = await import('../../modules/call-config-store/index.js');
     const res = await createVoiceCallConfigStoreFromEnv();
 
     expect(res.kind).toBe('redis');
@@ -132,7 +132,7 @@ describe('extensions/voice: call-config store (from-env)', () => {
     const createClient = jest.fn(() => fakeClient);
     (jest as any).unstable_mockModule('redis', () => ({ default: { createClient } }));
 
-    const { createVoiceCallConfigStoreFromEnv } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceCallConfigStoreFromEnv } = await import('../../modules/call-config-store/index.js');
     const res = await createVoiceCallConfigStoreFromEnv();
 
     expect(res.kind).toBe('redis');
@@ -173,7 +173,7 @@ describe('extensions/voice: call-config store (from-env)', () => {
     const createClient = jest.fn(() => fakeClient);
     (jest as any).unstable_mockModule('redis', () => ({ createClient }));
 
-    const { createVoiceCallConfigStoreFromEnv } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceCallConfigStoreFromEnv } = await import('../../modules/call-config-store/index.js');
     const res = await createVoiceCallConfigStoreFromEnv();
 
     await expect(res.close?.()).resolves.toBeUndefined();
@@ -186,7 +186,7 @@ describe('extensions/voice: call-config store (from-env)', () => {
 
     (jest as any).unstable_mockModule('redis', () => ({}));
 
-    const { createVoiceCallConfigStoreFromEnv } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceCallConfigStoreFromEnv } = await import('../../modules/call-config-store/index.js');
     await expect(createVoiceCallConfigStoreFromEnv()).rejects.toThrow('Redis client library does not export createClient()');
   });
 
@@ -198,7 +198,7 @@ describe('extensions/voice: call-config store (from-env)', () => {
     const createClient = jest.fn(() => ({ on: jest.fn() }));
     (jest as any).unstable_mockModule('redis', () => ({ createClient }));
 
-    const { createVoiceCallConfigStoreFromEnv } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceCallConfigStoreFromEnv } = await import('../../modules/call-config-store/index.js');
     await expect(createVoiceCallConfigStoreFromEnv()).rejects.toThrow('Redis client missing connect()');
   });
 });

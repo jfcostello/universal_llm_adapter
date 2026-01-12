@@ -9,7 +9,7 @@ export default {
     upgradeRouter: any;
     httpConfig?: any;
   }) => {
-    const { createVoiceServerRegistration } = await import('./internal/server.js');
+    const { createVoiceServerRegistration } = await import('./modules/server/index.js');
     const reg = await createVoiceServerRegistration(_ctx as any);
     return {
       handleHttp: reg.handleHttp,
@@ -18,7 +18,7 @@ export default {
     };
   },
   runCli: async (ctx: { argv: string[]; deps: any }) => {
-    const { runVoiceCli } = await import('./internal/cli.js');
+    const { runVoiceCli } = await import('./modules/cli/index.js');
     await runVoiceCli(ctx);
   }
 };

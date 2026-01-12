@@ -6,7 +6,7 @@ import path from 'path';
 
 import { jest } from '@jest/globals';
 
-import { runVoiceCli } from '../../internal/cli.js';
+import { runVoiceCli } from '../../modules/cli/index.js';
 import { closeServerAndSockets, trackServerSockets, unrefServer } from '../helpers/http-server.ts';
 
 function createCaptureStream() {

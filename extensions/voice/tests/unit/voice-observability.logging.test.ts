@@ -34,8 +34,8 @@ describe('extensions/voice: observability logging', () => {
   test('swallows custom logging getter errors', async () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
 
-    const { createVoiceServerRegistration } = await import('../../internal/server.js');
-    const { createInMemoryVoiceCallConfigStore } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceServerRegistration } = await import('../../modules/server/index.js');
+    const { createInMemoryVoiceCallConfigStore } = await import('../../modules/call-config-store/index.js');
 
     const store = createInMemoryVoiceCallConfigStore();
     await store.putConfig(
@@ -81,8 +81,8 @@ describe('extensions/voice: observability logging', () => {
 
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
 
-    const { createVoiceServerRegistration } = await import('../../internal/server.js');
-    const { createInMemoryVoiceCallConfigStore } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceServerRegistration } = await import('../../modules/server/index.js');
+    const { createInMemoryVoiceCallConfigStore } = await import('../../modules/call-config-store/index.js');
 
     const store = createInMemoryVoiceCallConfigStore();
     await store.putConfig(
@@ -119,8 +119,8 @@ describe('extensions/voice: observability logging', () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const logger = createCapturingLogger();
 
-    const { createVoiceServerRegistration } = await import('../../internal/server.js');
-    const { createInMemoryVoiceCallConfigStore } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceServerRegistration } = await import('../../modules/server/index.js');
+    const { createInMemoryVoiceCallConfigStore } = await import('../../modules/call-config-store/index.js');
 
     const store = createInMemoryVoiceCallConfigStore();
     const createOutboundCall = jest.fn(async () => ({ providerCallId: 'p1' }));
@@ -180,8 +180,8 @@ describe('extensions/voice: observability logging', () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const logger = createCapturingLogger();
 
-    const { createVoiceServerRegistration } = await import('../../internal/server.js');
-    const { createInMemoryVoiceCallConfigStore } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceServerRegistration } = await import('../../modules/server/index.js');
+    const { createInMemoryVoiceCallConfigStore } = await import('../../modules/call-config-store/index.js');
 
     const store = createInMemoryVoiceCallConfigStore();
     const createOutboundCall = jest.fn(async () => ({ providerCallId: 'p1' }));
@@ -239,8 +239,8 @@ describe('extensions/voice: observability logging', () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const logger = createCapturingLogger();
 
-    const { createVoiceServerRegistration } = await import('../../internal/server.js');
-    const { createInMemoryVoiceCallConfigStore } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceServerRegistration } = await import('../../modules/server/index.js');
+    const { createInMemoryVoiceCallConfigStore } = await import('../../modules/call-config-store/index.js');
 
     const store = createInMemoryVoiceCallConfigStore();
     const createOutboundCall = jest.fn(async () => ({ providerCallId: 'p1' }));
@@ -293,8 +293,8 @@ describe('extensions/voice: observability logging', () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const logger = createCapturingLogger();
 
-    const { createVoiceServerRegistration } = await import('../../internal/server.js');
-    const { createInMemoryVoiceCallConfigStore } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceServerRegistration } = await import('../../modules/server/index.js');
+    const { createInMemoryVoiceCallConfigStore } = await import('../../modules/call-config-store/index.js');
 
     const store = createInMemoryVoiceCallConfigStore();
     const createOutboundCall = jest.fn(async () => ({ providerCallId: 'p1' }));
@@ -352,8 +352,8 @@ describe('extensions/voice: observability logging', () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const logger = createCapturingLogger();
 
-    const { createVoiceServerRegistration } = await import('../../internal/server.js');
-    const { createInMemoryVoiceCallConfigStore } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceServerRegistration } = await import('../../modules/server/index.js');
+    const { createInMemoryVoiceCallConfigStore } = await import('../../modules/call-config-store/index.js');
 
     const store = createInMemoryVoiceCallConfigStore();
     const createOutboundCall = jest.fn(async () => ({ providerCallId: 'p1' }));
@@ -408,8 +408,8 @@ describe('extensions/voice: observability logging', () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const logger = createCapturingLogger();
 
-    const { createVoiceServerRegistration } = await import('../../internal/server.js');
-    const { createInMemoryVoiceCallConfigStore } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceServerRegistration } = await import('../../modules/server/index.js');
+    const { createInMemoryVoiceCallConfigStore } = await import('../../modules/call-config-store/index.js');
 
     const store = createInMemoryVoiceCallConfigStore();
     const createOutboundCall = jest.fn(async () => ({ providerCallId: 'p1' }));
@@ -467,8 +467,8 @@ describe('extensions/voice: observability logging', () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const logger = createCapturingLogger();
 
-    const { createVoiceServerRegistration } = await import('../../internal/server.js');
-    const { createInMemoryVoiceCallConfigStore } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceServerRegistration } = await import('../../modules/server/index.js');
+    const { createInMemoryVoiceCallConfigStore } = await import('../../modules/call-config-store/index.js');
 
     const store = createInMemoryVoiceCallConfigStore();
     const err: any = new Error('boom');
@@ -526,8 +526,8 @@ describe('extensions/voice: observability logging', () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const logger = createCapturingLogger();
 
-    const { createVoiceServerRegistration } = await import('../../internal/server.js');
-    const { createInMemoryVoiceCallConfigStore } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceServerRegistration } = await import('../../modules/server/index.js');
+    const { createInMemoryVoiceCallConfigStore } = await import('../../modules/call-config-store/index.js');
 
     const store = createInMemoryVoiceCallConfigStore();
     await store.putConfig(
@@ -585,8 +585,8 @@ describe('extensions/voice: observability logging', () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const logger = createCapturingLogger();
 
-    const { createVoiceServerRegistration } = await import('../../internal/server.js');
-    const { createInMemoryVoiceCallConfigStore } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceServerRegistration } = await import('../../modules/server/index.js');
+    const { createInMemoryVoiceCallConfigStore } = await import('../../modules/call-config-store/index.js');
 
     const store = createInMemoryVoiceCallConfigStore();
     await store.putConfig(
@@ -642,8 +642,8 @@ describe('extensions/voice: observability logging', () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const logger = createCapturingLogger();
 
-    const { createVoiceServerRegistration } = await import('../../internal/server.js');
-    const { createInMemoryVoiceCallConfigStore } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceServerRegistration } = await import('../../modules/server/index.js');
+    const { createInMemoryVoiceCallConfigStore } = await import('../../modules/call-config-store/index.js');
 
     const store = createInMemoryVoiceCallConfigStore();
     await store.putConfig(
@@ -705,8 +705,8 @@ describe('extensions/voice: observability logging', () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const logger = createCapturingLogger();
 
-    const { createVoiceServerRegistration } = await import('../../internal/server.js');
-    const { createInMemoryVoiceCallConfigStore } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceServerRegistration } = await import('../../modules/server/index.js');
+    const { createInMemoryVoiceCallConfigStore } = await import('../../modules/call-config-store/index.js');
 
     const store = createInMemoryVoiceCallConfigStore();
     await store.putIdempotency('idem_1', { status: 'queued' }, { ttlSeconds: 60 });
@@ -753,8 +753,8 @@ describe('extensions/voice: observability logging', () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const logger = createCapturingLogger();
 
-    const { createVoiceServerRegistration } = await import('../../internal/server.js');
-    const { createInMemoryVoiceCallConfigStore } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceServerRegistration } = await import('../../modules/server/index.js');
+    const { createInMemoryVoiceCallConfigStore } = await import('../../modules/call-config-store/index.js');
 
     const baseStore = createInMemoryVoiceCallConfigStore();
     let returnEmptyReady = false;
@@ -841,8 +841,8 @@ describe('extensions/voice: observability logging', () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const logger = createCapturingLogger();
 
-    const { createVoiceServerRegistration } = await import('../../internal/server.js');
-    const { createInMemoryVoiceCallConfigStore } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceServerRegistration } = await import('../../modules/server/index.js');
+    const { createInMemoryVoiceCallConfigStore } = await import('../../modules/call-config-store/index.js');
 
     const store = createInMemoryVoiceCallConfigStore();
     const reg = await createVoiceServerRegistration({
@@ -892,8 +892,8 @@ describe('extensions/voice: observability logging', () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const logger = createCapturingLogger();
 
-    const { createVoiceServerRegistration } = await import('../../internal/server.js');
-    const { createInMemoryVoiceCallConfigStore } = await import('../../internal/call-config-store/index.js');
+    const { createVoiceServerRegistration } = await import('../../modules/server/index.js');
+    const { createInMemoryVoiceCallConfigStore } = await import('../../modules/call-config-store/index.js');
 
     const store = createInMemoryVoiceCallConfigStore();
     const providerPlugins = {

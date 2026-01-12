@@ -6,9 +6,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { Readable, Writable } from 'stream';
 
-import { createVoiceServerRegistration } from '../../internal/server.js';
-import { createInMemoryVoiceCallConfigStore } from '../../internal/call-config-store/index.js';
-import { createVoiceCallEventHub } from '../../internal/call-events.js';
+import { createVoiceServerRegistration } from '../../modules/server/index.js';
+import { createInMemoryVoiceCallConfigStore } from '../../modules/call-config-store/index.js';
+import { createVoiceCallEventHub } from '../../modules/call-events/index.js';
 
 function createMockRes() {
   return { setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() } as any;
@@ -118,14 +118,14 @@ describe('extensions/voice: server http handlers', () => {
   test('/voice/webhook logs provider plugin loader warnings when logging is available', async () => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
 
-    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-server-plugins-'));
+      const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-server-plugins-'));
     try {
-      await fs.mkdir(path.join(tmp, 'voice-providers'), { recursive: true });
-      await fs.writeFile(path.join(tmp, 'voice-providers', 'bad.json'), JSON.stringify('not-an-object'), 'utf-8');
-      await fs.writeFile(path.join(tmp, 'voice-providers', 'test.json'), JSON.stringify({ id: 'test', kind: 'test' }, null, 2), 'utf-8');
-      await fs.mkdir(path.join(tmp, 'voice-compat', 'test'), { recursive: true });
+      await fs.mkdir(path.join(tmp, 'providers'), { recursive: true });
+      await fs.writeFile(path.join(tmp, 'providers', 'bad.json'), JSON.stringify('not-an-object'), 'utf-8');
+      await fs.writeFile(path.join(tmp, 'providers', 'test.json'), JSON.stringify({ id: 'test', kind: 'test' }, null, 2), 'utf-8');
+      await fs.mkdir(path.join(tmp, 'compat', 'test'), { recursive: true });
       await fs.writeFile(
-        path.join(tmp, 'voice-compat', 'test', 'index.js'),
+        path.join(tmp, 'compat', 'test', 'index.js'),
         [
           'module.exports = class TestVoiceCompat {',
           '  async validateWebhookRequest() {}',
@@ -184,7 +184,7 @@ describe('extensions/voice: server http handlers', () => {
       expect(
         logger.warning.mock.calls.some(
           ([msg, data]: any[]) =>
-            msg === 'voice.provider_plugins.manifest_skipped' && data?.manifestPath === 'voice-providers/bad.json'
+            msg === 'voice.provider_plugins.manifest_skipped' && data?.manifestPath === 'providers/bad.json'
         )
       ).toBe(true);
     } finally {

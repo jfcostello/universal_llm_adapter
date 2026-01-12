@@ -1,4 +1,4 @@
-import { StringChunkQueue } from '../../internal/string-chunk-queue.js';
+import { StringChunkQueue } from '../../modules/shared/index.js';
 
 describe('extensions/voice/internal/StringChunkQueue', () => {
   test('tracks byte length and shift ordering', () => {

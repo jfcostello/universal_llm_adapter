@@ -3,8 +3,8 @@ import http from 'http';
 import * as path from 'path';
 
 import voiceExtension from '../../index.ts';
-import { createInMemoryVoiceCallConfigStore } from '../../internal/call-config-store/index.js';
-import { createVoiceCallEventHub } from '../../internal/call-events.js';
+import { createInMemoryVoiceCallConfigStore } from '../../modules/call-config-store/index.js';
+import { createVoiceCallEventHub } from '../../modules/call-events/index.js';
 import { attachUpgradeRouter } from '@/modules/server/internal/transport/upgrade-router.ts';
 import { closeServerAndSockets, trackServerSockets, unrefServer } from '../helpers/http-server.ts';
 

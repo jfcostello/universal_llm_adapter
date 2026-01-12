@@ -9,7 +9,7 @@ describe('extensions/voice: internal logging', () => {
   });
 
   test('getVoiceLogger caches base instance, supports correlation, and can be closed', async () => {
-    const mod = await import('../../internal/logging.js');
+    const mod = await import('../../modules/logger/index.js');
 
     // Covers the "no-op when unopened" close path.
     await mod.closeVoiceLogger();
@@ -37,10 +37,9 @@ describe('extensions/voice: internal logging', () => {
     process.env.LLM_ADAPTER_VOICE_LOG_MAX_BYTES = '1';
     jest.resetModules();
 
-    const mod = await import('../../internal/logging.js');
+    const mod = await import('../../modules/logger/index.js');
     const logger = mod.getVoiceLogger();
     expect((logger as any).getMaxBytes()).toBe(1);
     await mod.closeVoiceLogger();
   });
 });
-
