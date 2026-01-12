@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { pathToFileURL } from 'url';
 import axios from 'axios';
 import { minimatch } from 'minimatch';
 import { ProcessRouteManifest, VectorContextConfig, ToolExecutionError, getDefaults } from '../../../kernel/index.js';
@@ -295,7 +296,7 @@ export class ToolCoordinator {
     route: ProcessRouteManifest,
     ctx: ToolContext,
     options: { signal?: AbortSignal }
-	  ): Promise<any> {
+  ): Promise<any> {
     if (!route.invoke.module) {
       throw new ToolExecutionError('Module route missing module field');
     }
@@ -429,7 +430,15 @@ export class ToolCoordinator {
     return { result };
   }
 
-	  protected async loadModule(modulePath: string): Promise<any> {
+  protected async loadModule(modulePath: string): Promise<any> {
+    if (modulePath.startsWith('file:') || modulePath.startsWith('node:')) {
+      return import(modulePath);
+    }
+
+    if (path.isAbsolute(modulePath)) {
+      return import(pathToFileURL(modulePath).href);
+    }
+
     return import(modulePath);
   }
 

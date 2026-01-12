@@ -111,6 +111,16 @@ describe('utils/tools/tool-coordinator success paths', () => {
     expect(result).toEqual({ result: { ok: true } });
   });
 
+  test('loadModule supports node: and bare specifiers', async () => {
+    const coordinator = new ToolCoordinator([]);
+
+    const nodeFs = await (coordinator as any).loadModule('node:fs');
+    expect(typeof nodeFs.readFileSync).toBe('function');
+
+    const bareFs = await (coordinator as any).loadModule('fs');
+    expect(typeof bareFs.readFileSync).toBe('function');
+  });
+
   test('selectRoute matches glob patterns and returns undefined when unmatched', () => {
     const routes = [
       {
