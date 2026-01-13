@@ -161,12 +161,16 @@ let cachedDefaultsCwd: string | undefined;
 
 /**
  * Get the default settings, loading from JSON file if available.
- * Results are cached after first load for performance.
+ * Results are cached after first load for performance (cache invalidates on cwd change).
  *
- * Search order:
- * 1. Relative to core module: ../plugins/configs/defaults.json
- * 2. Relative to cwd: ./plugins/configs/defaults.json
- * 3. Fallback to inline defaults
+ * Resolution strategy:
+ * 1. If llm-adapter.paths.json exists, uses multi-root merging:
+ *    - Merges defaults.json from builtin, local, and external plugin roots
+ *    - Uses deep merge (low → high precedence: builtin < local < external)
+ * 2. Otherwise falls back to legacy search order:
+ *    a. Relative to core module: ../plugins/configs/defaults.json
+ *    b. Relative to cwd: ./plugins/configs/defaults.json
+ *    c. Inline fallback defaults
  */
 export function getDefaults(): DefaultSettings {
   const cwd = process.cwd();
