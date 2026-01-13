@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import axios from 'axios';
-import { minimatch } from 'minimatch';
+import { Minimatch } from 'minimatch';
 import { ProcessRouteManifest, VectorContextConfig, ToolExecutionError, getDefaults } from '../../../kernel/index.js';
 import type { PluginRegistry } from '../../../kernel/index.js';
 import type { MCPClientPool } from '../../mcp/index.js';
@@ -35,6 +35,7 @@ export class ToolCoordinator {
   private vectorToolName: string = 'vector_search';
   private vectorSearchAliasMap?: Record<string, string>;
   private warnedInvokeModuleCwdFallback = new Set<string>();
+  private compiledRoutes: Array<{ route: ProcessRouteManifest; match: (toolName: string) => boolean }> = [];
 
   constructor(
     private routes: ProcessRouteManifest[],
@@ -53,6 +54,41 @@ export class ToolCoordinator {
     }
     this.registry = options?.registry;
     this.vectorSearchAliasMap = options?.vectorSearchAliasMap;
+    this.compiledRoutes = routes.map((route) => ({ route, match: this.compileRouteMatcher(route) }));
+  }
+
+  private compileRouteMatcher(route: ProcessRouteManifest): (toolName: string) => boolean {
+    const matchType = route.match.type;
+    const pattern = route.match.pattern;
+
+    switch (matchType) {
+      case 'exact':
+        return (toolName: string) => toolName === pattern;
+      case 'prefix':
+        return (toolName: string) => toolName.startsWith(pattern);
+      case 'regex': {
+        try {
+          const regex = new RegExp(pattern);
+          return (toolName: string) => regex.test(toolName);
+        } catch (error: any) {
+          return () => {
+            throw error;
+          };
+        }
+      }
+      case 'glob': {
+        try {
+          const matcher = new Minimatch(pattern);
+          return (toolName: string) => matcher.match(toolName);
+        } catch (error: any) {
+          return () => {
+            throw error;
+          };
+        }
+      }
+      default:
+        return () => false;
+    }
   }
 
   /**
@@ -235,23 +271,9 @@ export class ToolCoordinator {
 
   private selectRoute(toolName: string): ProcessRouteManifest | undefined {
     // First check configured routes
-    for (const route of this.routes) {
-      const matchType = route.match.type;
-      const pattern = route.match.pattern;
-
-      switch (matchType) {
-        case 'exact':
-          if (toolName === pattern) return route;
-          break;
-        case 'prefix':
-          if (toolName.startsWith(pattern)) return route;
-          break;
-        case 'regex':
-          if (new RegExp(pattern).test(toolName)) return route;
-          break;
-        case 'glob':
-          if (minimatch(toolName, pattern)) return route;
-          break;
+    for (const compiled of this.compiledRoutes) {
+      if (compiled.match(toolName)) {
+        return compiled.route;
       }
     }
 
