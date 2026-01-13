@@ -1,10 +1,11 @@
 import http from 'http';
 import { AddressInfo } from 'net';
-import { PluginRegistry, getDefaults } from '../../kernel/index.js';
+import { PluginRegistry, getAdapterPathsConfig, getDefaults } from '../../kernel/index.js';
 import type { LLMCallSpec, LLMStreamEvent } from '../../kernel/index.js';
-import type {
-  CoordinatorLifecycleDeps,
-  PluginRegistryLike
+import {
+  resolveEffectivePluginsPath,
+  type CoordinatorLifecycleDeps,
+  type PluginRegistryLike
 } from '../lifecycle/index.js';
 import { createServerHandler } from './internal/handler.js';
 
@@ -142,6 +143,14 @@ const defaultDependencies: ServerDependencies = {
   }
 };
 
+function resolvePluginsPathWithConfig(pluginsPath: string): string {
+  const pathsConfig = getAdapterPathsConfig();
+  return resolveEffectivePluginsPath({
+    pluginsPath,
+    configuredPluginsPath: pathsConfig?.paths.plugins
+  });
+}
+
 export function createServerHandlerWithDefaults(
   options: ServerOptions = {}
 ): http.RequestListener {
@@ -153,9 +162,10 @@ export function createServerHandlerWithDefaults(
   const authDefaults = serverDefaults.auth ?? {};
   const rateLimitDefaults = serverDefaults.rateLimit ?? {};
   const corsDefaults = serverDefaults.cors ?? {};
+  const pluginsPath = resolvePluginsPathWithConfig(options.pluginsPath ?? './plugins');
   return createServerHandler({
     registry: options.registry,
-    pluginsPath: options.pluginsPath ?? './plugins',
+    pluginsPath,
     batchId: options.batchId,
     closeLoggerAfterRequest: options.closeLoggerAfterRequest ?? false,
     deps,
@@ -202,7 +212,7 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
   const corsConfig = { ...corsDefaults, ...options.cors };
   const host = options.host ?? '127.0.0.1';
   const port = options.port ?? 0;
-  const pluginsPath = options.pluginsPath ?? './plugins';
+  const pluginsPath = resolvePluginsPathWithConfig(options.pluginsPath ?? './plugins');
   const enabledExtensions = options.extensions?.enabled ?? serverDefaults.extensions?.enabled ?? [];
 
   const registry =

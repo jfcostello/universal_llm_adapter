@@ -15,7 +15,7 @@ export interface PluginRegistryLike {
 
 const DEFAULT_PLUGINS_PATH = './plugins';
 
-function resolveEffectivePluginsPath(options: { pluginsPath: string; configuredPluginsPath?: string }): string {
+export function resolveEffectivePluginsPath(options: { pluginsPath: string; configuredPluginsPath?: string }): string {
   const pluginsPath = options.pluginsPath.trim() || DEFAULT_PLUGINS_PATH;
 
   // Commander defaults make it hard to tell whether a value was explicitly provided.

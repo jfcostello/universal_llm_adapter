@@ -11,9 +11,9 @@ export type {
 } from './internal/factories.js';
 export {
   createRegistry,
+  resolveEffectivePluginsPath,
   createLlmCoordinator,
   createVectorCoordinator,
   createEmbeddingCoordinator,
   closeLogger
 } from './internal/factories.js';
-
