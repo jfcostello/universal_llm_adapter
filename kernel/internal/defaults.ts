@@ -155,6 +155,7 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
 };
 
 let cachedDefaults: DefaultSettings | null = null;
+let cachedDefaultsCwd: string | undefined;
 
 /**
  * Get the default settings, loading from JSON file if available.
@@ -166,13 +167,18 @@ let cachedDefaults: DefaultSettings | null = null;
  * 3. Fallback to inline defaults
  */
 export function getDefaults(): DefaultSettings {
+  const cwd = process.cwd();
+
+  if (cachedDefaults && cachedDefaultsCwd !== cwd) {
+    cachedDefaults = null;
+  }
+
   if (cachedDefaults) {
     return cachedDefaults;
   }
 
   const pathsConfig = getAdapterPathsConfig();
   if (pathsConfig) {
-    const cwd = process.cwd();
     const cfg = pathsConfig.paths.lookup.configs.defaults;
     const localPluginsRoot = path.resolve(cwd, pathsConfig.paths.plugins ?? './plugins');
     const builtinPluginsRoot = path.resolve(PACKAGE_ROOT, 'plugins');
@@ -200,18 +206,20 @@ export function getDefaults(): DefaultSettings {
     }
 
     cachedDefaults = merged as DefaultSettings;
+    cachedDefaultsCwd = cwd;
     return cachedDefaults;
   }
 
   const configPaths = [
     path.resolve(PACKAGE_ROOT, 'plugins', 'configs', 'defaults.json'),
-    path.resolve(process.cwd(), 'plugins', 'configs', 'defaults.json')
+    path.resolve(cwd, 'plugins', 'configs', 'defaults.json')
   ];
 
   for (const configPath of configPaths) {
     if (fs.existsSync(configPath)) {
       try {
         cachedDefaults = loadJsonFile(configPath) as DefaultSettings;
+        cachedDefaultsCwd = cwd;
         return cachedDefaults;
       } catch {
         // Continue to next path or fallback
@@ -220,6 +228,7 @@ export function getDefaults(): DefaultSettings {
   }
 
   cachedDefaults = { ...FALLBACK_DEFAULTS };
+  cachedDefaultsCwd = cwd;
   return cachedDefaults;
 }
 
@@ -228,4 +237,5 @@ export function getDefaults(): DefaultSettings {
  */
 export function resetDefaultsCache(): void {
   cachedDefaults = null;
+  cachedDefaultsCwd = undefined;
 }

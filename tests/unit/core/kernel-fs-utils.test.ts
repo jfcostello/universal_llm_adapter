@@ -53,6 +53,20 @@ describe('kernel/fs utils', () => {
         fs.rmSync(cwd, { recursive: true, force: true });
       }
     });
+
+    test('dedupes roots that resolve to the same realpath', () => {
+      const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-external-roots-realpath-'));
+      try {
+        const target = path.join(cwd, 'target');
+        const link = path.join(cwd, 'link');
+        fs.mkdirSync(target, { recursive: true });
+        fs.symlinkSync(target, link, 'dir');
+
+        const roots = normalizeExternalRoots(cwd, [target, link]);
+        expect(roots).toEqual([fs.realpathSync(target)]);
+      } finally {
+        fs.rmSync(cwd, { recursive: true, force: true });
+      }
+    });
   });
 });
-

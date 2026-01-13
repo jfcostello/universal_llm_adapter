@@ -87,7 +87,7 @@ function readOpenRouterEmbeddingProvider(): { id: string; dimensions?: number } 
 
     expect(sim01).toBeGreaterThan(sim02);
     expect(sim01).toBeGreaterThan(sim12);
-  }, 120_000);
+  }, 180_000);
 
   test('dimensions operation returns a positive integer (matches config when available)', async () => {
     const embedding = readOpenRouterEmbeddingProvider();

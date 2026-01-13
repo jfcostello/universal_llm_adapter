@@ -88,7 +88,7 @@ describe('core/registry (coverage)', () => {
       const registry = new PluginRegistry({
         pluginsPath: './plugins',
         lookup: {
-          warnOnOverride: true,
+          warnOnOverride: false,
           builtinManifests: true,
           builtinCode: true,
           local: false,
@@ -121,7 +121,7 @@ describe('core/registry (coverage)', () => {
       const registry = new PluginRegistry({
         pluginsPath: './plugins',
         lookup: {
-          warnOnOverride: true,
+          warnOnOverride: false,
           builtinManifests: false,
           builtinCode: false,
           local: false,

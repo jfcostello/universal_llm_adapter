@@ -325,6 +325,22 @@ describe('compat/openai', () => {
     expect(parsed.finishReason).toBe('length');
   });
 
+  test('parseResponse strips assistantfinal wrapper from string content', () => {
+    const raw = {
+      choices: [
+        {
+          message: {
+            content: 'analysisSomething happened.assistantfinalDONE'
+          },
+          finish_reason: 'stop'
+        }
+      ]
+    };
+
+    const parsed = compat.parseResponse(raw, 'gpt');
+    expect(parsed.content).toEqual([{ type: 'text', text: 'DONE' }]);
+  });
+
   test('parseResponse falls back to empty content for unsupported payloads', () => {
     const raw = {
       choices: [

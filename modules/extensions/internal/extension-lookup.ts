@@ -12,6 +12,8 @@ import { assertValidExtensionName } from '../../shared/index.js';
 
 export type ExtensionSourceKind = 'builtin' | 'external';
 
+const warnedMissingRoots = new Set<string>();
+
 export interface ResolvedExtensionEntry {
   name: string;
   kind: ExtensionSourceKind;
@@ -86,6 +88,9 @@ function warnOnOverride(name: string, previous: ResolvedExtensionEntry, next: Re
 }
 
 function warnOnMissingRoot(root: { kind: ExtensionSourceKind; root: string }): void {
+  const key = `${root.kind}:${root.root}`;
+  if (warnedMissingRoots.has(key)) return;
+  warnedMissingRoots.add(key);
   try {
     console.warn('extensions.root_missing', { kind: root.kind, root: root.root });
   } catch {}

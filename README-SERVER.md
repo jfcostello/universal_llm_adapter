@@ -216,6 +216,11 @@ GET /extensions/list
 
 Lists available extensions across configured pack roots (same shape as `llm-adapter extensions list`).
 
+Notes:
+
+- Requires auth when `auth.enabled: true` (401/403 on failure).
+- Subject to rate limiting when `rateLimit.enabled: true` (429 on limit).
+
 **Example:**
 
 ```bash

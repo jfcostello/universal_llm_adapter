@@ -182,6 +182,30 @@ describe('modules/extensions', () => {
     });
   });
 
+  test('warns only once per missing external root (dedupe)', async () => {
+    await withTempCwd('extensions-missing-root-dedupe', async (cwd) => {
+      writeJson(path.join(cwd, 'llm-adapter.paths.json'), {
+        paths: {
+          lookup: {
+            extensions: { builtin: true, externalRoots: ['./missing-pack'] }
+          }
+        }
+      });
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        expect(resolveExtensionEntry('voice')?.kind).toBe('builtin');
+        listExtensions();
+        expect(resolveExtensionEntry('voice')?.kind).toBe('builtin');
+
+        const rootMissingCalls = warnSpy.mock.calls.filter(call => call[0] === 'extensions.root_missing');
+        expect(rootMissingCalls).toHaveLength(1);
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+  });
+
   test('listExtensions skips roots that have no extensions directory', async () => {
     await withTempCwd('extensions-missing-extensions-dir', async (cwd) => {
       fs.mkdirSync(path.join(cwd, 'pack-a'), { recursive: true });

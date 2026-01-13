@@ -99,13 +99,23 @@ function resolveFollowUpToolChoice(toolChoice: ToolChoice | undefined, calledToo
       return 'auto';
     }
 
-    const allAllowedSeen = allowed.every(name => {
-      if (calledTools.has(name)) return true;
+    const remainingAllowed = allowed.filter(name => {
+      if (calledTools.has(name)) return false;
       const sanitized = sanitizeToolName(name);
-      return calledTools.has(sanitized);
+      return !calledTools.has(sanitized);
     });
 
-    return allAllowedSeen ? 'auto' : toolChoice;
+    if (remainingAllowed.length === 0) {
+      return 'auto';
+    }
+
+    // If only one allowed tool remains, force it explicitly to reduce the chance of the model
+    // emitting a final answer without calling the required remaining tool.
+    if (remainingAllowed.length === 1) {
+      return { type: 'single', name: sanitizeToolName(remainingAllowed[0]) };
+    }
+
+    return toolChoice;
   }
 
   return toolChoice;
@@ -183,6 +193,81 @@ async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<
   let response = initialResponse;
   let forceFinalize = false;
   let terminalStop = false;
+  const maxIgnoredToolChoiceRetries = 3;
+  let ignoredToolChoiceRetries = 0;
+
+  const requireToolCalls = tools.length > 0 &&
+    toolChoice !== undefined &&
+    toolChoice !== 'auto' &&
+    toolChoice !== 'none';
+
+  while (requireToolCalls &&
+    (!response.toolCalls || response.toolCalls.length === 0) &&
+    ignoredToolChoiceRetries < maxIgnoredToolChoiceRetries) {
+    ignoredToolChoiceRetries += 1;
+
+    const reminderLines: string[] = [
+      'You MUST call the required tool now.',
+      'Do NOT answer with any text.',
+      'Return ONLY a tool call.'
+    ];
+
+    if (toolChoice && typeof toolChoice === 'object') {
+      if (toolChoice.type === 'single') {
+        const apiName = toolChoice.name;
+        const displayName = toolNameMap[apiName] || apiName;
+        reminderLines.splice(
+          1,
+          0,
+          displayName === apiName
+            ? `Call tool: ${displayName}`
+            : `Call tool: ${displayName} (tool name: ${apiName})`
+        );
+      } else if (toolChoice.type === 'required') {
+        const allowed = Array.isArray(toolChoice.allowed) ? toolChoice.allowed : [];
+        if (allowed.length === 1) {
+          const apiName = allowed[0];
+          const displayName = toolNameMap[apiName] || apiName;
+          reminderLines.splice(
+            1,
+            0,
+            displayName === apiName
+              ? `Call tool: ${displayName}`
+              : `Call tool: ${displayName} (tool name: ${apiName})`
+          );
+        } else if (allowed.length > 0) {
+          const display = allowed.map(name => toolNameMap[name] || name);
+          reminderLines.splice(1, 0, `Allowed tools: ${display.join(', ')}`);
+        }
+      }
+    }
+
+    logger.warning?.('Tool choice was ignored; retrying tool call request', {
+      provider: providerManifest.id,
+      model,
+      toolChoice,
+      retry: ignoredToolChoiceRetries
+    });
+
+    messages.push({
+      role: Role.USER,
+      content: [{ type: 'text', text: reminderLines.join('\n') } as any]
+    });
+
+    response = await llmManager.callProvider(
+      providerManifest,
+      model,
+      providerSettings,
+      messages,
+      tools,
+      toolChoice,
+      providerExtras,
+      logger,
+      runContext
+    );
+
+    await maybeAttachUsageCost(response, providerManifest, model, providerSettings);
+  }
 
   while (response.toolCalls && response.toolCalls.length > 0 && !forceFinalize) {
     for (const call of response.toolCalls) {
@@ -540,6 +625,8 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
 
   const emittedToolCalls: ToolCall[] = [];
   const calledToolNames = new Set<string>();
+  const maxIgnoredToolChoiceRetries = 3;
+  let ignoredToolChoiceRetries = 0;
 
   let followUpContent = '';
   let latestUsage: UsageStats | undefined;
@@ -714,7 +801,19 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
         terminalStop = true;
         break;
       }
+
+      // Ensure tool calls are executed at most once; retries for ignored tool choices should not
+      // re-run previously executed tool calls.
+      toolCallsToExecute = [];
+      toolCallReasoning = undefined;
     }
+
+    const followUpToolChoice = budget.exhausted
+      ? 'none'
+      : resolveFollowUpToolChoice(toolChoice, calledToolNames);
+    const requireToolCalls = followUpToolChoice !== undefined &&
+      followUpToolChoice !== 'auto' &&
+      followUpToolChoice !== 'none';
 
     const stream = llmManager.streamProvider(
       providerManifest,
@@ -722,7 +821,7 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
       providerSettings,
       messages,
       budget.exhausted ? [] : tools,
-      budget.exhausted ? 'none' : resolveFollowUpToolChoice(toolChoice, calledToolNames),
+      followUpToolChoice,
       providerExtras,
       logger,
       runContext
@@ -736,16 +835,21 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
     const detectedCallsById = new Map<string, any>();
     let finishedWithToolCalls = false;
     let segmentReasoning: ReasoningData | undefined;
+    let suppressedText = '';
 
     for await (const chunk of stream) {
       const parsed = compat.parseStreamChunk(chunk);
 
       if (parsed.text) {
-        followUpContent += parsed.text;
-        yield {
-          type: StreamEventType.DELTA,
-          content: parsed.text
-        };
+        if (requireToolCalls) {
+          suppressedText += parsed.text;
+        } else {
+          followUpContent += parsed.text;
+          yield {
+            type: StreamEventType.DELTA,
+            content: parsed.text
+          };
+        }
       }
 
       if (parsed.toolEvents) {
@@ -832,8 +936,53 @@ async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerato
 
     const hasDetectedCalls = finishedWithToolCalls || detectedCallsById.size > 0 || pendingToolCalls.size > 0;
     if (!hasDetectedCalls || budget.exhausted) {
+      if (requireToolCalls && !budget.exhausted && ignoredToolChoiceRetries < maxIgnoredToolChoiceRetries) {
+        ignoredToolChoiceRetries += 1;
+
+        const reminderLines: string[] = [
+          'You MUST call the required tool now.',
+          'Do NOT answer with any text.',
+          'Return ONLY a tool call.'
+        ];
+
+        if (followUpToolChoice && typeof followUpToolChoice === 'object') {
+          if (followUpToolChoice.type === 'single') {
+            const apiName = followUpToolChoice.name;
+            const displayName = toolNameMap[apiName] || apiName;
+            reminderLines.splice(
+              1,
+              0,
+              displayName === apiName
+                ? `Call tool: ${displayName}`
+                : `Call tool: ${displayName} (tool name: ${apiName})`
+            );
+          } else if (followUpToolChoice.type === 'required') {
+            const allowed = Array.isArray(followUpToolChoice.allowed) ? followUpToolChoice.allowed : [];
+            if (allowed.length > 0) {
+              const display = allowed.map(name => toolNameMap[name] || name);
+              reminderLines.splice(1, 0, `Allowed tools: ${display.join(', ')}`);
+            }
+          }
+        }
+
+        logger.warning?.('Tool choice was ignored; retrying tool call request', {
+          provider: providerManifest.id,
+          model,
+          toolChoice: followUpToolChoice,
+          retry: ignoredToolChoiceRetries,
+          suppressedTextChars: suppressedText.length
+        });
+
+        messages.push({
+          role: Role.USER,
+          content: [{ type: 'text', text: reminderLines.join('\n') } as any]
+        });
+        continue;
+      }
+
       break;
     }
+    ignoredToolChoiceRetries = 0;
 
     // If we didn't receive TOOL_CALL_END events, finalize using pending state
     if (pendingToolCalls.size > 0) {

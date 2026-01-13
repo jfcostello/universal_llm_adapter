@@ -78,3 +78,7 @@ An extension can ship a per-extension defaults file:
 - `extensions/<name>/defaults.json`
 
 The server loads this only when the extension is enabled, and merges it with `server.extensions[<name>]` (legacy override wins).
+
+## Migration note (extensions)
+
+If you upgrade and an extension you previously relied on is no longer present as a builtin (e.g. it moved to an external pack), add the pack root to `paths.lookup.extensions.externalRoots` and enable it explicitly via the CLI/server (`--extension <name>`).

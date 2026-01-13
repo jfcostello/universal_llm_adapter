@@ -29,6 +29,7 @@ describe('core/registry (multi-root)', () => {
       const rootB = path.join(cwd, 'pack-b');
       fs.mkdirSync(rootA, { recursive: true });
       fs.mkdirSync(rootB, { recursive: true });
+      const rootBReal = fs.realpathSync(rootB);
 
       // providers
       writeJson(path.join(rootA, 'providers', 'dup.json'), { id: 'dup', compat: 'foo', marker: 'A', endpoint: { urlTemplate: 'http://a', method: 'POST', headers: {} } });
@@ -95,29 +96,29 @@ describe('core/registry (multi-root)', () => {
         await registry.loadAll(); // no-op but should be safe
 
         expect((await registry.getProvider('dup') as any).marker).toBe('B');
-        expect(registry.getManifestSource('providers', 'dup')?.root).toBe(rootB);
+        expect(registry.getManifestSource('providers', 'dup')?.root).toBe(rootBReal);
 
         expect((await registry.getRealtimeProvider('rt') as any).marker).toBe('B');
-        expect(registry.getManifestSource('realtime-providers', 'rt')?.root).toBe(rootB);
+        expect(registry.getManifestSource('realtime-providers', 'rt')?.root).toBe(rootBReal);
 
         expect((await registry.getTool('tool.x') as any).description).toBe('B');
-        expect(registry.getManifestSource('tools', 'tool.x')?.root).toBe(rootB);
+        expect(registry.getManifestSource('tools', 'tool.x')?.root).toBe(rootBReal);
 
         expect((await registry.getMCPServer('local') as any).autoStart).toBe(true);
-        expect(registry.getManifestSource('mcp', 'local')?.root).toBe(rootB);
+        expect(registry.getManifestSource('mcp', 'local')?.root).toBe(rootBReal);
 
         expect((await registry.getVectorStore('store') as any).marker).toBe('B');
-        expect(registry.getManifestSource('vector', 'store')?.root).toBe(rootB);
+        expect(registry.getManifestSource('vector', 'store')?.root).toBe(rootBReal);
 
         expect((await registry.getEmbeddingProvider('embed') as any).marker).toBe('B');
-        expect(registry.getManifestSource('embeddings', 'embed')?.root).toBe(rootB);
+        expect(registry.getManifestSource('embeddings', 'embed')?.root).toBe(rootBReal);
 
         expect((await registry.getObservabilityProvider('obs') as any).marker).toBe('B');
-        expect(registry.getManifestSource('observability-providers', 'obs')?.root).toBe(rootB);
+        expect(registry.getManifestSource('observability-providers', 'obs')?.root).toBe(rootBReal);
 
         const processRoutes = await registry.getProcessRoutes();
         expect((processRoutes.find(r => r.id === 'route') as any)?.marker).toBe('B');
-        expect(registry.getManifestSource('processes', 'route')?.root).toBe(rootB);
+        expect(registry.getManifestSource('processes', 'route')?.root).toBe(rootBReal);
 
         expect(warnSpy.mock.calls.some(([msg]) => msg === 'plugin_registry.override')).toBe(true);
         expect(warnSpy.mock.calls.some(([msg]) => String(msg).includes('Skipping'))).toBe(true);
@@ -284,6 +285,122 @@ describe('core/registry (multi-root)', () => {
     });
   });
 
+  test('prefer-same-root binding: override scan tolerates missing code roots in other pack roots', async () => {
+    await withTempCwd('registry-multi-root-prefer-same-root-missing-code-root', async (cwd) => {
+      const rootA = path.join(cwd, 'pack-a');
+      const rootB = path.join(cwd, 'pack-b');
+      fs.mkdirSync(rootA, { recursive: true });
+      fs.mkdirSync(rootB, { recursive: true });
+
+      writeJson(path.join(rootA, 'providers', 'p.json'), { id: 'p', compat: 'foo', endpoint: { urlTemplate: 'http://a', method: 'POST', headers: {} } });
+      writeCjsClass(rootA, 'compat', 'foo', 'A');
+      // rootB intentionally has no `compat/` directory.
+
+      const registry = new PluginRegistry({
+        pluginsPath: './plugins',
+        lookup: {
+          warnOnOverride: true,
+          builtinManifests: false,
+          builtinCode: false,
+          local: false,
+          externalRoots: [rootA, rootB]
+        }
+      });
+
+      expect((await registry.getCompatModuleForProvider('p') as any).__marker).toBe('A');
+    });
+  });
+
+  test('multi-root: compat cache key is stable across provider-based and direct loads (same winner root)', async () => {
+    await withTempCwd('registry-multi-root-compat-cache-key-stable', async (cwd) => {
+      const rootA = path.join(cwd, 'pack-a');
+      const rootB = path.join(cwd, 'pack-b');
+      fs.mkdirSync(rootA, { recursive: true });
+      fs.mkdirSync(rootB, { recursive: true });
+
+      writeJson(path.join(rootA, 'providers', 'p.json'), { id: 'p', compat: 'foo', endpoint: { urlTemplate: 'http://a', method: 'POST', headers: {} } });
+
+      writeCjsClass(rootA, 'compat', 'foo', 'A');
+      writeCjsClass(rootB, 'compat', 'foo', 'B');
+
+      const registry = new PluginRegistry({
+        pluginsPath: './plugins',
+        lookup: {
+          warnOnOverride: false,
+          builtinManifests: false,
+          builtinCode: false,
+          local: false,
+          externalRoots: [rootB, rootA]
+        }
+      });
+
+      expect((await registry.getCompatModuleForProvider('p') as any).__marker).toBe('A');
+      expect((await registry.getCompatModule('foo') as any).__marker).toBe('A');
+
+      const compatModules = (registry as any).compatModules as Map<string, any>;
+      expect(compatModules.size).toBe(1);
+    });
+  });
+
+  test('multi-root: compat cache key uses winner root when preferred root lacks the module', async () => {
+    await withTempCwd('registry-multi-root-compat-cache-key-fallback', async (cwd) => {
+      const rootA = path.join(cwd, 'pack-a');
+      const rootB = path.join(cwd, 'pack-b');
+      fs.mkdirSync(rootA, { recursive: true });
+      fs.mkdirSync(rootB, { recursive: true });
+
+      writeJson(path.join(rootA, 'providers', 'p.json'), { id: 'p', compat: 'foo', endpoint: { urlTemplate: 'http://a', method: 'POST', headers: {} } });
+      writeCjsClass(rootB, 'compat', 'foo', 'B');
+
+      const registry = new PluginRegistry({
+        pluginsPath: './plugins',
+        lookup: {
+          warnOnOverride: false,
+          builtinManifests: false,
+          builtinCode: false,
+          local: false,
+          externalRoots: [rootA, rootB]
+        }
+      });
+
+      expect((await registry.getCompatModuleForProvider('p') as any).__marker).toBe('B');
+      expect((await registry.getCompatModule('foo') as any).__marker).toBe('B');
+
+      const compatModules = (registry as any).compatModules as Map<string, any>;
+      expect(compatModules.size).toBe(1);
+    });
+  });
+
+  test('multi-root: prefer-same-root does not bypass code-source restrictions for preferred roots', async () => {
+    await withTempCwd('registry-multi-root-preferred-root-gated', async (cwd) => {
+      const externalPack = path.join(cwd, 'external-pack');
+      fs.mkdirSync(externalPack, { recursive: true });
+
+      // Provider manifest is in the external pack root.
+      writeJson(path.join(externalPack, 'providers', 'p.json'), { id: 'p', compat: 'foo', endpoint: { urlTemplate: 'http://a', method: 'POST', headers: {} } });
+
+      // Compat exists in both the external pack (should be ignored) and the local plugins root (should be used).
+      writeCjsClass(externalPack, 'compat', 'foo', 'EXTERNAL');
+      writeCjsClass(path.join(cwd, 'plugins'), 'compat', 'foo', 'LOCAL');
+
+      const registry = new PluginRegistry({
+        pluginsPath: './plugins',
+        lookup: {
+          warnOnOverride: false,
+          builtinManifests: false,
+          builtinCode: false,
+          local: true,
+          externalRoots: [],
+          areas: {
+            providers: { local: false, externalRoots: [externalPack] }
+          }
+        }
+      });
+
+      expect((await registry.getCompatModuleForProvider('p') as any).__marker).toBe('LOCAL');
+    });
+  });
+
   test('ignores missing roots in multi-root mode', async () => {
     await withTempCwd('registry-multi-root-missing-root', async (cwd) => {
       const existing = path.join(cwd, 'pack');
@@ -373,6 +490,8 @@ describe('core/registry (multi-root)', () => {
       const rootB = path.join(cwd, 'pack-b');
       fs.mkdirSync(rootA, { recursive: true });
       fs.mkdirSync(rootB, { recursive: true });
+      const rootAReal = fs.realpathSync(rootA);
+      const rootBReal = fs.realpathSync(rootB);
 
       const registry = new PluginRegistry({
         pluginsPath: './plugins',
@@ -389,8 +508,8 @@ describe('core/registry (multi-root)', () => {
       });
 
       const lookup = (registry as any).lookup as any;
-      expect(lookup.base.externalRoots).toEqual([rootA, rootB]);
-      expect(lookup.areas.compat.externalRoots).toEqual([rootB]);
+      expect(lookup.base.externalRoots).toEqual([rootAReal, rootBReal]);
+      expect(lookup.areas.compat.externalRoots).toEqual([rootBReal]);
     });
   });
 

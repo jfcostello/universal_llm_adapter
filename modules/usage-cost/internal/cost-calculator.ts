@@ -14,6 +14,7 @@ export type UsageCostTable = Record<string, Record<string, UsageCostRates>>;
 
 const COST_TABLE_FILENAME = 'usage-costs.json';
 let cachedTable: UsageCostTable | null | undefined;
+let cachedTableCwd: string | undefined;
 
 function resolveCostTablePaths(): string[] {
   const candidates = [
@@ -50,13 +51,19 @@ function normalizeRates(raw: any): UsageCostRates | undefined {
 }
 
 export function loadUsageCostTable(): UsageCostTable | undefined {
+  const cwd = process.cwd();
+
+  if (cachedTable !== undefined && cachedTableCwd !== cwd) {
+    cachedTable = undefined;
+    cachedTableCwd = undefined;
+  }
+
   if (cachedTable !== undefined) {
     return cachedTable ?? undefined;
   }
 
   const pathsConfig = getAdapterPathsConfig();
   if (pathsConfig) {
-    const cwd = process.cwd();
     const cfg = pathsConfig.paths.lookup.configs.usageCosts;
     const localPluginsRoot = path.resolve(cwd, pathsConfig.paths.plugins ?? './plugins');
     const builtinPluginsRoot = path.resolve(PACKAGE_ROOT, 'plugins');
@@ -116,10 +123,12 @@ export function loadUsageCostTable(): UsageCostTable | undefined {
 
     if (!loadedAny) {
       cachedTable = null;
+      cachedTableCwd = cwd;
       return undefined;
     }
 
     cachedTable = merged;
+    cachedTableCwd = cwd;
     return cachedTable;
   }
 
@@ -130,6 +139,7 @@ export function loadUsageCostTable(): UsageCostTable | undefined {
       const data = loadJsonFile(candidate);
       if (data && typeof data === 'object' && !Array.isArray(data)) {
         cachedTable = data as UsageCostTable;
+        cachedTableCwd = cwd;
         return cachedTable;
       }
     } catch {
@@ -139,11 +149,13 @@ export function loadUsageCostTable(): UsageCostTable | undefined {
   }
 
   cachedTable = null;
+  cachedTableCwd = cwd;
   return undefined;
 }
 
 export function resetUsageCostTableCache(): void {
   cachedTable = undefined;
+  cachedTableCwd = undefined;
 }
 
 export function getUsageCostRates(
