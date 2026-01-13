@@ -118,7 +118,7 @@ function safeClose(ws: VoiceMediaWsLike, code: number, reason: string): void {
 async function* iterateAsyncIterator<T>(iterator: AsyncIterator<T>): AsyncIterable<T> {
   while (true) {
     const next = await iterator.next();
-    if (next.done) return;
+    if (next.done) return next.value;
     yield next.value;
   }
 }
