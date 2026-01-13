@@ -6,6 +6,34 @@ import { loadJsonFile } from './config.js';
 import type { DefaultSettings } from './types.js';
 import { PACKAGE_ROOT } from './paths.js';
 
+export const BUILT_IN_SENSITIVE_KEY_PATTERNS: ReadonlyArray<string> = Object.freeze([
+  'authorization',
+  'x-api-key',
+  'x-goog-api-key',
+  'api_key',
+  'apikey',
+  '*api_key*',
+  '*api-key*',
+  '*apikey*',
+  'access_token',
+  'refresh_token',
+  'id_token',
+  '*access_token*',
+  '*access-token*',
+  '*accesstoken*',
+  '*refresh_token*',
+  '*refresh-token*',
+  '*refreshtoken*',
+  '*id_token*',
+  '*id-token*',
+  '*idtoken*',
+  'key',
+  'secret',
+  'password',
+  'credential',
+  'auth'
+]);
+
 /**
  * Inline fallback defaults used when JSON file is not found or invalid.
  * These values match the defaults.json file and serve as a safety net.
@@ -52,33 +80,7 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
   },
   security: {
     redaction: {
-      sensitiveKeys: [
-        'authorization',
-        'x-api-key',
-        'x-goog-api-key',
-        'api_key',
-        'apikey',
-        '*api_key*',
-        '*api-key*',
-        '*apikey*',
-        'access_token',
-        'refresh_token',
-        'id_token',
-        '*access_token*',
-        '*access-token*',
-        '*accesstoken*',
-        '*refresh_token*',
-        '*refresh-token*',
-        '*refreshtoken*',
-        '*id_token*',
-        '*id-token*',
-        '*idtoken*',
-        'key',
-        'secret',
-        'password',
-        'credential',
-        'auth'
-      ]
+      sensitiveKeys: Array.from(BUILT_IN_SENSITIVE_KEY_PATTERNS)
     }
   },
   timeouts: {

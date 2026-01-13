@@ -107,8 +107,10 @@ export async function setupLoggingTestHarness(
   }));
 
   if (options.getDefaults) {
+    const { BUILT_IN_SENSITIVE_KEY_PATTERNS } = await import('@/kernel/internal/defaults.ts');
     await unstableMockModule('../../../kernel/index.js', () => ({
       __esModule: true,
+      BUILT_IN_SENSITIVE_KEY_PATTERNS,
       getDefaults: options.getDefaults
     }));
   }

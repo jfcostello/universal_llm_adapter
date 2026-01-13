@@ -17,6 +17,7 @@ describe('root switchboard', () => {
         kernelImports += 1;
         return {
           isPlainObject: (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
+          BUILT_IN_SENSITIVE_KEY_PATTERNS: [],
           getDefaults: () => ({ defaults: true })
         };
       });

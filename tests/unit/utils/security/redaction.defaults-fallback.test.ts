@@ -10,8 +10,11 @@ describe('utils/security/redaction (defaults fallback)', () => {
 
     jest.resetModules();
 
+    const { BUILT_IN_SENSITIVE_KEY_PATTERNS } = await import('@/kernel/internal/defaults.ts');
+
     await unstableMockModule('../../../../kernel/index.js', () => ({
       __esModule: true,
+      BUILT_IN_SENSITIVE_KEY_PATTERNS,
       getDefaults: () => ({
         security: { redaction: { sensitiveKeys: [] } }
       })
@@ -33,8 +36,11 @@ describe('utils/security/redaction (defaults fallback)', () => {
 
     jest.resetModules();
 
+    const { BUILT_IN_SENSITIVE_KEY_PATTERNS } = await import('@/kernel/internal/defaults.ts');
+
     await unstableMockModule('../../../../kernel/index.js', () => ({
       __esModule: true,
+      BUILT_IN_SENSITIVE_KEY_PATTERNS,
       getDefaults: () => null
     }));
 
@@ -54,8 +60,11 @@ describe('utils/security/redaction (defaults fallback)', () => {
 
     jest.resetModules();
 
+    const { BUILT_IN_SENSITIVE_KEY_PATTERNS } = await import('@/kernel/internal/defaults.ts');
+
     await unstableMockModule('../../../../kernel/index.js', () => ({
       __esModule: true,
+      BUILT_IN_SENSITIVE_KEY_PATTERNS,
       getDefaults: () => ({
         security: { redaction: null }
       })
@@ -77,8 +86,11 @@ describe('utils/security/redaction (defaults fallback)', () => {
 
     jest.resetModules();
 
+    const { BUILT_IN_SENSITIVE_KEY_PATTERNS } = await import('@/kernel/internal/defaults.ts');
+
     await unstableMockModule('../../../../kernel/index.js', () => ({
       __esModule: true,
+      BUILT_IN_SENSITIVE_KEY_PATTERNS,
       getDefaults: () => ({
         security: { redaction: { sensitiveKeys: ['authorization'] } }
       })
