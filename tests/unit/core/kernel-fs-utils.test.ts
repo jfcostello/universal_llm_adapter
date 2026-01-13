@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { jest } from '@jest/globals';
 
 import { normalizeExternalRoots, resolveModuleEntryInRoot } from '@/kernel/index.ts';
 
@@ -65,6 +66,119 @@ describe('kernel/fs utils', () => {
         const roots = normalizeExternalRoots(cwd, [target, link]);
         expect(roots).toEqual([fs.realpathSync(target)]);
       } finally {
+        fs.rmSync(cwd, { recursive: true, force: true });
+      }
+    });
+
+    test('warns when path does not exist', () => {
+      const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-external-roots-warn-'));
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const nonExistent = path.join(cwd, 'does-not-exist');
+        const roots = normalizeExternalRoots(cwd, [nonExistent]);
+
+        expect(roots).toEqual([nonExistent]);
+        expect(warnSpy).toHaveBeenCalledWith(
+          'external_roots.path_resolution_warning',
+          expect.objectContaining({ path: nonExistent, warning: 'path does not exist' })
+        );
+      } finally {
+        warnSpy.mockRestore();
+        fs.rmSync(cwd, { recursive: true, force: true });
+      }
+    });
+
+    test('warns when broken symlink cannot be resolved', () => {
+      const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-external-roots-broken-'));
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const brokenLink = path.join(cwd, 'broken-link');
+        fs.symlinkSync(path.join(cwd, 'nonexistent-target'), brokenLink, 'dir');
+
+        const roots = normalizeExternalRoots(cwd, [brokenLink]);
+
+        expect(roots).toEqual([brokenLink]);
+        expect(warnSpy).toHaveBeenCalledWith(
+          'external_roots.path_resolution_warning',
+          expect.objectContaining({ path: brokenLink, warning: 'path does not exist' })
+        );
+      } finally {
+        warnSpy.mockRestore();
+        fs.rmSync(cwd, { recursive: true, force: true });
+      }
+    });
+
+    test('warns when realpathSync throws an error', async () => {
+      const rawCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-external-roots-realpath-err-'));
+      // Resolve to real path first to handle macOS /var -> /private/var symlink
+      const cwd = fs.realpathSync(rawCwd);
+      const testPath = path.join(cwd, 'test-path');
+      fs.mkdirSync(testPath, { recursive: true });
+
+      // Reset modules so we can re-import with mocked fs
+      jest.resetModules();
+
+      // Set up mocks after directory creation but before importing the module
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const existsSpy = jest.spyOn(fs, 'existsSync').mockReturnValue(true);
+      const realpathSpy = jest.spyOn(fs, 'realpathSync').mockImplementation(() => {
+        throw new Error('ELOOP: too many symbolic links');
+      });
+
+      try {
+        // Re-import the module to pick up the mocked fs
+        const { normalizeExternalRoots: mockedNormalizeExternalRoots } = await import('@/kernel/index.ts');
+        const roots = mockedNormalizeExternalRoots(cwd, [testPath]);
+
+        expect(roots).toEqual([testPath]);
+        expect(warnSpy).toHaveBeenCalledWith(
+          'external_roots.path_resolution_warning',
+          expect.objectContaining({
+            path: testPath,
+            warning: 'failed to resolve realpath: ELOOP: too many symbolic links'
+          })
+        );
+      } finally {
+        warnSpy.mockRestore();
+        existsSpy.mockRestore();
+        realpathSpy.mockRestore();
+        jest.resetModules();
+        fs.rmSync(cwd, { recursive: true, force: true });
+      }
+    });
+
+    test('warns when realpathSync throws a non-Error value', async () => {
+      const rawCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-external-roots-realpath-nonerr-'));
+      const cwd = fs.realpathSync(rawCwd);
+      const testPath = path.join(cwd, 'test-path');
+      fs.mkdirSync(testPath, { recursive: true });
+
+      jest.resetModules();
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const existsSpy = jest.spyOn(fs, 'existsSync').mockReturnValue(true);
+      const realpathSpy = jest.spyOn(fs, 'realpathSync').mockImplementation(() => {
+        // eslint-disable-next-line @typescript-eslint/only-throw-error
+        throw 'string error message';
+      });
+
+      try {
+        const { normalizeExternalRoots: mockedNormalizeExternalRoots } = await import('@/kernel/index.ts');
+        const roots = mockedNormalizeExternalRoots(cwd, [testPath]);
+
+        expect(roots).toEqual([testPath]);
+        expect(warnSpy).toHaveBeenCalledWith(
+          'external_roots.path_resolution_warning',
+          expect.objectContaining({
+            path: testPath,
+            warning: 'failed to resolve realpath: string error message'
+          })
+        );
+      } finally {
+        warnSpy.mockRestore();
+        existsSpy.mockRestore();
+        realpathSpy.mockRestore();
+        jest.resetModules();
         fs.rmSync(cwd, { recursive: true, force: true });
       }
     });

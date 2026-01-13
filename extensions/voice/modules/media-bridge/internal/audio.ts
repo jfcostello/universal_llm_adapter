@@ -75,6 +75,11 @@ export function convertAudioBytes(options: {
     pcmChannels = 1;
   }
 
+  // Validate channel compatibility before expensive resampling (fail fast)
+  if (pcmChannels !== outputSpec.channels) {
+    throw new Error(`Unsupported channel conversion: ${pcmChannels} -> ${outputSpec.channels}`);
+  }
+
   if (Math.floor(inputSpec.sampleRateHz) !== Math.floor(outputSpec.sampleRateHz)) {
     pcm16leBytes = resamplePcm16leBytes({
       bytes: pcm16leBytes,
@@ -82,10 +87,6 @@ export function convertAudioBytes(options: {
       toSampleRateHz: outputSpec.sampleRateHz,
       channels: pcmChannels
     });
-  }
-
-  if (pcmChannels !== outputSpec.channels) {
-    throw new Error(`Unsupported channel conversion: ${pcmChannels} -> ${outputSpec.channels}`);
   }
 
   return fromPcm16leBytes(pcm16leBytes, outputSpec);

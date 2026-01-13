@@ -61,8 +61,9 @@ If no file is found, the adapter falls back to the legacy single-root behavior.
 
 Notes:
 - `externalRoots` entries can be absolute or relative to `process.cwd()`; they are normalized and deduped.
+- If a path doesn't exist or cannot be resolved (e.g. broken symlinks), a warning is logged (`external_roots.path_resolution_warning`) to aid debugging.
 - Higher-precedence roots override lower-precedence ones; when `warnOnOverride` is enabled the adapter logs warnings (e.g. `plugin_registry.override`, `extensions.override`, `usage_costs.override`).
-- Config overlays are “baseline + user overlay”: values are merged from low → high precedence so new core fields can be inherited automatically.
+- Config overlays are "baseline + user overlay": values are merged from low → high precedence so new core fields can be inherited automatically.
 
 ## Running with a paths file
 

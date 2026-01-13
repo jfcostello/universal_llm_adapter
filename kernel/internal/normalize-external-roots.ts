@@ -7,13 +7,16 @@ function normalizeString(value: unknown): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-function realpathIfExists(resolvedPath: string): string {
+function realpathIfExists(resolvedPath: string): { canonical: string; warning?: string } {
   try {
     if (fs.existsSync(resolvedPath)) {
-      return fs.realpathSync(resolvedPath);
+      return { canonical: fs.realpathSync(resolvedPath) };
     }
-  } catch {}
-  return resolvedPath;
+    return { canonical: resolvedPath, warning: 'path does not exist' };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { canonical: resolvedPath, warning: `failed to resolve realpath: ${message}` };
+  }
 }
 
 /**
@@ -32,7 +35,10 @@ export function normalizeExternalRoots(cwd: string, raw: unknown): string[] {
     const s = normalizeString(item);
     if (!s) continue;
     const resolved = path.isAbsolute(s) ? s : path.resolve(cwd, s);
-    const canonical = realpathIfExists(resolved);
+    const { canonical, warning } = realpathIfExists(resolved);
+    if (warning) {
+      console.warn('external_roots.path_resolution_warning', { path: resolved, warning });
+    }
     if (seen.has(canonical)) continue;
     seen.add(canonical);
     result.push(canonical);
