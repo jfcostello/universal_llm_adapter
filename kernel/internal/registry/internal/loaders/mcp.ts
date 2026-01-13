@@ -1,87 +1,50 @@
-import * as path from 'path';
-import { glob } from 'glob';
-
 import { loadJsonFile } from '../../../config.js';
 import { ManifestError } from '../../../errors.js';
 
-import type { ManifestSourceMeta } from '../public-types.js';
 import type { PluginRegistryState } from '../state.js';
 import { runLoaderOnce } from '../loader-lock.js';
-import { getManifestSource, getPackRootsLowToHigh, setManifestSource, warnOnOverride } from '../lookup.js';
+import { forEachManifestFile, upsertManifestWithSource } from '../manifest-loader.js';
 
 export async function loadMCPServersInternal(state: PluginRegistryState, options: { strict?: boolean } = {}): Promise<void> {
   return runLoaderOnce(state, 'mcpServersLoaded', 'mcp', async () => {
     const { parseMCPManifest } = await import('../../../../../modules/mcp/index.js');
 
-    if (state.mode === 'legacy') {
-      const files = glob.sync('mcp/*.json', { cwd: state.rootPath }).sort();
-      for (const file of files) {
-        if (options.strict) {
-          const manifestPath = path.join(state.rootPath, file);
-          const manifest = loadJsonFile(manifestPath);
-          const servers = parseMCPManifest(manifest, file);
-          for (const server of servers) {
-            state.mcpServers.set(server.id, server);
-          }
-          continue;
-        }
+    await forEachManifestFile(
+      state,
+      { area: 'mcp', pattern: 'mcp/*.json', strict: options.strict, skipLabel: 'MCP server manifest' },
+      (file) => {
+        const manifest = loadJsonFile(file.fullPath);
+        const servers = parseMCPManifest(manifest, file.file);
 
-        try {
-          const manifestPath = path.join(state.rootPath, file);
-          const manifest = loadJsonFile(manifestPath);
-          const servers = parseMCPManifest(manifest, file);
-          for (const server of servers) {
-            state.mcpServers.set(server.id, server);
+        for (const server of servers) {
+          const id = server.id;
+
+          if (!file.isMultiRoot) {
+            state.mcpServers.set(id, server);
+            continue;
           }
-        } catch (error: any) {
-          console.warn(`Skipping MCP server manifest ${file}: ${error.message}`);
+
+          if (options.strict) {
+            if (!id) {
+              throw new ManifestError(`Invalid MCP server manifest '${file.fullPath}': missing id`);
+            }
+
+            upsertManifestWithSource(state, 'mcp', id, file.source, () => {
+              state.mcpServers.set(id, server);
+            });
+            continue;
+          }
+
+          if (!id) {
+            console.warn(`Skipping MCP server manifest ${file.file}: missing id`);
+            continue;
+          }
+
+          upsertManifestWithSource(state, 'mcp', id, file.source, () => {
+            state.mcpServers.set(id, server);
+          });
         }
       }
-
-      return;
-    }
-
-    const roots = getPackRootsLowToHigh(state, 'mcp', 'manifests');
-    for (const root of roots) {
-      const files = glob.sync('mcp/*.json', { cwd: root.root }).sort();
-      for (const file of files) {
-        const manifestPath = path.join(root.root, file);
-        const source: ManifestSourceMeta = { kind: root.kind, root: root.root, filePath: manifestPath, precedence: root.precedence };
-
-        if (options.strict) {
-          const manifest = loadJsonFile(manifestPath);
-          const servers = parseMCPManifest(manifest, file);
-          for (const server of servers) {
-            const id = server.id;
-            if (!id) {
-              throw new ManifestError(`Invalid MCP server manifest '${manifestPath}': missing id`);
-            }
-            const prev = getManifestSource(state, 'mcp', id);
-            if (prev) warnOnOverride(state, 'mcp', id, prev, source);
-            state.mcpServers.set(id, server);
-            setManifestSource(state, 'mcp', id, source);
-          }
-          continue;
-        }
-
-        try {
-          const manifest = loadJsonFile(manifestPath);
-          const servers = parseMCPManifest(manifest, file);
-          for (const server of servers) {
-            const id = server.id;
-            if (!id) {
-              console.warn(`Skipping MCP server manifest ${file}: missing id`);
-              continue;
-            }
-            const prev = getManifestSource(state, 'mcp', id);
-            if (prev) warnOnOverride(state, 'mcp', id, prev, source);
-            state.mcpServers.set(id, server);
-            setManifestSource(state, 'mcp', id, source);
-          }
-        } catch (error: any) {
-          console.warn(`Skipping MCP server manifest ${file}: ${error.message}`);
-        }
-      }
-    }
+    );
   });
 }

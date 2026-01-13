@@ -1,74 +1,46 @@
-import * as path from 'path';
-import { glob } from 'glob';
-
 import { loadJsonFile } from '../../../config.js';
 import { ManifestError } from '../../../errors.js';
 import type { UnifiedTool } from '../../../types.js';
 
-import type { ManifestSourceMeta } from '../public-types.js';
 import type { PluginRegistryState } from '../state.js';
 import { runLoaderOnce } from '../loader-lock.js';
-import { getManifestSource, getPackRootsLowToHigh, setManifestSource, warnOnOverride } from '../lookup.js';
+import { forEachManifestFile, upsertManifestWithSource } from '../manifest-loader.js';
 
 export async function loadToolsInternal(state: PluginRegistryState, options: { strict?: boolean } = {}): Promise<void> {
   return runLoaderOnce(state, 'toolsLoaded', 'tools', async () => {
-    if (state.mode === 'legacy') {
-      const files = glob.sync('tools/*.json', { cwd: state.rootPath }).sort();
-      for (const file of files) {
-        if (options.strict) {
-          const tool = loadJsonFile(path.join(state.rootPath, file)) as UnifiedTool;
+    await forEachManifestFile(
+      state,
+      { area: 'tools', pattern: 'tools/*.json', strict: options.strict, skipLabel: 'tool manifest' },
+      (file) => {
+        const tool = loadJsonFile(file.fullPath) as UnifiedTool;
+
+        if (!file.isMultiRoot) {
           state.tools.set(tool.name, tool);
-          continue;
+          return;
         }
 
-        try {
-          const tool = loadJsonFile(path.join(state.rootPath, file)) as UnifiedTool;
-          state.tools.set(tool.name, tool);
-        } catch (error: any) {
-          console.warn(`Skipping tool manifest ${file}: ${error.message}`);
-        }
-      }
-
-      return;
-    }
-
-    const roots = getPackRootsLowToHigh(state, 'tools', 'manifests');
-    for (const root of roots) {
-      const files = glob.sync('tools/*.json', { cwd: root.root }).sort();
-      for (const file of files) {
-        const fullPath = path.join(root.root, file);
-        const source: ManifestSourceMeta = { kind: root.kind, root: root.root, filePath: fullPath, precedence: root.precedence };
+        const name = typeof (tool as any)?.name === 'string' ? String((tool as any).name) : '';
 
         if (options.strict) {
-          const tool = loadJsonFile(fullPath) as UnifiedTool;
-          const name = typeof (tool as any)?.name === 'string' ? String((tool as any).name) : '';
           if (!name) {
-            throw new ManifestError(`Invalid tool manifest '${fullPath}': missing name`);
+            throw new ManifestError(`Invalid tool manifest '${file.fullPath}': missing name`);
           }
 
-          const prev = getManifestSource(state, 'tools', name);
-          if (prev) warnOnOverride(state, 'tools', name, prev, source);
-          state.tools.set(name, tool);
-          setManifestSource(state, 'tools', name, source);
-          continue;
+          upsertManifestWithSource(state, 'tools', name, file.source, () => {
+            state.tools.set(name, tool);
+          });
+          return;
         }
 
-        try {
-          const tool = loadJsonFile(fullPath) as UnifiedTool;
-          const name = typeof (tool as any)?.name === 'string' ? String((tool as any).name) : '';
-          if (!name) {
-            console.warn(`Skipping tool manifest ${file}: missing name`);
-            continue;
-          }
-
-          const prev = getManifestSource(state, 'tools', name);
-          if (prev) warnOnOverride(state, 'tools', name, prev, source);
-          state.tools.set(name, tool);
-          setManifestSource(state, 'tools', name, source);
-        } catch (error: any) {
-          console.warn(`Skipping tool manifest ${file}: ${error.message}`);
+        if (!name) {
+          console.warn(`Skipping tool manifest ${file.file}: missing name`);
+          return;
         }
+
+        upsertManifestWithSource(state, 'tools', name, file.source, () => {
+          state.tools.set(name, tool);
+        });
       }
-    }
+    );
   });
 }
