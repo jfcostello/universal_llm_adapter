@@ -22,7 +22,6 @@ export const logDir = path.join(process.cwd(), 'logs');
 export const llmLogDir = path.join(logDir, 'llm');
 export const embeddingLogDir = path.join(logDir, 'embedding');
 export const vectorLogDir = path.join(logDir, 'vector');
-export const voiceLogDir = path.join(logDir, 'voice');
 export const realtimeLogDir = path.join(logDir, 'realtime');
 
 // Retention configuration (env overrides)
@@ -41,10 +40,6 @@ export const EMBEDDING_MAX_AGE_DAYS = readEnvFloat('LLM_ADAPTER_EMBEDDING_LOG_MA
 
 export const VECTOR_MAX_FILES = readEnvInt('LLM_ADAPTER_VECTOR_LOG_MAX_FILES', DEFAULT_MAX_FILES);
 export const VECTOR_MAX_AGE_DAYS = readEnvFloat('LLM_ADAPTER_VECTOR_LOG_MAX_AGE_DAYS', DEFAULT_MAX_AGE_DAYS);
-
-export const VOICE_MAX_FILES = readEnvInt('LLM_ADAPTER_VOICE_LOG_MAX_FILES', DEFAULT_MAX_FILES);
-export const VOICE_MAX_AGE_DAYS = readEnvFloat('LLM_ADAPTER_VOICE_LOG_MAX_AGE_DAYS', DEFAULT_MAX_AGE_DAYS);
-export const VOICE_MAX_BYTES = readEnvInt('LLM_ADAPTER_VOICE_LOG_MAX_BYTES', 0);
 
 export const REALTIME_MAX_FILES = readEnvInt('LLM_ADAPTER_REALTIME_LOG_MAX_FILES', DEFAULT_MAX_FILES);
 export const REALTIME_MAX_AGE_DAYS = readEnvFloat('LLM_ADAPTER_REALTIME_LOG_MAX_AGE_DAYS', DEFAULT_MAX_AGE_DAYS);

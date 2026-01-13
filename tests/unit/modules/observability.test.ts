@@ -1923,8 +1923,12 @@ describe('modules/observability', () => {
       // This test needs to mock getDefaults to return no provider
       jest.resetModules();
 
+      const { BUILT_IN_SENSITIVE_KEY_PATTERNS } = await import('@/kernel/internal/defaults.ts');
+
       // Mock the kernel module to return defaults with no provider
       jest.unstable_mockModule('@/kernel/index.ts', () => ({
+        isPlainObject: (value: unknown) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
+        BUILT_IN_SENSITIVE_KEY_PATTERNS,
         getNoopObservabilityDeps: () => ({
           isEnabled: () => false,
           getExporter: () => ({
@@ -2395,6 +2399,8 @@ describe('modules/observability', () => {
     test('falls back to an inline maxAttributeValueBytes default when defaults omit it', async () => {
       jest.resetModules();
 
+      const { BUILT_IN_SENSITIVE_KEY_PATTERNS } = await import('@/kernel/internal/defaults.ts');
+
       const mockCompat = {
         buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
         sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
@@ -2412,6 +2418,8 @@ describe('modules/observability', () => {
       };
 
       (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
+        isPlainObject: (value: unknown) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
+        BUILT_IN_SENSITIVE_KEY_PATTERNS,
         getNoopObservabilityDeps: () => ({
           isEnabled: () => false,
           getExporter: () => ({

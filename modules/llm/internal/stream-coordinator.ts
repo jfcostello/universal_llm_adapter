@@ -54,7 +54,9 @@ export class StreamCoordinator {
     const providerManifest = await this.registry.getProvider(provider);
 
     // Get compat module for parsing stream chunks
-    const compat = await this.registry.getCompatModule(providerManifest.compat);
+    const compat = typeof this.registry.getCompatModuleForProvider === 'function'
+      ? await this.registry.getCompatModuleForProvider(providerManifest.id)
+      : await this.registry.getCompatModule(providerManifest.compat);
 
     // Record LLM request event if observability is enabled (never throws)
     if (context.observability) {

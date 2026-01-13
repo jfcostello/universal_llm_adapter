@@ -207,7 +207,9 @@ export class LLMManager {
     const requestTimestampMs = startTimeMs;
     const normalizedMessages = aggregateSystemMessages(messages);
     const shouldLogLive = process.env.LLM_LIVE === '1';
-    const compat = await this.registry.getCompatModule(provider.compat);
+    const compat = typeof this.registry.getCompatModuleForProvider === 'function'
+      ? await this.registry.getCompatModuleForProvider(provider.id)
+      : await this.registry.getCompatModule(provider.compat);
     const providerRequestsHttp = this.isHttpUrlTemplate(provider.endpoint?.urlTemplate);
 
     // SDK-based providers: if compat has callSDK method, use it instead of HTTP
@@ -797,7 +799,9 @@ export class LLMManager {
     context: any = {}
   ): AsyncGenerator<any> {
     const normalizedMessages = aggregateSystemMessages(messages);
-    const compat = await this.registry.getCompatModule(provider.compat);
+    const compat = typeof this.registry.getCompatModuleForProvider === 'function'
+      ? await this.registry.getCompatModuleForProvider(provider.id)
+      : await this.registry.getCompatModule(provider.compat);
     const providerRequestsHttp = this.isHttpUrlTemplate(
       provider.endpoint?.streamingUrlTemplate || provider.endpoint?.urlTemplate
     );

@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 
-import { createVoiceCallEventHub } from '../../internal/call-events.js';
+import { createVoiceCallEventHub } from '../../modules/call-events/index.js';
 
 describe('extensions/voice: call events hub', () => {
   test('buffers non-delta events and replays to new subscribers', async () => {

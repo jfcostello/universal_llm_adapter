@@ -1,6 +1,8 @@
 import type http from 'http';
+import { pathToFileURL } from 'url';
 
 import { assertValidExtensionName } from '../../../shared/index.js';
+import { loadExtensionDefaults, mergeExtensionConfig, resolveExtensionEntry } from '../../../extensions/index.js';
 import type {
   UpgradeHandler,
   UpgradeRouter
@@ -49,7 +51,17 @@ export async function loadServerExtensions(options: {
 
   for (const extRaw of enabled) {
     const name = assertValidExtensionName(extRaw);
-    const mod = await importExtension(`../../../../extensions/${name}/index.js`);
+    const resolved = resolveExtensionEntry(name);
+    if (!resolved) {
+      throw new Error(`Enabled extension '${name}' could not be resolved`);
+    }
+
+    const importSpecifier =
+      resolved.kind === 'builtin'
+        ? `../../../../extensions/${name}/index.js`
+        : pathToFileURL(resolved.entryFilePath).href;
+
+    const mod = await importExtension(importSpecifier);
     const ext: ServerExtensionModule | undefined = (mod as any)?.default;
     if (!ext || typeof ext !== 'object') {
       throw new Error(`Extension '${name}' did not export a default extension object`);
@@ -64,12 +76,26 @@ export async function loadServerExtensions(options: {
     const registerServer = (ext as any).registerServer as ServerExtensionModule['registerServer'] | undefined;
     if (typeof registerServer !== 'function') continue;
 
+    const defaultsConfig = loadExtensionDefaults(resolved);
+    const legacyConfig = options.httpConfig?.extensions?.[name];
+    const mergedConfig = mergeExtensionConfig(defaultsConfig, legacyConfig);
+    const mergedHttpConfig =
+      options.httpConfig && mergedConfig !== undefined
+        ? {
+            ...options.httpConfig,
+            extensions: {
+              ...(options.httpConfig.extensions ?? {}),
+              [name]: mergedConfig
+            }
+          }
+        : options.httpConfig;
+
     const registration = await registerServer({
       server: options.server,
       registry: options.registry,
       pluginsPath: options.pluginsPath,
       upgradeRouter: options.upgradeRouter,
-      httpConfig: options.httpConfig
+      httpConfig: mergedHttpConfig
     });
 
     if (registration.handleHttp) {

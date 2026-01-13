@@ -9,11 +9,18 @@ import { Role, safeJsonParse } from '../../../../kernel/index.js';
 import { extractUsageStats, getGlobalUsageSpec, mergeUsageExtractionSpecs } from '../../../../modules/usage/index.js';
 import { OPENAI_USAGE_SPEC_RESPONSE } from './mappings.js';
 
+function stripAssistantFinalWrapper(text: string): string {
+  const marker = 'assistantfinal';
+  const index = text.lastIndexOf(marker);
+  if (index === -1) return text;
+  return text.slice(index + marker.length).trimStart();
+}
+
 function parseContent(content: any): ContentPart[] {
   if (!content) return [];
 
   if (typeof content === 'string') {
-    return [{ type: 'text', text: content }];
+    return [{ type: 'text', text: stripAssistantFinalWrapper(content) }];
   }
 
   if (Array.isArray(content)) {

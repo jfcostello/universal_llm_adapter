@@ -5,7 +5,7 @@ Provider-agnostic voice calling capability layered on top of the core realtime A
 This extension is:
 - **disabled by default**
 - **strictly lazy-loaded** (only imported when enabled)
-- **provider-agnostic** (provider-specific telephony logic lives under `plugins/voice-*`)
+- **provider-agnostic** (provider-specific telephony logic lives under `plugins/{providers,compat}`)
 
 ## Surface
 
@@ -111,8 +111,8 @@ Notes:
 - `end.defaultMode` (default: `immediate`): `{ immediate | after_assistant_audio | after_playback }`.
 - `end.defaultMaxWaitMs` (default: `5000`, max: `60000`): safety fallback for graceful call ends.
 - `end.defaultCancelOnUserSpeech` (default: `false`): cancel a pending graceful end when `user_speech.started` is observed.
-- `timeouts.firstTurnGraceMs`: optional non-negative millisecond window used by some voice compats/bridges to adjust first-turn commit behavior immediately after realtime `ready` (see the active compat README under `plugins/voice-compat/*`).
-- `timeouts.silenceAssistantAudioStartFallbackMs` / `timeouts.silenceAssistantAudioEndFallbackMs`: optional fallback windows used by some provider compats when `assistantFirstTurn.enabled=true` to ensure silence timers still arm when assistant-audio boundary events are missing (see the active compat README under `plugins/voice-compat/*`).
+- `timeouts.firstTurnGraceMs`: optional non-negative millisecond window used by some voice compats/bridges to adjust first-turn commit behavior immediately after realtime `ready` (see the active compat README under `plugins/compat/*`).
+- `timeouts.silenceAssistantAudioStartFallbackMs` / `timeouts.silenceAssistantAudioEndFallbackMs`: optional fallback windows used by some provider compats when `assistantFirstTurn.enabled=true` to ensure silence timers still arm when assistant-audio boundary events are missing (see the active compat README under `plugins/compat/*`).
 
 Media WS settings:
 - `mediaWs`: `{ tokenFromMessageTimeoutMs }`
@@ -120,8 +120,8 @@ Media WS settings:
 ### Provider plugins
 
 Voice providers are configured via plugin manifests under:
-- `plugins/voice-providers/*.json` (provider IDs + compat kind + optional defaults)
-- `plugins/voice-compat/*` (compat implementations)
+- `plugins/providers/*.json` (provider IDs + compat kind + optional defaults)
+- `plugins/compat/*` (compat implementations)
 
 The voice extension itself is provider-agnostic; provider-specific behavior lives in those plugin directories.
 
@@ -129,7 +129,7 @@ The voice extension itself is provider-agnostic; provider-specific behavior live
 
 `/voice/webhook` requests are validated by the active provider compat.
 
-Some compats require signature headers and shared secrets; see the relevant compat README under `plugins/voice-compat/*` for the exact header names and required environment variables.
+Some compats require signature headers and shared secrets; see the relevant compat README under `plugins/compat/*` for the exact header names and required environment variables.
 
 By default, webhook validation is **required**. If the active compat does not implement `validateWebhookRequest()`, `/voice/webhook` returns `501` with code `webhook_validation_unavailable`.
 
@@ -190,8 +190,8 @@ This behavior is controlled by `server.extensions.voice.mediaWs.tokenFromMessage
 
 This repo includes a local test voice compat that exercises `/voice/webhook` → `/voice/media` without calling any external telephony provider.
 
-- Manifest: `plugins/voice-providers/test.json`
-- Compat: `plugins/voice-compat/test`
+- Manifest: `plugins/providers/test.json`
+- Compat: `plugins/compat/test`
 
 Start a local server (voice extension enabled) and set a token secret:
 
@@ -241,11 +241,10 @@ curl -sS "http://127.0.0.1:3000/voice/webhook?callConfigId=<callConfigId>" \\
 
 Open the returned `WS /voice/media` URL with any WebSocket client.
 
-For higher concurrency, run the local load exercise:
+For higher concurrency sanity-checks, run the voice extension test suite (includes a concurrent webhook → media integration test via the built-in test compat):
 
 ```bash
-npm run build
-node extensions/voice/scripts/load-exercise.mjs --calls 200 --concurrency 50
+npm run test:extensions -- --testPathPattern=extensions/voice
 ```
 
 ### Public URL (public tunnel)
@@ -265,7 +264,7 @@ Ensure `x-forwarded-proto` / `x-forwarded-host` are correct so the server genera
 
 ## Testing
 
-- Voice extension suite: `npm run test:extensions:voice`
+- Voice extension suite: `npm run test:extensions -- --testPathPattern=extensions/voice`
 
 ## Observability
 
@@ -432,3 +431,76 @@ Events:
 - `voice.call.end_requested` (provider termination requested)
 - `voice.call.end_canceled` (graceful end canceled)
 - `voice.call.end_failed` (termination attempt failed)
+
+## Runbook
+
+### Quick checklist
+
+- Voice extension enabled on the server (`server.extensions.enabled: ["voice"]` or `llm-adapter serve --extension voice`).
+- `LLM_ADAPTER_VOICE_WS_TOKEN_SECRET` set (required for `/voice/webhook` → `/voice/media` token minting/verification).
+- Shared call-config store configured (recommended for horizontal scaling).
+- Auth enabled for `POST /voice/calls` if you expose it publicly.
+- WS guardrails tuned for your target concurrency:
+  - `LLM_ADAPTER_VOICE_MEDIA_WS_MAX_CONCURRENT_SESSIONS`
+  - `LLM_ADAPTER_VOICE_MEDIA_WS_MAX_MESSAGE_BYTES`
+- Metrics/logging enabled as needed:
+  - `LLM_ADAPTER_VOICE_METRICS_ENABLED=1` for `GET /voice/metrics`
+
+### Call events (SSE)
+
+Stream per-call lifecycle + transcript events via:
+- `GET /voice/calls/:callConfigId/events` (requires server auth)
+
+Example:
+
+```bash
+curl -N "http://127.0.0.1:3000/voice/calls/<callConfigId>/events" \
+  -H "x-api-key: <serverApiKey>"
+```
+
+Notes:
+- Use `?includeDeltas=0` to reduce event volume if you only need final transcript events.
+- In multi-instance deployments, ensure SSE requests route to the same instance handling the call’s media WS (or use a shared event bus).
+
+### Ending calls
+
+To terminate a live call:
+- `POST /voice/calls/:callConfigId/end` (requires server auth)
+
+```bash
+curl -sS -X POST "http://127.0.0.1:3000/voice/calls/<callConfigId>/end" \
+  -H "x-api-key: <serverApiKey>"
+```
+
+Notes:
+- Call termination requires the call to have a provider call id; if it is missing you’ll see `409 not_ready`.
+
+### Recording download
+
+Provider-side recording support is surfaced via:
+- `POST /voice/webhook/recording` (provider callback; requires a call config with recording enabled)
+- `GET /voice/calls/:callConfigId/recording` (requires server auth)
+
+```bash
+curl -L "http://127.0.0.1:3000/voice/calls/<callConfigId>/recording" \
+  -H "x-api-key: <serverApiKey>" \
+  -o call.<ext>
+```
+
+Notes:
+- If recording is enabled but not ready yet, the download endpoint returns `409 recording_not_ready`.
+
+### Scaling guidance (high-level)
+
+- Prefer stateless instances behind a load balancer.
+- Use a shared store for call config + idempotency so any instance can serve `/voice/webhook` and `/voice/media`.
+- Enable draining on shutdown (already built-in): instances reject new `/voice/media` upgrades during close.
+
+### Common failure modes
+
+- `401` on `/voice/media`:
+  - missing/expired token, nonce replay, or token secret mismatch.
+- `404` on `/voice/webhook`:
+  - call config missing/expired in the configured store.
+- `503` on `/voice/media`:
+  - instance is draining or at the configured WS concurrency limit.

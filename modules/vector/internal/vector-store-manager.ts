@@ -157,7 +157,9 @@ export class VectorStoreManager {
 
     try {
       const config = await this.registry.getVectorStore(storeId);
-      const compat = await this.registry.getVectorStoreCompat(config.kind);
+      const compat = typeof this.registry.getVectorStoreCompatForStore === 'function'
+        ? await this.registry.getVectorStoreCompatForStore(config.id)
+        : await this.registry.getVectorStoreCompat(config.kind);
 
       // Inject logger for operation logging
       if (this.logger && typeof compat.setLogger === 'function') {
@@ -246,4 +248,3 @@ export class VectorStoreManager {
     return adapter;
   }
 }
-

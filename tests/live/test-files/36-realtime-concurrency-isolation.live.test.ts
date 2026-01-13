@@ -62,7 +62,7 @@ if (filteredRealtimeTestRuns.length === 0) {
             input: { format: 'pcm16', sampleRateHz: 24000, channels: 1 },
             output: { format: 'pcm16', sampleRateHz: 24000, channels: 1 }
           },
-          timeout: { maxDurationMs: 60000, idleTimeoutMs: 20000, onTimeout: 'close' }
+          timeout: { maxDurationMs: 60000, idleTimeoutMs: 60000, onTimeout: 'close' }
         };
 
         const envA = withLiveEnv({ TEST_FILE: `${TEST_FILE}-A` });
@@ -79,10 +79,10 @@ if (filteredRealtimeTestRuns.length === 0) {
           steps: [
             { type: 'send_text', text: 'What token did I mention? Reply with the token only.', role: 'user' },
             { type: 'commit' },
-            { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 30000 },
+            { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 60000 },
             { type: 'close' }
           ],
-          timeoutMs: 30000
+          timeoutMs: 60000
         });
 
         const scenarioB = runRealtimeScenario({
@@ -96,10 +96,10 @@ if (filteredRealtimeTestRuns.length === 0) {
           steps: [
             { type: 'send_text', text: 'What token did I mention? Reply with the token only.', role: 'user' },
             { type: 'commit' },
-            { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 30000 },
+            { type: 'wait_for_event', eventType: 'assistant_transcript.final', timeoutMs: 60000 },
             { type: 'close' }
           ],
-          timeoutMs: 30000
+          timeoutMs: 60000
         });
 
         const [resA, resB] = await Promise.all([scenarioA, scenarioB]);

@@ -2,8 +2,8 @@ import { jest } from '@jest/globals';
 import crypto from 'crypto';
 
 import { createSignedWsToken } from '@/modules/security/index.ts';
-import { createVoiceServerRegistration } from '../../internal/server.js';
-import { createInMemoryVoiceCallConfigStore } from '../../internal/call-config-store/index.js';
+import { createVoiceServerRegistration } from '../../modules/server/index.js';
+import { createInMemoryVoiceCallConfigStore } from '../../modules/call-config-store/index.js';
 
 function makeSocket() {
   return { write: jest.fn(), destroy: jest.fn() } as any;

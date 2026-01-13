@@ -1,8 +1,38 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { getAdapterPathsConfig } from './adapter-paths.js';
+import { deepMerge, isPlainObject } from './deep-merge.js';
 import { loadJsonFile } from './config.js';
 import type { DefaultSettings } from './types.js';
 import { PACKAGE_ROOT } from './paths.js';
+
+export const BUILT_IN_SENSITIVE_KEY_PATTERNS: ReadonlyArray<string> = Object.freeze([
+  'authorization',
+  'x-api-key',
+  'x-goog-api-key',
+  'api_key',
+  'apikey',
+  '*api_key*',
+  '*api-key*',
+  '*apikey*',
+  'access_token',
+  'refresh_token',
+  'id_token',
+  '*access_token*',
+  '*access-token*',
+  '*accesstoken*',
+  '*refresh_token*',
+  '*refresh-token*',
+  '*refreshtoken*',
+  '*id_token*',
+  '*id-token*',
+  '*idtoken*',
+  'key',
+  'secret',
+  'password',
+  'credential',
+  'auth'
+]);
 
 /**
  * Inline fallback defaults used when JSON file is not found or invalid.
@@ -50,33 +80,7 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
   },
   security: {
     redaction: {
-      sensitiveKeys: [
-        'authorization',
-        'x-api-key',
-        'x-goog-api-key',
-        'api_key',
-        'apikey',
-        '*api_key*',
-        '*api-key*',
-        '*apikey*',
-        'access_token',
-        'refresh_token',
-        'id_token',
-        '*access_token*',
-        '*access-token*',
-        '*accesstoken*',
-        '*refresh_token*',
-        '*refresh-token*',
-        '*refreshtoken*',
-        '*id_token*',
-        '*id-token*',
-        '*idtoken*',
-        'key',
-        'secret',
-        'password',
-        'credential',
-        'auth'
-      ]
+      sensitiveKeys: Array.from(BUILT_IN_SENSITIVE_KEY_PATTERNS)
     }
   },
   timeouts: {
@@ -124,15 +128,7 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
     },
     securityHeadersEnabled: true,
     extensions: {
-      enabled: [],
-      voice: {
-        events: {
-          keepAliveIntervalMs: 15000
-        },
-        mediaWs: {
-          tokenFromMessageTimeoutMs: 5000
-        }
-      }
+      enabled: []
     }
   },
   paths: {
@@ -161,30 +157,75 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
 };
 
 let cachedDefaults: DefaultSettings | null = null;
+let cachedDefaultsCwd: string | undefined;
 
 /**
  * Get the default settings, loading from JSON file if available.
- * Results are cached after first load for performance.
+ * Results are cached after first load for performance (cache invalidates on cwd change).
  *
- * Search order:
- * 1. Relative to core module: ../plugins/configs/defaults.json
- * 2. Relative to cwd: ./plugins/configs/defaults.json
- * 3. Fallback to inline defaults
+ * Resolution strategy:
+ * 1. If llm-adapter.paths.json exists, uses multi-root merging:
+ *    - Merges defaults.json from builtin, local, and external plugin roots
+ *    - Uses deep merge (low → high precedence: builtin < local < external)
+ * 2. Otherwise falls back to legacy search order:
+ *    a. Relative to core module: ../plugins/configs/defaults.json
+ *    b. Relative to cwd: ./plugins/configs/defaults.json
+ *    c. Inline fallback defaults
  */
 export function getDefaults(): DefaultSettings {
+  const cwd = process.cwd();
+
+  if (cachedDefaults && cachedDefaultsCwd !== cwd) {
+    cachedDefaults = null;
+  }
+
   if (cachedDefaults) {
+    return cachedDefaults;
+  }
+
+  const pathsConfig = getAdapterPathsConfig();
+  if (pathsConfig) {
+    const cfg = pathsConfig.paths.lookup.configs.defaults;
+    const localPluginsRoot = path.resolve(cwd, pathsConfig.paths.plugins ?? './plugins');
+    const builtinPluginsRoot = path.resolve(PACKAGE_ROOT, 'plugins');
+
+    const roots = [
+      { enabled: cfg.builtin, root: builtinPluginsRoot },
+      { enabled: cfg.local, root: localPluginsRoot },
+      ...cfg.externalRoots.map(root => ({ enabled: true, root }))
+    ]
+      .filter(item => item.enabled)
+      .map(item => path.resolve(item.root));
+
+    const mergedFiles = Array.from(new Set(roots))
+      .filter(root => fs.existsSync(root))
+      .map(root => path.join(root, 'configs', 'defaults.json'));
+
+    let merged: any = { ...FALLBACK_DEFAULTS };
+    for (const filePath of mergedFiles) {
+      try {
+        const raw = loadJsonFile(filePath);
+        if (isPlainObject(raw)) {
+          merged = deepMerge(merged as Record<string, any>, raw);
+        }
+      } catch {}
+    }
+
+    cachedDefaults = merged as DefaultSettings;
+    cachedDefaultsCwd = cwd;
     return cachedDefaults;
   }
 
   const configPaths = [
     path.resolve(PACKAGE_ROOT, 'plugins', 'configs', 'defaults.json'),
-    path.resolve(process.cwd(), 'plugins', 'configs', 'defaults.json')
+    path.resolve(cwd, 'plugins', 'configs', 'defaults.json')
   ];
 
   for (const configPath of configPaths) {
     if (fs.existsSync(configPath)) {
       try {
         cachedDefaults = loadJsonFile(configPath) as DefaultSettings;
+        cachedDefaultsCwd = cwd;
         return cachedDefaults;
       } catch {
         // Continue to next path or fallback
@@ -193,6 +234,7 @@ export function getDefaults(): DefaultSettings {
   }
 
   cachedDefaults = { ...FALLBACK_DEFAULTS };
+  cachedDefaultsCwd = cwd;
   return cachedDefaults;
 }
 
@@ -201,4 +243,5 @@ export function getDefaults(): DefaultSettings {
  */
 export function resetDefaultsCache(): void {
   cachedDefaults = null;
+  cachedDefaultsCwd = undefined;
 }

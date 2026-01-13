@@ -27,6 +27,12 @@ llm-adapter serve --port 3000
 
 See [README-CLI.md](README-CLI.md) for complete CLI documentation and [README-SERVER.md](README-SERVER.md) for server documentation.
 
+## External packs
+
+To keep plugins/extensions/config overlays **outside** the core repo (so core updates don’t overwrite user-owned changes), configure pack roots via `llm-adapter.paths.json`.
+
+See [README-PACKS.md](README-PACKS.md).
+
 ## Extensions
 
 Extensions are **large, optional features** that bolt new “services” onto the adapter’s **server** and **CLI** (new endpoints, new commands) without polluting core modules.
@@ -256,7 +262,7 @@ Process routing (how tools are invoked) lives in `plugins/processes/*.json`:
   "match": { "type": "exact", "pattern": "test.echo" },
   "invoke": {
     "kind": "module",
-    "module": "./dist/plugins/modules/test-echo/index.js",
+    "module": "../dist/plugins/modules/test-echo/index.js",
     "function": "handle"
   },
   "timeoutMs": 5000
@@ -675,13 +681,12 @@ await server.close();
 ## Logging
 
 ```typescript
-import { getLLMLogger, getEmbeddingLogger, getVectorLogger, getVoiceLogger, getRealtimeLogger, closeLogger } from 'llm-adapter/logging';
+import { getLLMLogger, getEmbeddingLogger, getVectorLogger, getRealtimeLogger, closeLogger } from 'llm-adapter/logging';
 
 // Get loggers
 const llmLogger = getLLMLogger();
 const embeddingLogger = getEmbeddingLogger();
 const vectorLogger = getVectorLogger();
-const voiceLogger = getVoiceLogger();
 const realtimeLogger = getRealtimeLogger();
 
 // With correlation ID
@@ -692,7 +697,7 @@ logger.info('Processing request');
 await closeLogger();
 ```
 
-File logs are written under `./logs/` (for example: `logs/llm/`, `logs/embedding/`, `logs/vector/`, `logs/voice/`, `logs/realtime/`).
+File logs are written under `./logs/` (for example: `logs/llm/`, `logs/embedding/`, `logs/vector/`, `logs/realtime/`). Extensions may create additional log directories under `./logs/`.
 
 ## Testing
 
@@ -703,14 +708,11 @@ npm test
 # Run with coverage
 npm test -- --coverage
 
-# Run extension tests (kept separate from core)
-npm run test:extensions
+  # Run extension tests (kept separate from core)
+  npm run test:extensions
 
-# Run voice extension tests
-npm run test:extensions:voice
-
-# Run live tests (require API keys)
-npm run test:live
+  # Run live tests (require API keys)
+  npm run test:live
 
 # Filter live tests by provider id(s)
 LLM_TEST_PROVIDERS=provider-a,provider-b npm run test:live

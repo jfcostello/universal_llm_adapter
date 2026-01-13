@@ -20,6 +20,12 @@ curl http://127.0.0.1:3000/run \
 
 ---
 
+## External packs
+
+To load plugins/extensions from directories **outside** the core repo, configure pack roots via `llm-adapter.paths.json` (or `LLM_ADAPTER_PATHS_FILE`).
+
+See [README-PACKS.md](README-PACKS.md).
+
 ## Starting the Server
 
 ### Via CLI
@@ -200,6 +206,25 @@ curl http://127.0.0.1:3000/ready
 
 ```json
 {"ok": false}
+```
+
+### Extensions List
+
+```
+GET /extensions/list
+```
+
+Lists available extensions across configured pack roots (same shape as `llm-adapter extensions list`).
+
+Notes:
+
+- Requires auth when `auth.enabled: true` (401/403 on failure).
+- Subject to rate limiting when `rateLimit.enabled: true` (429 on limit).
+
+**Example:**
+
+```bash
+curl http://127.0.0.1:3000/extensions/list
 ```
 
 ### Realtime WebSocket

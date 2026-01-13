@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 
-import { createInMemoryVoiceCallConfigStore } from '../../internal/call-config-store/index.js';
+import { createInMemoryVoiceCallConfigStore } from '../../modules/call-config-store/index.js';
 
 describe('extensions/voice: call-config store (in-memory)', () => {
   test('validates inputs', async () => {

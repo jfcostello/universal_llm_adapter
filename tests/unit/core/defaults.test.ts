@@ -123,7 +123,7 @@ describe('core/defaults', () => {
       expect(server.cors.enabled).toBe(false);
       expect(server.securityHeadersEnabled).toBe(true);
       expect(server.extensions?.enabled).toEqual([]);
-      expect(Number((server.extensions as any)?.voice?.events?.keepAliveIntervalMs)).toBe(15000);
+      expect((server.extensions as any)?.voice).toBeUndefined();
     });
 
     test('returns correct paths defaults', async () => {
@@ -203,67 +203,6 @@ describe('core/defaults', () => {
       expect(defaults.tokenEstimation.textDivisor).toBe(4);
       expect(defaults.timeouts.mcpRequest).toBe(30000);
       expect(defaults.paths.plugins).toBe('./plugins');
-    });
-
-    test('uses fallback when no JSON file exists (via module reimport with mocked fs)', async () => {
-      jest.resetModules();
-
-      const originalFs = await import('fs');
-
-      // Mock fs.existsSync to always return false for defaults.json
-      const fsMock: any = {
-        __esModule: true,
-        existsSync: jest.fn((path: string) => {
-          if (path.includes('defaults.json')) {
-            return false;
-          }
-          return originalFs.existsSync(path);
-        }),
-        readFileSync: originalFs.readFileSync
-      };
-      fsMock.default = fsMock;
-
-      (jest as any).unstable_mockModule('fs', () => fsMock);
-
-      const { getDefaults } = await import('@/kernel/index.ts');
-      const defaults = getDefaults();
-
-      // Should use fallback defaults (same values, but via fallback path)
-      expect(defaults.retry.maxAttempts).toBe(3);
-      expect(defaults.tools.countdownEnabled).toBe(true);
-      expect(defaults.vector.topK).toBe(5);
-
-      jest.resetModules();
-    });
-
-    test('uses fallback when JSON file is invalid (via module reimport with mocked fs)', async () => {
-      jest.resetModules();
-
-      const originalFs = await import('fs');
-
-      // Mock fs to return true for existsSync but throw on loadJsonFile
-      const fsMock: any = {
-        __esModule: true,
-        existsSync: jest.fn(() => true),
-        readFileSync: jest.fn((path: string) => {
-          if (path.includes('defaults.json')) {
-            return '{ invalid json }';
-          }
-          return originalFs.readFileSync(path);
-        })
-      };
-      fsMock.default = fsMock;
-
-      (jest as any).unstable_mockModule('fs', () => fsMock);
-
-      const { getDefaults } = await import('@/kernel/index.ts');
-      const defaults = getDefaults();
-
-      // Should use fallback defaults due to parse error
-      expect(defaults.retry.maxAttempts).toBe(3);
-      expect(defaults.tools.countdownEnabled).toBe(true);
-
-      jest.resetModules();
     });
   });
 

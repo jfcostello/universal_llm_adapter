@@ -25,16 +25,20 @@ function userMessage(text: string): Message {
     const systemPrompt = [
       'You are a conformance test agent.',
       'Follow user instructions.',
-      'Respond in plain text.'
+      'Respond in plain text.',
+      'Do not include analysis or reasoning.',
+      'Be extremely concise.'
     ].join('\n');
 
-    const prompt = 'Return STREAM_PARITY_OK in exactly two short sentences.';
+    const prompt = 'Reply with exactly this text and nothing else: STREAM_PARITY_OK';
 
     const baseMessages: Message[] = [{ role: 'system', content: [{ type: 'text', text: systemPrompt } as any] }];
     const baseSpec = {
       messages: baseMessages,
       llmPriority: runCfg.llmPriority,
-      settings: mergeSettings(runCfg.settings, { maxTokens: 256 }),
+      settings: mergeSettings(runCfg.settings, {
+        maxTokens: 1024
+      }),
       tools: [],
       mcpServers: []
     };

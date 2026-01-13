@@ -213,16 +213,17 @@ describe('core/logging FlushingConsoleTransport integration', () => {
   test('FlushingConsoleTransport Symbol.for(message) path and JSON.stringify fallback (line 34)', async () => {
     // Tests BOTH branches of line 34:
     // LEFT: Symbol.for('message') exists (normal Winston case)
-    // RIGHT: JSON.stringify fallback when Symbol is missing
-
-    let capturedWrites: string[] = [];
-    const writeSpy = jest.spyOn(process.stdout, 'write').mockImplementation((chunk: any, callback?: any) => {
-      capturedWrites.push(chunk.toString());
-      if (typeof callback === 'function') {
-        setImmediate(callback);
-      }
-      return true;
-    });
+	    // RIGHT: JSON.stringify fallback when Symbol is missing
+	
+	    let capturedWrites: string[] = [];
+	    const writeSpy = jest.spyOn(process.stdout, 'write').mockImplementation((chunk: any, ...args: any[]) => {
+	      capturedWrites.push(chunk.toString());
+	      const maybeCallback = args[args.length - 1];
+	      if (typeof maybeCallback === 'function') {
+	        setImmediate(maybeCallback);
+	      }
+	      return true;
+	    });
 
     try {
       const logger = new AdapterLogger(LogLevel.DEBUG, 'test-symbol-path');
@@ -234,11 +235,11 @@ describe('core/logging FlushingConsoleTransport integration', () => {
       logger.info('test-with-symbol');
       await new Promise(resolve => setTimeout(resolve, 150));
 
-      // The winston format should have added Symbol.for('message')
-      expect(capturedWrites.length).toBeGreaterThan(0);
-      const firstWrite = capturedWrites[0];
-      // Should be formatted JSON with the winston format
-      expect(firstWrite).toContain('test-with-symbol');
+	      // The winston format should have added Symbol.for('message')
+	      expect(capturedWrites.length).toBeGreaterThan(0);
+	      const firstWrite = capturedWrites.find(w => w.includes('test-with-symbol')) ?? capturedWrites[0];
+	      // Should be formatted JSON with the winston format
+	      expect(firstWrite).toContain('test-with-symbol');
 
       capturedWrites = [];
 
@@ -265,13 +266,15 @@ describe('core/logging FlushingConsoleTransport integration', () => {
 
         await new Promise(resolve => setTimeout(resolve, 150));
 
-        // Should have used JSON.stringify since Symbol.for('message') wasn't present
-        expect(callbackInvoked).toBe(true);
-        expect(capturedWrites.length).toBeGreaterThan(0);
-        const jsonWrite = capturedWrites[capturedWrites.length - 1];
-        // JSON.stringify should produce valid JSON
-        const parsed = JSON.parse(jsonWrite.trim());
-        expect(parsed.message).toBe('test-without-symbol');
+	        // Should have used JSON.stringify since Symbol.for('message') wasn't present
+	        expect(callbackInvoked).toBe(true);
+	        expect(capturedWrites.length).toBeGreaterThan(0);
+	        const jsonWrite =
+	          capturedWrites.find(w => w.includes('test-without-symbol')) ??
+	          capturedWrites[capturedWrites.length - 1];
+	        // JSON.stringify should produce valid JSON
+	        const parsed = JSON.parse(jsonWrite.trim());
+	        expect(parsed.message).toBe('test-without-symbol');
 
         // Restore
         consoleTransport.format = originalFormat;

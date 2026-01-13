@@ -1,8 +1,8 @@
 import { jest } from '@jest/globals';
 
-import { createVoiceServerRegistration } from '../../internal/server.js';
-import { createInMemoryVoiceCallConfigStore } from '../../internal/call-config-store/index.js';
-import { createVoiceMetrics } from '../../internal/metrics.js';
+import { createVoiceServerRegistration } from '../../modules/server/index.js';
+import { createInMemoryVoiceCallConfigStore } from '../../modules/call-config-store/index.js';
+import { createVoiceMetrics } from '../../modules/observability/index.js';
 
 function createMockRes() {
   return { setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() } as any;

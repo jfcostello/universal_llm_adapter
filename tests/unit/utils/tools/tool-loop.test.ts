@@ -195,8 +195,56 @@ describe('utils/tools/runToolLoop', () => {
 
     expect(invokeTool).toHaveBeenCalledTimes(2);
     expect(callProvider).toHaveBeenCalledTimes(2);
-    expect(callProvider.mock.calls[0][5]).toMatchObject({ type: 'required', allowed: ['tool_a', 'tool_b'] });
+    expect(callProvider.mock.calls[0][5]).toMatchObject({ type: 'single', name: 'tool_b' });
     expect(callProvider.mock.calls[1][5]).toBe('auto');
+  });
+
+  test('non-stream loop keeps ToolChoiceRequired when multiple allowed tools remain', async () => {
+    const callProvider = jest.fn().mockResolvedValue({
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [{ type: 'text', text: 'final' }]
+    });
+
+    const llmManager: any = {
+      callProvider,
+      streamProvider: jest.fn()
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    const initialResponse = {
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [],
+      toolCalls: [{ id: 'call-1', name: 'tool_a', arguments: {} }]
+    } as any;
+
+    await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'tool_a' }, { name: 'tool_b' }, { name: 'tool_c' }] as any,
+      toolChoice: { type: 'required', allowed: ['tool_a', 'tool_b', 'tool_c'] } as any,
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 3, toolFinalPromptEnabled: false } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: {},
+      toolNameMap: { tool_a: 'tool_a', tool_b: 'tool_b', tool_c: 'tool_c' },
+      metadata: {},
+      initialResponse,
+      invokeTool
+    });
+
+    expect(invokeTool).toHaveBeenCalledTimes(1);
+    expect(callProvider).toHaveBeenCalledTimes(1);
+    expect(callProvider.mock.calls[0][5]).toMatchObject({ type: 'required', allowed: ['tool_a', 'tool_b', 'tool_c'] });
   });
 
   test('non-stream loop relaxes ToolChoiceRequired when allow-list is empty or invalid', async () => {
@@ -243,6 +291,381 @@ describe('utils/tools/runToolLoop', () => {
     expect(invokeTool).toHaveBeenCalled();
     expect(callProvider).toHaveBeenCalledTimes(1);
     expect(callProvider.mock.calls[0][5]).toBe('auto');
+  });
+
+  test('non-stream loop retries when required toolChoice is ignored', async () => {
+    let firstRetryUserText = '';
+    let callNumber = 0;
+    const callProvider = jest.fn().mockImplementation(async (...args: any[]) => {
+      callNumber += 1;
+
+      if (callNumber === 1) {
+        const messages = args[3] as any[];
+        firstRetryUserText = String(messages.at(-1)?.content?.[0]?.text ?? '');
+      }
+
+      if (callNumber === 1) {
+        return {
+          provider: 'provider',
+          model: 'model',
+          role: Role.ASSISTANT,
+          content: [],
+          toolCalls: [{ id: 'call-1', name: 'example_tool', arguments: { value: 1 } }]
+        };
+      }
+
+      return {
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: [{ type: 'text', text: 'final' }]
+      };
+    });
+
+    const llmManager: any = {
+      callProvider,
+      streamProvider: jest.fn()
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    const result = await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'example_tool' }],
+      toolChoice: { type: 'required', allowed: ['example_tool'] } as any,
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 2 } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: {},
+      toolNameMap: { example_tool: 'example_tool' },
+      metadata: {},
+      initialResponse: {
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: [{ type: 'text', text: 'should-not-be-inserted' }]
+      } as any,
+      invokeTool
+    });
+
+    expect(callProvider).toHaveBeenCalledTimes(2);
+    expect(callProvider.mock.calls[0][5]).toMatchObject({ type: 'required', allowed: ['example_tool'] });
+    expect(callProvider.mock.calls[1][5]).toBe('auto');
+
+    expect(firstRetryUserText).toContain('You MUST call the required tool now.');
+
+    expect(invokeTool).toHaveBeenCalledTimes(1);
+    expect(Array.isArray((result as any).toolCalls)).toBe(true);
+    expect((result as any).toolCalls?.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('non-stream retry reminder uses api tool name when no display mapping exists', async () => {
+    let firstRetryUserText = '';
+    let callNumber = 0;
+    const callProvider = jest.fn().mockImplementation(async (...args: any[]) => {
+      callNumber += 1;
+      if (callNumber === 1) {
+        const messages = args[3] as any[];
+        firstRetryUserText = String(messages.at(-1)?.content?.[0]?.text ?? '');
+        return {
+          provider: 'provider',
+          model: 'model',
+          role: Role.ASSISTANT,
+          content: [],
+          toolCalls: [{ id: 'call-1', name: 'example_tool', arguments: { value: 1 } }]
+        };
+      }
+      return {
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: [{ type: 'text', text: 'final' }]
+      };
+    });
+
+    const llmManager: any = { callProvider, streamProvider: jest.fn() };
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'example_tool' }],
+      toolChoice: { type: 'required', allowed: ['example_tool'] } as any,
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 2, toolFinalPromptEnabled: false } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: {},
+      toolNameMap: {},
+      metadata: {},
+      initialResponse: { provider: 'provider', model: 'model', role: Role.ASSISTANT, content: [] } as any,
+      invokeTool
+    });
+
+    expect(firstRetryUserText).toContain('Call tool: example_tool');
+  });
+
+  test('non-stream retry reminder includes mapped tool name when display mapping differs', async () => {
+    let firstRetryUserText = '';
+    let callNumber = 0;
+    const callProvider = jest.fn().mockImplementation(async (...args: any[]) => {
+      callNumber += 1;
+      if (callNumber === 1) {
+        const messages = args[3] as any[];
+        firstRetryUserText = String(messages.at(-1)?.content?.[0]?.text ?? '');
+        return {
+          provider: 'provider',
+          model: 'model',
+          role: Role.ASSISTANT,
+          content: [],
+          toolCalls: [{ id: 'call-1', name: 'example_tool', arguments: { value: 1 } }]
+        };
+      }
+      return {
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: [{ type: 'text', text: 'final' }]
+      };
+    });
+
+    const llmManager: any = { callProvider, streamProvider: jest.fn() };
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'example_tool' }],
+      toolChoice: { type: 'required', allowed: ['example_tool'] } as any,
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 2, toolFinalPromptEnabled: false } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: {},
+      toolNameMap: { example_tool: 'tool.original' },
+      metadata: {},
+      initialResponse: { provider: 'provider', model: 'model', role: Role.ASSISTANT, content: [] } as any,
+      invokeTool
+    });
+
+    expect(firstRetryUserText).toContain('Call tool: tool.original (tool name: example_tool)');
+  });
+
+  test('non-stream retry reminder lists allowed tools when ToolChoiceRequired contains multiple tools', async () => {
+    let firstRetryUserText = '';
+    let callNumber = 0;
+    const callProvider = jest.fn().mockImplementation(async (...args: any[]) => {
+      callNumber += 1;
+      if (callNumber === 1) {
+        const messages = args[3] as any[];
+        firstRetryUserText = String(messages.at(-1)?.content?.[0]?.text ?? '');
+        return {
+          provider: 'provider',
+          model: 'model',
+          role: Role.ASSISTANT,
+          content: [],
+          toolCalls: [{ id: 'call-1', name: 'tool_a', arguments: { value: 1 } }]
+        };
+      }
+      return {
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: [{ type: 'text', text: 'final' }]
+      };
+    });
+
+    const llmManager: any = { callProvider, streamProvider: jest.fn() };
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'tool_a' }, { name: 'tool_b' }, { name: 'tool_c' }] as any,
+      toolChoice: { type: 'required', allowed: ['tool_a', 'tool_b', 'tool_c'] } as any,
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 2, toolFinalPromptEnabled: false } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: {},
+      toolNameMap: { tool_a: 'tool.a', tool_b: 'tool.b' },
+      metadata: {},
+      initialResponse: { provider: 'provider', model: 'model', role: Role.ASSISTANT, content: [] } as any,
+      invokeTool
+    });
+
+    expect(firstRetryUserText).toContain('Allowed tools: tool.a, tool.b, tool_c');
+  });
+
+  test('non-stream retry reminder ignores non-array allow list defensively', async () => {
+    let firstRetryUserText = '';
+    let callNumber = 0;
+    const callProvider = jest.fn().mockImplementation(async (...args: any[]) => {
+      callNumber += 1;
+      if (callNumber === 1) {
+        const messages = args[3] as any[];
+        firstRetryUserText = String(messages.at(-1)?.content?.[0]?.text ?? '');
+        return {
+          provider: 'provider',
+          model: 'model',
+          role: Role.ASSISTANT,
+          content: [],
+          toolCalls: [{ id: 'call-1', name: 'example_tool', arguments: { value: 1 } }]
+        };
+      }
+      return {
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: [{ type: 'text', text: 'final' }]
+      };
+    });
+
+    const llmManager: any = { callProvider, streamProvider: jest.fn() };
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'example_tool' }],
+      toolChoice: { type: 'required', allowed: 'not-an-array' } as any,
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 2, toolFinalPromptEnabled: false } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: {},
+      toolNameMap: {},
+      metadata: {},
+      initialResponse: { provider: 'provider', model: 'model', role: Role.ASSISTANT, content: [] } as any,
+      invokeTool
+    });
+
+    expect(firstRetryUserText).toContain('You MUST call the required tool now.');
+    expect(firstRetryUserText).not.toContain('Call tool:');
+    expect(firstRetryUserText).not.toContain('Allowed tools:');
+  });
+
+  test('non-stream retry reminder supports ToolChoiceSingle', async () => {
+    let firstRetryUserText = '';
+    let callNumber = 0;
+    const callProvider = jest.fn().mockImplementation(async (...args: any[]) => {
+      callNumber += 1;
+      if (callNumber === 1) {
+        const messages = args[3] as any[];
+        firstRetryUserText = String(messages.at(-1)?.content?.[0]?.text ?? '');
+        return {
+          provider: 'provider',
+          model: 'model',
+          role: Role.ASSISTANT,
+          content: [],
+          toolCalls: [{ id: 'call-1', name: 'tool_b', arguments: { value: 1 } }]
+        };
+      }
+      return {
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: [{ type: 'text', text: 'final' }]
+      };
+    });
+
+    const llmManager: any = { callProvider, streamProvider: jest.fn() };
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'tool_b' }] as any,
+      toolChoice: { type: 'single', name: 'tool_b' } as any,
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 2, toolFinalPromptEnabled: false } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: {},
+      toolNameMap: { tool_b: 'tool.original' },
+      metadata: {},
+      initialResponse: { provider: 'provider', model: 'model', role: Role.ASSISTANT, content: [] } as any,
+      invokeTool
+    });
+
+    expect(firstRetryUserText).toContain('Call tool: tool.original (tool name: tool_b)');
+  });
+
+  test('non-stream retry reminder uses api tool name for ToolChoiceSingle when no display mapping exists', async () => {
+    let firstRetryUserText = '';
+    let callNumber = 0;
+    const callProvider = jest.fn().mockImplementation(async (...args: any[]) => {
+      callNumber += 1;
+      if (callNumber === 1) {
+        const messages = args[3] as any[];
+        firstRetryUserText = String(messages.at(-1)?.content?.[0]?.text ?? '');
+        return {
+          provider: 'provider',
+          model: 'model',
+          role: Role.ASSISTANT,
+          content: [],
+          toolCalls: [{ id: 'call-1', name: 'tool_b', arguments: { value: 1 } }]
+        };
+      }
+      return {
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: [{ type: 'text', text: 'final' }]
+      };
+    });
+
+    const llmManager: any = { callProvider, streamProvider: jest.fn() };
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'tool_b' }] as any,
+      toolChoice: { type: 'single', name: 'tool_b' } as any,
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 2, toolFinalPromptEnabled: false } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: {},
+      toolNameMap: {},
+      metadata: {},
+      initialResponse: { provider: 'provider', model: 'model', role: Role.ASSISTANT, content: [] } as any,
+      invokeTool
+    });
+
+    expect(firstRetryUserText).toContain('Call tool: tool_b');
+    expect(firstRetryUserText).not.toContain('(tool name:');
   });
 
   test('non-stream loop relaxes toolChoice="required" after tool execution', async () => {
@@ -889,8 +1312,351 @@ describe('utils/tools/runToolLoop', () => {
 
     expect(invokeTool).toHaveBeenCalledTimes(2);
     expect(llmManager.streamProvider).toHaveBeenCalledTimes(2);
-    expect(streamProviderCalls[0][5]).toMatchObject({ type: 'required', allowed: ['tool_a', 'tool_b'] });
+    expect(streamProviderCalls[0][5]).toMatchObject({ type: 'single', name: 'tool_b' });
     expect(streamProviderCalls[1][5]).toBe('auto');
+    expect(finalResult?.content).toBe('final');
+  });
+
+  test('stream loop retries when a required follow-up tool call is ignored', async () => {
+    const streamProviderCalls: any[] = [];
+
+    const llmManager: any = {
+      streamProvider: jest.fn(async function* (...args: any[]) {
+        streamProviderCalls.push(args);
+
+        // 1) First attempt: model ignores tool_choice and emits text.
+        if (streamProviderCalls.length === 1) {
+          yield { text: 'oops' };
+          return;
+        }
+
+        // 2) Second attempt: tool call is finally emitted.
+        if (streamProviderCalls.length === 2) {
+          yield {
+            toolEvents: [{
+              type: ToolCallEventType.TOOL_CALL_END,
+              callId: 'call-2',
+              name: 'tool_b',
+              arguments: '{}'
+            }]
+          };
+          return;
+        }
+
+        // 3) Final attempt: assistant produces final text.
+        yield { text: 'final' };
+      })
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    const iterator = runToolLoop({
+      mode: 'stream',
+      llmManager,
+      registry: {
+        getCompatModule: () => ({
+          parseStreamChunk: (chunk: any) => chunk
+        })
+      } as any,
+      messages: [{ role: Role.USER, content: [] }],
+      tools: [{ name: 'tool_a' }, { name: 'tool_b' }] as any,
+      toolChoice: { type: 'required', allowed: ['tool_a', 'tool_b'] } as any,
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 3 } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      toolNameMap: { tool_a: 'tool_a', tool_b: 'tool_b' },
+      metadata: {},
+      initialToolCalls: [{ id: 'call-1', name: 'tool_a', arguments: {} }],
+      invokeTool
+    });
+
+    const events: any[] = [];
+    let finalResult: any;
+    while (true) {
+      const next = await iterator.next();
+      if (next.done) {
+        finalResult = next.value;
+        break;
+      }
+      events.push(next.value);
+    }
+
+    expect(invokeTool).toHaveBeenCalledTimes(2);
+    expect(llmManager.streamProvider).toHaveBeenCalledTimes(3);
+    expect(streamProviderCalls[0][5]).toMatchObject({ type: 'single', name: 'tool_b' });
+    expect(streamProviderCalls[1][5]).toMatchObject({ type: 'single', name: 'tool_b' });
+    expect(streamProviderCalls[2][5]).toBe('auto');
+
+    const deltas = events.filter(e => e.type === StreamEventType.DELTA).map(e => e.content).join('');
+    expect(deltas).toBe('final');
+    expect(finalResult?.content).toBe('final');
+  });
+
+  test('stream loop retry reminder uses api tool name when no display mapping exists', async () => {
+    const streamProviderCalls: any[] = [];
+
+    const llmManager: any = {
+      streamProvider: jest.fn(async function* (...args: any[]) {
+        streamProviderCalls.push(args);
+
+        if (streamProviderCalls.length === 1) {
+          yield { text: 'oops' };
+          return;
+        }
+
+        if (streamProviderCalls.length === 2) {
+          const messages = args[3] as any[];
+          const lastUserText = String(messages.at(-1)?.content?.[0]?.text ?? '');
+          expect(lastUserText).toContain('Call tool: tool_b');
+
+          yield {
+            toolEvents: [{
+              type: ToolCallEventType.TOOL_CALL_END,
+              callId: 'call-2',
+              name: 'tool_b',
+              arguments: '{}'
+            }]
+          };
+          return;
+        }
+
+        yield { text: 'final' };
+      })
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    const iterator = runToolLoop({
+      mode: 'stream',
+      llmManager,
+      registry: {
+        getCompatModule: () => ({
+          parseStreamChunk: (chunk: any) => chunk
+        })
+      } as any,
+      messages: [{ role: Role.USER, content: [] }],
+      tools: [{ name: 'tool_a' }, { name: 'tool_b' }] as any,
+      toolChoice: { type: 'required', allowed: ['tool_a', 'tool_b'] } as any,
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 3 } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      toolNameMap: {},
+      metadata: {},
+      initialToolCalls: [{ id: 'call-1', name: 'tool_a', arguments: {} }],
+      invokeTool
+    });
+
+    const events: any[] = [];
+    while (!(await iterator.next()).done) {
+      // drain
+    }
+
+    expect(llmManager.streamProvider).toHaveBeenCalledTimes(3);
+    expect(events.length).toBe(0);
+    expect(invokeTool).toHaveBeenCalledTimes(2);
+  });
+
+  test('stream loop retry reminder includes mapped single tool name when display mapping differs', async () => {
+    const streamProviderCalls: any[] = [];
+
+    const llmManager: any = {
+      streamProvider: jest.fn(async function* (...args: any[]) {
+        streamProviderCalls.push(args);
+
+        if (streamProviderCalls.length === 1) {
+          yield { text: 'oops' };
+          return;
+        }
+
+        if (streamProviderCalls.length === 2) {
+          const messages = args[3] as any[];
+          const lastUserText = String(messages.at(-1)?.content?.[0]?.text ?? '');
+          expect(lastUserText).toContain('Call tool: tool.original (tool name: tool_b)');
+
+          yield {
+            toolEvents: [{
+              type: ToolCallEventType.TOOL_CALL_END,
+              callId: 'call-2',
+              name: 'tool_b',
+              arguments: '{}'
+            }]
+          };
+          return;
+        }
+
+        yield { text: 'final' };
+      })
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    const iterator = runToolLoop({
+      mode: 'stream',
+      llmManager,
+      registry: {
+        getCompatModule: () => ({
+          parseStreamChunk: (chunk: any) => chunk
+        })
+      } as any,
+      messages: [{ role: Role.USER, content: [] }],
+      tools: [{ name: 'tool_a' }, { name: 'tool_b' }] as any,
+      toolChoice: { type: 'required', allowed: ['tool_a', 'tool_b'] } as any,
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 3 } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      toolNameMap: { tool_b: 'tool.original' },
+      metadata: {},
+      initialToolCalls: [{ id: 'call-1', name: 'tool_a', arguments: {} }],
+      invokeTool
+    });
+
+    while (!(await iterator.next()).done) {
+      // drain
+    }
+
+    expect(llmManager.streamProvider).toHaveBeenCalledTimes(3);
+    expect(invokeTool).toHaveBeenCalledTimes(2);
+  });
+
+  test('stream loop retry reminder lists allowed tools when ToolChoiceRequired remains', async () => {
+    const llmManager: any = {
+      streamProvider: jest.fn(async function* (...args: any[]) {
+        const callNumber = llmManager.streamProvider.mock.calls.length;
+
+        if (callNumber === 1) {
+          yield { text: 'oops' };
+          return;
+        }
+
+        if (callNumber === 2) {
+          const messages = args[3] as any[];
+          const lastUserText = String(messages.at(-1)?.content?.[0]?.text ?? '');
+          expect(lastUserText).toContain('Allowed tools: tool.a, tool.b, tool_c');
+
+          yield {
+            toolEvents: [
+              { type: ToolCallEventType.TOOL_CALL_END, callId: 'call-2', name: 'tool_b', arguments: '{}' },
+              { type: ToolCallEventType.TOOL_CALL_END, callId: 'call-3', name: 'tool_c', arguments: '{}' }
+            ]
+          };
+          return;
+        }
+
+        yield { text: 'final' };
+      })
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    const iterator = runToolLoop({
+      mode: 'stream',
+      llmManager,
+      registry: {
+        getCompatModule: () => ({
+          parseStreamChunk: (chunk: any) => chunk
+        })
+      } as any,
+      messages: [{ role: Role.USER, content: [] }],
+      tools: [{ name: 'tool_a' }, { name: 'tool_b' }, { name: 'tool_c' }] as any,
+      toolChoice: { type: 'required', allowed: ['tool_a', 'tool_b', 'tool_c'] } as any,
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 3 } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      toolNameMap: { tool_a: 'tool.a', tool_b: 'tool.b' },
+      metadata: {},
+      initialToolCalls: [{ id: 'call-1', name: 'tool_a', arguments: {} }],
+      invokeTool
+    });
+
+    let finalResult: any;
+    while (true) {
+      const next = await iterator.next();
+      if (next.done) {
+        finalResult = next.value;
+        break;
+      }
+    }
+
+    expect(invokeTool).toHaveBeenCalledTimes(3);
+    expect(llmManager.streamProvider).toHaveBeenCalledTimes(3);
+    expect(finalResult?.content).toBe('final');
+  });
+
+  test('stream loop retry reminder ignores non-array allowed field defensively', async () => {
+    const toolChoice: any = { type: 'required', allowed: ['tool_a', 'tool_b', 'tool_c'] };
+
+    const llmManager: any = {
+      streamProvider: jest.fn(async function* (...args: any[]) {
+        const callNumber = llmManager.streamProvider.mock.calls.length;
+
+        if (callNumber === 1) {
+          expect(args[5]).toMatchObject({ type: 'required' });
+          yield { text: 'oops' };
+          toolChoice.allowed = 'not-an-array';
+          return;
+        }
+
+        const messages = args[3] as any[];
+        const lastUserText = String(messages.at(-1)?.content?.[0]?.text ?? '');
+        expect(lastUserText).toContain('You MUST call the required tool now.');
+        expect(lastUserText).not.toContain('Allowed tools:');
+
+        yield { text: 'final' };
+      })
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    const iterator = runToolLoop({
+      mode: 'stream',
+      llmManager,
+      registry: {
+        getCompatModule: () => ({
+          parseStreamChunk: (chunk: any) => chunk
+        })
+      } as any,
+      messages: [{ role: Role.USER, content: [] }],
+      tools: [{ name: 'tool_a' }, { name: 'tool_b' }, { name: 'tool_c' }] as any,
+      toolChoice,
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: 3 } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      toolNameMap: { tool_a: 'tool.a', tool_b: 'tool.b' },
+      metadata: {},
+      initialToolCalls: [{ id: 'call-1', name: 'tool_a', arguments: {} }],
+      invokeTool
+    });
+
+    const events: any[] = [];
+    let finalResult: any;
+    while (true) {
+      const next = await iterator.next();
+      if (next.done) {
+        finalResult = next.value;
+        break;
+      }
+      events.push(next.value);
+    }
+
+    expect(llmManager.streamProvider).toHaveBeenCalledTimes(2);
+    expect(invokeTool).toHaveBeenCalledTimes(1);
+    const deltas = events.filter(e => e.type === StreamEventType.DELTA).map(e => e.content).join('');
+    expect(deltas).toBe('final');
     expect(finalResult?.content).toBe('final');
   });
 

@@ -13,6 +13,7 @@ import { createRealtimeSessionController } from './realtime-session.js';
 export interface RealtimeRegistryLike {
   getRealtimeProvider: (id: string) => Promise<RealtimeProviderManifest>;
   getRealtimeCompat: (kind: string) => Promise<IRealtimeCompat>;
+  getRealtimeCompatForProvider?: (providerId: string) => Promise<IRealtimeCompat>;
   getTools: (names: string[]) => Promise<UnifiedTool[]>;
   getProcessRoutes: () => Promise<ProcessRouteManifest[]>;
 }
@@ -26,7 +27,9 @@ export async function createRealtimeSession(
     throw new Error(`Realtime provider '${provider?.id ?? spec.provider}' does not declare compat configuration`);
   }
 
-  const compat = await registry.getRealtimeCompat(provider.compat);
+  const compat = typeof registry.getRealtimeCompatForProvider === 'function'
+    ? await registry.getRealtimeCompatForProvider(provider.id ?? spec.provider)
+    : await registry.getRealtimeCompat(provider.compat);
   const tools = spec.functionToolNames && spec.functionToolNames.length > 0
     ? await registry.getTools(spec.functionToolNames)
     : undefined;

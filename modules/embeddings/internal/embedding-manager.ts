@@ -42,7 +42,9 @@ export class EmbeddingManager {
     for (const item of priority) {
       try {
         const config = await this.registry.getEmbeddingProvider(item.provider);
-        const compat = await this.registry.getEmbeddingCompat(config.kind);
+        const compat = typeof this.registry.getEmbeddingCompatForProvider === 'function'
+          ? await this.registry.getEmbeddingCompatForProvider(config.id)
+          : await this.registry.getEmbeddingCompat(config.kind);
 
         // Pass logger to compat for HTTP logging
         const result = await compat.embed(input, config, item.model, this.logger);
@@ -82,7 +84,9 @@ export class EmbeddingManager {
    */
   async getDimensions(providerId: string, model?: string): Promise<number> {
     const config = await this.registry.getEmbeddingProvider(providerId);
-    const compat = await this.registry.getEmbeddingCompat(config.kind);
+    const compat = typeof this.registry.getEmbeddingCompatForProvider === 'function'
+      ? await this.registry.getEmbeddingCompatForProvider(config.id)
+      : await this.registry.getEmbeddingCompat(config.kind);
     return compat.getDimensions(config, model);
   }
 
@@ -118,7 +122,9 @@ export class EmbeddingManager {
   async validate(providerId: string): Promise<boolean> {
     try {
       const config = await this.registry.getEmbeddingProvider(providerId);
-      const compat = await this.registry.getEmbeddingCompat(config.kind);
+      const compat = typeof this.registry.getEmbeddingCompatForProvider === 'function'
+        ? await this.registry.getEmbeddingCompatForProvider(config.id)
+        : await this.registry.getEmbeddingCompat(config.kind);
 
       if (typeof compat.validate === 'function') {
         return await compat.validate(config);

@@ -137,6 +137,48 @@ describe('ToolCoordinator edge cases', () => {
     ).rejects.toThrow("Process route 'unknown' failed: Unsupported invoke kind 'other'");
   });
 
+  test('invalid regex match pattern throws when evaluated', async () => {
+    const coordinator = new ToolCoordinator([
+      {
+        id: 'bad-regex',
+        match: { type: 'regex', pattern: '(' },
+        invoke: { kind: 'command', command: 'echo' }
+      } as any
+    ]);
+
+    await expect(
+      coordinator.routeAndInvoke('anything', 'call', {}, { provider: 'p', model: 'm' })
+    ).rejects.toThrow(/Invalid regular expression/);
+  });
+
+  test('invalid glob match pattern throws when evaluated', async () => {
+    const coordinator = new ToolCoordinator([
+      {
+        id: 'bad-glob',
+        match: { type: 'glob', pattern: null },
+        invoke: { kind: 'command', command: 'echo' }
+      } as any
+    ]);
+
+    await expect(
+      coordinator.routeAndInvoke('anything', 'call', {}, { provider: 'p', model: 'm' })
+    ).rejects.toThrow('invalid pattern');
+  });
+
+  test('unknown match types are ignored', async () => {
+    const coordinator = new ToolCoordinator([
+      {
+        id: 'unknown-match',
+        match: { type: 'unknown', pattern: 'x' },
+        invoke: { kind: 'command', command: 'echo' }
+      } as any
+    ]);
+
+    await expect(
+      coordinator.routeAndInvoke('anything', 'call', {}, { provider: 'p', model: 'm' })
+    ).rejects.toThrow("No matching process route for tool 'anything'");
+  });
+
   test('command route invalid JSON output is wrapped with context', async () => {
     const coordinator = new ToolCoordinator([
       {

@@ -2,6 +2,8 @@ import { jest } from '@jest/globals';
 import { createServer } from '@/modules/server/index.ts';
 import { canBindToLocalhost, requestRaw } from './test-helpers.ts';
 import path from 'path';
+import fs from 'fs';
+import { withTempCwd, writeJson } from '@tests/helpers/temp-files.ts';
 
 let networkAvailable = true;
 
@@ -79,5 +81,37 @@ describe('utils/server (integration) health and readiness endpoints', () => {
     expect(res.status).toBe(503);
     expect(res.headers['content-type']).toContain('application/json');
     expect(JSON.parse(res.body)).toEqual({ ok: false });
+  });
+
+  test('GET /ready uses llm-adapter.paths.json plugins override when pluginsPath is default', async () => {
+    if (!networkAvailable) return;
+
+    await withTempCwd('server-ready-paths', async (dir) => {
+      writeJson(path.join(dir, 'llm-adapter.paths.json'), {
+        paths: {
+          plugins: './plugins-from-config'
+        }
+      });
+      fs.mkdirSync(path.join(dir, 'plugins-from-config'), { recursive: true });
+
+      const server = await createServer({
+        deps: {
+          createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+          createCoordinator: jest.fn().mockResolvedValue({
+            run: jest.fn(),
+            runStream: jest.fn(),
+            close: jest.fn().mockResolvedValue(undefined)
+          }),
+          closeLogger: jest.fn().mockResolvedValue(undefined)
+        }
+      } as any);
+
+      const res = await requestRaw(server.url, { method: 'GET', path: '/ready' });
+      await server.close();
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('application/json');
+      expect(JSON.parse(res.body)).toEqual({ ok: true });
+    });
   });
 });

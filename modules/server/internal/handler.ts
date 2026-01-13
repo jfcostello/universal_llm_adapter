@@ -239,6 +239,23 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
       return;
     }
 
+    if (method === 'GET' && url === '/extensions/list') {
+      try {
+        await assertAuthorizedAndRateLimited(req);
+        const { listExtensions } = await import('../../extensions/index.js');
+        const results = listExtensions().map(item => ({
+          name: item.name,
+          kind: item.kind,
+          root: item.root
+        }));
+        writeJson(res, 200, { type: 'response', data: results });
+      } catch (error: any) {
+        const mapped = mapErrorToHttp(error);
+        writeJson(res, mapped.status, mapped.body);
+      }
+      return;
+    }
+
     if (method !== 'POST') {
       writeJson(res, 405, { type: 'error', error: { message: 'Method not allowed' } });
       return;

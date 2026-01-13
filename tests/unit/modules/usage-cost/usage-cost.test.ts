@@ -334,7 +334,9 @@ describe('modules/usage-cost loading fallback', () => {
     (jest as any).unstable_mockModule('fs', () => fsMock);
     (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
       __esModule: true,
+      isPlainObject: (value: unknown) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
       PACKAGE_ROOT: process.cwd(),
+      getAdapterPathsConfig: () => null,
       loadJsonFile: () => {
         throw new Error('boom');
       },
@@ -363,7 +365,9 @@ describe('modules/usage-cost loading fallback', () => {
 
     (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
       __esModule: true,
+      isPlainObject: (value: unknown) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
       PACKAGE_ROOT: pkgRoot,
+      getAdapterPathsConfig: () => null,
       loadJsonFile: (filePath: string) => {
         if (String(filePath).startsWith(process.cwd())) {
           throw new Error('bad table in cwd path');
@@ -397,7 +401,9 @@ describe('modules/usage-cost loading fallback', () => {
 
     (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
       __esModule: true,
+      isPlainObject: (value: unknown) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
       PACKAGE_ROOT: pkgRoot,
+      getAdapterPathsConfig: () => null,
       loadJsonFile: (filePath: string) => {
         if (String(filePath).startsWith(process.cwd())) return cwdTable;
         if (String(filePath).startsWith(pkgRoot)) return pkgTable;

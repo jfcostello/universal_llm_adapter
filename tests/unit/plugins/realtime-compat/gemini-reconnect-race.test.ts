@@ -4,6 +4,18 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const wsLib = require('ws');
 
+async function waitForWsAddress(wss: any, timeoutMs = 2000): Promise<{ port: number }> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const address = wss.address();
+    if (address && typeof address !== 'string' && typeof address.port === 'number') {
+      return { port: address.port };
+    }
+    await new Promise(res => setTimeout(res, 5));
+  }
+  throw new Error('Timed out waiting for WebSocket server to bind');
+}
+
 async function startWsServer(options?: { closeOnSetup?: boolean }) {
   const wss = new wsLib.WebSocketServer({ port: 0 });
   const messages: any[] = [];
@@ -25,8 +37,7 @@ async function startWsServer(options?: { closeOnSetup?: boolean }) {
     });
   });
 
-  const address = wss.address();
-  if (!address || typeof address === 'string') throw new Error('Expected TCP address');
+  const address = await waitForWsAddress(wss);
   const urlTemplate = `ws://127.0.0.1:${address.port}/live`;
 
   const close = async () => {
@@ -90,7 +101,7 @@ describe('plugins/realtime-compat/gemini session (reconnect race)', () => {
         spec: { provider: 'google', model: 'm', handshake: { readyFallbackMs: 60000 } }
       } as any);
 
-      await waitForMessage(server.messages, m => m?.setup?.model === 'models/m', 2000);
+      await waitForMessage(server.messages, m => m?.setup?.model === 'models/m', 5000);
 
       // Allow the server-side close to trigger reconnect scheduling.
       await new Promise(res => setTimeout(res, 5));

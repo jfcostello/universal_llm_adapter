@@ -10,18 +10,163 @@ describe('lifecycle/internal/factories', () => {
   });
 
   describe('createRegistry', () => {
-    test('creates a PluginRegistry with the given plugins path', async () => {
+    test('creates a PluginRegistry with the given plugins path when no paths config exists', async () => {
       const mockRegistry = { loadAll: jest.fn() };
       const PluginRegistryMock = jest.fn().mockImplementation(() => mockRegistry);
 
       (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
-        PluginRegistry: PluginRegistryMock
+        isPlainObject: (value: unknown) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
+        PluginRegistry: PluginRegistryMock,
+        getAdapterPathsConfig: () => null
       }));
 
       const { createRegistry } = await import('@/modules/lifecycle/internal/factories.ts');
       const result = await createRegistry('./test-plugins');
 
       expect(PluginRegistryMock).toHaveBeenCalledWith('./test-plugins');
+      expect(result).toBe(mockRegistry);
+    });
+
+    test('uses llm-adapter.paths.json lookup config when present (multi-root mode)', async () => {
+      const mockRegistry = { loadAll: jest.fn() };
+      const PluginRegistryMock = jest.fn().mockImplementation(() => mockRegistry);
+
+      (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
+        isPlainObject: (value: unknown) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
+        PluginRegistry: PluginRegistryMock,
+        getAdapterPathsConfig: () => ({
+          filePath: '/tmp/llm-adapter.paths.json',
+          source: 'cwd',
+          paths: {
+            plugins: './plugins-from-config',
+            lookup: {
+              warnOnOverride: true,
+              extensions: { builtin: true, externalRoots: [] },
+              plugins: {
+                builtinManifests: false,
+                builtinCode: true,
+                local: true,
+                externalRoots: [],
+                areas: { providers: { local: false } }
+              },
+              configs: {
+                defaults: { builtin: true, local: true, externalRoots: [] },
+                usageCosts: { builtin: true, local: true, externalRoots: [] }
+              }
+            }
+          }
+        })
+      }));
+
+      const { createRegistry } = await import('@/modules/lifecycle/internal/factories.ts');
+      const result = await createRegistry('./plugins');
+
+      expect(PluginRegistryMock).toHaveBeenCalledWith({
+        pluginsPath: './plugins-from-config',
+        lookup: {
+          warnOnOverride: true,
+          builtinManifests: false,
+          builtinCode: true,
+          local: true,
+          externalRoots: [],
+          areas: { providers: { local: false } }
+        }
+      });
+      expect(result).toBe(mockRegistry);
+    });
+
+    test('prefers an explicit pluginsPath argument over llm-adapter.paths.json plugins path', async () => {
+      const mockRegistry = { loadAll: jest.fn() };
+      const PluginRegistryMock = jest.fn().mockImplementation(() => mockRegistry);
+
+      (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
+        isPlainObject: (value: unknown) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
+        PluginRegistry: PluginRegistryMock,
+        getAdapterPathsConfig: () => ({
+          filePath: '/tmp/llm-adapter.paths.json',
+          source: 'cwd',
+          paths: {
+            plugins: './plugins-from-config',
+            lookup: {
+              warnOnOverride: true,
+              extensions: { builtin: true, externalRoots: [] },
+              plugins: {
+                builtinManifests: false,
+                builtinCode: true,
+                local: true,
+                externalRoots: [],
+                areas: {}
+              },
+              configs: {
+                defaults: { builtin: true, local: true, externalRoots: [] },
+                usageCosts: { builtin: true, local: true, externalRoots: [] }
+              }
+            }
+          }
+        })
+      }));
+
+      const { createRegistry } = await import('@/modules/lifecycle/internal/factories.ts');
+      const result = await createRegistry('./custom-plugins');
+
+      expect(PluginRegistryMock).toHaveBeenCalledWith({
+        pluginsPath: './custom-plugins',
+        lookup: {
+          warnOnOverride: true,
+          builtinManifests: false,
+          builtinCode: true,
+          local: true,
+          externalRoots: [],
+          areas: {}
+        }
+      });
+      expect(result).toBe(mockRegistry);
+    });
+
+    test('falls back to ./plugins when pluginsPath is blank and no paths.plugins is configured', async () => {
+      const mockRegistry = { loadAll: jest.fn() };
+      const PluginRegistryMock = jest.fn().mockImplementation(() => mockRegistry);
+
+      (jest as any).unstable_mockModule('@/kernel/index.ts', () => ({
+        isPlainObject: (value: unknown) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
+        PluginRegistry: PluginRegistryMock,
+        getAdapterPathsConfig: () => ({
+          filePath: '/tmp/llm-adapter.paths.json',
+          source: 'cwd',
+          paths: {
+            lookup: {
+              warnOnOverride: true,
+              extensions: { builtin: true, externalRoots: [] },
+              plugins: {
+                builtinManifests: false,
+                builtinCode: true,
+                local: true,
+                externalRoots: [],
+                areas: {}
+              },
+              configs: {
+                defaults: { builtin: true, local: true, externalRoots: [] },
+                usageCosts: { builtin: true, local: true, externalRoots: [] }
+              }
+            }
+          }
+        })
+      }));
+
+      const { createRegistry } = await import('@/modules/lifecycle/internal/factories.ts');
+      const result = await createRegistry('   ');
+
+      expect(PluginRegistryMock).toHaveBeenCalledWith({
+        pluginsPath: './plugins',
+        lookup: {
+          warnOnOverride: true,
+          builtinManifests: false,
+          builtinCode: true,
+          local: true,
+          externalRoots: [],
+          areas: {}
+        }
+      });
       expect(result).toBe(mockRegistry);
     });
   });

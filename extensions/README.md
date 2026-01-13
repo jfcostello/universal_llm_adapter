@@ -7,6 +7,12 @@ Key properties:
 - **Strictly lazy-loaded**: extension code is loaded via `import()` only when enabled.
 - **Removable**: you can delete an extension directory without breaking core (assuming nothing enables it).
 
+## External packs
+
+Extensions can be resolved from **external pack roots** configured via `llm-adapter.paths.json` (or `LLM_ADAPTER_PATHS_FILE`).
+
+See `README-PACKS.md`.
+
 ## How extensions differ from plugins
 
 - **Plugins** add providers/compats on top of existing capabilities (LLM, realtime, vector, embeddings, observability).
@@ -36,10 +42,19 @@ Extensions can expose CLI surfaces under:
 
 Extension CLI code is also **lazy-loaded** (only imported when the extension command is invoked).
 
+You can explicitly enumerate extensions (directory scan) with:
+
+- `llm-adapter extensions list`
+
+## Extension defaults
+
+An extension pack may include `extensions/<name>/defaults.json`.
+
+The server loads this only when the extension is enabled, and merges it with `server.extensions[<name>]` (legacy override wins).
+
 ## Tests
 
 Extensions own their tests and they are **not** run by `npm test`.
 
 - Core tests: `npm test`
 - Extension tests: `npm run test:extensions`
-- Voice extension tests: `npm run test:extensions:voice`

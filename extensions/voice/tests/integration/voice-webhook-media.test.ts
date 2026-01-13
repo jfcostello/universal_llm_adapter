@@ -4,7 +4,7 @@ import http from 'http';
 import * as path from 'path';
 
 import voiceExtension from '../../index.ts';
-import { createInMemoryVoiceCallConfigStore } from '../../internal/call-config-store/index.js';
+import { createInMemoryVoiceCallConfigStore } from '../../modules/call-config-store/index.js';
 import { createSignedWsToken } from '@/modules/security/index.ts';
 import { attachUpgradeRouter } from '@/modules/server/internal/transport/upgrade-router.ts';
 import { closeServerAndSockets, trackServerSockets, unrefServer } from '../helpers/http-server.ts';
@@ -188,6 +188,34 @@ async function startHarness(options: { store: any; providerPlugins?: any; loggin
   };
 
   return { baseUrl, close };
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  const durationMs = Math.max(1, Math.floor(timeoutMs));
+  return await Promise.race([
+    promise,
+    new Promise<T>((_resolve, reject) => {
+      const timer: any = setTimeout(() => reject(new Error(`Timed out: ${label}`)), durationMs);
+      if (typeof timer?.unref === 'function') timer.unref();
+    })
+  ]);
+}
+
+async function pool<T, R>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+
+  const worker = async () => {
+    while (true) {
+      const index = next++;
+      if (index >= items.length) break;
+      results[index] = await fn(items[index]!, index);
+    }
+  };
+
+  const n = Math.min(Math.max(1, Math.floor(concurrency)), items.length || 1);
+  await Promise.all(Array.from({ length: n }, () => worker()));
+  return results;
 }
 
 describe('extensions/voice: webhook + media wiring', () => {
@@ -1282,6 +1310,60 @@ describe('extensions/voice: webhook + media wiring', () => {
       const { ws: ws3, closePromise: close3 } = await openWs(wsUrl3);
       ws3.close();
       await close3;
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('reliability: supports concurrent /voice/calls → /voice/webhook → /voice/media (test compat)', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    const harness = await startHarness({
+      store,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+    });
+
+    try {
+      const callCount = 10;
+      const concurrency = 5;
+
+      const callConfigIds = await pool(
+        Array.from({ length: callCount }, (_, i) => i),
+        concurrency,
+        async () => {
+          const res = await fetch(new URL('/voice/calls', harness.baseUrl), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer k1' },
+            body: JSON.stringify({ to: 'to', from: 'from', voiceProvider: 'test', realtimeSpec: {} })
+          });
+          expect(res.status).toBe(200);
+          const json = await res.json();
+          const callConfigId = String(json?.callConfigId ?? '');
+          if (!callConfigId) {
+            throw new Error('Missing callConfigId');
+          }
+          return callConfigId;
+        }
+      );
+
+      const wsUrls = await pool(callConfigIds, concurrency, async (callConfigId) => {
+        const res = await fetch(new URL(`/voice/webhook?callConfigId=${encodeURIComponent(callConfigId)}`, harness.baseUrl), {
+          headers: { 'x-test-signature': 'ok' }
+        });
+        expect(res.status).toBe(200);
+        const xml = await res.text();
+        return extractStreamUrl(xml);
+      });
+
+      const clients = await pool(wsUrls, concurrency, async (wsUrl) => {
+        const client = await openWs(wsUrl);
+        const ready = await waitForMessage(client.messages, m => m?.type === 'ready', 2000);
+        expect(callConfigIds).toContain(String(ready?.callConfigId ?? ''));
+        // Test compat closes immediately; ensure close is observed so we don't leak handles.
+        await withTimeout(client.closePromise, 2000, 'ws close');
+        return client;
+      });
+
+      expect(clients).toHaveLength(callCount);
     } finally {
       await harness.close();
     }

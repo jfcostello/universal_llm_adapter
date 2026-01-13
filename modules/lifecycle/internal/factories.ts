@@ -13,13 +13,49 @@ export interface PluginRegistryLike {
   loadAll?(): Promise<void>;
 }
 
+const DEFAULT_PLUGINS_PATH = './plugins';
+
+export function resolveEffectivePluginsPath(options: { pluginsPath: string; configuredPluginsPath?: string }): string {
+  const pluginsPath = options.pluginsPath.trim() || DEFAULT_PLUGINS_PATH;
+
+  // Commander defaults make it hard to tell whether a value was explicitly provided.
+  // Treat `./plugins` as the default and allow llm-adapter.paths.json to override it.
+  if (pluginsPath === DEFAULT_PLUGINS_PATH) {
+    const configured = (options.configuredPluginsPath ?? '').trim();
+    if (configured) return configured;
+  }
+
+  return pluginsPath;
+}
+
 /**
  * Creates a PluginRegistry instance.
  * Uses dynamic import to preserve lazy loading.
  */
 export async function createRegistry(pluginsPath: string): Promise<PluginRegistryLike> {
-  const { PluginRegistry } = await import('../../../kernel/index.js');
-  return new PluginRegistry(pluginsPath);
+  const { PluginRegistry, getAdapterPathsConfig } = await import('../../../kernel/index.js');
+
+  const pathsConfig = getAdapterPathsConfig();
+  if (!pathsConfig) {
+    return new PluginRegistry(pluginsPath);
+  }
+
+  const effectivePluginsPath = resolveEffectivePluginsPath({
+    pluginsPath,
+    configuredPluginsPath: pathsConfig.paths.plugins
+  });
+
+  return new PluginRegistry({
+    pluginsPath: effectivePluginsPath,
+    lookup: {
+      warnOnOverride: pathsConfig.paths.lookup.warnOnOverride,
+      builtinManifests: pathsConfig.paths.lookup.plugins.builtinManifests,
+      builtinCode: pathsConfig.paths.lookup.plugins.builtinCode,
+      local: pathsConfig.paths.lookup.plugins.local,
+      externalRoots: pathsConfig.paths.lookup.plugins.externalRoots,
+      areas: pathsConfig.paths.lookup.plugins.areas
+    }
+  });
 }
 
 /**

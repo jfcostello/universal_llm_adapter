@@ -1,7 +1,42 @@
+const LLM_ADAPTER_ERROR_CHAIN = Symbol.for('llm_adapter_error_chain');
+
+function getConstructorNameChain(value: object): string[] {
+  const names: string[] = [];
+  let proto: any = Object.getPrototypeOf(value);
+
+  while (proto && typeof proto === 'object') {
+    const ctor = proto.constructor;
+    const name = typeof ctor?.name === 'string' ? ctor.name : '';
+    if (name) {
+      names.push(name);
+    }
+    proto = Object.getPrototypeOf(proto);
+  }
+
+  return names;
+}
+
 export class LLMAdapterError extends Error {
+  static [Symbol.hasInstance](instance: unknown): boolean {
+    if (!instance || typeof instance !== 'object') return false;
+
+    const existingChain = (instance as any)[LLM_ADAPTER_ERROR_CHAIN];
+    const chain = Array.isArray(existingChain) ? existingChain : getConstructorNameChain(instance as object);
+    return chain.includes(this.name);
+  }
+
   constructor(message: string) {
     super(message);
     this.name = this.constructor.name;
+
+    try {
+      Object.defineProperty(this, LLM_ADAPTER_ERROR_CHAIN, {
+        value: getConstructorNameChain(this),
+        enumerable: false
+      });
+    } catch {
+      // Best-effort: some error objects may be non-extensible in exotic environments.
+    }
   }
 }
 

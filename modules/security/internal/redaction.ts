@@ -1,4 +1,4 @@
-import { getDefaults } from '../../../kernel/index.js';
+import { BUILT_IN_SENSITIVE_KEY_PATTERNS, getDefaults } from '../../../kernel/index.js';
 
 export function genericRedactHeaders(headers: Record<string, any>): Record<string, any> {
   const redacted = { ...headers };
@@ -28,34 +28,6 @@ export function redactUrlCredentials(url: string): string {
  * Default key names that are considered sensitive and should be redacted.
  * Matching is case-insensitive, and supports glob-style `*` wildcards.
  */
-const FALLBACK_SENSITIVE_KEYS = [
-  'authorization',
-  'x-api-key',
-  'x-goog-api-key',
-  'api_key',
-  'apikey',
-  '*api_key*',
-  '*api-key*',
-  '*apikey*',
-  'access_token',
-  'refresh_token',
-  'id_token',
-  '*access_token*',
-  '*access-token*',
-  '*accesstoken*',
-  '*refresh_token*',
-  '*refresh-token*',
-  '*refreshtoken*',
-  '*id_token*',
-  '*id-token*',
-  '*idtoken*',
-  'key',
-  'secret',
-  'password',
-  'credential',
-  'auth'
-];
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -94,7 +66,19 @@ function resolveSensitiveKeyPatterns(overrides?: string[]): string[] {
   const defaults = getDefaults();
   const fromConfig = readSensitiveKeysFromDefaults(defaults);
   const normalized = normalizeKeyPatterns(fromConfig);
-  return normalized.length > 0 ? normalized : FALLBACK_SENSITIVE_KEYS;
+  const builtIn = Array.from(BUILT_IN_SENSITIVE_KEY_PATTERNS);
+  if (normalized.length === 0) return builtIn;
+
+  const merged = [...builtIn, ...normalized];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const pattern of merged) {
+    const key = pattern.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(pattern);
+  }
+  return out;
 }
 
 function escapeRegExp(value: string): string {

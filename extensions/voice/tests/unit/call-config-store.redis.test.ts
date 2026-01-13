@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 
-import { createRedisVoiceCallConfigStore } from '../../internal/call-config-store/index.js';
+import { createRedisVoiceCallConfigStore } from '../../modules/call-config-store/index.js';
 
 type FakeRedisEntry = { value: string; expiresAtMs?: number };
 

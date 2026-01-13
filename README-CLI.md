@@ -10,6 +10,12 @@ npm install llm-adapter
 
 The CLI is available as `llm-adapter` after installation.
 
+## External packs
+
+If you want to load plugins/extensions from directories **outside** the core repo, configure pack roots via `llm-adapter.paths.json` (or `LLM_ADAPTER_PATHS_FILE`).
+
+See [README-PACKS.md](README-PACKS.md).
+
 ## Command Overview
 
 ```bash
@@ -31,6 +37,7 @@ llm-adapter <command> [options]
 | `serve` | Start HTTP/SSE server |
 | `realtime` | Realtime session over stdin/stdout JSON protocol |
 | `realtime client-secret` | Mint a short-lived realtime WebRTC client secret |
+| `extensions list` | List available extensions across pack roots |
 | `voice call` | Create an outbound voice call (server endpoint) |
 
 ---
