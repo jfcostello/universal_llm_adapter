@@ -89,3 +89,106 @@ describe('kernel/registry loader lock', () => {
   });
 });
 
+describe('kernel/registry code module loader lock', () => {
+  test('dedupes concurrent code module loads and sets map entry on success', async () => {
+    const { runCodeModuleLoadOnce } = await import('@/kernel/internal/registry/internal/loader-lock.ts');
+
+    const state: any = {};
+    const stateMap = new Map<string, () => string>();
+    let runs = 0;
+
+    const load = async () => {
+      runs += 1;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return () => 'factory';
+    };
+
+    const p1 = runCodeModuleLoadOnce(state, stateMap, 'my-module', load);
+    const p2 = runCodeModuleLoadOnce(state, stateMap, 'my-module', load);
+
+    expect(p1).toBe(p2);
+    const [key1, key2] = await Promise.all([p1, p2]);
+
+    expect(runs).toBe(1);
+    expect(key1).toBe('my-module');
+    expect(key2).toBe('my-module');
+    expect(stateMap.has('my-module')).toBe(true);
+    expect(stateMap.get('my-module')!()).toBe('factory');
+  });
+
+  test('returns immediately when key already exists in stateMap', async () => {
+    const { runCodeModuleLoadOnce } = await import('@/kernel/internal/registry/internal/loader-lock.ts');
+
+    const state: any = {};
+    const stateMap = new Map<string, () => string>();
+    stateMap.set('existing-module', () => 'existing-factory');
+
+    const load = jest.fn(async () => () => 'new-factory');
+
+    const key = await runCodeModuleLoadOnce(state, stateMap, 'existing-module', load);
+
+    expect(load).not.toHaveBeenCalled();
+    expect(key).toBe('existing-module');
+    expect(stateMap.get('existing-module')!()).toBe('existing-factory');
+  });
+
+  test('clears in-flight lock and does not set map entry on failure', async () => {
+    const { runCodeModuleLoadOnce } = await import('@/kernel/internal/registry/internal/loader-lock.ts');
+
+    const state: any = {};
+    const stateMap = new Map<string, () => string>();
+    let runs = 0;
+
+    const load = async () => {
+      runs += 1;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      throw new Error('module load failed');
+    };
+
+    const p1 = runCodeModuleLoadOnce(state, stateMap, 'failing-module', load);
+    const p2 = runCodeModuleLoadOnce(state, stateMap, 'failing-module', load);
+
+    expect(p1).toBe(p2);
+    await expect(Promise.all([p1, p2])).rejects.toThrow('module load failed');
+
+    expect(runs).toBe(1);
+    expect(stateMap.has('failing-module')).toBe(false);
+
+    const p3 = runCodeModuleLoadOnce(state, stateMap, 'failing-module', load);
+    expect(p3).not.toBe(p1);
+    await expect(p3).rejects.toThrow('module load failed');
+    expect(runs).toBe(2);
+  });
+
+  test('does not dedupe different module keys', async () => {
+    const { runCodeModuleLoadOnce } = await import('@/kernel/internal/registry/internal/loader-lock.ts');
+
+    const state: any = {};
+    const stateMap = new Map<string, () => string>();
+
+    let moduleARuns = 0;
+    let moduleBRuns = 0;
+
+    const loadModuleA = async () => {
+      moduleARuns += 1;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return () => 'factory-a';
+    };
+
+    const loadModuleB = async () => {
+      moduleBRuns += 1;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return () => 'factory-b';
+    };
+
+    await Promise.all([
+      runCodeModuleLoadOnce(state, stateMap, 'module-a', loadModuleA),
+      runCodeModuleLoadOnce(state, stateMap, 'module-b', loadModuleB)
+    ]);
+
+    expect(moduleARuns).toBe(1);
+    expect(moduleBRuns).toBe(1);
+    expect(stateMap.size).toBe(2);
+  });
+});
+

@@ -1,6 +1,6 @@
 import { StringChunkQueue } from '../../modules/shared/index.js';
 
-describe('extensions/voice/internal/StringChunkQueue', () => {
+describe('extensions/voice/modules/shared/StringChunkQueue', () => {
   test('tracks byte length and shift ordering', () => {
     const q = new StringChunkQueue();
     q.push('a');

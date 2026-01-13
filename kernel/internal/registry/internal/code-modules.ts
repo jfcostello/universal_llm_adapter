@@ -17,6 +17,7 @@ import type {
 import type { PluginRegistrySourceKind } from './public-types.js';
 import type { PluginRegistryState } from './state.js';
 import { getPackRootsLowToHigh } from './lookup.js';
+import { runCodeModuleLoadOnce } from './loader-lock.js';
 
 const distRoot = PACKAGE_ROOT;
 
@@ -177,22 +178,19 @@ export async function ensureCompatModuleLoaded(
     throw new ManifestError(`No compat module found for '${moduleName}'`);
   }
 
-  if (state.compatModules.has(resolved.key)) {
-    return resolved.key;
-  }
-
-  try {
-    const imported = await importPluginCodeModule(resolved.modulePath);
-    const CompatClass = getDefaultOrFirstExport(imported);
-    if (typeof CompatClass !== 'function') {
-      throw new Error('module did not export a constructor');
+  return runCodeModuleLoadOnce(state, state.compatModules, resolved.key, async () => {
+    try {
+      const imported = await importPluginCodeModule(resolved.modulePath);
+      const CompatClass = getDefaultOrFirstExport(imported);
+      if (typeof CompatClass !== 'function') {
+        throw new Error('module did not export a constructor');
+      }
+      return () => new (CompatClass as any)();
+    } catch (error: any) {
+      console.warn(`Failed to load compat module ${moduleName}: ${error.message}`);
+      throw new ManifestError(`No compat module found for '${moduleName}'`);
     }
-    state.compatModules.set(resolved.key, () => new (CompatClass as any)());
-    return resolved.key;
-  } catch (error: any) {
-    console.warn(`Failed to load compat module ${moduleName}: ${error.message}`);
-    throw new ManifestError(`No compat module found for '${moduleName}'`);
-  }
+  });
 }
 
 export async function ensureEmbeddingCompatLoaded(
@@ -214,22 +212,19 @@ export async function ensureEmbeddingCompatLoaded(
     throw new ManifestError(`No embedding compat module found for '${kind}'`);
   }
 
-  if (state.embeddingCompats.has(resolved.key)) {
-    return resolved.key;
-  }
-
-  try {
-    const imported = await importPluginCodeModule(resolved.modulePath);
-    const CompatClass = getDefaultOrFirstExport(imported);
-    if (typeof CompatClass !== 'function') {
-      throw new Error('module did not export a constructor');
+  return runCodeModuleLoadOnce(state, state.embeddingCompats, resolved.key, async () => {
+    try {
+      const imported = await importPluginCodeModule(resolved.modulePath);
+      const CompatClass = getDefaultOrFirstExport(imported);
+      if (typeof CompatClass !== 'function') {
+        throw new Error('module did not export a constructor');
+      }
+      return () => new (CompatClass as any)();
+    } catch (error: any) {
+      console.warn(`Failed to load embedding compat module ${kind}: ${error.message}`);
+      throw new ManifestError(`No embedding compat module found for '${kind}'`);
     }
-    state.embeddingCompats.set(resolved.key, () => new (CompatClass as any)());
-    return resolved.key;
-  } catch (error: any) {
-    console.warn(`Failed to load embedding compat module ${kind}: ${error.message}`);
-    throw new ManifestError(`No embedding compat module found for '${kind}'`);
-  }
+  });
 }
 
 export async function ensureVectorStoreCompatLoaded(
@@ -251,27 +246,24 @@ export async function ensureVectorStoreCompatLoaded(
     throw new ManifestError(`No vector store compat module found for '${kind}'`);
   }
 
-  if (state.vectorStoreCompats.has(resolved.key)) {
-    return resolved.key;
-  }
-
-  try {
-    const imported = await importPluginCodeModule(resolved.modulePath);
-    const CompatClass = getDefaultOrFirstExport(imported);
-    if (typeof CompatClass !== 'function') {
-      console.warn(`Failed to load vector store compat module ${kind}: module did not export a constructor`);
+  return runCodeModuleLoadOnce(state, state.vectorStoreCompats, resolved.key, async () => {
+    try {
+      const imported = await importPluginCodeModule(resolved.modulePath);
+      const CompatClass = getDefaultOrFirstExport(imported);
+      if (typeof CompatClass !== 'function') {
+        console.warn(`Failed to load vector store compat module ${kind}: module did not export a constructor`);
+        throw new ManifestError(`No vector store compat module found for '${kind}'`);
+      }
+      return () => new (CompatClass as any)();
+    } catch (error: any) {
+      // If we already threw a ManifestError for non-constructors above, preserve that without duplicating warnings.
+      if (error instanceof ManifestError) {
+        throw error;
+      }
+      console.warn(`Failed to load vector store compat module ${kind}: ${error.message}`);
       throw new ManifestError(`No vector store compat module found for '${kind}'`);
     }
-    state.vectorStoreCompats.set(resolved.key, () => new (CompatClass as any)());
-    return resolved.key;
-  } catch (error: any) {
-    // If we already threw a ManifestError for non-constructors above, preserve that without duplicating warnings.
-    if (error instanceof ManifestError) {
-      throw error;
-    }
-    console.warn(`Failed to load vector store compat module ${kind}: ${error.message}`);
-    throw new ManifestError(`No vector store compat module found for '${kind}'`);
-  }
+  });
 }
 
 export async function ensureRealtimeCompatLoaded(
@@ -293,22 +285,19 @@ export async function ensureRealtimeCompatLoaded(
     throw new ManifestError(`No realtime compat module found for '${kind}'`);
   }
 
-  if (state.realtimeCompats.has(resolved.key)) {
-    return resolved.key;
-  }
-
-  try {
-    const imported = await importPluginCodeModule(resolved.modulePath);
-    const CompatClass = getDefaultOrFirstExport(imported);
-    if (typeof CompatClass !== 'function') {
-      throw new Error('module did not export a constructor');
+  return runCodeModuleLoadOnce(state, state.realtimeCompats, resolved.key, async () => {
+    try {
+      const imported = await importPluginCodeModule(resolved.modulePath);
+      const CompatClass = getDefaultOrFirstExport(imported);
+      if (typeof CompatClass !== 'function') {
+        throw new Error('module did not export a constructor');
+      }
+      return () => new (CompatClass as any)() as IRealtimeCompat;
+    } catch (error: any) {
+      console.warn(`Failed to load realtime compat module ${kind}: ${error.message}`);
+      throw new ManifestError(`No realtime compat module found for '${kind}'`);
     }
-    state.realtimeCompats.set(resolved.key, () => new (CompatClass as any)() as IRealtimeCompat);
-    return resolved.key;
-  } catch (error: any) {
-    console.warn(`Failed to load realtime compat module ${kind}: ${error.message}`);
-    throw new ManifestError(`No realtime compat module found for '${kind}'`);
-  }
+  });
 }
 
 export async function ensureObservabilityCompatLoaded(
@@ -330,21 +319,18 @@ export async function ensureObservabilityCompatLoaded(
     throw new ManifestError(`No observability compat module found for '${kind}'`);
   }
 
-  if (state.observabilityCompats.has(resolved.key)) {
-    return resolved.key;
-  }
-
-  try {
-    const imported = await importPluginCodeModule(resolved.modulePath);
-    const CompatClass = getDefaultOrFirstExport(imported);
-    if (typeof CompatClass !== 'function') {
-      throw new Error('module did not export a constructor');
+  return runCodeModuleLoadOnce(state, state.observabilityCompats, resolved.key, async () => {
+    try {
+      const imported = await importPluginCodeModule(resolved.modulePath);
+      const CompatClass = getDefaultOrFirstExport(imported);
+      if (typeof CompatClass !== 'function') {
+        throw new Error('module did not export a constructor');
+      }
+      return () => new (CompatClass as any)() as IObservabilityCompat;
+    } catch (error: any) {
+      console.warn(`Failed to load observability compat module ${kind}: ${error.message}`);
+      throw new ManifestError(`No observability compat module found for '${kind}'`);
     }
-    state.observabilityCompats.set(resolved.key, () => new (CompatClass as any)() as IObservabilityCompat);
-    return resolved.key;
-  } catch (error: any) {
-    console.warn(`Failed to load observability compat module ${kind}: ${error.message}`);
-    throw new ManifestError(`No observability compat module found for '${kind}'`);
-  }
+  });
 }
 

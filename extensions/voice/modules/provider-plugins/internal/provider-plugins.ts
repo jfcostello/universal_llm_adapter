@@ -91,7 +91,7 @@ export function createVoiceProviderPlugins(options: {
     manifestsLoaded = true;
 
     if (!fs.existsSync(pluginsRoot)) return;
-    const files = glob.sync('providers/*.json', { cwd: pluginsRoot });
+    const files = glob.sync('providers/*.json', { cwd: pluginsRoot }).sort();
     for (const rel of files) {
       const fullPath = path.join(pluginsRoot, rel);
       try {

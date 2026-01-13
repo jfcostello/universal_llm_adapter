@@ -49,3 +49,47 @@ export function runLoaderOnce(
   return wrapped;
 }
 
+const inflightCodeModulesByState = new WeakMap<PluginRegistryState, Map<string, Promise<string>>>();
+
+function getInflightCodeModuleMap(state: PluginRegistryState): Map<string, Promise<string>> {
+  const existing = inflightCodeModulesByState.get(state);
+  if (existing) return existing;
+  const created = new Map<string, Promise<string>>();
+  inflightCodeModulesByState.set(state, created);
+  return created;
+}
+
+/**
+ * Deduplicates concurrent code module imports.
+ * If the key is already in the provided stateMap, returns immediately.
+ * If an import is already in progress for the key, returns the existing promise.
+ * Otherwise, runs the load function and adds the result to the stateMap.
+ */
+export function runCodeModuleLoadOnce<T>(
+  state: PluginRegistryState,
+  stateMap: Map<string, T>,
+  key: string,
+  load: () => Promise<T>
+): Promise<string> {
+  if (stateMap.has(key)) {
+    return Promise.resolve(key);
+  }
+
+  const inflight = getInflightCodeModuleMap(state);
+  const existing = inflight.get(key);
+  if (existing) return existing;
+
+  const promise = (async () => {
+    const result = await load();
+    stateMap.set(key, result);
+    return key;
+  })();
+
+  const wrapped = promise.finally(() => {
+    inflight.delete(key);
+  });
+
+  inflight.set(key, wrapped);
+  return wrapped;
+}
+

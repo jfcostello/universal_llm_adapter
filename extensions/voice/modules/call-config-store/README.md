@@ -1,4 +1,4 @@
-# `extensions/voice/internal/call-config-store`
+# `extensions/voice/modules/call-config-store`
 
 Extension-owned store for per-call voice configuration.
 
