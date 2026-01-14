@@ -5459,6 +5459,579 @@ describe('extensions/voice: server http handlers', () => {
     expect(endCall).toHaveBeenCalledWith(expect.objectContaining({ providerCallId: 'c1' }));
     });
 
+  test('/voice/calls/:id/transfer returns 400 for invalid mode', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_transfer',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'outbound',
+        realtimeSpec: {},
+        voiceProvider: 'test',
+        providerCallId: 'c1'
+      } as any,
+      { ttlSeconds: 60 }
+    );
+
+    const transferCall = jest.fn(async () => {});
+    const providerPlugins: any = {
+      getManifest: jest.fn(async () => ({ defaults: {} })),
+      getCompat: jest.fn(async () => ({ transferCall }))
+    };
+
+    const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+      eventsHub: eventsHub as any
+    });
+
+    const res = new MockStreamRes() as any;
+    await expect(
+      reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls/cfg_transfer/transfer',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1' },
+          body: { targetNumber: '+14155551234', mode: 'invalid_mode' }
+        }),
+        res
+      )
+    ).resolves.toBe(true);
+    expect(String(res.writeHead.mock.calls[0][0])).toBe('400');
+    const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
+    expect(body.error.code).toBe('validation_error');
+    expect(transferCall).not.toHaveBeenCalled();
+  });
+
+  test('/voice/calls/:id/transfer returns 400 for invalid maxWaitMs', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_transfer',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'outbound',
+        realtimeSpec: {},
+        voiceProvider: 'test',
+        providerCallId: 'c1'
+      } as any,
+      { ttlSeconds: 60 }
+    );
+
+    const transferCall = jest.fn(async () => {});
+    const providerPlugins: any = {
+      getManifest: jest.fn(async () => ({ defaults: {} })),
+      getCompat: jest.fn(async () => ({ transferCall }))
+    };
+
+    const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+      eventsHub: eventsHub as any
+    });
+
+    const res = new MockStreamRes() as any;
+    await expect(
+      reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls/cfg_transfer/transfer',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1' },
+          body: { targetNumber: '+14155551234', maxWaitMs: -1 }
+        }),
+        res
+      )
+    ).resolves.toBe(true);
+    expect(String(res.writeHead.mock.calls[0][0])).toBe('400');
+    const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
+    expect(body.error.code).toBe('validation_error');
+    expect(transferCall).not.toHaveBeenCalled();
+  });
+
+  test('/voice/calls/:id/transfer mode=immediate transfers immediately', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_transfer',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'outbound',
+        realtimeSpec: {},
+        voiceProvider: 'test',
+        providerCallId: 'c1'
+      } as any,
+      { ttlSeconds: 60 }
+    );
+
+    const transferCall = jest.fn(async () => {});
+    const providerPlugins: any = {
+      getManifest: jest.fn(async () => ({ defaults: {} })),
+      getCompat: jest.fn(async () => ({ transferCall }))
+    };
+
+    const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+      eventsHub: eventsHub as any
+    });
+
+    const res = new MockStreamRes() as any;
+    await expect(
+      reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls/cfg_transfer/transfer',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1' },
+          body: { targetNumber: '+14155551234', mode: 'immediate' }
+        }),
+        res
+      )
+    ).resolves.toBe(true);
+    expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+    const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
+    expect(body).toEqual(expect.objectContaining({ ok: true, result: 'transferred', targetNumber: '+14155551234', mode: 'immediate' }));
+    expect(transferCall).toHaveBeenCalledTimes(1);
+  });
+
+  test('/voice/calls/:id/transfer mode=after_playback waits for voice.playback.drained', async () => {
+    jest.useFakeTimers();
+    try {
+      const store = createInMemoryVoiceCallConfigStore();
+      await store.putConfig(
+        {
+          version: 1,
+          callConfigId: 'cfg_transfer',
+          createdAtMs: 0,
+          expiresAtMs: 0,
+          to: 'to',
+          from: 'from',
+          direction: 'outbound',
+          realtimeSpec: {},
+          voiceProvider: 'test',
+          providerCallId: 'c1'
+        } as any,
+        { ttlSeconds: 60 }
+      );
+
+      const transferCall = jest.fn(async () => {});
+      const providerPlugins: any = {
+        getManifest: jest.fn(async () => ({ defaults: {} })),
+        getCompat: jest.fn(async () => ({ transferCall }))
+      };
+
+      const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
+      const reg = await createVoiceServerRegistration({
+        server: {} as any,
+        registry: {},
+        pluginsPath: './plugins',
+        upgradeRouter: {} as any,
+        store,
+        providerPlugins,
+        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+        eventsHub: eventsHub as any
+      });
+
+      const res = new MockStreamRes() as any;
+      await expect(
+        reg.handleHttp(
+          createJsonReq({
+            url: '/voice/calls/cfg_transfer/transfer',
+            method: 'POST',
+            headers: { authorization: 'Bearer k1' },
+            body: { targetNumber: '+14155551234', mode: 'after_playback', maxWaitMs: 1000 }
+          }),
+          res
+        )
+      ).resolves.toBe(true);
+      expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+      const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
+      expect(body).toEqual(expect.objectContaining({ ok: true, result: 'scheduled', mode: 'after_playback' }));
+
+      expect(transferCall).not.toHaveBeenCalled();
+
+      eventsHub.emit('cfg_transfer', { type: 'voice.playback.drained' });
+      await jest.advanceTimersByTimeAsync(0);
+      expect(transferCall).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('/voice/calls/:id/transfer mode=after_playback returns noop when already scheduled', async () => {
+    jest.useFakeTimers();
+    try {
+      const store = createInMemoryVoiceCallConfigStore();
+      await store.putConfig(
+        {
+          version: 1,
+          callConfigId: 'cfg_transfer',
+          createdAtMs: 0,
+          expiresAtMs: 0,
+          to: 'to',
+          from: 'from',
+          direction: 'outbound',
+          realtimeSpec: {},
+          voiceProvider: 'test',
+          providerCallId: 'c1'
+        } as any,
+        { ttlSeconds: 60 }
+      );
+
+      const transferCall = jest.fn(async () => {});
+      const providerPlugins: any = {
+        getManifest: jest.fn(async () => ({ defaults: {} })),
+        getCompat: jest.fn(async () => ({ transferCall }))
+      };
+
+      const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
+      const reg = await createVoiceServerRegistration({
+        server: {} as any,
+        registry: {},
+        pluginsPath: './plugins',
+        upgradeRouter: {} as any,
+        store,
+        providerPlugins,
+        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+        eventsHub: eventsHub as any
+      });
+
+      // First request schedules the transfer
+      const res1 = new MockStreamRes() as any;
+      await reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls/cfg_transfer/transfer',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1' },
+          body: { targetNumber: '+14155551234', mode: 'after_playback', maxWaitMs: 10000 }
+        }),
+        res1
+      );
+      expect(String(res1.writeHead.mock.calls[0][0])).toBe('200');
+      const body1 = JSON.parse(Buffer.concat(res1.chunks).toString('utf-8'));
+      expect(body1.result).toBe('scheduled');
+
+      // Second request returns noop
+      const res2 = new MockStreamRes() as any;
+      await reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls/cfg_transfer/transfer',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1' },
+          body: { targetNumber: '+14155551234', mode: 'after_playback', maxWaitMs: 10000 }
+        }),
+        res2
+      );
+      expect(String(res2.writeHead.mock.calls[0][0])).toBe('200');
+      const body2 = JSON.parse(Buffer.concat(res2.chunks).toString('utf-8'));
+      expect(body2.result).toBe('noop');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('/voice/calls/:id/transfer cancelOnUserSpeech cancels pending transfer', async () => {
+    jest.useFakeTimers();
+    try {
+      const store = createInMemoryVoiceCallConfigStore();
+      await store.putConfig(
+        {
+          version: 1,
+          callConfigId: 'cfg_transfer',
+          createdAtMs: 0,
+          expiresAtMs: 0,
+          to: 'to',
+          from: 'from',
+          direction: 'outbound',
+          realtimeSpec: {},
+          voiceProvider: 'test',
+          providerCallId: 'c1'
+        } as any,
+        { ttlSeconds: 60 }
+      );
+
+      const transferCall = jest.fn(async () => {});
+      const providerPlugins: any = {
+        getManifest: jest.fn(async () => ({ defaults: {} })),
+        getCompat: jest.fn(async () => ({ transferCall }))
+      };
+
+      const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
+      const reg = await createVoiceServerRegistration({
+        server: {} as any,
+        registry: {},
+        pluginsPath: './plugins',
+        upgradeRouter: {} as any,
+        store,
+        providerPlugins,
+        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+        eventsHub: eventsHub as any
+      });
+
+      const res = new MockStreamRes() as any;
+      await expect(
+        reg.handleHttp(
+          createJsonReq({
+            url: '/voice/calls/cfg_transfer/transfer',
+            method: 'POST',
+            headers: { authorization: 'Bearer k1' },
+            body: { targetNumber: '+14155551234', mode: 'after_playback', maxWaitMs: 50, cancelOnUserSpeech: true }
+          }),
+          res
+        )
+      ).resolves.toBe(true);
+      expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+
+      eventsHub.emit('cfg_transfer', { type: 'user_speech.started' });
+      await jest.advanceTimersByTimeAsync(0);
+
+      await jest.advanceTimersByTimeAsync(100);
+      expect(transferCall).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('/voice/calls/:id/transfer mode=after_playback falls back to immediate when subscription not accepted', async () => {
+    jest.useFakeTimers();
+    try {
+      const store = createInMemoryVoiceCallConfigStore();
+      await store.putConfig(
+        {
+          version: 1,
+          callConfigId: 'cfg_transfer',
+          createdAtMs: 0,
+          expiresAtMs: 0,
+          to: 'to',
+          from: 'from',
+          direction: 'outbound',
+          realtimeSpec: {},
+          voiceProvider: 'test',
+          providerCallId: 'c1'
+        } as any,
+        { ttlSeconds: 60 }
+      );
+
+      const transferCall = jest.fn(async () => {});
+      const providerPlugins: any = {
+        getManifest: jest.fn(async () => ({ defaults: {} })),
+        getCompat: jest.fn(async () => ({ transferCall }))
+      };
+
+      const eventsHub: any = {
+        emit: jest.fn(),
+        subscribe: jest.fn(() => ({ accepted: false, replay: [], unsubscribe: jest.fn() })),
+        snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })),
+        close: jest.fn()
+      };
+
+      const reg = await createVoiceServerRegistration({
+        server: {} as any,
+        registry: {},
+        pluginsPath: './plugins',
+        upgradeRouter: {} as any,
+        store,
+        providerPlugins,
+        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+        eventsHub
+      });
+
+      const res = new MockStreamRes() as any;
+      await expect(
+        reg.handleHttp(
+          createJsonReq({
+            url: '/voice/calls/cfg_transfer/transfer',
+            method: 'POST',
+            headers: { authorization: 'Bearer k1' },
+            body: { targetNumber: '+14155551234', mode: 'after_playback', maxWaitMs: 1000 }
+          }),
+          res
+        )
+      ).resolves.toBe(true);
+      expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+
+      const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
+      expect(body).toEqual(expect.objectContaining({ ok: true, result: 'transferred', mode: 'immediate' }));
+
+      await jest.advanceTimersByTimeAsync(10);
+      expect(transferCall).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('/voice/calls/:id/transfer emits voice.call.transfer_failed when transferCall throws', async () => {
+    jest.useFakeTimers();
+    try {
+      const store = createInMemoryVoiceCallConfigStore();
+      await store.putConfig(
+        {
+          version: 1,
+          callConfigId: 'cfg_transfer',
+          createdAtMs: 0,
+          expiresAtMs: 0,
+          to: 'to',
+          from: 'from',
+          direction: 'outbound',
+          realtimeSpec: {},
+          voiceProvider: 'test',
+          providerCallId: 'c1'
+        } as any,
+        { ttlSeconds: 60 }
+      );
+
+      const err: any = { message: 'nope', code: 'E_TRANSFER', statusCode: 503 };
+      const transferCall = jest.fn(async () => {
+        throw err;
+      });
+
+      const providerPlugins: any = {
+        getManifest: jest.fn(async () => ({ defaults: {} })),
+        getCompat: jest.fn(async () => ({ transferCall }))
+      };
+
+      const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
+
+      const logger: any = {
+        withCorrelation: () => logger,
+        debug: jest.fn(),
+        info: jest.fn(),
+        warning: jest.fn(),
+        error: jest.fn()
+      };
+
+      const reg = await createVoiceServerRegistration({
+        server: {} as any,
+        registry: {},
+        pluginsPath: './plugins',
+        upgradeRouter: {} as any,
+        store,
+        providerPlugins,
+        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+        eventsHub: eventsHub as any,
+        voiceLoggingModule: {
+          closeVoiceLogger: async () => {},
+          resolveVoiceLogger: async () => logger
+        }
+      });
+
+      const observed: any[] = [];
+      eventsHub.subscribe('cfg_transfer', { includeDeltas: false }, (evt) => observed.push(evt));
+
+      const res = new MockStreamRes() as any;
+      await reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls/cfg_transfer/transfer',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1' },
+          body: { targetNumber: '+14155551234', mode: 'after_playback', maxWaitMs: 1000 }
+        }),
+        res
+      );
+
+      eventsHub.emit('cfg_transfer', { type: 'voice.playback.drained' });
+      await jest.advanceTimersByTimeAsync(10);
+
+      const failedEvt = observed.find((e) => e.event.type === 'voice.call.transfer_failed');
+      expect(failedEvt).toBeDefined();
+      expect(failedEvt.event.message).toBe('nope');
+      expect(failedEvt.event.code).toBe('E_TRANSFER');
+      expect(failedEvt.event.statusCode).toBe(503);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('/voice/calls/:id/transfer applies defaultMode from config', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_transfer',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'outbound',
+        realtimeSpec: {},
+        voiceProvider: 'test',
+        providerCallId: 'c1'
+      } as any,
+      { ttlSeconds: 60 }
+    );
+
+    const transferCall = jest.fn(async () => {});
+    const providerPlugins: any = {
+      getManifest: jest.fn(async () => ({ defaults: {} })),
+      getCompat: jest.fn(async () => ({ transferCall }))
+    };
+
+    const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins,
+      httpConfig: {
+        auth: { enabled: true, apiKeys: ['k1'] },
+        extensions: {
+          voice: {
+            transfer: {
+              defaultMode: 'immediate'
+            }
+          }
+        }
+      },
+      eventsHub: eventsHub as any
+    });
+
+    const res = new MockStreamRes() as any;
+    await expect(
+      reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls/cfg_transfer/transfer',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1' },
+          body: { targetNumber: '+14155551234' }
+        }),
+        res
+      )
+    ).resolves.toBe(true);
+    expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+    const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
+    expect(body).toEqual(expect.objectContaining({ ok: true, result: 'transferred', mode: 'immediate', maxWaitMs: 5000 }));
+    expect(transferCall).toHaveBeenCalledTimes(1);
+  });
+
   test('close terminates without throwing', async () => {
     const server = http.createServer();
     const reg = await createVoiceServerRegistration({

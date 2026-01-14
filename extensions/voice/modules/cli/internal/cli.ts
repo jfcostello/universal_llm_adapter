@@ -405,6 +405,9 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
     .option('--target-number <number>', 'Target phone number in E.164 format (+[country code][number])')
     .option('--caller-id <number>', 'Optional caller ID to show the target (E.164 format)')
     .option('--timeout <seconds>', 'Ring timeout in seconds (1-600, server default from voice config)')
+    .option('--mode <mode>', 'Transfer mode (immediate|after_playback)')
+    .option('--max-wait-ms <ms>', 'Max wait time (ms) for graceful transfer')
+    .option('--cancel-on-user-speech <0|1>', 'Cancel graceful transfer when user speech starts (0|1)')
     .option('--pretty', 'Pretty print output')
     .action(async (options) => {
       try {
@@ -434,6 +437,38 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
             throw makeHttpError({ message: 'Invalid timeout (must be 1-600 seconds)', statusCode: 400, code: 'validation_error' });
           }
           body.timeout = t;
+        }
+
+        const modeRaw = typeof options.mode === 'string' ? options.mode.trim() : '';
+        if (modeRaw) {
+          if (!['immediate', 'after_playback'].includes(modeRaw)) {
+            throw makeHttpError({ message: 'Invalid mode', statusCode: 400, code: 'validation_error' });
+          }
+          body.mode = modeRaw;
+        }
+
+        const maxWaitMsRaw = typeof options.maxWaitMs === 'string' ? options.maxWaitMs.trim() : '';
+        if (maxWaitMsRaw) {
+          const n = Number(maxWaitMsRaw);
+          const ms = Math.floor(n);
+          if (!Number.isFinite(n) || ms < 0) {
+            throw makeHttpError({ message: 'Invalid maxWaitMs', statusCode: 400, code: 'validation_error' });
+          }
+          body.maxWaitMs = ms;
+        }
+
+        if (options.cancelOnUserSpeech !== undefined) {
+          const raw = String(options.cancelOnUserSpeech).trim().toLowerCase();
+          if (!raw) {
+            // ignore
+          } else if (
+            ['true', '1', 'yes', 'y', 'on'].includes(raw) ||
+            ['false', '0', 'no', 'n', 'off'].includes(raw)
+          ) {
+            body.cancelOnUserSpeech = normalizeFlag(raw, false);
+          } else {
+            throw makeHttpError({ message: 'Invalid cancelOnUserSpeech', statusCode: 400, code: 'validation_error' });
+          }
         }
 
         const res = await fetch(new URL(`/voice/calls/${encodeURIComponent(callConfigId)}/transfer`, serverUrl), {

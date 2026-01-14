@@ -107,7 +107,7 @@ Call end defaults/settings (applied to `POST /voice/calls/:callConfigId/end`):
 - `end`: `{ defaultMode, defaultMaxWaitMs, defaultCancelOnUserSpeech }`
 
 Call transfer defaults/settings (applied to `POST /voice/calls/:callConfigId/transfer`):
-- `transfer`: `{ defaultTimeoutSeconds }`
+- `transfer`: `{ defaultTimeoutSeconds, defaultMode, defaultMaxWaitMs, defaultCancelOnUserSpeech }`
 
 Notes:
 - `events.maxActiveCalls` (default: `20000`): cap on in-memory active call channels for the SSE events hub.
@@ -120,6 +120,9 @@ Notes:
 - `end.defaultMaxWaitMs` (default: `5000`, max: `60000`): safety fallback for graceful call ends.
 - `end.defaultCancelOnUserSpeech` (default: `false`): cancel a pending graceful end when `user_speech.started` is observed.
 - `transfer.defaultTimeoutSeconds` (default: `30`, range: `1-600`): ring timeout for blind call transfers. When a call is transferred, the target phone rings for this many seconds before the call ends if unanswered.
+- `transfer.defaultMode` (default: `immediate`): `{ immediate | after_playback }`.
+- `transfer.defaultMaxWaitMs` (default: `5000`, max: `60000`): safety fallback for graceful call transfers.
+- `transfer.defaultCancelOnUserSpeech` (default: `false`): cancel a pending graceful transfer when `user_speech.started` is observed.
 - `timeouts.firstTurnGraceMs`: optional non-negative millisecond window used by some voice compats/bridges to adjust first-turn commit behavior immediately after realtime `ready` (see the active compat README under `plugins/compat/*`).
 - `timeouts.silenceAssistantAudioStartFallbackMs` / `timeouts.silenceAssistantAudioEndFallbackMs`: optional fallback windows used by some provider compats when `assistantFirstTurn.enabled=true` to ensure silence timers still arm when assistant-audio boundary events are missing (see the active compat README under `plugins/compat/*`).
 
@@ -426,6 +429,9 @@ Optional:
 - `--api-key-header-name <name>` (default: `x-api-key`)
 - `--caller-id <number>` (E.164 format; override caller ID shown to target)
 - `--timeout <seconds>` (ring timeout, 1-600, default: 30)
+- `--mode <mode>` (`immediate|after_playback`)
+- `--max-wait-ms <ms>` (non-negative; max: `60000`)
+- `--cancel-on-user-speech 0|1`
 - `--pretty` (pretty print output)
 
 ## CLI: `llm-adapter voice recording`
@@ -473,15 +479,18 @@ Events:
 
 ## Call transfer (blind transfer)
 
-`POST /voice/calls/:callConfigId/transfer` performs a blind (cold) call transfer to another phone number.
+`POST /voice/calls/:callConfigId/transfer` supports immediate and graceful modes for blind (cold) call transfers.
 
-Request body:
+Request body (optional):
 
 ```json
 {
   "targetNumber": "+14155551234",
   "callerId": "+15551234567",
-  "timeout": 45
+  "timeout": 45,
+  "mode": "after_playback",
+  "maxWaitMs": 5000,
+  "cancelOnUserSpeech": false
 }
 ```
 
@@ -489,8 +498,18 @@ Fields:
 - `targetNumber` (required): E.164 phone number to dial (e.g. `+14155551234`).
 - `callerId` (optional): Override caller ID shown to target (E.164 format). Must be a verified Twilio number.
 - `timeout` (optional): Ring timeout in seconds (1-600, default: 30).
+- `mode` (optional): Transfer mode (`immediate` or `after_playback`, default: `immediate`).
+- `maxWaitMs` (optional): Safety fallback timeout for graceful modes (default: 5000, max: 60000).
+- `cancelOnUserSpeech` (optional): Cancel pending graceful transfer when user speech starts (default: false).
+
+Modes:
+- `immediate`: transfer the call immediately (default).
+- `after_playback`: wait for `voice.playback.drained` then transfer (requires compat support).
 
 Behavior:
+- For graceful modes, the server returns `{ ok: true, result: "scheduled" }` and performs the transfer asynchronously.
+- `maxWaitMs` is a safety fallback; if the awaited event is not observed within `maxWaitMs`, the server transfers the call.
+- When `cancelOnUserSpeech=true`, a pending graceful transfer is canceled if `user_speech.started` is observed before transfer.
 - When the transfer is executed, the existing WebSocket media stream closes immediately.
 - The caller hears ringing while the target phone rings.
 - If the target answers, they're connected to the caller.
@@ -502,19 +521,25 @@ Response:
 {
   "ok": true,
   "result": "transferred",
-  "targetNumber": "+14155551234"
+  "targetNumber": "+14155551234",
+  "mode": "immediate",
+  "maxWaitMs": 5000,
+  "cancelOnUserSpeech": false
 }
 ```
 
 Error handling:
-- 400: Invalid `targetNumber` (not E.164) or `timeout` (out of range).
+- 400: Invalid `targetNumber` (not E.164), `timeout` (out of range), `mode`, or `maxWaitMs`.
 - 404: Unknown `callConfigId`.
 - 409: Call is missing `providerCallId` (not yet connected).
 - 501: Voice provider doesn't support call transfer.
 - 502+: Provider API error (e.g. invalid `callerId`).
 
 Events:
+- `voice.call.transfer_scheduled` (server scheduled a graceful transfer)
 - `voice.call.transferred` (transfer initiated to `targetNumber`)
+- `voice.call.transfer_canceled` (graceful transfer canceled)
+- `voice.call.transfer_failed` (transfer attempt failed)
 
 Example:
 
@@ -522,7 +547,7 @@ Example:
 curl -X POST "http://127.0.0.1:3000/voice/calls/<callConfigId>/transfer" \
   -H "x-api-key: <serverApiKey>" \
   -H "Content-Type: application/json" \
-  -d '{"targetNumber": "+14155551234"}'
+  -d '{"targetNumber": "+14155551234", "mode": "after_playback"}'
 ```
 
 ## Runbook
