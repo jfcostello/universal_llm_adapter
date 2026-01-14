@@ -165,7 +165,7 @@ describe('extensions/voice: server http handlers', () => {
         server: {} as any,
         registry: {},
         pluginsPath: './plugins',
-        voicePluginsPath: tmp,
+        voicePluginRoots: tmp,
         upgradeRouter: {} as any,
         store,
         logging: { getLogger: () => logger }
