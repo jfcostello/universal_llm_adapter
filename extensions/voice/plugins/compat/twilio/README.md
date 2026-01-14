@@ -92,9 +92,22 @@ Parameters:
 - `targetNumber` (required): E.164 phone number to dial.
 - `callerId` (optional): Override caller ID shown to target. Must be a verified Twilio number.
 - `timeout` (optional): Ring timeout in seconds (1-600).
+- `mode` (optional): Transfer mode (`immediate` or `after_playback`, default: `immediate`).
+- `maxWaitMs` (optional): Safety fallback timeout for graceful modes (default: 5000, max: 60000).
+- `cancelOnUserSpeech` (optional): Cancel pending graceful transfer when user speech starts (default: false).
+
+Transfer modes:
+- `immediate`: transfer the call immediately (default). The AI assistant is disconnected when the transfer executes.
+- `after_playback`: wait for `voice.playback.drained` before transferring. This allows the assistant to finish speaking (e.g., "Let me transfer you now") before the transfer occurs.
+
+Graceful transfer behavior:
+- When `mode=after_playback`, the server waits for `voice.playback.drained` before executing the transfer.
+- `maxWaitMs` is a safety fallback; if the awaited event is not observed within `maxWaitMs`, the server transfers the call.
+- When `cancelOnUserSpeech=true`, a pending graceful transfer is canceled if `user_speech.started` is observed before transfer.
+- If event subscription fails (e.g., hub saturated), the server falls back to immediate execution and returns `{ ..., fallback: true }`.
 
 Notes:
-- This is a "blind" transfer — the AI assistant is disconnected immediately when the transfer executes.
+- This is a "blind" transfer — the AI assistant is disconnected when the transfer executes.
 - If the target doesn't answer within the timeout, the call ends.
 - `callerId` validation is delegated to Twilio. Invalid caller IDs result in a provider error surfaced to the client.
 

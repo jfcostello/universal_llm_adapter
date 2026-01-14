@@ -2558,6 +2558,43 @@ describe('plugins/compat/twilio', () => {
     }
   });
 
+  test('transferCall handles undefined providerCallId with nullish coalescing', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.transferCall({
+        providerCallId: undefined as any,
+        targetNumber: '+14155551234',
+        timeout: 30,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token' }
+      })
+    ).rejects.toMatchObject({ statusCode: 400, code: 'validation_error', message: 'Missing providerCallId' });
+  });
+
+  test('transferCall handles null callerId with nullish coalescing', async () => {
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue(
+      new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }) as any
+    );
+
+    const compat = new TwilioVoiceCompat();
+    try {
+      await compat.transferCall({
+        providerCallId: 'CA123',
+        targetNumber: '+14155551234',
+        callerId: null as any, // null triggers the nullish coalescing inside the ternary
+        timeout: 30,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token' }
+      });
+
+      const [, init] = fetchSpy.mock.calls[0];
+      const body = new URLSearchParams(String(init?.body ?? ''));
+      const twiml = body.get('Twiml') ?? '';
+      // null callerId should be treated as no callerId (not included in TwiML)
+      expect(twiml).not.toContain('callerId=');
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   test('parseRecordingWebhook returns normalized recording fields', async () => {
     const compat = new TwilioVoiceCompat();
     await expect(

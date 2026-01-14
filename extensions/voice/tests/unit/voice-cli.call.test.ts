@@ -945,6 +945,137 @@ describe('extensions/voice CLI', () => {
     expect(error).toHaveBeenCalled();
   });
 
+  test('transfer: sends mode/maxWaitMs/cancelOnUserSpeech body when flags are set', async () => {
+    const server = await startServer((req, body) => {
+      expect(req.method).toBe('POST');
+      expect(req.url).toBe('/voice/calls/cfg/transfer');
+      expect(req.headers['x-api-key']).toBe('k');
+      expect(body).toEqual({ targetNumber: '+14155551234', mode: 'after_playback', maxWaitMs: 1234, cancelOnUserSpeech: true });
+      return { status: 200, body: { ok: true } };
+    });
+
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+
+    try {
+      await runVoiceCli({
+        argv: [
+          'node',
+          'llm-adapter',
+          'transfer',
+          '--server-url',
+          server.baseUrl,
+          '--api-key',
+          'k',
+          '--call-config-id',
+          'cfg',
+          '--target-number',
+          '+14155551234',
+          '--mode',
+          'after_playback',
+          '--max-wait-ms',
+          '1234',
+          '--cancel-on-user-speech',
+          '1'
+        ],
+        deps: { error: jest.fn(), exit },
+        io: {
+          stdin: Readable.from([]),
+          stdout: stdout.stream,
+          stderr: stderr.stream
+        }
+      });
+    } finally {
+      await server.close();
+    }
+
+    expect(exit).toHaveBeenCalledWith(0);
+    expect(JSON.parse(stdout.data)).toEqual({ ok: true });
+    expect(stderr.data).toBe('');
+  });
+
+  test('transfer: validates mode flag and exits 1', async () => {
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+    const error = jest.fn();
+
+    const baseArgs = [
+      'node',
+      'llm-adapter',
+      'transfer',
+      '--server-url',
+      'http://127.0.0.1:9999',
+      '--call-config-id',
+      'cfg',
+      '--target-number',
+      '+14155551234'
+    ];
+
+    await runVoiceCli({
+      argv: [...baseArgs, '--mode', 'invalid_mode'],
+      deps: { error, exit },
+      io: { stdin: Readable.from([]), stdout: stdout.stream, stderr: stderr.stream }
+    });
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(error).toHaveBeenCalled();
+  });
+
+  test('transfer: validates maxWaitMs flag and exits 1', async () => {
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+    const error = jest.fn();
+
+    const baseArgs = [
+      'node',
+      'llm-adapter',
+      'transfer',
+      '--server-url',
+      'http://127.0.0.1:9999',
+      '--call-config-id',
+      'cfg',
+      '--target-number',
+      '+14155551234'
+    ];
+
+    await runVoiceCli({
+      argv: [...baseArgs, '--max-wait-ms', '-1'],
+      deps: { error, exit },
+      io: { stdin: Readable.from([]), stdout: stdout.stream, stderr: stderr.stream }
+    });
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(error).toHaveBeenCalled();
+  });
+
+  test('transfer: validates cancelOnUserSpeech flag and exits 1', async () => {
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+    const error = jest.fn();
+
+    const baseArgs = [
+      'node',
+      'llm-adapter',
+      'transfer',
+      '--server-url',
+      'http://127.0.0.1:9999',
+      '--call-config-id',
+      'cfg',
+      '--target-number',
+      '+14155551234'
+    ];
+
+    await runVoiceCli({
+      argv: [...baseArgs, '--cancel-on-user-speech', 'invalid'],
+      deps: { error, exit },
+      io: { stdin: Readable.from([]), stdout: stdout.stream, stderr: stderr.stream }
+    });
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(error).toHaveBeenCalled();
+  });
+
   test('events: streams SSE envelopes as JSON lines and supports includeDeltas', async () => {
     const server = await startRawServer((req, res) => {
       const url = new URL(String(req.url), 'http://127.0.0.1');

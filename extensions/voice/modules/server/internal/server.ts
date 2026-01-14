@@ -20,7 +20,18 @@ import {
 
 import type { VoiceProviderPlugins } from '../../provider-plugins/index.js';
 import { createVoiceProviderPlugins } from '../../provider-plugins/index.js';
-import { VOICE_EXTENSION_PLUGIN_ROOTS, StringChunkQueue } from '../../shared/index.js';
+import {
+  VOICE_EXTENSION_PLUGIN_ROOTS,
+  StringChunkQueue
+} from '../../shared/index.js';
+import {
+  validateEndMode,
+  validateTransferMode,
+  validateMaxWaitMs,
+  validateCancelOnUserSpeechServer,
+  type GracefulEndMode,
+  type GracefulTransferMode
+} from '../../graceful-mode-validation/index.js';
 import type {
   VoiceAssistantFirstTurnConfig,
   VoiceCallConfigStore,
@@ -28,8 +39,9 @@ import type {
   VoiceCallTimeoutsConfig
 } from '../../call-config-store/index.js';
 import { createVoiceCallConfigStoreFromEnv } from '../../call-config-store/index.js';
-import { createVoiceCallEventHub, type VoiceCallEventHub, type VoiceCallEventEnvelope, type VoiceCallEventSubscription } from '../../call-events/index.js';
+import { createVoiceCallEventHub, type VoiceCallEventHub, type VoiceCallEventEnvelope } from '../../call-events/index.js';
 import { createVoiceMetrics } from '../../observability/index.js';
+import { scheduleDeferredAction } from '../../deferred-action/index.js';
 
 type VoiceMediaTokenPayload = {
   iat: number;
@@ -553,7 +565,8 @@ export async function createVoiceServerRegistration(ctx: {
   const resolveLogger = async (correlationId?: string): Promise<VoiceLogger | undefined> => {
     if (ctx.logging?.getLogger) {
       try {
-        return ctx.logging.getLogger(correlationId);
+        // Await to properly catch rejected promises (not just synchronous throws)
+        return await ctx.logging.getLogger(correlationId);
       } catch {
         return undefined;
       }
@@ -698,13 +711,16 @@ export async function createVoiceServerRegistration(ctx: {
     });
   })();
 
-  type VoiceCallEndMode = 'immediate' | 'after_assistant_audio' | 'after_playback';
+  // Mode types are imported from ../../graceful-mode-validation/index.js
+  // type GracefulEndMode = 'immediate' | 'after_assistant_audio' | 'after_playback';
+  // type GracefulTransferMode = 'immediate' | 'after_playback';
 
   const emitCallEvent = (callConfigId: string, event: any): void => {
     eventsHub.emit(callConfigId, event);
   };
 
   const pendingEndRequests = new Map<string, { cancel: () => void }>();
+  const pendingTransferRequests = new Map<string, { cancel: () => void }>();
 
   const close = async () => {
     draining = true;
@@ -721,6 +737,12 @@ export async function createVoiceServerRegistration(ctx: {
       } catch {}
     }
     pendingEndRequests.clear();
+    for (const pending of pendingTransferRequests.values()) {
+      try {
+        pending.cancel();
+      } catch {}
+    }
+    pendingTransferRequests.clear();
     try {
       eventsHub.close();
     } catch {}
@@ -1301,7 +1323,7 @@ export async function createVoiceServerRegistration(ctx: {
           }
 
           const endDefaults = asPlainObject((voiceDefaults as any)?.end) ?? {};
-          const defaultMode: VoiceCallEndMode = (() => {
+          const defaultMode: GracefulEndMode = (() => {
             const raw = String((endDefaults as any)?.defaultMode ?? '').trim();
             if (raw === 'after_playback') return 'after_playback';
             if (raw === 'after_assistant_audio') return 'after_assistant_audio';
@@ -1317,41 +1339,25 @@ export async function createVoiceServerRegistration(ctx: {
             if (out < 0) return 5000;
             return out;
           })();
-          const defaultCancelOnUserSpeech = normalizeFlag((endDefaults as any)?.defaultCancelOnUserSpeech, false);
+          const defaultCancelOnUserSpeech = validateCancelOnUserSpeechServer((endDefaults as any)?.defaultCancelOnUserSpeech, false);
 
           const maxWaitMsLimit = 60000;
           const body = await readJsonBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
-          const modeRaw = body?.mode !== undefined && body?.mode !== null ? String(body.mode).trim() : '';
-          const mode: VoiceCallEndMode = (() => {
-            const raw = modeRaw || defaultMode;
-            if (raw === 'after_playback') return 'after_playback';
-            if (raw === 'after_assistant_audio') return 'after_assistant_audio';
-            if (raw === 'immediate') return 'immediate';
-            return '' as any;
-          })();
 
-          if (!mode) {
-            writeJson(res, 400, { type: 'error', error: { message: 'Invalid mode', code: 'validation_error' } });
+          let mode: GracefulEndMode;
+          let maxWaitMs: number;
+          let cancelOnUserSpeech: boolean;
+
+          try {
+            const modeRaw = body?.mode !== undefined && body?.mode !== null ? String(body.mode).trim() : '';
+            mode = validateEndMode(modeRaw || undefined, defaultMode);
+            maxWaitMs = validateMaxWaitMs(body?.maxWaitMs, defaultMaxWaitMs, maxWaitMsLimit);
+            cancelOnUserSpeech = validateCancelOnUserSpeechServer(body?.cancelOnUserSpeech, defaultCancelOnUserSpeech);
+          } catch (err: any) {
+            const mapped = mapErrorToHttp(err);
+            writeJson(res, mapped.status, mapped.body);
             return true;
           }
-
-          const maxWaitMsRaw = body?.maxWaitMs;
-          const maxWaitMs = (() => {
-            if (maxWaitMsRaw === undefined || maxWaitMsRaw === null || maxWaitMsRaw === '') return defaultMaxWaitMs;
-            const n = Number(maxWaitMsRaw);
-            const out = Math.floor(n);
-            if (!Number.isFinite(n) || out < 0) {
-              return Number.NaN;
-            }
-            return out;
-          })();
-
-          if (!Number.isFinite(maxWaitMs) || maxWaitMs > maxWaitMsLimit) {
-            writeJson(res, 400, { type: 'error', error: { message: 'Invalid maxWaitMs', code: 'validation_error' } });
-            return true;
-          }
-
-          const cancelOnUserSpeech = normalizeFlag(body?.cancelOnUserSpeech, defaultCancelOnUserSpeech);
 
           let providerDefaults: any | undefined;
           try {
@@ -1370,14 +1376,21 @@ export async function createVoiceServerRegistration(ctx: {
           }
 
           if (mode === 'immediate') {
-            await endCall({ callConfigId, callConfig, voiceProvider, providerCallId, providerDefaults });
+            // Cancel any pending graceful request for this call before immediate execution
+            const pending = pendingEndRequests.get(callConfigId);
+            if (pending) {
+              pending.cancel();
+              pendingEndRequests.delete(callConfigId);
+            }
+            try {
+              await endCall({ callConfigId, callConfig, voiceProvider, providerCallId, providerDefaults });
+            } catch (err: any) {
+              const mapped = mapErrorToHttp(err);
+              writeJson(res, mapped.status, mapped.body);
+              return true;
+            }
             emitCallEvent(callConfigId, { type: 'voice.call.end_requested', reason: 'client_request', providerCallId });
-            writeJson(res, 200, { ok: true, result: 'ended', mode, maxWaitMs, cancelOnUserSpeech });
-            return true;
-          }
-
-          if (pendingEndRequests.has(callConfigId)) {
-            writeJson(res, 200, { ok: true, result: 'noop', mode, maxWaitMs, cancelOnUserSpeech });
+            writeJson(res, 200, { ok: true, result: 'ended', mode, maxWaitMs, cancelOnUserSpeech, fallback: false });
             return true;
           }
 
@@ -1389,33 +1402,42 @@ export async function createVoiceServerRegistration(ctx: {
             return types;
           })();
 
-          let active = true;
-          let timeoutId: any | undefined;
-          let sub: VoiceCallEventSubscription | undefined;
+          const triggerEvents = (() => {
+            const types: string[] = [];
+            if (mode === 'after_playback') types.push('voice.playback.drained');
+            if (mode === 'after_assistant_audio') types.push('voice.assistant_audio.ended');
+            return types;
+          })();
 
-          const cancel = () => {
-            if (timeoutId) clearTimeout(timeoutId);
-            timeoutId = undefined;
-            try {
-              sub?.unsubscribe();
-            } catch {}
-            sub = undefined;
-            pendingEndRequests.delete(callConfigId);
-            active = false;
-          };
-
-          const requestEnd = (reason: string) => {
-            if (!active) return;
-            void (async () => {
-              cancel();
-              try {
+          let deferredResult: 'scheduled' | 'noop' | 'executed';
+          try {
+            deferredResult = await scheduleDeferredAction({
+              callConfigId,
+              providerCallId,
+              voiceProvider,
+              eventTypes,
+              maxWaitMs,
+              cancelOnUserSpeech,
+              triggerEvents,
+              pendingRequests: pendingEndRequests,
+              eventsHub,
+              execute: async () => {
                 await endCall({ callConfigId, callConfig, voiceProvider, providerCallId, providerDefaults });
+              },
+              onScheduled: () => {
+                emitCallEvent(callConfigId, { type: 'voice.call.end_scheduled', mode, maxWaitMs, cancelOnUserSpeech, providerCallId });
+              },
+              onExecuted: (reason) => {
                 emitCallEvent(callConfigId, { type: 'voice.call.end_requested', reason, providerCallId });
-              } catch (err: any) {
+              },
+              onCanceled: (reason) => {
+                emitCallEvent(callConfigId, { type: 'voice.call.end_canceled', reason, providerCallId });
+              },
+              onFailed: async (err, reason) => {
                 const message = err?.message ? String(err.message).slice(0, 200) : String(err).slice(0, 200);
                 const code = err?.code !== undefined ? String(err.code).slice(0, 64) : undefined;
                 const statusCode = Number(err?.statusCode ?? err?.status ?? 0) || undefined;
-                const logger = await resolveLogger(callConfigId).catch(() => undefined);
+                const logger = await resolveLogger(callConfigId);
                 safeLog(logger, 'error', 'voice.calls.end_failed', {
                   callConfigId,
                   voiceProvider,
@@ -1434,56 +1456,25 @@ export async function createVoiceServerRegistration(ctx: {
                   ...(statusCode ? { statusCode } : {})
                 });
               }
-            })();
-          };
-
-          const requestCancel = (reason: string) => {
-            if (!active) return;
-            cancel();
-            emitCallEvent(callConfigId, { type: 'voice.call.end_canceled', reason, providerCallId });
-          };
-
-          sub = eventsHub.subscribe(
-            callConfigId,
-            { includeDeltas: false, eventTypes },
-            (evt) => {
-              const type = evt?.event?.type;
-              if (!type) return;
-
-              if (cancelOnUserSpeech && type === 'user_speech.started') {
-                requestCancel('user_speech');
-                return;
-              }
-
-              if (mode === 'after_assistant_audio' && type === 'voice.assistant_audio.ended') {
-                requestEnd('client_request');
-                return;
-              }
-
-              if (mode === 'after_playback' && type === 'voice.playback.drained') {
-                requestEnd('client_request');
-                return;
-              }
-            }
-          );
-
-          if (!sub.accepted) {
-            await endCall({ callConfigId, callConfig, voiceProvider, providerCallId, providerDefaults });
-            emitCallEvent(callConfigId, { type: 'voice.call.end_requested', reason: 'client_request', providerCallId });
-            writeJson(res, 200, { ok: true, result: 'ended', mode: 'immediate', maxWaitMs, cancelOnUserSpeech });
+            });
+          } catch (err: any) {
+            // Execution failed when subscription was rejected - return error to client
+            const mapped = mapErrorToHttp(err);
+            writeJson(res, mapped.status, mapped.body);
             return true;
           }
 
-          pendingEndRequests.set(callConfigId, { cancel });
-
-          timeoutId = setTimeout(() => requestEnd('max_wait'), Math.max(0, Math.floor(maxWaitMs)));
-          if (typeof (timeoutId as any)?.unref === 'function') {
-            (timeoutId as any).unref();
+          if (deferredResult === 'noop') {
+            writeJson(res, 200, { ok: true, result: 'noop', mode, maxWaitMs, cancelOnUserSpeech });
+            return true;
           }
 
-          emitCallEvent(callConfigId, { type: 'voice.call.end_scheduled', mode, maxWaitMs, cancelOnUserSpeech, providerCallId });
+          if (deferredResult === 'executed') {
+            writeJson(res, 200, { ok: true, result: 'ended', mode, maxWaitMs, cancelOnUserSpeech, fallback: true });
+            return true;
+          }
 
-          writeJson(res, 200, { ok: true, result: 'scheduled', mode, maxWaitMs, cancelOnUserSpeech });
+          writeJson(res, 200, { ok: true, result: 'scheduled', mode, maxWaitMs, cancelOnUserSpeech, fallback: false });
           return true;
         }
 
@@ -1536,7 +1527,24 @@ export async function createVoiceServerRegistration(ctx: {
             if (out < 1 || out > 600) return 30;
             return out;
           })();
+          const defaultMode: GracefulTransferMode = (() => {
+            const raw = String((transferDefaults as any)?.defaultMode ?? '').trim();
+            if (raw === 'after_playback') return 'after_playback';
+            if (raw === 'immediate') return 'immediate';
+            return 'immediate';
+          })();
+          const defaultMaxWaitMs = (() => {
+            const raw = (transferDefaults as any)?.defaultMaxWaitMs;
+            if (raw === undefined || raw === null || raw === '') return 5000;
+            const n = Number(raw);
+            if (!Number.isFinite(n)) return 5000;
+            const out = Math.floor(n);
+            if (out < 0) return 5000;
+            return out;
+          })();
+          const defaultCancelOnUserSpeech = validateCancelOnUserSpeechServer((transferDefaults as any)?.defaultCancelOnUserSpeech, false);
 
+          const maxWaitMsLimit = 60000;
           const body = await readJsonBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
 
           const targetNumberResult = validateE164(body?.targetNumber);
@@ -1562,6 +1570,21 @@ export async function createVoiceServerRegistration(ctx: {
             timeout = Math.floor(n);
           }
 
+          let mode: GracefulTransferMode;
+          let maxWaitMs: number;
+          let cancelOnUserSpeech: boolean;
+
+          try {
+            const modeRaw = body?.mode !== undefined && body?.mode !== null ? String(body.mode).trim() : '';
+            mode = validateTransferMode(modeRaw || undefined, defaultMode);
+            maxWaitMs = validateMaxWaitMs(body?.maxWaitMs, defaultMaxWaitMs, maxWaitMsLimit);
+            cancelOnUserSpeech = validateCancelOnUserSpeechServer(body?.cancelOnUserSpeech, defaultCancelOnUserSpeech);
+          } catch (err: any) {
+            const mapped = mapErrorToHttp(err);
+            writeJson(res, mapped.status, mapped.body);
+            return true;
+          }
+
           let providerDefaults: any | undefined;
           try {
             const manifest = await providerPlugins.getManifest(voiceProvider);
@@ -1578,16 +1601,99 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
+          if (mode === 'immediate') {
+            // Cancel any pending graceful request for this call before immediate execution
+            const pending = pendingTransferRequests.get(callConfigId);
+            if (pending) {
+              pending.cancel();
+              pendingTransferRequests.delete(callConfigId);
+            }
+            try {
+              await transferCall({ providerCallId, targetNumber, callerId, timeout, providerDefaults });
+            } catch (err: any) {
+              const mapped = mapErrorToHttp(err);
+              writeJson(res, mapped.status, mapped.body);
+              return true;
+            }
+            emitCallEvent(callConfigId, { type: 'voice.call.transferred', targetNumber, providerCallId });
+            writeJson(res, 200, { ok: true, result: 'transferred', targetNumber, mode, maxWaitMs, cancelOnUserSpeech, fallback: false });
+            return true;
+          }
+
+          const eventTypes = (() => {
+            const types: string[] = ['voice.playback.drained'];
+            if (cancelOnUserSpeech) types.push('user_speech.started');
+            return types;
+          })();
+
+          let deferredResult: 'scheduled' | 'noop' | 'executed';
           try {
-            await transferCall({ providerCallId, targetNumber, callerId, timeout, providerDefaults });
+            deferredResult = await scheduleDeferredAction({
+              callConfigId,
+              providerCallId,
+              voiceProvider,
+              eventTypes,
+              maxWaitMs,
+              cancelOnUserSpeech,
+              triggerEvents: ['voice.playback.drained'],
+              pendingRequests: pendingTransferRequests,
+              eventsHub,
+              execute: async () => {
+                await transferCall({ providerCallId, targetNumber, callerId, timeout, providerDefaults });
+              },
+              onScheduled: () => {
+                emitCallEvent(callConfigId, { type: 'voice.call.transfer_scheduled', targetNumber, mode, maxWaitMs, cancelOnUserSpeech, providerCallId });
+              },
+              onExecuted: (reason) => {
+                emitCallEvent(callConfigId, { type: 'voice.call.transferred', targetNumber, reason, providerCallId });
+              },
+              onCanceled: (reason) => {
+                emitCallEvent(callConfigId, { type: 'voice.call.transfer_canceled', targetNumber, reason, providerCallId });
+              },
+              onFailed: async (err, reason) => {
+                const message = err?.message ? String(err.message).slice(0, 200) : String(err).slice(0, 200);
+                const code = err?.code !== undefined ? String(err.code).slice(0, 64) : undefined;
+                const statusCode = Number(err?.statusCode ?? err?.status ?? 0) || undefined;
+                const logger = await resolveLogger(callConfigId);
+                safeLog(logger, 'error', 'voice.calls.transfer_failed', {
+                  callConfigId,
+                  voiceProvider,
+                  providerCallId,
+                  targetNumber,
+                  reason,
+                  message,
+                  ...(code ? { code } : {}),
+                  ...(statusCode ? { statusCode } : {})
+                });
+                emitCallEvent(callConfigId, {
+                  type: 'voice.call.transfer_failed',
+                  targetNumber,
+                  reason,
+                  providerCallId,
+                  message,
+                  ...(code ? { code } : {}),
+                  ...(statusCode ? { statusCode } : {})
+                });
+              }
+            });
           } catch (err: any) {
+            // Execution failed when subscription was rejected - return error to client
             const mapped = mapErrorToHttp(err);
             writeJson(res, mapped.status, mapped.body);
             return true;
           }
 
-          emitCallEvent(callConfigId, { type: 'voice.call.transferred', targetNumber, providerCallId });
-          writeJson(res, 200, { ok: true, result: 'transferred', targetNumber });
+          if (deferredResult === 'noop') {
+            writeJson(res, 200, { ok: true, result: 'noop', targetNumber, mode, maxWaitMs, cancelOnUserSpeech });
+            return true;
+          }
+
+          if (deferredResult === 'executed') {
+            writeJson(res, 200, { ok: true, result: 'transferred', targetNumber, mode, maxWaitMs, cancelOnUserSpeech, fallback: true });
+            return true;
+          }
+
+          writeJson(res, 200, { ok: true, result: 'scheduled', targetNumber, mode, maxWaitMs, cancelOnUserSpeech, fallback: false });
           return true;
         }
 

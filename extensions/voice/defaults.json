@@ -6,7 +6,10 @@
     "tokenFromMessageTimeoutMs": "${LLM_ADAPTER_VOICE_MEDIA_WS_TOKEN_FROM_MESSAGE_TIMEOUT_MS:-5000}"
   },
   "transfer": {
-    "defaultTimeoutSeconds": "${LLM_ADAPTER_VOICE_TRANSFER_DEFAULT_TIMEOUT_SECONDS:-30}"
+    "defaultTimeoutSeconds": "${LLM_ADAPTER_VOICE_TRANSFER_DEFAULT_TIMEOUT_SECONDS:-30}",
+    "defaultMode": "${LLM_ADAPTER_VOICE_TRANSFER_DEFAULT_MODE:-immediate}",
+    "defaultMaxWaitMs": "${LLM_ADAPTER_VOICE_TRANSFER_DEFAULT_MAX_WAIT_MS:-5000}",
+    "defaultCancelOnUserSpeech": "${LLM_ADAPTER_VOICE_TRANSFER_DEFAULT_CANCEL_ON_USER_SPEECH:-false}"
   }
 }
 

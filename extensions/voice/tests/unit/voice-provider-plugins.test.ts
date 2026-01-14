@@ -21,7 +21,7 @@ describe('extensions/voice: provider plugins loader', () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-provider-plugins-'));
     try {
       const rel = path.relative(process.cwd(), tmp);
-      const plugins = createVoiceProviderPlugins({ pluginsPath: rel });
+      const plugins = createVoiceProviderPlugins({ pluginRoots: rel });
 
       expect(await plugins.listManifests()).toEqual([]);
       expect(await plugins.listManifests()).toEqual([]);
@@ -51,7 +51,7 @@ describe('extensions/voice: provider plugins loader', () => {
         ].join('\n')
       );
 
-      const plugins = createVoiceProviderPlugins({ pluginsPath: tmp, logger });
+      const plugins = createVoiceProviderPlugins({ pluginRoots: tmp, logger });
 
       const manifest = await plugins.getManifest('provider-a');
       expect(manifest).toEqual({
@@ -95,7 +95,7 @@ describe('extensions/voice: provider plugins loader', () => {
         'module.exports = class FileJsCompat { kind = "file-js"; };'
       );
 
-      const jsCompat = await createVoiceProviderPlugins({ pluginsPath: tmp, logger }).getCompat('file-js');
+      const jsCompat = await createVoiceProviderPlugins({ pluginRoots: tmp, logger }).getCompat('file-js');
       expect(jsCompat).toEqual(expect.objectContaining({ kind: 'file-js' }));
 
       await writeJson(path.join(tmp, 'providers', 'file-ts.json'), {
@@ -105,7 +105,7 @@ describe('extensions/voice: provider plugins loader', () => {
       await writeCompatModule(path.join(tmp, 'compat', 'file-ts.ts'), '');
 
       const tsCompat = await createVoiceProviderPlugins({
-        pluginsPath: tmp,
+        pluginRoots: tmp,
         logger,
         importModule: async () => ({
           default: class FileTsCompat {
@@ -123,7 +123,7 @@ describe('extensions/voice: provider plugins loader', () => {
   test('throws on unknown voice provider id', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-provider-plugins-'));
     try {
-      const plugins = createVoiceProviderPlugins({ pluginsPath: tmp });
+      const plugins = createVoiceProviderPlugins({ pluginRoots: tmp });
       await expect(plugins.getManifest('missing')).rejects.toBeInstanceOf(ManifestError);
       await expect(plugins.getCompat('missing')).rejects.toBeInstanceOf(ManifestError);
     } finally {
@@ -157,7 +157,7 @@ describe('extensions/voice: provider plugins loader', () => {
         kind: '../evil'
       });
 
-      const plugins = createVoiceProviderPlugins({ pluginsPath: tmp, logger });
+      const plugins = createVoiceProviderPlugins({ pluginRoots: tmp, logger });
       await expect(plugins.getCompat('dot')).rejects.toBeInstanceOf(ManifestError);
       await expect(plugins.getCompat('dotdot')).rejects.toBeInstanceOf(ManifestError);
       await expect(plugins.getCompat('evil')).rejects.toBeInstanceOf(ManifestError);
@@ -167,9 +167,9 @@ describe('extensions/voice: provider plugins loader', () => {
       expect(warningMessages).toEqual(expect.arrayContaining(['voice.provider_plugins.manifest_skipped']));
 
       const warningPaths = logger.warning.mock.calls.map(([, data]) => (data as any)?.manifestPath);
-      expect(warningPaths).toEqual(
-        expect.arrayContaining(['providers/dot.json', 'providers/dotdot.json', 'providers/evil.json'])
-      );
+      expect(warningPaths.some((p: string) => p?.endsWith('providers/dot.json'))).toBe(true);
+      expect(warningPaths.some((p: string) => p?.endsWith('providers/dotdot.json'))).toBe(true);
+      expect(warningPaths.some((p: string) => p?.endsWith('providers/evil.json'))).toBe(true);
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
       delete (globalThis as any).__voiceCompatPoisoned;
@@ -185,7 +185,7 @@ describe('extensions/voice: provider plugins loader', () => {
       await writeJson(path.join(tmp, 'providers', 'dup-a.json'), { id: 'dup', kind: 'k1', defaults: [] });
       await writeJson(path.join(tmp, 'providers', 'dup-b.json'), { id: 'dup', kind: 'k2', defaults: 123 });
 
-      const plugins = createVoiceProviderPlugins({ pluginsPath: tmp, logger });
+      const plugins = createVoiceProviderPlugins({ pluginRoots: tmp, logger });
       const manifests = await plugins.listManifests();
       expect(manifests).toHaveLength(1);
       expect(manifests[0]?.id).toBe('dup');
@@ -195,7 +195,7 @@ describe('extensions/voice: provider plugins loader', () => {
       expect(warn).not.toHaveBeenCalled();
       expect(
         logger.warning.mock.calls.some(
-          ([msg, data]) => msg === 'voice.provider_plugins.manifest_skipped' && (data as any)?.manifestPath === 'providers/bad-type.json'
+          ([msg, data]) => msg === 'voice.provider_plugins.manifest_skipped' && (data as any)?.manifestPath?.endsWith('providers/bad-type.json')
         )
       ).toBe(true);
     } finally {
@@ -210,12 +210,13 @@ describe('extensions/voice: provider plugins loader', () => {
     try {
       await writeJson(path.join(tmp, 'providers', 'bad-type.json'), 'not-an-object');
 
-      const plugins = createVoiceProviderPlugins({ pluginsPath: tmp });
+      const plugins = createVoiceProviderPlugins({ pluginRoots: tmp });
       expect(await plugins.listManifests()).toEqual([]);
-      expect(warn).toHaveBeenCalledWith(
-        'voice.provider_plugins.manifest_skipped',
-        expect.objectContaining({ manifestPath: 'providers/bad-type.json' })
-      );
+      expect(
+        warn.mock.calls.some(
+          ([msg, data]) => msg === 'voice.provider_plugins.manifest_skipped' && (data as any)?.manifestPath?.endsWith('providers/bad-type.json')
+        )
+      ).toBe(true);
     } finally {
       warn.mockRestore();
       await fs.rm(tmp, { recursive: true, force: true });
@@ -225,7 +226,7 @@ describe('extensions/voice: provider plugins loader', () => {
   test('throws on invalid provider ids', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-provider-plugins-'));
     try {
-      const plugins = createVoiceProviderPlugins({ pluginsPath: tmp });
+      const plugins = createVoiceProviderPlugins({ pluginRoots: tmp });
       await expect((plugins as any).getManifest('')).rejects.toBeInstanceOf(ManifestError);
       await expect((plugins as any).getManifest(123)).rejects.toBeInstanceOf(ManifestError);
       await expect((plugins as any).getManifest('bad/name')).rejects.toBeInstanceOf(ManifestError);
@@ -246,7 +247,7 @@ describe('extensions/voice: provider plugins loader', () => {
       await fs.mkdir(path.join(tmp, 'compat'), { recursive: true });
 
       await expect(
-        createVoiceProviderPlugins({ pluginsPath: tmp, logger }).getCompat('missing-compat')
+        createVoiceProviderPlugins({ pluginRoots: tmp, logger }).getCompat('missing-compat')
       ).rejects.toBeInstanceOf(ManifestError);
 
       await writeJson(path.join(tmp, 'providers', 'invalid-compat.json'), {
@@ -255,7 +256,7 @@ describe('extensions/voice: provider plugins loader', () => {
       });
       await writeCompatModule(path.join(tmp, 'compat', 'invalid-kind', 'index.js'), 'module.exports = {};');
       await expect(
-        createVoiceProviderPlugins({ pluginsPath: tmp, logger }).getCompat('invalid-compat')
+        createVoiceProviderPlugins({ pluginRoots: tmp, logger }).getCompat('invalid-compat')
       ).rejects.toBeInstanceOf(ManifestError);
 
       await writeJson(path.join(tmp, 'providers', 'ts-only.json'), {
@@ -264,7 +265,7 @@ describe('extensions/voice: provider plugins loader', () => {
       });
       await writeCompatModule(path.join(tmp, 'compat', 'ts-only', 'index.ts'), 'not valid ts');
       await expect(
-        createVoiceProviderPlugins({ pluginsPath: tmp, logger }).getCompat('ts-only')
+        createVoiceProviderPlugins({ pluginRoots: tmp, logger }).getCompat('ts-only')
       ).rejects.toBeInstanceOf(ManifestError);
 
       expect(warn).not.toHaveBeenCalled();
@@ -283,7 +284,7 @@ describe('extensions/voice: provider plugins loader', () => {
         kind: 'missing-kind-xyz'
       });
 
-      await expect(createVoiceProviderPlugins({ pluginsPath: tmp }).getCompat('missing-root')).rejects.toBeInstanceOf(ManifestError);
+      await expect(createVoiceProviderPlugins({ pluginRoots: tmp }).getCompat('missing-root')).rejects.toBeInstanceOf(ManifestError);
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }
@@ -299,7 +300,7 @@ describe('extensions/voice: provider plugins loader', () => {
       await writeCompatModule(path.join(tmp, 'compat', 'no-default', 'index.js'), 'module.exports = {};');
 
       const plugins = createVoiceProviderPlugins({
-        pluginsPath: tmp,
+        pluginRoots: tmp,
         importModule: async () => ({
           Named: class NamedCompat {
             kind = 'no-default';
@@ -445,6 +446,13 @@ describe('extensions/voice: provider plugins loader', () => {
 
     test('handles empty pluginRoots array by using defaults', async () => {
       const plugins = createVoiceProviderPlugins({ pluginRoots: [] });
+      const manifests = await plugins.listManifests();
+      // Should use default VOICE_EXTENSION_PLUGIN_ROOTS which includes built-in test provider
+      expect(manifests.some(m => m.id === 'test')).toBe(true);
+    });
+
+    test('handles empty string pluginRoots by using defaults', async () => {
+      const plugins = createVoiceProviderPlugins({ pluginRoots: '   ' });
       const manifests = await plugins.listManifests();
       // Should use default VOICE_EXTENSION_PLUGIN_ROOTS which includes built-in test provider
       expect(manifests.some(m => m.id === 'test')).toBe(true);
