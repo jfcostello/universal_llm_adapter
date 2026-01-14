@@ -119,10 +119,10 @@ Notes:
 - `end.defaultMode` (default: `immediate`): `{ immediate | after_assistant_audio | after_playback }`.
 - `end.defaultMaxWaitMs` (default: `5000`, max: `60000`): safety fallback for graceful call ends.
 - `end.defaultCancelOnUserSpeech` (default: `false`): cancel a pending graceful end when `user_speech.started` is observed.
-- `transfer.defaultTimeoutSeconds` (default: `30`, range: `1-600`): ring timeout for blind call transfers. When a call is transferred, the target phone rings for this many seconds before the call ends if unanswered.
-- `transfer.defaultMode` (default: `immediate`): `{ immediate | after_playback }`.
-- `transfer.defaultMaxWaitMs` (default: `5000`, max: `60000`): safety fallback for graceful call transfers.
-- `transfer.defaultCancelOnUserSpeech` (default: `false`): cancel a pending graceful transfer when `user_speech.started` is observed.
+- `transfer.defaultTimeoutSeconds` (default: `30`, range: `1-600`): ring timeout for blind call transfers. When a call is transferred, the target phone rings for this many seconds before the call ends if unanswered. Env: `LLM_ADAPTER_VOICE_TRANSFER_DEFAULT_TIMEOUT_SECONDS`.
+- `transfer.defaultMode` (default: `immediate`): `{ immediate | after_playback }`. Env: `LLM_ADAPTER_VOICE_TRANSFER_DEFAULT_MODE`.
+- `transfer.defaultMaxWaitMs` (default: `5000`, max: `60000`): safety fallback for graceful call transfers. Env: `LLM_ADAPTER_VOICE_TRANSFER_DEFAULT_MAX_WAIT_MS`.
+- `transfer.defaultCancelOnUserSpeech` (default: `false`): cancel a pending graceful transfer when `user_speech.started` is observed. Env: `LLM_ADAPTER_VOICE_TRANSFER_DEFAULT_CANCEL_ON_USER_SPEECH`.
 - `timeouts.firstTurnGraceMs`: optional non-negative millisecond window used by some voice compats/bridges to adjust first-turn commit behavior immediately after realtime `ready` (see the active compat README under `plugins/compat/*`).
 - `timeouts.silenceAssistantAudioStartFallbackMs` / `timeouts.silenceAssistantAudioEndFallbackMs`: optional fallback windows used by some provider compats when `assistantFirstTurn.enabled=true` to ensure silence timers still arm when assistant-audio boundary events are missing (see the active compat README under `plugins/compat/*`).
 
