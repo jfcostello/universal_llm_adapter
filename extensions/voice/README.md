@@ -125,6 +125,20 @@ Voice providers are configured via plugin manifests under:
 
 The voice extension itself is provider-agnostic; provider-specific behavior lives in those plugin directories.
 
+#### Multi-root plugin resolution
+
+The voice extension searches for provider manifests and compat modules across **multiple plugin roots** in priority order:
+
+1. **External roots** from `llm-adapter.paths.json` (if configured)
+2. **Package root** (`dist/extensions/voice/plugins`)
+3. **Current working directory** (`extensions/voice/plugins`)
+
+**Manifest combination:** Manifests from all roots are combined. This allows external packs to add additional voice providers alongside built-in providers. If the same provider ID appears in multiple roots, an error is thrown to prevent conflicts.
+
+**Compat resolution:** Compat modules are resolved using first-match-wins across roots. The extension searches each root in priority order and uses the first matching compat module found.
+
+This multi-root approach handles TypeScript projects where compiled JS (compats) may be in `dist/` but JSON manifests remain in source directories.
+
 ### Webhook validation (signatures)
 
 `/voice/webhook` requests are validated by the active provider compat.

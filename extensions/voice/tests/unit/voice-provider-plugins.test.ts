@@ -324,10 +324,163 @@ describe('extensions/voice: provider plugins loader', () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-provider-plugins-'));
     try {
       const missing = path.join(tmp, 'missing-root');
-      const plugins = createVoiceProviderPlugins({ pluginsPath: missing });
+      const plugins = createVoiceProviderPlugins({ pluginRoots: missing });
       await expect(plugins.listManifests()).resolves.toEqual([]);
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }
+  });
+
+  describe('multi-root plugin resolution', () => {
+    test('combines manifests from multiple roots', async () => {
+      const root1 = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-multi-root1-'));
+      const root2 = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-multi-root2-'));
+      try {
+        // Provider A only in root1
+        await writeJson(path.join(root1, 'providers', 'provider-a.json'), {
+          id: 'provider-a',
+          kind: 'kind-a'
+        });
+
+        // Provider B only in root2
+        await writeJson(path.join(root2, 'providers', 'provider-b.json'), {
+          id: 'provider-b',
+          kind: 'kind-b'
+        });
+
+        const plugins = createVoiceProviderPlugins({ pluginRoots: [root1, root2] });
+        const manifests = await plugins.listManifests();
+
+        expect(manifests).toHaveLength(2);
+        expect(manifests.map(m => m.id).sort()).toEqual(['provider-a', 'provider-b']);
+      } finally {
+        await fs.rm(root1, { recursive: true, force: true });
+        await fs.rm(root2, { recursive: true, force: true });
+      }
+    });
+
+    test('throws on duplicate provider ID across roots', async () => {
+      const root1 = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-multi-root1-'));
+      const root2 = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-multi-root2-'));
+      const logger = { warning: jest.fn() };
+      try {
+        // Same provider ID in both roots
+        await writeJson(path.join(root1, 'providers', 'dup-provider.json'), {
+          id: 'dup-provider',
+          kind: 'kind-1'
+        });
+        await writeJson(path.join(root2, 'providers', 'dup-provider.json'), {
+          id: 'dup-provider',
+          kind: 'kind-2'
+        });
+
+        const plugins = createVoiceProviderPlugins({ pluginRoots: [root1, root2], logger });
+
+        // listManifests should warn about duplicate
+        const manifests = await plugins.listManifests();
+
+        // Only one manifest loaded, duplicate was skipped with warning
+        expect(manifests).toHaveLength(1);
+        expect(logger.warning).toHaveBeenCalledWith(
+          'voice.provider_plugins.manifest_skipped',
+          expect.objectContaining({
+            error: expect.stringContaining('Duplicate voice provider id')
+          })
+        );
+      } finally {
+        await fs.rm(root1, { recursive: true, force: true });
+        await fs.rm(root2, { recursive: true, force: true });
+      }
+    });
+
+    test('resolves compat from first root that has it (first-match-wins)', async () => {
+      const root1 = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-multi-root1-'));
+      const root2 = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-multi-root2-'));
+      try {
+        // Manifest in root1
+        await writeJson(path.join(root1, 'providers', 'provider-x.json'), {
+          id: 'provider-x',
+          kind: 'kind-x'
+        });
+
+        // Compat only in root2 (not in root1)
+        await writeCompatModule(
+          path.join(root2, 'compat', 'kind-x', 'index.js'),
+          'module.exports = class KindXCompat { kind = "kind-x"; };'
+        );
+
+        const plugins = createVoiceProviderPlugins({ pluginRoots: [root1, root2] });
+        const compat = await plugins.getCompat('provider-x');
+
+        expect(compat).toEqual(expect.objectContaining({ kind: 'kind-x' }));
+      } finally {
+        await fs.rm(root1, { recursive: true, force: true });
+        await fs.rm(root2, { recursive: true, force: true });
+      }
+    });
+
+    test('skips empty and non-existent roots in multi-root array', async () => {
+      const validRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-multi-root-valid-'));
+      try {
+        await writeJson(path.join(validRoot, 'providers', 'provider-y.json'), {
+          id: 'provider-y',
+          kind: 'kind-y'
+        });
+
+        const missingRoot = path.join(os.tmpdir(), 'non-existent-voice-root-xyz');
+        const plugins = createVoiceProviderPlugins({ pluginRoots: [missingRoot, validRoot] });
+        const manifests = await plugins.listManifests();
+
+        expect(manifests).toHaveLength(1);
+        expect(manifests[0]?.id).toBe('provider-y');
+      } finally {
+        await fs.rm(validRoot, { recursive: true, force: true });
+      }
+    });
+
+    test('handles empty pluginRoots array by using defaults', async () => {
+      const plugins = createVoiceProviderPlugins({ pluginRoots: [] });
+      const manifests = await plugins.listManifests();
+      // Should use default VOICE_EXTENSION_PLUGIN_ROOTS which includes built-in test provider
+      expect(manifests.some(m => m.id === 'test')).toBe(true);
+    });
+
+    test('normalizes relative paths in pluginRoots array', async () => {
+      const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-multi-root-rel-'));
+      try {
+        await writeJson(path.join(tmp, 'providers', 'provider-rel.json'), {
+          id: 'provider-rel',
+          kind: 'kind-rel'
+        });
+
+        const relativePath = path.relative(process.cwd(), tmp);
+        const plugins = createVoiceProviderPlugins({ pluginRoots: [relativePath] });
+        const manifests = await plugins.listManifests();
+
+        expect(manifests).toHaveLength(1);
+        expect(manifests[0]?.id).toBe('provider-rel');
+      } finally {
+        await fs.rm(tmp, { recursive: true, force: true });
+      }
+    });
+
+    test('legacy pluginsPath string is normalized to single-element array', async () => {
+      const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-legacy-path-'));
+      try {
+        await writeJson(path.join(tmp, 'providers', 'legacy-provider.json'), {
+          id: 'legacy-provider',
+          kind: 'legacy-kind'
+        });
+
+        // Using the old pluginsPath API (single string)
+        const plugins = createVoiceProviderPlugins({ pluginRoots: tmp });
+        const manifests = await plugins.listManifests();
+
+        expect(manifests).toHaveLength(1);
+        expect(manifests[0]?.id).toBe('legacy-provider');
+      } finally {
+        await fs.rm(tmp, { recursive: true, force: true });
+      }
+    });
   });
 });

@@ -29,3 +29,29 @@ export function resolveModuleEntryInRoot(root: string, moduleName: string): stri
   return undefined;
 }
 
+/**
+ * Resolve a module entrypoint across multiple root directories.
+ *
+ * Searches each root in order, optionally appending a subdirectory, and returns
+ * the first matching module entry. Useful for multi-root plugin resolution where
+ * modules may exist in different locations (e.g., external roots, dist, source).
+ *
+ * @param roots - Array of root directories to search, in priority order
+ * @param subdir - Subdirectory to append to each root before searching (e.g., 'compat')
+ * @param moduleName - The module name to resolve
+ * @returns The resolved module path, or undefined if not found in any root
+ */
+export function resolveModuleEntryAcrossRoots(
+  roots: string[],
+  subdir: string,
+  moduleName: string
+): string | undefined {
+  for (const root of roots) {
+    const searchDir = path.resolve(root, subdir);
+    if (!fs.existsSync(searchDir)) continue;
+    const found = resolveModuleEntryInRoot(searchDir, moduleName);
+    if (found) return found;
+  }
+  return undefined;
+}
+

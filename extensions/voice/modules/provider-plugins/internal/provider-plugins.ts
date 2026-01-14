@@ -3,7 +3,7 @@ import * as path from 'path';
 import { pathToFileURL } from 'url';
 
 import { glob } from 'glob';
-import { loadJsonFile, ManifestError, resolveModuleEntryInRoot } from '../../../../../kernel/index.js';
+import { loadJsonFile, ManifestError, resolveModuleEntryAcrossRoots } from '../../../../../kernel/index.js';
 import { VOICE_EXTENSION_PLUGIN_ROOTS } from '../../shared/index.js';
 
 export interface VoiceProviderManifest {
@@ -46,17 +46,6 @@ function parseVoiceProviderManifest(value: any, filePath: string): VoiceProvider
     : undefined;
 
   return { id, kind, ...(defaults ? { defaults } : {}) };
-}
-
-function resolveCompatEntryAcrossRoots(pluginRoots: string[], kind: string): string | undefined {
-  for (const pluginsRoot of pluginRoots) {
-    const compatRoot = path.resolve(path.join(pluginsRoot, 'compat'));
-    const modulePath = resolveModuleEntryInRoot(compatRoot, kind);
-    if (modulePath) {
-      return modulePath;
-    }
-  }
-  return undefined;
 }
 
 function getDefaultOrFirstExport(imported: Record<string, any>): any {
@@ -127,14 +116,11 @@ export function createVoiceProviderPlugins(options: {
     if (manifestsLoaded) return;
     manifestsLoaded = true;
 
-    // Search for manifests across all plugin roots (first root with manifests wins)
+    // Search for manifests across all plugin roots and combine them
     for (const pluginsRoot of pluginRoots) {
       if (!fs.existsSync(pluginsRoot)) continue;
 
       const files = glob.sync('providers/*.json', { cwd: pluginsRoot }).sort();
-      if (files.length === 0) continue;
-
-      // Found manifests in this root - load them and stop searching
       for (const rel of files) {
         const fullPath = path.join(pluginsRoot, rel);
         try {
@@ -142,14 +128,13 @@ export function createVoiceProviderPlugins(options: {
           const manifest = parseVoiceProviderManifest(raw, fullPath);
 
           if (manifests.has(manifest.id)) {
-            throw new ManifestError(`Duplicate voice provider id '${manifest.id}'`);
+            throw new ManifestError(`Duplicate voice provider id '${manifest.id}' in '${fullPath}'`);
           }
           manifests.set(manifest.id, manifest);
         } catch (err: any) {
-          safeWarn('voice.provider_plugins.manifest_skipped', { manifestPath: rel, error: String(err) });
+          safeWarn('voice.provider_plugins.manifest_skipped', { manifestPath: fullPath, error: String(err) });
         }
       }
-      break; // Stop at first root with manifests
     }
   };
 
@@ -157,7 +142,7 @@ export function createVoiceProviderPlugins(options: {
     if (compatFactories.has(kind)) return;
 
     const safeKind = assertSafeName('compat kind', kind);
-    const modulePath = resolveCompatEntryAcrossRoots(pluginRoots, safeKind);
+    const modulePath = resolveModuleEntryAcrossRoots(pluginRoots, 'compat', safeKind);
     if (!modulePath) {
       throw new ManifestError(`No voice compat module found for '${safeKind}'`);
     }
