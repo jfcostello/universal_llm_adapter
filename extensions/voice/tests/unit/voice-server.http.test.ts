@@ -184,7 +184,7 @@ describe('extensions/voice: server http handlers', () => {
       expect(
         logger.warning.mock.calls.some(
           ([msg, data]: any[]) =>
-            msg === 'voice.provider_plugins.manifest_skipped' && data?.manifestPath === 'providers/bad.json'
+            msg === 'voice.provider_plugins.manifest_skipped' && data?.manifestPath?.endsWith('providers/bad.json')
         )
       ).toBe(true);
     } finally {
@@ -4305,6 +4305,63 @@ describe('extensions/voice: server http handlers', () => {
     expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
     const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
     expect(body).toEqual(expect.objectContaining({ ok: true, result: 'ended', mode: 'immediate', maxWaitMs: 5000, fallback: false }));
+    expect(endCall).toHaveBeenCalledTimes(1);
+  });
+
+  test('/voice/calls/:id/end mode=immediate returns HTTP error when endCall throws', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_end_err',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'outbound',
+        realtimeSpec: {},
+        voiceProvider: 'test',
+        providerCallId: 'c1'
+      } as any,
+      { ttlSeconds: 60 }
+    );
+
+    const err: any = { message: 'provider error', code: 'E_END', statusCode: 503 };
+    const endCall = jest.fn(async () => {
+      throw err;
+    });
+    const providerPlugins: any = {
+      getManifest: jest.fn(async () => ({ defaults: {} })),
+      getCompat: jest.fn(async () => ({ endCall }))
+    };
+
+    const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
+    const reg = await createVoiceServerRegistration({
+      server: {} as any,
+      registry: {},
+      pluginsPath: './plugins',
+      upgradeRouter: {} as any,
+      store,
+      providerPlugins,
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
+      eventsHub: eventsHub as any
+    });
+
+    const res = new MockStreamRes() as any;
+    await expect(
+      reg.handleHttp(
+        createJsonReq({
+          url: '/voice/calls/cfg_end_err/end',
+          method: 'POST',
+          headers: { authorization: 'Bearer k1' },
+          body: { mode: 'immediate' }
+        }),
+        res
+      )
+    ).resolves.toBe(true);
+    expect(String(res.writeHead.mock.calls[0][0])).toBe('503');
+    const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
+    expect(body).toEqual(expect.objectContaining({ type: 'error', error: expect.objectContaining({ message: 'provider error', code: 'E_END' }) }));
     expect(endCall).toHaveBeenCalledTimes(1);
   });
 

@@ -1381,7 +1381,13 @@ export async function createVoiceServerRegistration(ctx: {
               pending.cancel();
               pendingEndRequests.delete(callConfigId);
             }
-            await endCall({ callConfigId, callConfig, voiceProvider, providerCallId, providerDefaults });
+            try {
+              await endCall({ callConfigId, callConfig, voiceProvider, providerCallId, providerDefaults });
+            } catch (err: any) {
+              const mapped = mapErrorToHttp(err);
+              writeJson(res, mapped.status, mapped.body);
+              return true;
+            }
             emitCallEvent(callConfigId, { type: 'voice.call.end_requested', reason: 'client_request', providerCallId });
             writeJson(res, 200, { ok: true, result: 'ended', mode, maxWaitMs, cancelOnUserSpeech, fallback: false });
             return true;
