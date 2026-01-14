@@ -498,7 +498,7 @@ Request body (optional):
 
 Fields:
 - `targetNumber` (required): E.164 phone number to dial (e.g. `+14155551234`).
-- `callerId` (optional): Override caller ID shown to target (E.164 format). Must be a verified Twilio number.
+- `callerId` (optional): Override caller ID shown to target (E.164 format). Must be a number verified with your voice provider.
 - `timeout` (optional): Ring timeout in seconds (1-600, default: 30).
 - `mode` (optional): Transfer mode (`immediate` or `after_playback`, default: `immediate`).
 - `maxWaitMs` (optional): Safety fallback timeout for graceful modes (default: 5000, max: 60000).
