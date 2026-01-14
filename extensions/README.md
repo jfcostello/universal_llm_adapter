@@ -54,10 +54,10 @@ The server loads this only when the extension is enabled, and merges it with `se
 
 ## Extension path resolution
 
-Extensions should use `getExtensionPaths()` from the kernel to resolve their directories:
+Extensions should use `getExtensionPaths()` from `modules/extensions` to resolve their directories:
 
 ```ts
-import { getExtensionPaths } from '@/kernel/index.js';
+import { getExtensionPaths } from '@/modules/extensions/index.js';
 
 const { extensionRoot, pluginsRoot } = getExtensionPaths('voice');
 ```
@@ -66,7 +66,7 @@ This ensures paths resolve correctly in both:
 - **Production** (`dist/`): Falls back to cwd-relative paths for JSON manifests
 - **Development** (source): Uses PACKAGE_ROOT paths
 
-Results are cached for performance.
+Results are cached for performance. See `modules/extensions/README.md` for full details.
 
 ## Tests
 

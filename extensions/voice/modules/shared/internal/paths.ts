@@ -1,4 +1,4 @@
-import { getExtensionPaths } from '../../../../../kernel/index.js';
+import { getExtensionPaths } from '../../../../../modules/extensions/index.js';
 
 const { extensionRoot, pluginsRoot } = getExtensionPaths('voice');
 

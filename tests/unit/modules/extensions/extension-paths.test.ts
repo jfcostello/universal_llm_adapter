@@ -6,9 +6,9 @@ import {
   getExtensionPaths,
   resetExtensionPathsCache,
   type ExtensionPaths
-} from '@/kernel/index.ts';
+} from '@/modules/extensions/index.ts';
 
-describe('kernel/extension-paths', () => {
+describe('modules/extensions/extension-paths', () => {
   // Store original cwd to restore after tests that change it
   const originalCwd = process.cwd();
 

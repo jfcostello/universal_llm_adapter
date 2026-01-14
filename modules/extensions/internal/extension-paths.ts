@@ -1,7 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { PACKAGE_ROOT } from './paths.js';
-import { getAdapterPathsConfig } from './adapter-paths.js';
+import { PACKAGE_ROOT, getAdapterPathsConfig } from '../../../kernel/index.js';
 
 /**
  * Resolved paths for an extension.

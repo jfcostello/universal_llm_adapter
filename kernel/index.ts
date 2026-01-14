@@ -7,7 +7,6 @@ export * from './internal/errors.js';
 export * from './internal/defaults.js';
 export * from './internal/config.js';
 export * from './internal/adapter-paths.js';
-export * from './internal/extension-paths.js';
 export * from './internal/deep-merge.js';
 export * from './internal/fs-module-entry.js';
 export * from './internal/normalize-external-roots.js';
