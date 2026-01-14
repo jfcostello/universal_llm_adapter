@@ -14,7 +14,7 @@ import { scheduleDeferredAction } from '../deferred-action/index.js';
 const result = await scheduleDeferredAction({
   callConfigId: 'call-123',
   providerCallId: 'provider-456',
-  voiceProvider: 'twilio',
+  voiceProvider: 'test',
   eventTypes: ['voice.playback.drained', 'user_speech.started'],
   maxWaitMs: 5000,
   cancelOnUserSpeech: true,
