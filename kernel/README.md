@@ -72,10 +72,19 @@ Extensions can use `getExtensionPaths()` to resolve their plugin directories rel
 import { getExtensionPaths } from '@/kernel/index.ts';
 
 // Resolves extension root and plugins directory
-// Checks PACKAGE_ROOT first, falls back to cwd for development
 const { extensionRoot, pluginsRoot } = getExtensionPaths('voice');
 
-// Results are cached for performance
+// Results are cached for performance (cache invalidates when cwd changes)
 ```
+
+**Resolution order** (first match with existing plugins directory wins):
+1. External roots from `llm-adapter.paths.json` (if configured via `paths.lookup.extensions.externalRoots`)
+2. `PACKAGE_ROOT/extensions/{extensionId}/plugins` (production/dist)
+3. `cwd/extensions/{extensionId}/plugins` (development/source fallback)
+
+**Features:**
+- Integrates with `getAdapterPathsConfig()` for external root support
+- Cache invalidates automatically when `process.cwd()` changes
+- Paths are canonicalized via `realpathSync` to handle symlinks (e.g., macOS `/var` → `/private/var`)
 
 This handles the dist/source path discrepancy where TypeScript compiles to `dist/` but JSON manifests remain in source.

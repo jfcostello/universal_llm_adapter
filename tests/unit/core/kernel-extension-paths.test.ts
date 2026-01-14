@@ -1,7 +1,6 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { jest } from '@jest/globals';
 
 import {
   getExtensionPaths,
@@ -28,7 +27,8 @@ describe('kernel/extension-paths', () => {
 
   describe('getExtensionPaths', () => {
     test('returns correct paths when plugins dir exists at packageRoot', () => {
-      const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-'));
+      const rawTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-'));
+      const tempRoot = fs.realpathSync(rawTempRoot);
       try {
         // Create extension with plugins dir at "package root"
         const extDir = path.join(tempRoot, 'extensions', 'test-ext');
@@ -72,7 +72,8 @@ describe('kernel/extension-paths', () => {
     });
 
     test('caches results for subsequent calls with same extensionId', () => {
-      const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-cache-'));
+      const rawTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-cache-'));
+      const tempRoot = fs.realpathSync(rawTempRoot);
       try {
         // Create extension with plugins dir
         const extDir = path.join(tempRoot, 'extensions', 'cached-ext');
@@ -100,7 +101,8 @@ describe('kernel/extension-paths', () => {
     });
 
     test('caches different extensions independently', () => {
-      const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-multi-'));
+      const rawTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-multi-'));
+      const tempRoot = fs.realpathSync(rawTempRoot);
       try {
         // Create two extensions
         const ext1Dir = path.join(tempRoot, 'extensions', 'ext-one');
@@ -123,8 +125,10 @@ describe('kernel/extension-paths', () => {
     });
 
     test('returns fallback path when no plugins dir found anywhere', () => {
-      const tempPackageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-fallback-'));
-      const tempCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-fallback-cwd-'));
+      const rawTempPackageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-fallback-'));
+      const rawTempCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-fallback-cwd-'));
+      const tempPackageRoot = fs.realpathSync(rawTempPackageRoot);
+      const tempCwd = fs.realpathSync(rawTempCwd);
       try {
         // No extensions anywhere
         process.chdir(tempCwd);
@@ -142,8 +146,10 @@ describe('kernel/extension-paths', () => {
     });
 
     test('prefers packageRoot over cwd when both have plugins', () => {
-      const tempPackageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-prefer-'));
-      const tempCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-prefer-cwd-'));
+      const rawTempPackageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-prefer-'));
+      const rawTempCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-prefer-cwd-'));
+      const tempPackageRoot = fs.realpathSync(rawTempPackageRoot);
+      const tempCwd = fs.realpathSync(rawTempCwd);
       try {
         // Create plugins at both locations
         const pkgExtDir = path.join(tempPackageRoot, 'extensions', 'both-ext');
@@ -171,7 +177,8 @@ describe('kernel/extension-paths', () => {
 
   describe('resetExtensionPathsCache', () => {
     test('clears cache and allows fresh resolution', () => {
-      const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-reset-'));
+      const rawTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-reset-'));
+      const tempRoot = fs.realpathSync(rawTempRoot);
       try {
         // Create extension
         const extDir = path.join(tempRoot, 'extensions', 'reset-ext');
@@ -203,8 +210,10 @@ describe('kernel/extension-paths', () => {
     });
 
     test('cache key includes packageRoot for proper isolation', () => {
-      const tempRoot1 = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-iso1-'));
-      const tempRoot2 = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-iso2-'));
+      const rawTempRoot1 = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-iso1-'));
+      const rawTempRoot2 = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-iso2-'));
+      const tempRoot1 = fs.realpathSync(rawTempRoot1);
+      const tempRoot2 = fs.realpathSync(rawTempRoot2);
       try {
         // Create extension in both locations
         const ext1Dir = path.join(tempRoot1, 'extensions', 'iso-ext');
@@ -241,6 +250,254 @@ describe('kernel/extension-paths', () => {
 
       // The plugins directory should actually exist
       expect(fs.existsSync(result.pluginsRoot)).toBe(true);
+    });
+  });
+
+  describe('cwd-aware cache invalidation', () => {
+    test('invalidates cache when cwd changes', () => {
+      const tempPackageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-cwd-inv-'));
+      const tempCwd1 = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-cwd1-'));
+      const tempCwd2 = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-cwd2-'));
+      // Canonicalize for macOS symlink handling
+      const canonicalCwd1 = fs.realpathSync(tempCwd1);
+      const canonicalCwd2 = fs.realpathSync(tempCwd2);
+      const canonicalPkgRoot = fs.realpathSync(tempPackageRoot);
+
+      try {
+        // Create extension in cwd1
+        const cwd1ExtDir = path.join(canonicalCwd1, 'extensions', 'cwd-test-ext');
+        const cwd1PluginsDir = path.join(cwd1ExtDir, 'plugins');
+        fs.mkdirSync(cwd1PluginsDir, { recursive: true });
+
+        // Create extension in cwd2
+        const cwd2ExtDir = path.join(canonicalCwd2, 'extensions', 'cwd-test-ext');
+        const cwd2PluginsDir = path.join(cwd2ExtDir, 'plugins');
+        fs.mkdirSync(cwd2PluginsDir, { recursive: true });
+
+        // Get paths from cwd1
+        process.chdir(canonicalCwd1);
+        const result1 = getExtensionPaths('cwd-test-ext', { packageRoot: canonicalPkgRoot });
+        expect(result1.extensionRoot).toBe(cwd1ExtDir);
+
+        // Change to cwd2 - cache should invalidate
+        process.chdir(canonicalCwd2);
+        const result2 = getExtensionPaths('cwd-test-ext', { packageRoot: canonicalPkgRoot });
+
+        // Should resolve to cwd2's extension, not return cached cwd1 result
+        expect(result2.extensionRoot).toBe(cwd2ExtDir);
+        expect(result2).not.toBe(result1); // Different object due to cache invalidation
+      } finally {
+        process.chdir(originalCwd);
+        fs.rmSync(tempPackageRoot, { recursive: true, force: true });
+        fs.rmSync(tempCwd1, { recursive: true, force: true });
+        fs.rmSync(tempCwd2, { recursive: true, force: true });
+      }
+    });
+
+    test('maintains cache when cwd does not change', () => {
+      const rawTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-cwd-stable-'));
+      const tempRoot = fs.realpathSync(rawTempRoot);
+      try {
+        // Create extension
+        const extDir = path.join(tempRoot, 'extensions', 'stable-ext');
+        const pluginsDir = path.join(extDir, 'plugins');
+        fs.mkdirSync(pluginsDir, { recursive: true });
+
+        process.chdir(tempRoot);
+
+        // Multiple calls with same cwd should return cached result
+        const result1 = getExtensionPaths('stable-ext', { packageRoot: tempRoot });
+        const result2 = getExtensionPaths('stable-ext', { packageRoot: tempRoot });
+
+        expect(result1).toBe(result2); // Same object reference (cached)
+      } finally {
+        process.chdir(originalCwd);
+        fs.rmSync(tempRoot, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('path canonicalization with realpathSync', () => {
+    test('returns canonicalized paths for existing directories', () => {
+      const rawTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-canon-'));
+      const tempRoot = fs.realpathSync(rawTempRoot);
+      try {
+        const extDir = path.join(tempRoot, 'extensions', 'canon-ext');
+        const pluginsDir = path.join(extDir, 'plugins');
+        fs.mkdirSync(pluginsDir, { recursive: true });
+
+        const result = getExtensionPaths('canon-ext', { packageRoot: tempRoot });
+
+        // Paths should be canonical (equal to realpathSync result)
+        expect(result.extensionRoot).toBe(fs.realpathSync(extDir));
+        expect(result.pluginsRoot).toBe(fs.realpathSync(pluginsDir));
+      } finally {
+        fs.rmSync(tempRoot, { recursive: true, force: true });
+      }
+    });
+
+    test('handles non-existent paths gracefully in fallback', () => {
+      const rawTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-noexist-'));
+      const tempRoot = fs.realpathSync(rawTempRoot);
+      try {
+        // No extensions directory - should still return valid fallback paths
+        const result = getExtensionPaths('noexist-ext', { packageRoot: tempRoot });
+
+        // Should return packageRoot-based fallback paths (not canonicalized since they don't exist)
+        expect(result.extensionRoot).toBe(path.join(tempRoot, 'extensions', 'noexist-ext'));
+        expect(result.pluginsRoot).toBe(path.join(tempRoot, 'extensions', 'noexist-ext', 'plugins'));
+      } finally {
+        fs.rmSync(tempRoot, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('external roots from adapter paths config', () => {
+    test('resolves extension from external root when configured', () => {
+      const rawTempPackageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-extroot-pkg-'));
+      const rawTempCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-extroot-cwd-'));
+      const rawTempExternalRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-extroot-ext-'));
+
+      const tempPackageRoot = fs.realpathSync(rawTempPackageRoot);
+      const tempCwd = fs.realpathSync(rawTempCwd);
+      const tempExternalRoot = fs.realpathSync(rawTempExternalRoot);
+
+      try {
+        // Create extension ONLY in external root (not in packageRoot or cwd)
+        const externalExtDir = path.join(tempExternalRoot, 'external-ext');
+        const externalPluginsDir = path.join(externalExtDir, 'plugins');
+        fs.mkdirSync(externalPluginsDir, { recursive: true });
+
+        // Create llm-adapter.paths.json in tempCwd pointing to external root
+        const pathsConfig = {
+          paths: {
+            lookup: {
+              extensions: {
+                builtin: true,
+                externalRoots: [tempExternalRoot]
+              }
+            }
+          }
+        };
+        fs.writeFileSync(
+          path.join(tempCwd, 'llm-adapter.paths.json'),
+          JSON.stringify(pathsConfig, null, 2)
+        );
+
+        process.chdir(tempCwd);
+
+        // Reset cache to pick up new paths config
+        resetExtensionPathsCache();
+
+        const result = getExtensionPaths('external-ext', { packageRoot: tempPackageRoot });
+
+        // Should resolve to the external root location
+        expect(result.extensionRoot).toBe(externalExtDir);
+        expect(result.pluginsRoot).toBe(externalPluginsDir);
+      } finally {
+        process.chdir(originalCwd);
+        fs.rmSync(tempPackageRoot, { recursive: true, force: true });
+        fs.rmSync(tempCwd, { recursive: true, force: true });
+        fs.rmSync(tempExternalRoot, { recursive: true, force: true });
+      }
+    });
+
+    test('prefers external root over packageRoot when both have extension', () => {
+      const rawTempPackageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-extpref-pkg-'));
+      const rawTempCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-extpref-cwd-'));
+      const rawTempExternalRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-extpref-ext-'));
+
+      const tempPackageRoot = fs.realpathSync(rawTempPackageRoot);
+      const tempCwd = fs.realpathSync(rawTempCwd);
+      const tempExternalRoot = fs.realpathSync(rawTempExternalRoot);
+
+      try {
+        // Create extension in BOTH external root and packageRoot
+        const externalExtDir = path.join(tempExternalRoot, 'prefer-ext');
+        const externalPluginsDir = path.join(externalExtDir, 'plugins');
+        fs.mkdirSync(externalPluginsDir, { recursive: true });
+
+        const pkgExtDir = path.join(tempPackageRoot, 'extensions', 'prefer-ext');
+        const pkgPluginsDir = path.join(pkgExtDir, 'plugins');
+        fs.mkdirSync(pkgPluginsDir, { recursive: true });
+
+        // Create llm-adapter.paths.json
+        const pathsConfig = {
+          paths: {
+            lookup: {
+              extensions: {
+                builtin: true,
+                externalRoots: [tempExternalRoot]
+              }
+            }
+          }
+        };
+        fs.writeFileSync(
+          path.join(tempCwd, 'llm-adapter.paths.json'),
+          JSON.stringify(pathsConfig, null, 2)
+        );
+
+        process.chdir(tempCwd);
+        resetExtensionPathsCache();
+
+        const result = getExtensionPaths('prefer-ext', { packageRoot: tempPackageRoot });
+
+        // External root should be preferred (checked first)
+        expect(result.extensionRoot).toBe(externalExtDir);
+        expect(result.pluginsRoot).toBe(externalPluginsDir);
+      } finally {
+        process.chdir(originalCwd);
+        fs.rmSync(tempPackageRoot, { recursive: true, force: true });
+        fs.rmSync(tempCwd, { recursive: true, force: true });
+        fs.rmSync(tempExternalRoot, { recursive: true, force: true });
+      }
+    });
+
+    test('falls back to packageRoot when external root does not have extension', () => {
+      const rawTempPackageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-extfall-pkg-'));
+      const rawTempCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-extfall-cwd-'));
+      const rawTempExternalRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-extfall-ext-'));
+
+      const tempPackageRoot = fs.realpathSync(rawTempPackageRoot);
+      const tempCwd = fs.realpathSync(rawTempCwd);
+      const tempExternalRoot = fs.realpathSync(rawTempExternalRoot);
+
+      try {
+        // Create extension ONLY in packageRoot (not in external root)
+        const pkgExtDir = path.join(tempPackageRoot, 'extensions', 'fallback-ext');
+        const pkgPluginsDir = path.join(pkgExtDir, 'plugins');
+        fs.mkdirSync(pkgPluginsDir, { recursive: true });
+
+        // Create llm-adapter.paths.json with external root (but no extension there)
+        const pathsConfig = {
+          paths: {
+            lookup: {
+              extensions: {
+                builtin: true,
+                externalRoots: [tempExternalRoot]
+              }
+            }
+          }
+        };
+        fs.writeFileSync(
+          path.join(tempCwd, 'llm-adapter.paths.json'),
+          JSON.stringify(pathsConfig, null, 2)
+        );
+
+        process.chdir(tempCwd);
+        resetExtensionPathsCache();
+
+        const result = getExtensionPaths('fallback-ext', { packageRoot: tempPackageRoot });
+
+        // Should fall back to packageRoot since external root doesn't have it
+        expect(result.extensionRoot).toBe(pkgExtDir);
+        expect(result.pluginsRoot).toBe(pkgPluginsDir);
+      } finally {
+        process.chdir(originalCwd);
+        fs.rmSync(tempPackageRoot, { recursive: true, force: true });
+        fs.rmSync(tempCwd, { recursive: true, force: true });
+        fs.rmSync(tempExternalRoot, { recursive: true, force: true });
+      }
     });
   });
 });
