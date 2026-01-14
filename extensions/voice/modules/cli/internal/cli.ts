@@ -396,6 +396,69 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
     });
 
   program
+    .command('transfer')
+    .description('Transfer a voice call to another number (server-side)')
+    .option('--server-url <url>', 'Base URL of a running adapter server (e.g. http://127.0.0.1:3000)')
+    .option('--api-key <key>', 'API key for server auth (sent as x-api-key by default)')
+    .option('--api-key-header-name <name>', 'Header name for api key (default: x-api-key)', 'x-api-key')
+    .option('--call-config-id <id>', 'Call config id to transfer')
+    .option('--target-number <number>', 'Target phone number in E.164 format (+[country code][number])')
+    .option('--caller-id <number>', 'Optional caller ID to show the target (E.164 format)')
+    .option('--timeout <seconds>', 'Ring timeout in seconds (1-600, server default from voice config)')
+    .option('--pretty', 'Pretty print output')
+    .action(async (options) => {
+      try {
+        const serverUrl = readRequiredTrimmed(options.serverUrl, 'serverUrl');
+        const callConfigId = readRequiredTrimmed(options.callConfigId, 'callConfigId');
+        const targetNumber = readRequiredTrimmed(options.targetNumber, 'targetNumber');
+
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        const apiKey = typeof options.apiKey === 'string' ? options.apiKey.trim() : '';
+        const apiKeyHeaderName = String(options.apiKeyHeaderName).trim();
+        if (apiKey) {
+          headers[apiKeyHeaderName] = apiKey;
+        }
+
+        const body: Record<string, any> = { targetNumber };
+
+        const callerIdRaw = typeof options.callerId === 'string' ? options.callerId.trim() : '';
+        if (callerIdRaw) {
+          body.callerId = callerIdRaw;
+        }
+
+        const timeoutRaw = typeof options.timeout === 'string' ? options.timeout.trim() : '';
+        if (timeoutRaw) {
+          const n = Number(timeoutRaw);
+          const t = Math.floor(n);
+          if (!Number.isFinite(n) || t < 1 || t > 600) {
+            throw makeHttpError({ message: 'Invalid timeout (must be 1-600 seconds)', statusCode: 400, code: 'validation_error' });
+          }
+          body.timeout = t;
+        }
+
+        const res = await fetch(new URL(`/voice/calls/${encodeURIComponent(callConfigId)}/transfer`, serverUrl), {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body)
+        });
+
+        const text = await res.text();
+        if (!res.ok) {
+          io.stderr.write(text.trimEnd() + '\n');
+          deps.exit(1);
+          return;
+        }
+
+        const parsed = JSON.parse(text);
+        await writeJson(io.stdout, parsed, { pretty: options.pretty === true });
+        deps.exit(0);
+      } catch (error: any) {
+        await writeStructuredError(deps, error);
+        deps.exit(1);
+      }
+    });
+
+  program
     .command('events')
     .description('Stream voice call events (server-side SSE)')
     .option('--server-url <url>', 'Base URL of a running adapter server (e.g. http://127.0.0.1:3000)')

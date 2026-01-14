@@ -16,6 +16,7 @@ Server endpoints:
 - `WS /voice/media`
 - `GET /voice/calls/:callConfigId/events` (SSE; requires server auth)
 - `POST /voice/calls/:callConfigId/end` (requires server auth)
+- `POST /voice/calls/:callConfigId/transfer` (requires server auth)
 - `GET /voice/calls/:callConfigId/recording` (requires server auth)
 - `GET /voice/metrics` (optional)
 
@@ -23,6 +24,7 @@ CLI:
 - `llm-adapter voice call`
 - `llm-adapter voice events`
 - `llm-adapter voice end`
+- `llm-adapter voice transfer`
 - `llm-adapter voice recording`
 
 ## Logging
@@ -83,8 +85,11 @@ Enable the voice extension on the server via:
   - Overrides the default SSE keepalive interval (`server.extensions.voice.events.keepAliveIntervalMs`). Set to `0` to disable keepalives.
 
 - `LLM_ADAPTER_VOICE_MEDIA_WS_TOKEN_FROM_MESSAGE_TIMEOUT_MS` (default: `5000`)
-  - Enables accepting the signed `WS /voice/media` token via the first WebSocket message (JSON key: `voiceMediaToken`) when URL query parameters can’t be preserved.
+  - Enables accepting the signed `WS /voice/media` token via the first WebSocket message (JSON key: `voiceMediaToken`) when URL query parameters can't be preserved.
   - Set to `0` to disable and require `?token=...` in the URL.
+
+- `LLM_ADAPTER_VOICE_TRANSFER_DEFAULT_TIMEOUT_SECONDS` (default: `30`)
+  - Overrides the default ring timeout for blind call transfers (`server.extensions.voice.transfer.defaultTimeoutSeconds`). Range: 1-600 seconds.
 
 ### Server defaults (optional)
 
@@ -101,6 +106,9 @@ Events stream defaults/settings (applied to `GET /voice/calls/:callConfigId/even
 Call end defaults/settings (applied to `POST /voice/calls/:callConfigId/end`):
 - `end`: `{ defaultMode, defaultMaxWaitMs, defaultCancelOnUserSpeech }`
 
+Call transfer defaults/settings (applied to `POST /voice/calls/:callConfigId/transfer`):
+- `transfer`: `{ defaultTimeoutSeconds }`
+
 Notes:
 - `events.maxActiveCalls` (default: `20000`): cap on in-memory active call channels for the SSE events hub.
 - `events.maxBufferedEventsPerCall` (default: `200`): number of most-recent non-delta events kept per call for replay (set `0` to disable replay buffering).
@@ -111,6 +119,7 @@ Notes:
 - `end.defaultMode` (default: `immediate`): `{ immediate | after_assistant_audio | after_playback }`.
 - `end.defaultMaxWaitMs` (default: `5000`, max: `60000`): safety fallback for graceful call ends.
 - `end.defaultCancelOnUserSpeech` (default: `false`): cancel a pending graceful end when `user_speech.started` is observed.
+- `transfer.defaultTimeoutSeconds` (default: `30`, range: `1-600`): ring timeout for blind call transfers. When a call is transferred, the target phone rings for this many seconds before the call ends if unanswered.
 - `timeouts.firstTurnGraceMs`: optional non-negative millisecond window used by some voice compats/bridges to adjust first-turn commit behavior immediately after realtime `ready` (see the active compat README under `plugins/compat/*`).
 - `timeouts.silenceAssistantAudioStartFallbackMs` / `timeouts.silenceAssistantAudioEndFallbackMs`: optional fallback windows used by some provider compats when `assistantFirstTurn.enabled=true` to ensure silence timers still arm when assistant-audio boundary events are missing (see the active compat README under `plugins/compat/*`).
 
@@ -403,6 +412,22 @@ Optional:
 - `--max-wait-ms <ms>` (non-negative; max: `60000`)
 - `--cancel-on-user-speech 0|1`
 
+## CLI: `llm-adapter voice transfer`
+
+Transfers a call to another phone number by calling `POST /voice/calls/:callConfigId/transfer`.
+
+Required:
+- `--server-url <url>`
+- `--call-config-id <id>`
+- `--target-number <number>` (E.164 format, e.g. `+14155551234`)
+
+Optional:
+- `--api-key <key>`
+- `--api-key-header-name <name>` (default: `x-api-key`)
+- `--caller-id <number>` (E.164 format; override caller ID shown to target)
+- `--timeout <seconds>` (ring timeout, 1-600, default: 30)
+- `--pretty` (pretty print output)
+
 ## CLI: `llm-adapter voice recording`
 
 Downloads a recording via `GET /voice/calls/:callConfigId/recording`.
@@ -445,6 +470,60 @@ Events:
 - `voice.call.end_requested` (provider termination requested)
 - `voice.call.end_canceled` (graceful end canceled)
 - `voice.call.end_failed` (termination attempt failed)
+
+## Call transfer (blind transfer)
+
+`POST /voice/calls/:callConfigId/transfer` performs a blind (cold) call transfer to another phone number.
+
+Request body:
+
+```json
+{
+  "targetNumber": "+14155551234",
+  "callerId": "+15551234567",
+  "timeout": 45
+}
+```
+
+Fields:
+- `targetNumber` (required): E.164 phone number to dial (e.g. `+14155551234`).
+- `callerId` (optional): Override caller ID shown to target (E.164 format). Must be a verified Twilio number.
+- `timeout` (optional): Ring timeout in seconds (1-600, default: 30).
+
+Behavior:
+- When the transfer is executed, the existing WebSocket media stream closes immediately.
+- The caller hears ringing while the target phone rings.
+- If the target answers, they're connected to the caller.
+- If the target doesn't answer within the timeout, the call ends.
+
+Response:
+
+```json
+{
+  "ok": true,
+  "result": "transferred",
+  "targetNumber": "+14155551234"
+}
+```
+
+Error handling:
+- 400: Invalid `targetNumber` (not E.164) or `timeout` (out of range).
+- 404: Unknown `callConfigId`.
+- 409: Call is missing `providerCallId` (not yet connected).
+- 501: Voice provider doesn't support call transfer.
+- 502+: Provider API error (e.g. invalid `callerId`).
+
+Events:
+- `voice.call.transferred` (transfer initiated to `targetNumber`)
+
+Example:
+
+```bash
+curl -X POST "http://127.0.0.1:3000/voice/calls/<callConfigId>/transfer" \
+  -H "x-api-key: <serverApiKey>" \
+  -H "Content-Type: application/json" \
+  -d '{"targetNumber": "+14155551234"}'
+```
 
 ## Runbook
 

@@ -323,4 +323,186 @@ describe('extensions/voice: call events + control endpoints', () => {
       await harness.close();
     }
   });
+
+  test('POST /voice/calls/:callConfigId/transfer calls provider compat', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'outbound',
+        realtimeSpec: {},
+        voiceProvider: 'test',
+        providerCallId: 'p1'
+      } as any,
+      { ttlSeconds: 60 }
+    );
+
+    const transferCall = jest.fn(async () => ({ ok: true }));
+    const harness = await startHarness({
+      store,
+      providerPlugins: {
+        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
+        getCompat: jest.fn(async () => ({ transferCall }))
+      },
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+    });
+
+    try {
+      const res = await fetch(new URL('/voice/calls/cfg_1/transfer', harness.baseUrl), {
+        method: 'POST',
+        headers: { Authorization: 'Bearer k1', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetNumber: '+14155551234' })
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual(expect.objectContaining({ ok: true, result: 'transferred', targetNumber: '+14155551234' }));
+
+      expect(transferCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerCallId: 'p1',
+          targetNumber: '+14155551234',
+          timeout: 30 // default
+        })
+      );
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('POST /voice/calls/:callConfigId/transfer returns 400 for invalid targetNumber', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'outbound',
+        realtimeSpec: {},
+        voiceProvider: 'test',
+        providerCallId: 'p1'
+      } as any,
+      { ttlSeconds: 60 }
+    );
+
+    const transferCall = jest.fn(async () => ({ ok: true }));
+    const harness = await startHarness({
+      store,
+      providerPlugins: {
+        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
+        getCompat: jest.fn(async () => ({ transferCall }))
+      },
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+    });
+
+    try {
+      const res = await fetch(new URL('/voice/calls/cfg_1/transfer', harness.baseUrl), {
+        method: 'POST',
+        headers: { Authorization: 'Bearer k1', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetNumber: '14155551234' }) // missing +
+      });
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error.code).toBe('validation_error');
+      expect(transferCall).not.toHaveBeenCalled();
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('POST /voice/calls/:callConfigId/transfer returns 501 when compat lacks transferCall', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'outbound',
+        realtimeSpec: {},
+        voiceProvider: 'test',
+        providerCallId: 'p1'
+      } as any,
+      { ttlSeconds: 60 }
+    );
+
+    const harness = await startHarness({
+      store,
+      providerPlugins: {
+        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
+        getCompat: jest.fn(async () => ({})) // no transferCall method
+      },
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+    });
+
+    try {
+      const res = await fetch(new URL('/voice/calls/cfg_1/transfer', harness.baseUrl), {
+        method: 'POST',
+        headers: { Authorization: 'Bearer k1', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetNumber: '+14155551234' })
+      });
+      expect(res.status).toBe(501);
+      const body = await res.json();
+      expect(body.error.code).toBe('not_implemented');
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('POST /voice/calls/:callConfigId/transfer uses custom timeout from request body', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'outbound',
+        realtimeSpec: {},
+        voiceProvider: 'test',
+        providerCallId: 'p1'
+      } as any,
+      { ttlSeconds: 60 }
+    );
+
+    const transferCall = jest.fn(async () => ({ ok: true }));
+    const harness = await startHarness({
+      store,
+      providerPlugins: {
+        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
+        getCompat: jest.fn(async () => ({ transferCall }))
+      },
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+    });
+
+    try {
+      const res = await fetch(new URL('/voice/calls/cfg_1/transfer', harness.baseUrl), {
+        method: 'POST',
+        headers: { Authorization: 'Bearer k1', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetNumber: '+14155551234', timeout: 120 })
+      });
+      expect(res.status).toBe(200);
+
+      expect(transferCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerCallId: 'p1',
+          targetNumber: '+14155551234',
+          timeout: 120
+        })
+      );
+    } finally {
+      await harness.close();
+    }
+  });
 });

@@ -769,6 +769,182 @@ describe('extensions/voice CLI', () => {
     expect(error).toHaveBeenCalled();
   });
 
+  test('transfer: calls server /voice/calls/:id/transfer and prints JSON', async () => {
+    const server = await startServer((req, body) => {
+      expect(req.method).toBe('POST');
+      expect(req.url).toBe('/voice/calls/cfg/transfer');
+      expect(req.headers['x-api-key']).toBe('k');
+      expect(body).toEqual({ targetNumber: '+14155551234' });
+      return { status: 200, body: { ok: true, result: 'transferred', targetNumber: '+14155551234' } };
+    });
+
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+
+    try {
+      await runVoiceCli({
+        argv: [
+          'node',
+          'llm-adapter',
+          'transfer',
+          '--server-url',
+          server.baseUrl,
+          '--api-key',
+          'k',
+          '--call-config-id',
+          'cfg',
+          '--target-number',
+          '+14155551234'
+        ],
+        deps: { error: jest.fn(), exit },
+        io: {
+          stdin: Readable.from([]),
+          stdout: stdout.stream,
+          stderr: stderr.stream
+        }
+      });
+    } finally {
+      await server.close();
+    }
+
+    expect(exit).toHaveBeenCalledWith(0);
+    expect(JSON.parse(stdout.data)).toEqual({ ok: true, result: 'transferred', targetNumber: '+14155551234' });
+    expect(stderr.data).toBe('');
+  });
+
+  test('transfer: sends callerId and timeout when flags are set', async () => {
+    const server = await startServer((req, body) => {
+      expect(req.method).toBe('POST');
+      expect(req.url).toBe('/voice/calls/cfg/transfer');
+      expect(body).toEqual({ targetNumber: '+14155551234', callerId: '+15551234567', timeout: 45 });
+      return { status: 200, body: { ok: true, result: 'transferred', targetNumber: '+14155551234' } };
+    });
+
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+
+    try {
+      await runVoiceCli({
+        argv: [
+          'node',
+          'llm-adapter',
+          'transfer',
+          '--server-url',
+          server.baseUrl,
+          '--api-key',
+          'k',
+          '--call-config-id',
+          'cfg',
+          '--target-number',
+          '+14155551234',
+          '--caller-id',
+          '+15551234567',
+          '--timeout',
+          '45'
+        ],
+        deps: { error: jest.fn(), exit },
+        io: {
+          stdin: Readable.from([]),
+          stdout: stdout.stream,
+          stderr: stderr.stream
+        }
+      });
+    } finally {
+      await server.close();
+    }
+
+    expect(exit).toHaveBeenCalledWith(0);
+  });
+
+  test('transfer: writes server error response to stderr and exits 1', async () => {
+    const server = await startServer((req) => {
+      expect(req.url).toBe('/voice/calls/cfg/transfer');
+      return { status: 400, body: { type: 'error', error: { message: 'Invalid E.164', code: 'validation_error' } } };
+    });
+
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+
+    try {
+      await runVoiceCli({
+        argv: [
+          'node',
+          'llm-adapter',
+          'transfer',
+          '--server-url',
+          server.baseUrl,
+          '--call-config-id',
+          'cfg',
+          '--target-number',
+          'invalid'
+        ],
+        deps: { error: jest.fn(), exit },
+        io: {
+          stdin: Readable.from([]),
+          stdout: stdout.stream,
+          stderr: stderr.stream
+        }
+      });
+    } finally {
+      await server.close();
+    }
+
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(stderr.data).toContain('error');
+  });
+
+  test('transfer: validates timeout flag and exits 1', async () => {
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+    const error = jest.fn();
+
+    const baseArgs = ['node', 'llm-adapter', 'transfer', '--server-url', 'http://127.0.0.1:9999', '--call-config-id', 'cfg', '--target-number', '+14155551234'];
+
+    // timeout = 0 (too low)
+    await runVoiceCli({
+      argv: [...baseArgs, '--timeout', '0'],
+      deps: { error, exit },
+      io: { stdin: Readable.from([]), stdout: stdout.stream, stderr: stderr.stream }
+    });
+    expect(exit).toHaveBeenCalledWith(1);
+
+    exit.mockClear();
+    error.mockClear();
+
+    // timeout = 601 (too high)
+    await runVoiceCli({
+      argv: [...baseArgs, '--timeout', '601'],
+      deps: { error, exit },
+      io: { stdin: Readable.from([]), stdout: stdout.stream, stderr: stderr.stream }
+    });
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(error).toHaveBeenCalled();
+  });
+
+  test('transfer: writes structured error and exits 1 on missing required args', async () => {
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const exit = jest.fn();
+    const error = jest.fn();
+
+    await runVoiceCli({
+      argv: ['node', 'llm-adapter', 'transfer', '--server-url', 'http://127.0.0.1:9999', '--call-config-id', 'cfg'],
+      deps: { error, exit },
+      io: {
+        stdin: Readable.from([]),
+        stdout: stdout.stream,
+        stderr: stderr.stream
+      }
+    });
+
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(error).toHaveBeenCalled();
+  });
+
   test('events: streams SSE envelopes as JSON lines and supports includeDeltas', async () => {
     const server = await startRawServer((req, res) => {
       const url = new URL(String(req.url), 'http://127.0.0.1');

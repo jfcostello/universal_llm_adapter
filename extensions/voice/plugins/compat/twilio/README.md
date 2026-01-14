@@ -79,6 +79,25 @@ When `assistantFirstTurn.enabled=true`, the silence timeout is armed after the f
 
 You can also terminate a call via `POST /voice/calls/:callConfigId/end` (server auth required).
 
+### Call transfer (blind)
+
+This compat implements `transferCall()` to support blind (cold) call transfers via `POST /voice/calls/:callConfigId/transfer`.
+
+When a transfer is initiated:
+- The compat POSTs new TwiML to Twilio's Calls API with a `<Dial>` verb targeting the specified phone number.
+- The existing WebSocket media stream closes immediately.
+- The caller is connected to the target phone via Twilio's routing.
+
+Parameters:
+- `targetNumber` (required): E.164 phone number to dial.
+- `callerId` (optional): Override caller ID shown to target. Must be a verified Twilio number.
+- `timeout` (optional): Ring timeout in seconds (1-600).
+
+Notes:
+- This is a "blind" transfer — the AI assistant is disconnected immediately when the transfer executes.
+- If the target doesn't answer within the timeout, the call ends.
+- `callerId` validation is delegated to Twilio. Invalid caller IDs result in a provider error surfaced to the client.
+
 ### Graceful call end (playback drained)
 
 This compat emits provider-agnostic call events designed to support graceful hangup:

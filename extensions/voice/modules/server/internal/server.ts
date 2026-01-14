@@ -7,7 +7,7 @@ import { createRequire } from 'module';
 
 import { mapErrorToHttp } from '../../../../../modules/transport/index.js';
 import { createSignedWsToken, verifySignedWsToken } from '../../../../../modules/security/index.js';
-import { calculateBackoffDelay, isPlainObject, makeHttpError, normalizeFlag, readTrimmedStringProperty, sleep } from '../../../../../modules/shared/index.js';
+import { calculateBackoffDelay, isPlainObject, makeHttpError, normalizeFlag, readTrimmedStringProperty, sleep, validateE164 } from '../../../../../modules/shared/index.js';
 import {
   applyCors,
   applySecurityHeaders,
@@ -1484,6 +1484,110 @@ export async function createVoiceServerRegistration(ctx: {
           emitCallEvent(callConfigId, { type: 'voice.call.end_scheduled', mode, maxWaitMs, cancelOnUserSpeech, providerCallId });
 
           writeJson(res, 200, { ok: true, result: 'scheduled', mode, maxWaitMs, cancelOnUserSpeech });
+          return true;
+        }
+
+        if (
+          callPathParts.length === 4 &&
+          callPathParts[0] === 'voice' &&
+          callPathParts[1] === 'calls' &&
+          callPathParts[2] &&
+          callPathParts[3] === 'transfer'
+        ) {
+          const method = (req.method ?? 'GET').toUpperCase();
+          if (method !== 'POST') {
+            writeJson(res, 405, { type: 'error', error: { message: 'Method not allowed', code: 'method_not_allowed' } });
+            return true;
+          }
+
+          if (!authConfig?.enabled) {
+            writeJson(res, 501, { type: 'error', error: { message: 'Voice call transfer endpoint requires server auth to be enabled', code: 'not_implemented' } });
+            return true;
+          }
+
+          await assertAuthorizedAndRateLimited(req);
+
+          const callConfigId = String(callPathParts[2]).trim();
+          const callConfig = await store.getConfig(callConfigId);
+          if (!callConfig) {
+            writeJson(res, 404, { type: 'error', error: { message: 'Unknown callConfigId', code: 'not_found' } });
+            return true;
+          }
+
+          const voiceProvider = String((callConfig as any)?.voiceProvider ?? '').trim();
+          if (!voiceProvider) {
+            writeJson(res, 400, { type: 'error', error: { message: 'Missing voiceProvider in call config', code: 'validation_error' } });
+            return true;
+          }
+
+          const providerCallId = String((callConfig as any)?.providerCallId ?? '').trim();
+          if (!providerCallId) {
+            writeJson(res, 409, { type: 'error', error: { message: 'Call is missing providerCallId', code: 'not_ready' } });
+            return true;
+          }
+
+          const transferDefaults = asPlainObject((voiceDefaults as any)?.transfer) ?? {};
+          const defaultTimeoutSeconds = (() => {
+            const raw = (transferDefaults as any)?.defaultTimeoutSeconds;
+            if (raw === undefined || raw === null || raw === '') return 30;
+            const n = Number(raw);
+            if (!Number.isFinite(n)) return 30;
+            const out = Math.floor(n);
+            if (out < 1 || out > 600) return 30;
+            return out;
+          })();
+
+          const body = await readJsonBody(req, { maxBytes: maxRequestBytes, timeoutMs: bodyReadTimeoutMs });
+
+          const targetNumberResult = validateE164(body?.targetNumber);
+          if (!targetNumberResult.ok) {
+            writeJson(res, 400, { type: 'error', error: { message: targetNumberResult.error, code: 'validation_error' } });
+            return true;
+          }
+          const targetNumber = targetNumberResult.value;
+
+          const callerIdRaw = body?.callerId !== undefined ? String(body.callerId ?? '').trim() : undefined;
+          const callerId = callerIdRaw || undefined;
+
+          const timeoutRaw = body?.timeout;
+          let timeout: number;
+          if (timeoutRaw === undefined || timeoutRaw === null || timeoutRaw === '') {
+            timeout = defaultTimeoutSeconds;
+          } else {
+            const n = Number(timeoutRaw);
+            if (!Number.isFinite(n) || n < 1 || n > 600) {
+              writeJson(res, 400, { type: 'error', error: { message: 'Invalid timeout (must be 1-600 seconds)', code: 'validation_error' } });
+              return true;
+            }
+            timeout = Math.floor(n);
+          }
+
+          let providerDefaults: any | undefined;
+          try {
+            const manifest = await providerPlugins.getManifest(voiceProvider);
+            providerDefaults = (manifest as any)?.defaults;
+          } catch {
+            writeJson(res, 400, { type: 'error', error: { message: 'Unknown voiceProvider', code: 'validation_error' } });
+            return true;
+          }
+
+          const compat = await providerPlugins.getCompat(voiceProvider);
+          const transferCall = (compat as any)?.transferCall;
+          if (typeof transferCall !== 'function') {
+            writeJson(res, 501, { type: 'error', error: { message: 'Voice provider does not support call transfer', code: 'not_implemented' } });
+            return true;
+          }
+
+          try {
+            await transferCall({ providerCallId, targetNumber, callerId, timeout, providerDefaults });
+          } catch (err: any) {
+            const mapped = mapErrorToHttp(err);
+            writeJson(res, mapped.status, mapped.body);
+            return true;
+          }
+
+          emitCallEvent(callConfigId, { type: 'voice.call.transferred', targetNumber, providerCallId });
+          writeJson(res, 200, { ok: true, result: 'transferred', targetNumber });
           return true;
         }
 

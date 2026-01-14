@@ -2288,6 +2288,276 @@ describe('plugins/compat/twilio', () => {
     }
   });
 
+  test('transferCall sends TwiML with Dial verb to Twilio API', async () => {
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue(
+      new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }) as any
+    );
+
+    const compat = new TwilioVoiceCompat();
+    try {
+      const res = await compat.transferCall({
+        providerCallId: 'CA123',
+        targetNumber: '+14155551234',
+        timeout: 30,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token', apiBaseUrl: 'https://api.example.test' }
+      });
+      expect(res).toEqual({ ok: true });
+
+      const [url, init] = fetchSpy.mock.calls[0];
+      expect(String(url)).toBe('https://api.example.test/2010-04-01/Accounts/AC123/Calls/CA123.json');
+      expect(init?.method).toBe('POST');
+      const body = new URLSearchParams(String(init?.body ?? ''));
+      const twiml = body.get('Twiml') ?? '';
+      expect(twiml).toContain('<Dial');
+      expect(twiml).toContain('+14155551234');
+      expect(twiml).toContain('timeout="30"');
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test('transferCall includes callerId and timeout when provided', async () => {
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue(
+      new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }) as any
+    );
+
+    const compat = new TwilioVoiceCompat();
+    try {
+      await compat.transferCall({
+        providerCallId: 'CA123',
+        targetNumber: '+14155551234',
+        callerId: '+15551234567',
+        timeout: 45,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token', apiBaseUrl: 'https://api.example.test' }
+      });
+
+      const [, init] = fetchSpy.mock.calls[0];
+      const body = new URLSearchParams(String(init?.body ?? ''));
+      const twiml = body.get('Twiml') ?? '';
+      expect(twiml).toContain('callerId="+15551234567"');
+      expect(twiml).toContain('timeout="45"');
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test('transferCall throws validation_error when providerCallId is missing', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.transferCall({
+        providerCallId: '',
+        targetNumber: '+14155551234',
+        timeout: 30,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token' }
+      })
+    ).rejects.toMatchObject({ statusCode: 400, code: 'validation_error' });
+  });
+
+  test('transferCall throws validation_error for invalid E.164 targetNumber', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.transferCall({
+        providerCallId: 'CA123',
+        targetNumber: '14155551234', // missing + prefix
+        timeout: 30,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token' }
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 400, code: 'validation_error' });
+
+    await expect(
+      compat.transferCall({
+        providerCallId: 'CA123',
+        targetNumber: '+1-415-555-1234', // has dashes
+        timeout: 30,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token' }
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 400, code: 'validation_error' });
+  });
+
+  test('transferCall throws validation_error for invalid timeout', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.transferCall({
+        providerCallId: 'CA123',
+        targetNumber: '+14155551234',
+        timeout: 0,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token' }
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 400, code: 'validation_error' });
+
+    await expect(
+      compat.transferCall({
+        providerCallId: 'CA123',
+        targetNumber: '+14155551234',
+        timeout: 601,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token' }
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 400, code: 'validation_error' });
+  });
+
+  test('transferCall throws provider_config_error when credentials are missing', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.transferCall({
+        providerCallId: 'CA123',
+        targetNumber: '+14155551234',
+        timeout: 30,
+        providerDefaults: { accountSid: 'AC123' } // missing authToken
+      })
+    ).rejects.toMatchObject({ statusCode: 500, code: 'provider_config_error' });
+  });
+
+  test('transferCall wraps fetch failures in ProviderExecutionError', async () => {
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockRejectedValue(new Error('boom'));
+    const compat = new TwilioVoiceCompat();
+    try {
+      await expect(
+        compat.transferCall({
+          providerCallId: 'CA123',
+          targetNumber: '+14155551234',
+          timeout: 30,
+          providerDefaults: { accountSid: 'AC123', authToken: 'token' }
+        })
+      ).rejects.toBeInstanceOf(ProviderExecutionError);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test('transferCall throws ProviderExecutionError on non-2xx', async () => {
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue(
+      new Response('invalid caller id', { status: 400, headers: { 'Content-Type': 'text/plain' } }) as any
+    );
+
+    const compat = new TwilioVoiceCompat();
+    try {
+      await expect(
+        compat.transferCall({
+          providerCallId: 'CA123',
+          targetNumber: '+14155551234',
+          callerId: '+1invalid',
+          timeout: 30,
+          providerDefaults: { accountSid: 'AC123', authToken: 'token' }
+        })
+      ).rejects.toBeInstanceOf(ProviderExecutionError);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test('transferCall falls back to default apiBaseUrl when empty', async () => {
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue(
+      new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }) as any
+    );
+
+    const compat = new TwilioVoiceCompat();
+    try {
+      await compat.transferCall({
+        providerCallId: 'CA123',
+        targetNumber: '+14155551234',
+        timeout: 30,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token', apiBaseUrl: '   ' }
+      });
+
+      const [url] = fetchSpy.mock.calls[0];
+      expect(String(url)).toBe('https://api.twilio.com/2010-04-01/Accounts/AC123/Calls/CA123.json');
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test('transferCall treats non-object providerDefaults as empty', async () => {
+    const compat = new TwilioVoiceCompat();
+    await expect(
+      compat.transferCall({
+        providerCallId: 'CA123',
+        targetNumber: '+14155551234',
+        timeout: 30,
+        providerDefaults: 'nope'
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 500, code: 'provider_config_error' });
+  });
+
+  test('transferCall wraps fetch failures without message in ProviderExecutionError', async () => {
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockRejectedValue({});
+    const compat = new TwilioVoiceCompat();
+    try {
+      await expect(
+        compat.transferCall({
+          providerCallId: 'CA123',
+          targetNumber: '+14155551234',
+          timeout: 30,
+          providerDefaults: { accountSid: 'AC123', authToken: 'token' }
+        })
+      ).rejects.toBeInstanceOf(ProviderExecutionError);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test('transferCall uses empty suffix when response text throws', async () => {
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: jest.fn(async () => {
+        throw new Error('boom');
+      })
+    } as any);
+
+    const compat = new TwilioVoiceCompat();
+    try {
+      await expect(
+        compat.transferCall({
+          providerCallId: 'CA123',
+          targetNumber: '+14155551234',
+          timeout: 30,
+          providerDefaults: { accountSid: 'AC123', authToken: 'token' }
+        })
+      ).rejects.toBeInstanceOf(ProviderExecutionError);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test('transferCall clamps timeout to valid range in TwiML', async () => {
+    const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue(
+      new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }) as any
+    );
+
+    const compat = new TwilioVoiceCompat();
+    try {
+      // Test valid edge case: timeout=1
+      await compat.transferCall({
+        providerCallId: 'CA123',
+        targetNumber: '+14155551234',
+        timeout: 1,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token' }
+      });
+
+      const [, init] = fetchSpy.mock.calls[0];
+      const body = new URLSearchParams(String(init?.body ?? ''));
+      const twiml = body.get('Twiml') ?? '';
+      expect(twiml).toContain('timeout="1"');
+
+      fetchSpy.mockClear();
+
+      // Test valid edge case: timeout=600
+      await compat.transferCall({
+        providerCallId: 'CA123',
+        targetNumber: '+14155551234',
+        timeout: 600,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token' }
+      });
+
+      const [, init2] = fetchSpy.mock.calls[0];
+      const body2 = new URLSearchParams(String(init2?.body ?? ''));
+      const twiml2 = body2.get('Twiml') ?? '';
+      expect(twiml2).toContain('timeout="600"');
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   test('parseRecordingWebhook returns normalized recording fields', async () => {
     const compat = new TwilioVoiceCompat();
     await expect(

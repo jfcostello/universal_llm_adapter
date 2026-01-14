@@ -17,7 +17,9 @@ import {
   flattenPrimitiveStrings,
   isPlainObject,
   emitManifestOverrideWarning,
-  type Deferred
+  validateE164,
+  type Deferred,
+  type ValidateE164Result
 } from '@/modules/shared/index.ts';
 
 describe('modules/shared', () => {
@@ -642,6 +644,99 @@ describe('modules/shared', () => {
       expect(data.id).toBe('my-id');
       expect(data.previous).toBe('/previous/path');
       expect(data.next).toBe('/next/path');
+    });
+  });
+
+  describe('validateE164', () => {
+    test('returns ok: true with normalized value for valid E.164 numbers', () => {
+      expect(validateE164('+14155551234')).toEqual({ ok: true, value: '+14155551234' });
+      expect(validateE164('+442071234567')).toEqual({ ok: true, value: '+442071234567' });
+      expect(validateE164('+8613812345678')).toEqual({ ok: true, value: '+8613812345678' });
+      expect(validateE164('+12')).toEqual({ ok: true, value: '+12' }); // Minimum: 2 digits (country + 1)
+    });
+
+    test('trims whitespace from valid numbers', () => {
+      expect(validateE164('  +14155551234  ')).toEqual({ ok: true, value: '+14155551234' });
+      expect(validateE164('\t+442071234567\n')).toEqual({ ok: true, value: '+442071234567' });
+    });
+
+    test('returns ok: false for empty or missing values', () => {
+      const result1 = validateE164('') as { ok: false; error: string };
+      expect(result1.ok).toBe(false);
+      expect(result1.error).toContain('required');
+
+      const result2 = validateE164(null) as { ok: false; error: string };
+      expect(result2.ok).toBe(false);
+      expect(result2.error).toContain('required');
+
+      const result3 = validateE164(undefined) as { ok: false; error: string };
+      expect(result3.ok).toBe(false);
+      expect(result3.error).toContain('required');
+
+      const result4 = validateE164('   ') as { ok: false; error: string };
+      expect(result4.ok).toBe(false);
+      expect(result4.error).toContain('required');
+    });
+
+    test('returns ok: false for numbers without + prefix', () => {
+      const result = validateE164('14155551234') as { ok: false; error: string };
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain('E.164');
+    });
+
+    test('returns ok: false for numbers starting with +0', () => {
+      const result = validateE164('+0123456789') as { ok: false; error: string };
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain('E.164');
+    });
+
+    test('returns ok: false for numbers with non-digit characters', () => {
+      expect((validateE164('+1-415-555-1234') as { ok: false; error: string }).ok).toBe(false);
+      expect((validateE164('+1 415 555 1234') as { ok: false; error: string }).ok).toBe(false);
+      expect((validateE164('+1(415)5551234') as { ok: false; error: string }).ok).toBe(false);
+      expect((validateE164('+1.415.555.1234') as { ok: false; error: string }).ok).toBe(false);
+    });
+
+    test('returns ok: false for numbers exceeding 15 digits', () => {
+      // + followed by 16 digits (exceeds E.164 limit of 15)
+      const result = validateE164('+1234567890123456') as { ok: false; error: string };
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain('E.164');
+    });
+
+    test('accepts maximum length E.164 numbers (15 digits)', () => {
+      // + followed by exactly 15 digits
+      expect(validateE164('+123456789012345')).toEqual({ ok: true, value: '+123456789012345' });
+    });
+
+    test('returns ok: false for just + sign', () => {
+      const result = validateE164('+') as { ok: false; error: string };
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain('E.164');
+    });
+
+    test('returns ok: false for single digit (need at least 2)', () => {
+      const result = validateE164('+1') as { ok: false; error: string };
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain('E.164');
+    });
+
+    test('coerces non-string inputs via String()', () => {
+      // Number coercion (but still invalid format without +)
+      const result = validateE164(14155551234) as { ok: false; error: string };
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain('E.164');
+    });
+
+    test('type guard: ValidateE164Result type works correctly', () => {
+      const result: ValidateE164Result = validateE164('+14155551234');
+      if (result.ok) {
+        const _value: string = result.value;
+        expect(_value).toBe('+14155551234');
+      } else {
+        const _error: string = result.error;
+        expect(_error).toBeDefined();
+      }
     });
   });
 });
