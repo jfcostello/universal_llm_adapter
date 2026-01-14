@@ -148,3 +148,30 @@ import { calculateBackoffDelay } from '../shared/index.js';
 
 const delayMs = calculateBackoffDelay(2, 250, 30_000);
 ```
+
+### `emitManifestOverrideWarning(warn, area, id, previousSource, nextSource)`
+
+Emits a warning when a manifest is being overridden by another manifest with the same ID. Used by extensions (e.g., voice extension) for consistent warn+override behavior. Note: The core plugin registry in the kernel has its own implementation to avoid dependency on lazy-loaded modules.
+
+The warn+override pattern allows users to provide custom manifests that override built-in defaults - later roots override earlier roots.
+
+```typescript
+import { emitManifestOverrideWarning } from '../shared/index.js';
+
+// Called when a duplicate manifest ID is found
+emitManifestOverrideWarning(
+  (msg, data) => console.warn(msg, data),
+  'voice.provider_plugins',
+  'my-provider',
+  '/builtin/providers/my-provider.json',
+  '/custom/providers/my-provider.json'
+);
+// Warns: "voice.provider_plugins.override" with data { id, previous, next }
+```
+
+**Parameters:**
+- `warn` - Warning function `(message: string, data: Record<string, unknown>) => void`
+- `area` - The manifest area (e.g., 'providers', 'voice.provider_plugins')
+- `id` - The manifest ID being overridden
+- `previousSource` - Path/info for the previous manifest
+- `nextSource` - Path/info for the new (overriding) manifest

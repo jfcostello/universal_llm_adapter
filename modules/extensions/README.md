@@ -30,27 +30,36 @@ Extensions may ship a `extensions/<name>/defaults.json`.
 This file is intended to be loaded only when an extension is enabled/invoked, and can be merged with
 legacy configuration overlays provided by the server.
 
-## Extension path resolution
+## Extension plugin roots resolution
 
-Extensions should use `getExtensionPaths()` to resolve their plugin directories reliably:
+Extensions should use `getExtensionPluginRoots()` to resolve ALL plugin directories in priority order:
 
 ```ts
-import { getExtensionPaths } from '@/modules/extensions/index.js';
+import { getExtensionPluginRoots } from '@/modules/extensions/index.js';
 
-// Resolves extension root and plugins directory
-const { extensionRoot, pluginsRoot } = getExtensionPaths('voice');
+// Returns all plugin roots that exist, in priority order
+const pluginRoots: string[] = getExtensionPluginRoots('voice');
+// e.g., ['/external/voice/plugins', '/dist/extensions/voice/plugins', '/src/extensions/voice/plugins']
 
-// Results are cached for performance (cache invalidates when cwd changes)
+// Callers iterate to find their files
+for (const root of pluginRoots) {
+  const files = glob.sync('providers/*.json', { cwd: root });
+  if (files.length > 0) {
+    // Found manifests in this root
+    break;
+  }
+}
 ```
 
-**Resolution order** (first match with existing plugins directory wins):
+**Resolution order** (priority, highest first):
 1. External roots from `llm-adapter.paths.json` (if configured via `paths.lookup.extensions.externalRoots`)
 2. `PACKAGE_ROOT/extensions/{extensionId}/plugins` (production/dist)
 3. `cwd/extensions/{extensionId}/plugins` (development/source fallback)
 
 **Features:**
+- Returns ALL existing plugin directories so callers can search for their specific files
+- Handles TypeScript projects where compiled JS may be in `dist/` but JSON manifests remain in source
 - Integrates with `getAdapterPathsConfig()` for external root support
 - Cache invalidates automatically when `process.cwd()` changes
 - Paths are canonicalized via `realpathSync` to handle symlinks (e.g., macOS `/var` → `/private/var`)
-
-This handles the dist/source path discrepancy where TypeScript compiles to `dist/` but JSON manifests remain in source.
+- Deduplicates paths when multiple candidates resolve to the same location

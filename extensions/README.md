@@ -52,19 +52,28 @@ An extension pack may include `extensions/<name>/defaults.json`.
 
 The server loads this only when the extension is enabled, and merges it with `server.extensions[<name>]` (legacy override wins).
 
-## Extension path resolution
+## Extension plugin roots resolution
 
-Extensions should use `getExtensionPaths()` from `modules/extensions` to resolve their directories:
+Extensions should use `getExtensionPluginRoots()` from `modules/extensions` to resolve their plugin directories:
 
 ```ts
-import { getExtensionPaths } from '@/modules/extensions/index.js';
+import { getExtensionPluginRoots } from '@/modules/extensions/index.js';
 
-const { extensionRoot, pluginsRoot } = getExtensionPaths('voice');
+// Returns all plugin roots that exist, in priority order
+const pluginRoots: string[] = getExtensionPluginRoots('voice');
+
+// Iterate to find files across all roots
+for (const root of pluginRoots) {
+  // Search for manifests, compats, etc. in this root
+}
 ```
 
-This ensures paths resolve correctly in both:
-- **Production** (`dist/`): Falls back to cwd-relative paths for JSON manifests
-- **Development** (source): Uses PACKAGE_ROOT paths
+**Resolution order** (priority, highest first):
+1. External roots from `llm-adapter.paths.json` (if configured)
+2. `PACKAGE_ROOT/extensions/{extensionId}/plugins` (production/dist)
+3. `cwd/extensions/{extensionId}/plugins` (development/source fallback)
+
+This multi-root approach handles TypeScript projects where compiled JS may be in `dist/` but JSON manifests remain in source directories.
 
 Results are cached for performance. See `modules/extensions/README.md` for full details.
 

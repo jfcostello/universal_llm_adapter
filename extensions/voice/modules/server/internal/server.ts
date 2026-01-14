@@ -20,7 +20,7 @@ import {
 
 import type { VoiceProviderPlugins } from '../../provider-plugins/index.js';
 import { createVoiceProviderPlugins } from '../../provider-plugins/index.js';
-import { VOICE_EXTENSION_PLUGINS_ROOT, StringChunkQueue } from '../../shared/index.js';
+import { VOICE_EXTENSION_PLUGIN_ROOTS, StringChunkQueue } from '../../shared/index.js';
 import type {
   VoiceAssistantFirstTurnConfig,
   VoiceCallConfigStore,
@@ -509,7 +509,7 @@ export async function createVoiceServerRegistration(ctx: {
   server: http.Server;
   registry: any;
   pluginsPath: string;
-  voicePluginsPath?: string;
+  voicePluginRoots?: string | string[];
   upgradeRouter: any;
   store?: VoiceCallConfigStore;
   providerPlugins?: VoiceProviderPlugins;
@@ -584,7 +584,7 @@ export async function createVoiceServerRegistration(ctx: {
   const providerPlugins =
     ctx.providerPlugins ??
     createVoiceProviderPlugins({
-      pluginsPath: ctx.voicePluginsPath ?? VOICE_EXTENSION_PLUGINS_ROOT,
+      pluginRoots: ctx.voicePluginRoots ?? VOICE_EXTENSION_PLUGIN_ROOTS,
       logger: {
         warning: (message: string, data?: any) => {
           void (async () => {

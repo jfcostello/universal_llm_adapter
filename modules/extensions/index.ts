@@ -11,11 +11,10 @@ export {
 } from './internal/extension-lookup.js';
 
 export type {
-  ExtensionPaths,
-  GetExtensionPathsOptions
+  GetExtensionPluginRootsOptions
 } from './internal/extension-paths.js';
 
 export {
-  getExtensionPaths,
-  resetExtensionPathsCache
+  getExtensionPluginRoots,
+  resetExtensionPluginRootsCache
 } from './internal/extension-paths.js';

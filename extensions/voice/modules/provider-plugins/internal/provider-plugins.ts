@@ -3,8 +3,10 @@ import * as path from 'path';
 import { pathToFileURL } from 'url';
 
 import { glob } from 'glob';
-import { loadJsonFile, ManifestError, resolveModuleEntryInRoot } from '../../../../../kernel/index.js';
-import { VOICE_EXTENSION_PLUGINS_ROOT } from '../../shared/index.js';
+import { loadJsonFile, ManifestError } from '../../../../../kernel/index.js';
+import { emitManifestOverrideWarning } from '../../../../../modules/shared/index.js';
+import { VOICE_EXTENSION_PLUGIN_ROOTS } from '../../shared/index.js';
+import { resolveModuleEntryAcrossRoots } from './resolve-module-entry.js';
 
 export interface VoiceProviderManifest {
   id: string;
@@ -48,24 +50,50 @@ function parseVoiceProviderManifest(value: any, filePath: string): VoiceProvider
   return { id, kind, ...(defaults ? { defaults } : {}) };
 }
 
-function resolveCompatEntry(pluginsRoot: string, kind: string): string | undefined {
-  const root = path.resolve(path.join(pluginsRoot, 'compat'));
-  return resolveModuleEntryInRoot(root, kind);
-}
-
 function getDefaultOrFirstExport(imported: Record<string, any>): any {
   return imported.default ?? imported[Object.keys(imported)[0]];
 }
 
+/**
+ * Normalize plugin roots from options.
+ * Handles both single path (legacy) and array of paths.
+ */
+function normalizePluginRoots(pluginRoots?: string | string[]): string[] {
+  if (!pluginRoots) {
+    return VOICE_EXTENSION_PLUGIN_ROOTS;
+  }
+
+  // Handle single path (legacy support for pluginsPath option passed through)
+  if (typeof pluginRoots === 'string') {
+    const trimmed = pluginRoots.trim();
+    if (!trimmed) {
+      return VOICE_EXTENSION_PLUGIN_ROOTS;
+    }
+    const resolved = path.isAbsolute(trimmed)
+      ? trimmed
+      : path.resolve(process.cwd(), trimmed);
+    return [resolved];
+  }
+
+  // Handle array of paths
+  if (pluginRoots.length === 0) {
+    return VOICE_EXTENSION_PLUGIN_ROOTS;
+  }
+
+  return pluginRoots.map(p => {
+    const trimmed = p.trim();
+    return path.isAbsolute(trimmed)
+      ? trimmed
+      : path.resolve(process.cwd(), trimmed);
+  });
+}
+
 export function createVoiceProviderPlugins(options: {
-  pluginsPath?: string;
+  pluginRoots?: string | string[];
   importModule?: (href: string) => Promise<any>;
   logger?: { warning?: (message: string, data?: any) => void };
 }): VoiceProviderPlugins {
-  const pluginsPath = String(options.pluginsPath ?? '').trim() || VOICE_EXTENSION_PLUGINS_ROOT;
-  const pluginsRoot = path.isAbsolute(pluginsPath)
-    ? pluginsPath
-    : path.resolve(process.cwd(), pluginsPath);
+  const pluginRoots = normalizePluginRoots(options.pluginRoots);
 
   const importModule = options.importModule ?? (async (href: string) => import(href));
   const safeWarn = (message: string, data?: any) => {
@@ -84,26 +112,36 @@ export function createVoiceProviderPlugins(options: {
 
   let manifestsLoaded = false;
   const manifests = new Map<string, VoiceProviderManifest>();
+  const manifestSources = new Map<string, string>(); // id -> filePath for override warnings
   const compatFactories = new Map<string, () => any>();
 
   const loadManifestsOnce = async () => {
     if (manifestsLoaded) return;
     manifestsLoaded = true;
 
-    if (!fs.existsSync(pluginsRoot)) return;
-    const files = glob.sync('providers/*.json', { cwd: pluginsRoot }).sort();
-    for (const rel of files) {
-      const fullPath = path.join(pluginsRoot, rel);
-      try {
-        const raw = loadJsonFile(fullPath);
-        const manifest = parseVoiceProviderManifest(raw, fullPath);
+    // Search for manifests across all plugin roots and combine them
+    // Later roots override earlier roots (same pattern as core registry)
+    for (const pluginsRoot of pluginRoots) {
+      if (!fs.existsSync(pluginsRoot)) continue;
 
-        if (manifests.has(manifest.id)) {
-          throw new ManifestError(`Duplicate voice provider id '${manifest.id}'`);
+      const files = glob.sync('providers/*.json', { cwd: pluginsRoot }).sort();
+      for (const rel of files) {
+        const fullPath = path.join(pluginsRoot, rel);
+        try {
+          const raw = loadJsonFile(fullPath);
+          const manifest = parseVoiceProviderManifest(raw, fullPath);
+
+          // Warn on override (same pattern as core registry)
+          const previousSource = manifestSources.get(manifest.id);
+          if (previousSource) {
+            emitManifestOverrideWarning(safeWarn, 'voice.provider_plugins', manifest.id, previousSource, fullPath);
+          }
+
+          manifests.set(manifest.id, manifest);
+          manifestSources.set(manifest.id, fullPath);
+        } catch (err: any) {
+          safeWarn('voice.provider_plugins.manifest_skipped', { manifestPath: fullPath, error: String(err) });
         }
-        manifests.set(manifest.id, manifest);
-      } catch (err: any) {
-        safeWarn('voice.provider_plugins.manifest_skipped', { manifestPath: rel, error: String(err) });
       }
     }
   };
@@ -112,7 +150,7 @@ export function createVoiceProviderPlugins(options: {
     if (compatFactories.has(kind)) return;
 
     const safeKind = assertSafeName('compat kind', kind);
-    const modulePath = resolveCompatEntry(pluginsRoot, safeKind);
+    const modulePath = resolveModuleEntryAcrossRoots(pluginRoots, 'compat', safeKind);
     if (!modulePath) {
       throw new ManifestError(`No voice compat module found for '${safeKind}'`);
     }

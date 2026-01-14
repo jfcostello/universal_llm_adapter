@@ -16,6 +16,7 @@ import {
   safeJsonStringify,
   flattenPrimitiveStrings,
   isPlainObject,
+  emitManifestOverrideWarning,
   type Deferred
 } from '@/modules/shared/index.ts';
 
@@ -599,6 +600,48 @@ describe('modules/shared', () => {
     test('returns empty string for non-positive maxBytes', () => {
       expect(flattenPrimitiveStrings('hi', { maxBytes: 0 })).toBe('');
       expect(flattenPrimitiveStrings('hi', { maxBytes: -1 })).toBe('');
+    });
+  });
+
+  describe('emitManifestOverrideWarning', () => {
+    test('calls warn function with formatted message and data', () => {
+      const warn = jest.fn();
+      emitManifestOverrideWarning(warn, 'providers', 'test-id', '/path/old.json', '/path/new.json');
+
+      expect(warn).toHaveBeenCalledWith('providers.override', {
+        id: 'test-id',
+        previous: '/path/old.json',
+        next: '/path/new.json'
+      });
+    });
+
+    test('formats area in message prefix', () => {
+      const warn = jest.fn();
+      emitManifestOverrideWarning(warn, 'voice.provider_plugins', 'my-provider', '/a.json', '/b.json');
+
+      expect(warn).toHaveBeenCalledWith('voice.provider_plugins.override', expect.any(Object));
+    });
+
+    test('does not throw when warn function throws', () => {
+      const warn = jest.fn(() => {
+        throw new Error('warn failed');
+      });
+
+      expect(() => {
+        emitManifestOverrideWarning(warn, 'test', 'id', '/old', '/new');
+      }).not.toThrow();
+    });
+
+    test('passes all data to warn function', () => {
+      const warn = jest.fn();
+      emitManifestOverrideWarning(warn, 'area', 'my-id', '/previous/path', '/next/path');
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      const [message, data] = warn.mock.calls[0] as [string, Record<string, unknown>];
+      expect(message).toBe('area.override');
+      expect(data.id).toBe('my-id');
+      expect(data.previous).toBe('/previous/path');
+      expect(data.next).toBe('/next/path');
     });
   });
 });

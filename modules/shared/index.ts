@@ -27,3 +27,5 @@ export type { LiveTestLogContext } from './internal/live-test-logger.js';
 export { logRequest, logResponse, logObservabilityEvent } from './internal/live-test-logger.js';
 
 export { isPlainObject } from './internal/plain-object.js';
+
+export { emitManifestOverrideWarning } from './internal/manifest-override-warning.js';

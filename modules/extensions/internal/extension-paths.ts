@@ -3,26 +3,16 @@ import * as path from 'path';
 import { PACKAGE_ROOT, getAdapterPathsConfig } from '../../../kernel/index.js';
 
 /**
- * Resolved paths for an extension.
+ * Options for getExtensionPluginRoots. The packageRoot option is primarily for testing.
  */
-export interface ExtensionPaths {
-  /** The root directory of the extension (e.g., /path/to/extensions/voice) */
-  extensionRoot: string;
-  /** The plugins directory within the extension (e.g., /path/to/extensions/voice/plugins) */
-  pluginsRoot: string;
-}
-
-/**
- * Options for getExtensionPaths. The packageRoot option is primarily for testing.
- */
-export interface GetExtensionPathsOptions {
+export interface GetExtensionPluginRootsOptions {
   /** Override the package root for testing. Defaults to PACKAGE_ROOT. */
   packageRoot?: string;
 }
 
-// Cache for resolved extension paths - keyed by "cwd:packageRoot:extensionId"
-const pathsCache = new Map<string, ExtensionPaths>();
-let cachedExtensionPathsCwd: string | undefined;
+// Cache for resolved plugin roots - keyed by "cwd:packageRoot:extensionId"
+const pluginRootsCache = new Map<string, string[]>();
+let cachedPluginRootsCwd: string | undefined;
 
 /**
  * Resolve a path to its canonical form using realpathSync if it exists.
@@ -40,33 +30,39 @@ function realpathIfExists(resolvedPath: string): string {
 }
 
 /**
- * Get the resolved paths for an extension.
+ * Get all plugin roots for an extension, in priority order.
  *
- * Resolution order (first match with existing plugins directory wins):
+ * Returns ALL existing plugin directories from multiple sources so callers can
+ * search for their specific files (manifests, compats, etc.) across all locations.
+ * This handles TypeScript projects where compiled JS may be in dist/ but JSON
+ * manifests remain in source.
+ *
+ * Resolution order (priority, highest first):
  * 1. External roots from llm-adapter.paths.json config (if present)
  * 2. packageRoot/extensions/{extensionId}/plugins (production/dist or custom root)
  * 3. cwd/extensions/{extensionId}/plugins (development/source fallback)
  *
- * If no plugins directory is found, returns packageRoot-based paths as fallback.
+ * Only returns directories that actually exist. Returns empty array if no
+ * plugin directories are found.
  *
  * Results are cached for performance. Cache invalidates when cwd changes.
  * Paths are canonicalized using realpathSync to handle symlinks (e.g., macOS /var -> /private/var).
  *
  * @param extensionId - The extension identifier (e.g., 'voice')
  * @param options - Optional configuration, primarily for testing
- * @returns The resolved extension paths
+ * @returns Array of plugin root paths that exist, in priority order
  */
-export function getExtensionPaths(
+export function getExtensionPluginRoots(
   extensionId: string,
-  options?: GetExtensionPathsOptions
-): ExtensionPaths {
+  options?: GetExtensionPluginRootsOptions
+): string[] {
   const cwd = process.cwd();
 
   // Invalidate cache if cwd has changed (following defaults.ts pattern)
-  if (cachedExtensionPathsCwd !== undefined && cachedExtensionPathsCwd !== cwd) {
-    pathsCache.clear();
+  if (cachedPluginRootsCwd !== undefined && cachedPluginRootsCwd !== cwd) {
+    pluginRootsCache.clear();
   }
-  cachedExtensionPathsCwd = cwd;
+  cachedPluginRootsCwd = cwd;
 
   const packageRoot = options?.packageRoot ?? PACKAGE_ROOT;
   // Canonicalize packageRoot for consistent cache keys
@@ -74,7 +70,7 @@ export function getExtensionPaths(
   const canonicalCwd = realpathIfExists(cwd);
   const cacheKey = `${canonicalCwd}:${canonicalPackageRoot}:${extensionId}`;
 
-  const cached = pathsCache.get(cacheKey);
+  const cached = pluginRootsCache.get(cacheKey);
   if (cached) {
     return cached;
   }
@@ -87,44 +83,38 @@ export function getExtensionPaths(
   if (pathsConfig) {
     const externalRoots = pathsConfig.paths.lookup.extensions.externalRoots;
     for (const extRoot of externalRoots) {
-      candidates.push(path.resolve(extRoot, extensionId));
+      candidates.push(path.resolve(extRoot, extensionId, 'plugins'));
     }
   }
 
   // Add packageRoot and cwd candidates
-  candidates.push(path.resolve(canonicalPackageRoot, 'extensions', extensionId));
-  candidates.push(path.resolve(canonicalCwd, 'extensions', extensionId));
+  candidates.push(path.resolve(canonicalPackageRoot, 'extensions', extensionId, 'plugins'));
+  candidates.push(path.resolve(canonicalCwd, 'extensions', extensionId, 'plugins'));
 
-  for (const extensionRoot of candidates) {
-    const pluginsRoot = path.join(extensionRoot, 'plugins');
-    if (fs.existsSync(pluginsRoot)) {
-      // Canonicalize found paths
-      const canonicalExtRoot = realpathIfExists(extensionRoot);
-      const canonicalPluginsRoot = realpathIfExists(pluginsRoot);
-      const result: ExtensionPaths = {
-        extensionRoot: canonicalExtRoot,
-        pluginsRoot: canonicalPluginsRoot
-      };
-      pathsCache.set(cacheKey, result);
-      return result;
+  // Filter to existing directories and canonicalize paths
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      const canonicalPath = realpathIfExists(candidate);
+      // Deduplicate (e.g., when packageRoot === cwd)
+      if (!seen.has(canonicalPath)) {
+        seen.add(canonicalPath);
+        result.push(canonicalPath);
+      }
     }
   }
 
-  // Fallback: return packageRoot path (may not exist, but consistent)
-  const fallbackRoot = path.resolve(canonicalPackageRoot, 'extensions', extensionId);
-  const result: ExtensionPaths = {
-    extensionRoot: fallbackRoot,
-    pluginsRoot: path.join(fallbackRoot, 'plugins')
-  };
-  pathsCache.set(cacheKey, result);
+  pluginRootsCache.set(cacheKey, result);
   return result;
 }
 
 /**
- * Clear the extension paths cache.
+ * Clear the extension plugin roots cache.
  * Primarily used for testing to ensure clean state between tests.
  */
-export function resetExtensionPathsCache(): void {
-  pathsCache.clear();
-  cachedExtensionPathsCwd = undefined;
+export function resetExtensionPluginRootsCache(): void {
+  pluginRootsCache.clear();
+  cachedPluginRootsCwd = undefined;
 }
