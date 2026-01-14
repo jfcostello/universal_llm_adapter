@@ -4,8 +4,14 @@ import { pipeline } from 'stream/promises';
 
 import { Command } from 'commander';
 
-import { makeHttpError, normalizeFlag } from '../../../../../modules/shared/index.js';
+import { makeHttpError } from '../../../../../modules/shared/index.js';
 import { mapErrorToHttp } from '../../../../../modules/transport/index.js';
+import {
+  validateEndMode,
+  validateTransferMode,
+  validateMaxWaitMs,
+  validateCancelOnUserSpeechCli
+} from '../../shared/index.js';
 
 type VoiceCliDeps = {
   error: (message: string) => void;
@@ -339,34 +345,19 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
 
           const modeRaw = typeof options.mode === 'string' ? options.mode.trim() : '';
           if (modeRaw) {
-            if (!['immediate', 'after_assistant_audio', 'after_playback'].includes(modeRaw)) {
-              throw makeHttpError({ message: 'Invalid mode', statusCode: 400, code: 'validation_error' });
-            }
-            out.mode = modeRaw;
+            // Validate mode - use 'immediate' as placeholder default since we know modeRaw is provided
+            out.mode = validateEndMode(modeRaw, 'immediate');
           }
 
           const maxWaitMsRaw = typeof options.maxWaitMs === 'string' ? options.maxWaitMs.trim() : '';
           if (maxWaitMsRaw) {
-            const n = Number(maxWaitMsRaw);
-            const ms = Math.floor(n);
-            if (!Number.isFinite(n) || ms < 0) {
-              throw makeHttpError({ message: 'Invalid maxWaitMs', statusCode: 400, code: 'validation_error' });
-            }
-            out.maxWaitMs = ms;
+            // Validate maxWaitMs - no limit check for CLI (server applies limit)
+            out.maxWaitMs = validateMaxWaitMs(maxWaitMsRaw, 0);
           }
 
-          if (options.cancelOnUserSpeech !== undefined) {
-            const raw = String(options.cancelOnUserSpeech).trim().toLowerCase();
-            if (!raw) {
-              // ignore
-            } else if (
-              ['true', '1', 'yes', 'y', 'on'].includes(raw) ||
-              ['false', '0', 'no', 'n', 'off'].includes(raw)
-            ) {
-              out.cancelOnUserSpeech = normalizeFlag(raw, false);
-            } else {
-              throw makeHttpError({ message: 'Invalid cancelOnUserSpeech', statusCode: 400, code: 'validation_error' });
-            }
+          const cancelOnUserSpeech = validateCancelOnUserSpeechCli(options.cancelOnUserSpeech, false);
+          if (cancelOnUserSpeech !== undefined) {
+            out.cancelOnUserSpeech = cancelOnUserSpeech;
           }
 
           if (Object.keys(out).length === 0) return undefined;
@@ -441,34 +432,19 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
 
         const modeRaw = typeof options.mode === 'string' ? options.mode.trim() : '';
         if (modeRaw) {
-          if (!['immediate', 'after_playback'].includes(modeRaw)) {
-            throw makeHttpError({ message: 'Invalid mode', statusCode: 400, code: 'validation_error' });
-          }
-          body.mode = modeRaw;
+          // Validate mode - use 'immediate' as placeholder default since we know modeRaw is provided
+          body.mode = validateTransferMode(modeRaw, 'immediate');
         }
 
         const maxWaitMsRaw = typeof options.maxWaitMs === 'string' ? options.maxWaitMs.trim() : '';
         if (maxWaitMsRaw) {
-          const n = Number(maxWaitMsRaw);
-          const ms = Math.floor(n);
-          if (!Number.isFinite(n) || ms < 0) {
-            throw makeHttpError({ message: 'Invalid maxWaitMs', statusCode: 400, code: 'validation_error' });
-          }
-          body.maxWaitMs = ms;
+          // Validate maxWaitMs - no limit check for CLI (server applies limit)
+          body.maxWaitMs = validateMaxWaitMs(maxWaitMsRaw, 0);
         }
 
-        if (options.cancelOnUserSpeech !== undefined) {
-          const raw = String(options.cancelOnUserSpeech).trim().toLowerCase();
-          if (!raw) {
-            // ignore
-          } else if (
-            ['true', '1', 'yes', 'y', 'on'].includes(raw) ||
-            ['false', '0', 'no', 'n', 'off'].includes(raw)
-          ) {
-            body.cancelOnUserSpeech = normalizeFlag(raw, false);
-          } else {
-            throw makeHttpError({ message: 'Invalid cancelOnUserSpeech', statusCode: 400, code: 'validation_error' });
-          }
+        const cancelOnUserSpeech = validateCancelOnUserSpeechCli(options.cancelOnUserSpeech, false);
+        if (cancelOnUserSpeech !== undefined) {
+          body.cancelOnUserSpeech = cancelOnUserSpeech;
         }
 
         const res = await fetch(new URL(`/voice/calls/${encodeURIComponent(callConfigId)}/transfer`, serverUrl), {
