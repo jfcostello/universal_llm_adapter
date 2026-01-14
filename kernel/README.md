@@ -27,6 +27,7 @@ kernel/
   index.ts
   README.md
   internal/
+    adapter-paths.ts
     async-queue.ts
     config.ts
     defaults.ts

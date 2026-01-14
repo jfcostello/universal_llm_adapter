@@ -52,6 +52,22 @@ An extension pack may include `extensions/<name>/defaults.json`.
 
 The server loads this only when the extension is enabled, and merges it with `server.extensions[<name>]` (legacy override wins).
 
+## Extension path resolution
+
+Extensions should use `getExtensionPaths()` from `modules/extensions` to resolve their directories:
+
+```ts
+import { getExtensionPaths } from '@/modules/extensions/index.js';
+
+const { extensionRoot, pluginsRoot } = getExtensionPaths('voice');
+```
+
+This ensures paths resolve correctly in both:
+- **Production** (`dist/`): Falls back to cwd-relative paths for JSON manifests
+- **Development** (source): Uses PACKAGE_ROOT paths
+
+Results are cached for performance. See `modules/extensions/README.md` for full details.
+
 ## Tests
 
 Extensions own their tests and they are **not** run by `npm test`.
