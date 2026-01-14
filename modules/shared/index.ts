@@ -28,4 +28,4 @@ export { logRequest, logResponse, logObservabilityEvent } from './internal/live-
 
 export { isPlainObject } from './internal/plain-object.js';
 
-export { assertNoDuplicateManifest } from './internal/assert-no-duplicate-manifest.js';
+export { emitManifestOverrideWarning } from './internal/manifest-override-warning.js';

@@ -16,7 +16,7 @@ import {
   safeJsonStringify,
   flattenPrimitiveStrings,
   isPlainObject,
-  assertNoDuplicateManifest,
+  emitManifestOverrideWarning,
   type Deferred
 } from '@/modules/shared/index.ts';
 
@@ -603,46 +603,45 @@ describe('modules/shared', () => {
     });
   });
 
-  describe('assertNoDuplicateManifest', () => {
-    test('does not throw when ID is not present (Map)', () => {
-      const map = new Map<string, any>();
-      expect(() => assertNoDuplicateManifest(map, 'new-id', '/path/to/manifest.json')).not.toThrow();
+  describe('emitManifestOverrideWarning', () => {
+    test('calls warn function with formatted message and data', () => {
+      const warn = jest.fn();
+      emitManifestOverrideWarning(warn, 'providers', 'test-id', '/path/old.json', '/path/new.json');
+
+      expect(warn).toHaveBeenCalledWith('providers.override', {
+        id: 'test-id',
+        previous: '/path/old.json',
+        next: '/path/new.json'
+      });
     });
 
-    test('throws when ID already exists (Map)', () => {
-      const map = new Map<string, any>([['existing-id', { data: 1 }]]);
-      expect(() => assertNoDuplicateManifest(map, 'existing-id', '/path/to/manifest.json'))
-        .toThrow("Duplicate id 'existing-id' in '/path/to/manifest.json'");
+    test('formats area in message prefix', () => {
+      const warn = jest.fn();
+      emitManifestOverrideWarning(warn, 'voice.provider_plugins', 'my-provider', '/a.json', '/b.json');
+
+      expect(warn).toHaveBeenCalledWith('voice.provider_plugins.override', expect.any(Object));
     });
 
-    test('does not throw when ID is not present (Set)', () => {
-      const set = new Set<string>();
-      expect(() => assertNoDuplicateManifest(set, 'new-id', '/path/to/manifest.json')).not.toThrow();
+    test('does not throw when warn function throws', () => {
+      const warn = jest.fn(() => {
+        throw new Error('warn failed');
+      });
+
+      expect(() => {
+        emitManifestOverrideWarning(warn, 'test', 'id', '/old', '/new');
+      }).not.toThrow();
     });
 
-    test('throws when ID already exists (Set)', () => {
-      const set = new Set<string>(['existing-id']);
-      expect(() => assertNoDuplicateManifest(set, 'existing-id', '/path/to/manifest.json'))
-        .toThrow("Duplicate id 'existing-id' in '/path/to/manifest.json'");
-    });
+    test('passes all data to warn function', () => {
+      const warn = jest.fn();
+      emitManifestOverrideWarning(warn, 'area', 'my-id', '/previous/path', '/next/path');
 
-    test('works with custom has function', () => {
-      const hasId = (id: string) => id === 'taken';
-      expect(() => assertNoDuplicateManifest(hasId, 'new-id', '/path/to/manifest.json')).not.toThrow();
-      expect(() => assertNoDuplicateManifest(hasId, 'taken', '/path/to/manifest.json'))
-        .toThrow("Duplicate id 'taken' in '/path/to/manifest.json'");
-    });
-
-    test('includes label in error message when provided', () => {
-      const map = new Map<string, any>([['provider-x', {}]]);
-      expect(() => assertNoDuplicateManifest(map, 'provider-x', '/plugins/providers/x.json', 'voice provider'))
-        .toThrow("Duplicate voice provider id 'provider-x' in '/plugins/providers/x.json'");
-    });
-
-    test('omits label from error message when not provided', () => {
-      const map = new Map<string, any>([['my-id', {}]]);
-      expect(() => assertNoDuplicateManifest(map, 'my-id', '/path/file.json'))
-        .toThrow("Duplicate id 'my-id' in '/path/file.json'");
+      expect(warn).toHaveBeenCalledTimes(1);
+      const [message, data] = warn.mock.calls[0] as [string, Record<string, unknown>];
+      expect(message).toBe('area.override');
+      expect(data.id).toBe('my-id');
+      expect(data.previous).toBe('/previous/path');
+      expect(data.next).toBe('/next/path');
     });
   });
 });

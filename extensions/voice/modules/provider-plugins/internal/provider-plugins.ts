@@ -4,7 +4,7 @@ import { pathToFileURL } from 'url';
 
 import { glob } from 'glob';
 import { loadJsonFile, ManifestError } from '../../../../../kernel/index.js';
-import { assertNoDuplicateManifest } from '../../../../../modules/shared/index.js';
+import { emitManifestOverrideWarning } from '../../../../../modules/shared/index.js';
 import { VOICE_EXTENSION_PLUGIN_ROOTS } from '../../shared/index.js';
 import { resolveModuleEntryAcrossRoots } from './resolve-module-entry.js';
 
@@ -112,6 +112,7 @@ export function createVoiceProviderPlugins(options: {
 
   let manifestsLoaded = false;
   const manifests = new Map<string, VoiceProviderManifest>();
+  const manifestSources = new Map<string, string>(); // id -> filePath for override warnings
   const compatFactories = new Map<string, () => any>();
 
   const loadManifestsOnce = async () => {
@@ -119,6 +120,7 @@ export function createVoiceProviderPlugins(options: {
     manifestsLoaded = true;
 
     // Search for manifests across all plugin roots and combine them
+    // Later roots override earlier roots (same pattern as core registry)
     for (const pluginsRoot of pluginRoots) {
       if (!fs.existsSync(pluginsRoot)) continue;
 
@@ -129,9 +131,14 @@ export function createVoiceProviderPlugins(options: {
           const raw = loadJsonFile(fullPath);
           const manifest = parseVoiceProviderManifest(raw, fullPath);
 
-          // Use shared duplicate detection
-          assertNoDuplicateManifest(manifests, manifest.id, fullPath, 'voice provider');
+          // Warn on override (same pattern as core registry)
+          const previousSource = manifestSources.get(manifest.id);
+          if (previousSource) {
+            emitManifestOverrideWarning(safeWarn, 'voice.provider_plugins', manifest.id, previousSource, fullPath);
+          }
+
           manifests.set(manifest.id, manifest);
+          manifestSources.set(manifest.id, fullPath);
         } catch (err: any) {
           safeWarn('voice.provider_plugins.manifest_skipped', { manifestPath: fullPath, error: String(err) });
         }

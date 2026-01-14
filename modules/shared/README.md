@@ -149,34 +149,29 @@ import { calculateBackoffDelay } from '../shared/index.js';
 const delayMs = calculateBackoffDelay(2, 250, 30_000);
 ```
 
-### `assertNoDuplicateManifest(hasId, id, sourcePath, label?)`
+### `emitManifestOverrideWarning(warn, area, id, previousSource, nextSource)`
 
-Asserts that a manifest ID is not already present in a collection. Throws an error if a duplicate is found. This is the single source of truth for duplicate manifest detection used by extensions (e.g., voice extension).
+Emits a warning when a manifest is being overridden by another manifest with the same ID. Used by extensions (e.g., voice extension) for consistent warn+override behavior. Note: The core plugin registry in the kernel has its own implementation to avoid dependency on lazy-loaded modules.
+
+The warn+override pattern allows users to provide custom manifests that override built-in defaults - later roots override earlier roots.
 
 ```typescript
-import { assertNoDuplicateManifest } from '../shared/index.js';
+import { emitManifestOverrideWarning } from '../shared/index.js';
 
-// With a Map
-const manifests = new Map<string, any>();
-assertNoDuplicateManifest(manifests, 'provider-id', '/path/to/manifest.json', 'voice provider');
-// Throws: "Duplicate voice provider id 'provider-id' in '/path/to/manifest.json'" if exists
-
-// With a Set
-const seen = new Set<string>();
-assertNoDuplicateManifest(seen, 'my-id', '/path/file.json');
-// Throws: "Duplicate id 'my-id' in '/path/file.json'" if exists
-
-// With a custom function
-assertNoDuplicateManifest(
-  (id) => someMap.has(id),
-  'my-id',
-  '/path/file.json',
-  'custom'
+// Called when a duplicate manifest ID is found
+emitManifestOverrideWarning(
+  (msg, data) => console.warn(msg, data),
+  'voice.provider_plugins',
+  'my-provider',
+  '/builtin/providers/my-provider.json',
+  '/custom/providers/my-provider.json'
 );
+// Warns: "voice.provider_plugins.override" with data { id, previous, next }
 ```
 
 **Parameters:**
-- `hasId` - Object with `.has(id)` method (Map, Set) or function `(id: string) => boolean`
-- `id` - The manifest ID to check
-- `sourcePath` - Path to the manifest file (for error message)
-- `label` - Optional label for the manifest type (e.g., 'voice provider')
+- `warn` - Warning function `(message: string, data: Record<string, unknown>) => void`
+- `area` - The manifest area (e.g., 'providers', 'voice.provider_plugins')
+- `id` - The manifest ID being overridden
+- `previousSource` - Path/info for the previous manifest
+- `nextSource` - Path/info for the new (overriding) manifest
