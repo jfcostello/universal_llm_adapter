@@ -29,3 +29,6 @@ export { logRequest, logResponse, logObservabilityEvent } from './internal/live-
 export { isPlainObject } from './internal/plain-object.js';
 
 export { emitManifestOverrideWarning } from './internal/manifest-override-warning.js';
+
+export type { ValidateE164Result } from './internal/validate-e164.js';
+export { validateE164 } from './internal/validate-e164.js';
