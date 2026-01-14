@@ -457,4 +457,52 @@ describe('extensions/voice: call events + control endpoints', () => {
       await harness.close();
     }
   });
+
+  test('POST /voice/calls/:callConfigId/transfer uses custom timeout from request body', async () => {
+    const store = createInMemoryVoiceCallConfigStore();
+    await store.putConfig(
+      {
+        version: 1,
+        callConfigId: 'cfg_1',
+        createdAtMs: 0,
+        expiresAtMs: 0,
+        to: 'to',
+        from: 'from',
+        direction: 'outbound',
+        realtimeSpec: {},
+        voiceProvider: 'test',
+        providerCallId: 'p1'
+      } as any,
+      { ttlSeconds: 60 }
+    );
+
+    const transferCall = jest.fn(async () => ({ ok: true }));
+    const harness = await startHarness({
+      store,
+      providerPlugins: {
+        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
+        getCompat: jest.fn(async () => ({ transferCall }))
+      },
+      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
+    });
+
+    try {
+      const res = await fetch(new URL('/voice/calls/cfg_1/transfer', harness.baseUrl), {
+        method: 'POST',
+        headers: { Authorization: 'Bearer k1', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetNumber: '+14155551234', timeout: 120 })
+      });
+      expect(res.status).toBe(200);
+
+      expect(transferCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerCallId: 'p1',
+          targetNumber: '+14155551234',
+          timeout: 120
+        })
+      );
+    } finally {
+      await harness.close();
+    }
+  });
 });

@@ -402,9 +402,9 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
     .option('--api-key <key>', 'API key for server auth (sent as x-api-key by default)')
     .option('--api-key-header-name <name>', 'Header name for api key (default: x-api-key)', 'x-api-key')
     .option('--call-config-id <id>', 'Call config id to transfer')
-    .option('--target-number <number>', 'Target phone number in E.164 format (e.g. +14155551234)')
+    .option('--target-number <number>', 'Target phone number in E.164 format (+[country code][number])')
     .option('--caller-id <number>', 'Optional caller ID to show the target (E.164 format)')
-    .option('--timeout <seconds>', 'Ring timeout in seconds (1-600, default: 30)')
+    .option('--timeout <seconds>', 'Ring timeout in seconds (1-600, server default from voice config)')
     .option('--pretty', 'Pretty print output')
     .action(async (options) => {
       try {

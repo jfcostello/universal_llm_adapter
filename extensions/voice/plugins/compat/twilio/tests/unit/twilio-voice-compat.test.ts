@@ -2298,6 +2298,7 @@ describe('plugins/compat/twilio', () => {
       const res = await compat.transferCall({
         providerCallId: 'CA123',
         targetNumber: '+14155551234',
+        timeout: 30,
         providerDefaults: { accountSid: 'AC123', authToken: 'token', apiBaseUrl: 'https://api.example.test' }
       });
       expect(res).toEqual({ ok: true });
@@ -2309,7 +2310,7 @@ describe('plugins/compat/twilio', () => {
       const twiml = body.get('Twiml') ?? '';
       expect(twiml).toContain('<Dial');
       expect(twiml).toContain('+14155551234');
-      expect(twiml).toContain('timeout="30"'); // default timeout
+      expect(twiml).toContain('timeout="30"');
     } finally {
       fetchSpy.mockRestore();
     }
@@ -2346,8 +2347,9 @@ describe('plugins/compat/twilio', () => {
       compat.transferCall({
         providerCallId: '',
         targetNumber: '+14155551234',
+        timeout: 30,
         providerDefaults: { accountSid: 'AC123', authToken: 'token' }
-      } as any)
+      })
     ).rejects.toMatchObject({ statusCode: 400, code: 'validation_error' });
   });
 
@@ -2357,6 +2359,7 @@ describe('plugins/compat/twilio', () => {
       compat.transferCall({
         providerCallId: 'CA123',
         targetNumber: '14155551234', // missing + prefix
+        timeout: 30,
         providerDefaults: { accountSid: 'AC123', authToken: 'token' }
       } as any)
     ).rejects.toMatchObject({ statusCode: 400, code: 'validation_error' });
@@ -2365,6 +2368,7 @@ describe('plugins/compat/twilio', () => {
       compat.transferCall({
         providerCallId: 'CA123',
         targetNumber: '+1-415-555-1234', // has dashes
+        timeout: 30,
         providerDefaults: { accountSid: 'AC123', authToken: 'token' }
       } as any)
     ).rejects.toMatchObject({ statusCode: 400, code: 'validation_error' });
@@ -2397,8 +2401,9 @@ describe('plugins/compat/twilio', () => {
       compat.transferCall({
         providerCallId: 'CA123',
         targetNumber: '+14155551234',
+        timeout: 30,
         providerDefaults: { accountSid: 'AC123' } // missing authToken
-      } as any)
+      })
     ).rejects.toMatchObject({ statusCode: 500, code: 'provider_config_error' });
   });
 
@@ -2410,8 +2415,9 @@ describe('plugins/compat/twilio', () => {
         compat.transferCall({
           providerCallId: 'CA123',
           targetNumber: '+14155551234',
+          timeout: 30,
           providerDefaults: { accountSid: 'AC123', authToken: 'token' }
-        } as any)
+        })
       ).rejects.toBeInstanceOf(ProviderExecutionError);
     } finally {
       fetchSpy.mockRestore();
@@ -2430,8 +2436,9 @@ describe('plugins/compat/twilio', () => {
           providerCallId: 'CA123',
           targetNumber: '+14155551234',
           callerId: '+1invalid',
+          timeout: 30,
           providerDefaults: { accountSid: 'AC123', authToken: 'token' }
-        } as any)
+        })
       ).rejects.toBeInstanceOf(ProviderExecutionError);
     } finally {
       fetchSpy.mockRestore();
@@ -2448,6 +2455,7 @@ describe('plugins/compat/twilio', () => {
       await compat.transferCall({
         providerCallId: 'CA123',
         targetNumber: '+14155551234',
+        timeout: 30,
         providerDefaults: { accountSid: 'AC123', authToken: 'token', apiBaseUrl: '   ' }
       });
 
@@ -2464,6 +2472,7 @@ describe('plugins/compat/twilio', () => {
       compat.transferCall({
         providerCallId: 'CA123',
         targetNumber: '+14155551234',
+        timeout: 30,
         providerDefaults: 'nope'
       } as any)
     ).rejects.toMatchObject({ statusCode: 500, code: 'provider_config_error' });
@@ -2477,8 +2486,9 @@ describe('plugins/compat/twilio', () => {
         compat.transferCall({
           providerCallId: 'CA123',
           targetNumber: '+14155551234',
+          timeout: 30,
           providerDefaults: { accountSid: 'AC123', authToken: 'token' }
-        } as any)
+        })
       ).rejects.toBeInstanceOf(ProviderExecutionError);
     } finally {
       fetchSpy.mockRestore();
@@ -2500,8 +2510,9 @@ describe('plugins/compat/twilio', () => {
         compat.transferCall({
           providerCallId: 'CA123',
           targetNumber: '+14155551234',
+          timeout: 30,
           providerDefaults: { accountSid: 'AC123', authToken: 'token' }
-        } as any)
+        })
       ).rejects.toBeInstanceOf(ProviderExecutionError);
     } finally {
       fetchSpy.mockRestore();

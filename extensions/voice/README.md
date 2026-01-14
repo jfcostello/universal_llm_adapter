@@ -85,8 +85,11 @@ Enable the voice extension on the server via:
   - Overrides the default SSE keepalive interval (`server.extensions.voice.events.keepAliveIntervalMs`). Set to `0` to disable keepalives.
 
 - `LLM_ADAPTER_VOICE_MEDIA_WS_TOKEN_FROM_MESSAGE_TIMEOUT_MS` (default: `5000`)
-  - Enables accepting the signed `WS /voice/media` token via the first WebSocket message (JSON key: `voiceMediaToken`) when URL query parameters can’t be preserved.
+  - Enables accepting the signed `WS /voice/media` token via the first WebSocket message (JSON key: `voiceMediaToken`) when URL query parameters can't be preserved.
   - Set to `0` to disable and require `?token=...` in the URL.
+
+- `LLM_ADAPTER_VOICE_TRANSFER_DEFAULT_TIMEOUT_SECONDS` (default: `30`)
+  - Overrides the default ring timeout for blind call transfers (`server.extensions.voice.transfer.defaultTimeoutSeconds`). Range: 1-600 seconds.
 
 ### Server defaults (optional)
 

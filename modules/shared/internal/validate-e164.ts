@@ -17,7 +17,7 @@ export function validateE164(value: unknown): ValidateE164Result {
   // E.164: + followed by 1-15 digits, first digit must be non-zero (country code)
   // Minimum 2 digits ensures at least country code + 1 subscriber digit
   if (!/^\+[1-9]\d{1,14}$/.test(trimmed)) {
-    return { ok: false, error: 'Invalid E.164 phone number format (expected +[country code][number], e.g. +14155551234)' };
+    return { ok: false, error: 'Invalid E.164 phone number format (expected +[country code][number])' };
   }
 
   return { ok: true, value: trimmed };

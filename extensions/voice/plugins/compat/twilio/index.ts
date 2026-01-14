@@ -32,10 +32,10 @@ function splitMediaWsUrl(mediaWsUrl: string): { wsUrl: string; token: string } {
   }
 }
 
-function buildTwiMLDial(options: { targetNumber: string; callerId?: string; timeout?: number }): string {
+function buildTwiMLDial(options: { targetNumber: string; callerId?: string; timeout: number }): string {
   const targetNumber = escapeXmlAttr(String(options.targetNumber));
   const callerIdAttr = options.callerId ? ` callerId="${escapeXmlAttr(String(options.callerId))}"` : '';
-  const timeout = options.timeout !== undefined ? Math.max(1, Math.min(600, Math.floor(options.timeout))) : 30;
+  const timeout = Math.max(1, Math.min(600, Math.floor(options.timeout)));
 
   return `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n  <Dial${callerIdAttr} timeout="${timeout}">${targetNumber}</Dial>\n</Response>\n`;
 }
@@ -1175,7 +1175,7 @@ export default class TwilioVoiceCompat {
     providerCallId: string;
     targetNumber: string;
     callerId?: string;
-    timeout?: number;
+    timeout: number;
     providerDefaults?: any;
   }): Promise<{ ok: true }> {
     const providerCallId = String(options.providerCallId ?? '').trim();
@@ -1193,14 +1193,11 @@ export default class TwilioVoiceCompat {
     // callerId validation is delegated to Twilio - we just pass it through if provided
 
     const timeoutRaw = options.timeout;
-    let timeout: number | undefined;
-    if (timeoutRaw !== undefined && timeoutRaw !== null) {
-      const n = Number(timeoutRaw);
-      if (!Number.isFinite(n) || n < 1 || n > 600) {
-        throw makeHttpError({ message: 'Invalid timeout (must be 1-600 seconds)', statusCode: 400, code: 'validation_error' });
-      }
-      timeout = Math.floor(n);
+    const n = Number(timeoutRaw);
+    if (!Number.isFinite(n) || n < 1 || n > 600) {
+      throw makeHttpError({ message: 'Invalid timeout (must be 1-600 seconds)', statusCode: 400, code: 'validation_error' });
     }
+    const timeout = Math.floor(n);
 
     const defaultsRaw = options.providerDefaults;
     const defaults =
@@ -1219,8 +1216,8 @@ export default class TwilioVoiceCompat {
 
     const twiml = buildTwiMLDial({
       targetNumber,
-      ...(callerIdRaw ? { callerId: callerIdRaw } : {}),
-      ...(timeout !== undefined ? { timeout } : {})
+      timeout,
+      ...(callerIdRaw ? { callerId: callerIdRaw } : {})
     });
 
     const url = `${apiBaseUrl}/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Calls/${encodeURIComponent(providerCallId)}.json`;
