@@ -148,3 +148,35 @@ import { calculateBackoffDelay } from '../shared/index.js';
 
 const delayMs = calculateBackoffDelay(2, 250, 30_000);
 ```
+
+### `assertNoDuplicateManifest(hasId, id, sourcePath, label?)`
+
+Asserts that a manifest ID is not already present in a collection. Throws an error if a duplicate is found. This is the single source of truth for duplicate manifest detection used by extensions (e.g., voice extension).
+
+```typescript
+import { assertNoDuplicateManifest } from '../shared/index.js';
+
+// With a Map
+const manifests = new Map<string, any>();
+assertNoDuplicateManifest(manifests, 'provider-id', '/path/to/manifest.json', 'voice provider');
+// Throws: "Duplicate voice provider id 'provider-id' in '/path/to/manifest.json'" if exists
+
+// With a Set
+const seen = new Set<string>();
+assertNoDuplicateManifest(seen, 'my-id', '/path/file.json');
+// Throws: "Duplicate id 'my-id' in '/path/file.json'" if exists
+
+// With a custom function
+assertNoDuplicateManifest(
+  (id) => someMap.has(id),
+  'my-id',
+  '/path/file.json',
+  'custom'
+);
+```
+
+**Parameters:**
+- `hasId` - Object with `.has(id)` method (Map, Set) or function `(id: string) => boolean`
+- `id` - The manifest ID to check
+- `sourcePath` - Path to the manifest file (for error message)
+- `label` - Optional label for the manifest type (e.g., 'voice provider')

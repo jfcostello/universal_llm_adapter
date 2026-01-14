@@ -16,6 +16,7 @@ import {
   safeJsonStringify,
   flattenPrimitiveStrings,
   isPlainObject,
+  assertNoDuplicateManifest,
   type Deferred
 } from '@/modules/shared/index.ts';
 
@@ -599,6 +600,49 @@ describe('modules/shared', () => {
     test('returns empty string for non-positive maxBytes', () => {
       expect(flattenPrimitiveStrings('hi', { maxBytes: 0 })).toBe('');
       expect(flattenPrimitiveStrings('hi', { maxBytes: -1 })).toBe('');
+    });
+  });
+
+  describe('assertNoDuplicateManifest', () => {
+    test('does not throw when ID is not present (Map)', () => {
+      const map = new Map<string, any>();
+      expect(() => assertNoDuplicateManifest(map, 'new-id', '/path/to/manifest.json')).not.toThrow();
+    });
+
+    test('throws when ID already exists (Map)', () => {
+      const map = new Map<string, any>([['existing-id', { data: 1 }]]);
+      expect(() => assertNoDuplicateManifest(map, 'existing-id', '/path/to/manifest.json'))
+        .toThrow("Duplicate id 'existing-id' in '/path/to/manifest.json'");
+    });
+
+    test('does not throw when ID is not present (Set)', () => {
+      const set = new Set<string>();
+      expect(() => assertNoDuplicateManifest(set, 'new-id', '/path/to/manifest.json')).not.toThrow();
+    });
+
+    test('throws when ID already exists (Set)', () => {
+      const set = new Set<string>(['existing-id']);
+      expect(() => assertNoDuplicateManifest(set, 'existing-id', '/path/to/manifest.json'))
+        .toThrow("Duplicate id 'existing-id' in '/path/to/manifest.json'");
+    });
+
+    test('works with custom has function', () => {
+      const hasId = (id: string) => id === 'taken';
+      expect(() => assertNoDuplicateManifest(hasId, 'new-id', '/path/to/manifest.json')).not.toThrow();
+      expect(() => assertNoDuplicateManifest(hasId, 'taken', '/path/to/manifest.json'))
+        .toThrow("Duplicate id 'taken' in '/path/to/manifest.json'");
+    });
+
+    test('includes label in error message when provided', () => {
+      const map = new Map<string, any>([['provider-x', {}]]);
+      expect(() => assertNoDuplicateManifest(map, 'provider-x', '/plugins/providers/x.json', 'voice provider'))
+        .toThrow("Duplicate voice provider id 'provider-x' in '/plugins/providers/x.json'");
+    });
+
+    test('omits label from error message when not provided', () => {
+      const map = new Map<string, any>([['my-id', {}]]);
+      expect(() => assertNoDuplicateManifest(map, 'my-id', '/path/file.json'))
+        .toThrow("Duplicate id 'my-id' in '/path/file.json'");
     });
   });
 });

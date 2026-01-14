@@ -3,8 +3,10 @@ import * as path from 'path';
 import { pathToFileURL } from 'url';
 
 import { glob } from 'glob';
-import { loadJsonFile, ManifestError, resolveModuleEntryAcrossRoots } from '../../../../../kernel/index.js';
+import { loadJsonFile, ManifestError } from '../../../../../kernel/index.js';
+import { assertNoDuplicateManifest } from '../../../../../modules/shared/index.js';
 import { VOICE_EXTENSION_PLUGIN_ROOTS } from '../../shared/index.js';
+import { resolveModuleEntryAcrossRoots } from './resolve-module-entry.js';
 
 export interface VoiceProviderManifest {
   id: string;
@@ -127,9 +129,8 @@ export function createVoiceProviderPlugins(options: {
           const raw = loadJsonFile(fullPath);
           const manifest = parseVoiceProviderManifest(raw, fullPath);
 
-          if (manifests.has(manifest.id)) {
-            throw new ManifestError(`Duplicate voice provider id '${manifest.id}' in '${fullPath}'`);
-          }
+          // Use shared duplicate detection
+          assertNoDuplicateManifest(manifests, manifest.id, fullPath, 'voice provider');
           manifests.set(manifest.id, manifest);
         } catch (err: any) {
           safeWarn('voice.provider_plugins.manifest_skipped', { manifestPath: fullPath, error: String(err) });
