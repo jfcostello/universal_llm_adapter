@@ -39,7 +39,7 @@ import type {
   VoiceCallTimeoutsConfig
 } from '../../call-config-store/index.js';
 import { createVoiceCallConfigStoreFromEnv } from '../../call-config-store/index.js';
-import { createVoiceCallEventHub, type VoiceCallEventHub, type VoiceCallEventEnvelope, type VoiceCallEventSubscription } from '../../call-events/index.js';
+import { createVoiceCallEventHub, type VoiceCallEventHub, type VoiceCallEventEnvelope } from '../../call-events/index.js';
 import { createVoiceMetrics } from '../../observability/index.js';
 import { scheduleDeferredAction } from '../../deferred-action/index.js';
 
@@ -565,7 +565,8 @@ export async function createVoiceServerRegistration(ctx: {
   const resolveLogger = async (correlationId?: string): Promise<VoiceLogger | undefined> => {
     if (ctx.logging?.getLogger) {
       try {
-        return ctx.logging.getLogger(correlationId);
+        // Await to properly catch rejected promises (not just synchronous throws)
+        return await ctx.logging.getLogger(correlationId);
       } catch {
         return undefined;
       }
@@ -1436,7 +1437,7 @@ export async function createVoiceServerRegistration(ctx: {
                 const message = err?.message ? String(err.message).slice(0, 200) : String(err).slice(0, 200);
                 const code = err?.code !== undefined ? String(err.code).slice(0, 64) : undefined;
                 const statusCode = Number(err?.statusCode ?? err?.status ?? 0) || undefined;
-                const logger = await resolveLogger(callConfigId).catch(() => undefined);
+                const logger = await resolveLogger(callConfigId);
                 safeLog(logger, 'error', 'voice.calls.end_failed', {
                   callConfigId,
                   voiceProvider,
@@ -1653,7 +1654,7 @@ export async function createVoiceServerRegistration(ctx: {
                 const message = err?.message ? String(err.message).slice(0, 200) : String(err).slice(0, 200);
                 const code = err?.code !== undefined ? String(err.code).slice(0, 64) : undefined;
                 const statusCode = Number(err?.statusCode ?? err?.status ?? 0) || undefined;
-                const logger = await resolveLogger(callConfigId).catch(() => undefined);
+                const logger = await resolveLogger(callConfigId);
                 safeLog(logger, 'error', 'voice.calls.transfer_failed', {
                   callConfigId,
                   voiceProvider,

@@ -451,6 +451,13 @@ describe('extensions/voice: provider plugins loader', () => {
       expect(manifests.some(m => m.id === 'test')).toBe(true);
     });
 
+    test('handles empty string pluginRoots by using defaults', async () => {
+      const plugins = createVoiceProviderPlugins({ pluginRoots: '   ' });
+      const manifests = await plugins.listManifests();
+      // Should use default VOICE_EXTENSION_PLUGIN_ROOTS which includes built-in test provider
+      expect(manifests.some(m => m.id === 'test')).toBe(true);
+    });
+
     test('normalizes relative paths in pluginRoots array', async () => {
       const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-multi-root-rel-'));
       try {
