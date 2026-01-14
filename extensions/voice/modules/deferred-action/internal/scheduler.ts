@@ -1,3 +1,5 @@
+import { setUnrefTimeout } from '../../../../../modules/shared/index.js';
+
 /**
  * Event subscription returned by the events hub.
  */
@@ -149,10 +151,7 @@ export async function scheduleDeferredAction(
 
   pendingRequests.set(callConfigId, { cancel });
 
-  timeoutId = setTimeout(() => requestExecute('max_wait'), Math.max(0, Math.floor(maxWaitMs)));
-  if (typeof (timeoutId as any)?.unref === 'function') {
-    (timeoutId as any).unref();
-  }
+  timeoutId = setUnrefTimeout(() => requestExecute('max_wait'), Math.max(0, Math.floor(maxWaitMs)));
 
   onScheduled();
   return 'scheduled';

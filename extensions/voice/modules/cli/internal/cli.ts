@@ -11,7 +11,7 @@ import {
   validateTransferMode,
   validateMaxWaitMs,
   validateCancelOnUserSpeechCli
-} from '../../shared/index.js';
+} from '../../graceful-mode-validation/index.js';
 
 type VoiceCliDeps = {
   error: (message: string) => void;

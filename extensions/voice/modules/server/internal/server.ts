@@ -22,14 +22,16 @@ import type { VoiceProviderPlugins } from '../../provider-plugins/index.js';
 import { createVoiceProviderPlugins } from '../../provider-plugins/index.js';
 import {
   VOICE_EXTENSION_PLUGIN_ROOTS,
-  StringChunkQueue,
+  StringChunkQueue
+} from '../../shared/index.js';
+import {
   validateEndMode,
   validateTransferMode,
   validateMaxWaitMs,
   validateCancelOnUserSpeechServer,
   type GracefulEndMode,
   type GracefulTransferMode
-} from '../../shared/index.js';
+} from '../../graceful-mode-validation/index.js';
 import type {
   VoiceAssistantFirstTurnConfig,
   VoiceCallConfigStore,
