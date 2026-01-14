@@ -4154,7 +4154,8 @@ describe('extensions/voice: server http handlers', () => {
           result: 'scheduled',
           mode: 'after_assistant_audio',
           maxWaitMs: 1234,
-          cancelOnUserSpeech: true
+          cancelOnUserSpeech: true,
+          fallback: false
         })
       );
       expect(endCall).not.toHaveBeenCalled();
@@ -4229,7 +4230,7 @@ describe('extensions/voice: server http handlers', () => {
       ).resolves.toBe(true);
       expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
       const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
-      expect(body).toEqual(expect.objectContaining({ ok: true, result: 'scheduled', mode: 'after_playback', maxWaitMs: 5000 }));
+      expect(body).toEqual(expect.objectContaining({ ok: true, result: 'scheduled', mode: 'after_playback', maxWaitMs: 5000, fallback: false }));
 
       eventsHub.emit('cfg_end_ready', { type: 'voice.assistant_audio.ended' });
       await jest.advanceTimersByTimeAsync(0);
@@ -4303,7 +4304,7 @@ describe('extensions/voice: server http handlers', () => {
     ).resolves.toBe(true);
     expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
     const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
-    expect(body).toEqual(expect.objectContaining({ ok: true, result: 'ended', mode: 'immediate', maxWaitMs: 5000 }));
+    expect(body).toEqual(expect.objectContaining({ ok: true, result: 'ended', mode: 'immediate', maxWaitMs: 5000, fallback: false }));
     expect(endCall).toHaveBeenCalledTimes(1);
   });
 
@@ -4624,7 +4625,7 @@ describe('extensions/voice: server http handlers', () => {
       expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
 
       const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
-      expect(body).toEqual(expect.objectContaining({ ok: true, result: 'ended', mode: 'immediate' }));
+      expect(body).toEqual(expect.objectContaining({ ok: true, result: 'ended', mode: 'after_playback', fallback: true }));
       expect(endCall).toHaveBeenCalledTimes(1);
     } finally {
       jest.useRealTimers();
@@ -5617,7 +5618,7 @@ describe('extensions/voice: server http handlers', () => {
     ).resolves.toBe(true);
     expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
     const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
-    expect(body).toEqual(expect.objectContaining({ ok: true, result: 'transferred', targetNumber: '+14155551234', mode: 'immediate' }));
+    expect(body).toEqual(expect.objectContaining({ ok: true, result: 'transferred', targetNumber: '+14155551234', mode: 'immediate', fallback: false }));
     expect(transferCall).toHaveBeenCalledTimes(1);
   });
 
@@ -5673,7 +5674,7 @@ describe('extensions/voice: server http handlers', () => {
       ).resolves.toBe(true);
       expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
       const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
-      expect(body).toEqual(expect.objectContaining({ ok: true, result: 'scheduled', mode: 'after_playback' }));
+      expect(body).toEqual(expect.objectContaining({ ok: true, result: 'scheduled', mode: 'after_playback', fallback: false }));
 
       expect(transferCall).not.toHaveBeenCalled();
 
@@ -5878,7 +5879,7 @@ describe('extensions/voice: server http handlers', () => {
       expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
 
       const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
-      expect(body).toEqual(expect.objectContaining({ ok: true, result: 'transferred', mode: 'immediate' }));
+      expect(body).toEqual(expect.objectContaining({ ok: true, result: 'transferred', mode: 'after_playback', fallback: true }));
 
       await jest.advanceTimersByTimeAsync(10);
       expect(transferCall).toHaveBeenCalledTimes(1);
@@ -6028,7 +6029,7 @@ describe('extensions/voice: server http handlers', () => {
     ).resolves.toBe(true);
     expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
     const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
-    expect(body).toEqual(expect.objectContaining({ ok: true, result: 'transferred', mode: 'immediate', maxWaitMs: 5000 }));
+    expect(body).toEqual(expect.objectContaining({ ok: true, result: 'transferred', mode: 'immediate', maxWaitMs: 5000, fallback: false }));
     expect(transferCall).toHaveBeenCalledTimes(1);
   });
 

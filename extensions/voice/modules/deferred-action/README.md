@@ -56,6 +56,10 @@ When the events hub rejects subscription (e.g., due to saturation) and the immed
 - `index.ts` - Public API exports
 - `internal/scheduler.ts` - Implementation
 
+## Implementation Notes
+
+The scheduler uses an `active` flag to prevent race conditions when multiple events fire in rapid succession. The flag is set to `false` synchronously before any async work begins, ensuring that concurrent event callbacks cannot both execute the action.
+
 ## Dependencies
 
 This module has no external dependencies. It receives the events hub as a parameter to maintain loose coupling.

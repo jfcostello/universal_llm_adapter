@@ -467,9 +467,11 @@ Modes:
 - `after_playback`: wait for `voice.playback.drained` then end (requires compat support).
 
 Behavior:
-- For graceful modes, the server returns `{ ok: true, result: "scheduled" }` and performs termination asynchronously.
+- For graceful modes, the server returns `{ ok: true, result: "scheduled", fallback: false }` and performs termination asynchronously.
 - `maxWaitMs` is a safety fallback; if the awaited event is not observed within `maxWaitMs`, the server ends the call.
 - When `cancelOnUserSpeech=true`, a pending graceful end is canceled if `user_speech.started` is observed before termination.
+- If event subscription fails (e.g., hub saturated), the server falls back to immediate execution and returns `{ ..., fallback: true }`.
+- If an immediate mode request is made while a graceful end is pending, the pending request is canceled and immediate execution proceeds.
 
 Events:
 - `voice.call.end_scheduled` (server scheduled a graceful end)
@@ -507,9 +509,11 @@ Modes:
 - `after_playback`: wait for `voice.playback.drained` then transfer (requires compat support).
 
 Behavior:
-- For graceful modes, the server returns `{ ok: true, result: "scheduled" }` and performs the transfer asynchronously.
+- For graceful modes, the server returns `{ ok: true, result: "scheduled", fallback: false }` and performs the transfer asynchronously.
 - `maxWaitMs` is a safety fallback; if the awaited event is not observed within `maxWaitMs`, the server transfers the call.
 - When `cancelOnUserSpeech=true`, a pending graceful transfer is canceled if `user_speech.started` is observed before transfer.
+- If event subscription fails (e.g., hub saturated), the server falls back to immediate execution and returns `{ ..., fallback: true }`.
+- If an immediate mode request is made while a graceful transfer is pending, the pending request is canceled and immediate execution proceeds.
 - When the transfer is executed, the existing WebSocket media stream closes immediately.
 - The caller hears ringing while the target phone rings.
 - If the target answers, they're connected to the caller.
@@ -524,7 +528,8 @@ Response:
   "targetNumber": "+14155551234",
   "mode": "immediate",
   "maxWaitMs": 5000,
-  "cancelOnUserSpeech": false
+  "cancelOnUserSpeech": false,
+  "fallback": false
 }
 ```
 

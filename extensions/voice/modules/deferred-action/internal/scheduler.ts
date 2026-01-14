@@ -100,6 +100,7 @@ export async function scheduleDeferredAction(
 
   const requestExecute = (reason: string) => {
     if (!active) return;
+    active = false; // Set immediately before async work to prevent race condition
     void (async () => {
       cancel();
       try {
@@ -113,6 +114,7 @@ export async function scheduleDeferredAction(
 
   const requestCancel = (reason: string) => {
     if (!active) return;
+    active = false; // Set immediately before cancel to prevent race condition
     cancel();
     onCanceled(reason);
   };

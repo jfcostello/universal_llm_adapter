@@ -710,7 +710,7 @@ export async function createVoiceServerRegistration(ctx: {
     });
   })();
 
-  // Mode types are imported from shared/graceful-mode-validation.ts
+  // Mode types are imported from ../../graceful-mode-validation/index.js
   // type GracefulEndMode = 'immediate' | 'after_assistant_audio' | 'after_playback';
   // type GracefulTransferMode = 'immediate' | 'after_playback';
 
@@ -1375,9 +1375,15 @@ export async function createVoiceServerRegistration(ctx: {
           }
 
           if (mode === 'immediate') {
+            // Cancel any pending graceful request for this call before immediate execution
+            const pending = pendingEndRequests.get(callConfigId);
+            if (pending) {
+              pending.cancel();
+              pendingEndRequests.delete(callConfigId);
+            }
             await endCall({ callConfigId, callConfig, voiceProvider, providerCallId, providerDefaults });
             emitCallEvent(callConfigId, { type: 'voice.call.end_requested', reason: 'client_request', providerCallId });
-            writeJson(res, 200, { ok: true, result: 'ended', mode, maxWaitMs, cancelOnUserSpeech });
+            writeJson(res, 200, { ok: true, result: 'ended', mode, maxWaitMs, cancelOnUserSpeech, fallback: false });
             return true;
           }
 
@@ -1457,11 +1463,11 @@ export async function createVoiceServerRegistration(ctx: {
           }
 
           if (deferredResult === 'executed') {
-            writeJson(res, 200, { ok: true, result: 'ended', mode: 'immediate', maxWaitMs, cancelOnUserSpeech });
+            writeJson(res, 200, { ok: true, result: 'ended', mode, maxWaitMs, cancelOnUserSpeech, fallback: true });
             return true;
           }
 
-          writeJson(res, 200, { ok: true, result: 'scheduled', mode, maxWaitMs, cancelOnUserSpeech });
+          writeJson(res, 200, { ok: true, result: 'scheduled', mode, maxWaitMs, cancelOnUserSpeech, fallback: false });
           return true;
         }
 
@@ -1589,6 +1595,12 @@ export async function createVoiceServerRegistration(ctx: {
           }
 
           if (mode === 'immediate') {
+            // Cancel any pending graceful request for this call before immediate execution
+            const pending = pendingTransferRequests.get(callConfigId);
+            if (pending) {
+              pending.cancel();
+              pendingTransferRequests.delete(callConfigId);
+            }
             try {
               await transferCall({ providerCallId, targetNumber, callerId, timeout, providerDefaults });
             } catch (err: any) {
@@ -1597,7 +1609,7 @@ export async function createVoiceServerRegistration(ctx: {
               return true;
             }
             emitCallEvent(callConfigId, { type: 'voice.call.transferred', targetNumber, providerCallId });
-            writeJson(res, 200, { ok: true, result: 'transferred', targetNumber, mode, maxWaitMs, cancelOnUserSpeech });
+            writeJson(res, 200, { ok: true, result: 'transferred', targetNumber, mode, maxWaitMs, cancelOnUserSpeech, fallback: false });
             return true;
           }
 
@@ -1670,11 +1682,11 @@ export async function createVoiceServerRegistration(ctx: {
           }
 
           if (deferredResult === 'executed') {
-            writeJson(res, 200, { ok: true, result: 'transferred', targetNumber, mode: 'immediate', maxWaitMs, cancelOnUserSpeech });
+            writeJson(res, 200, { ok: true, result: 'transferred', targetNumber, mode, maxWaitMs, cancelOnUserSpeech, fallback: true });
             return true;
           }
 
-          writeJson(res, 200, { ok: true, result: 'scheduled', targetNumber, mode, maxWaitMs, cancelOnUserSpeech });
+          writeJson(res, 200, { ok: true, result: 'scheduled', targetNumber, mode, maxWaitMs, cancelOnUserSpeech, fallback: false });
           return true;
         }
 
