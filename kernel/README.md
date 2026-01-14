@@ -27,9 +27,11 @@ kernel/
   index.ts
   README.md
   internal/
+    adapter-paths.ts
     async-queue.ts
     config.ts
     defaults.ts
+    extension-paths.ts
     logger.ts
     errors.ts
     lru-map.ts
@@ -62,3 +64,18 @@ const registry = new PluginRegistry('./plugins');
 // Optional fail-fast validation for long-lived processes
 await registry.validateAll();
 ```
+
+### Extension Paths
+Extensions can use `getExtensionPaths()` to resolve their plugin directories reliably:
+
+```ts
+import { getExtensionPaths } from '@/kernel/index.ts';
+
+// Resolves extension root and plugins directory
+// Checks PACKAGE_ROOT first, falls back to cwd for development
+const { extensionRoot, pluginsRoot } = getExtensionPaths('voice');
+
+// Results are cached for performance
+```
+
+This handles the dist/source path discrepancy where TypeScript compiles to `dist/` but JSON manifests remain in source.

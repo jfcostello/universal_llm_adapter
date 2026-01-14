@@ -1,7 +1,6 @@
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { getExtensionPaths } from '../../../../../kernel/index.js';
 
-const internalDir = path.dirname(fileURLToPath(import.meta.url));
+const { extensionRoot, pluginsRoot } = getExtensionPaths('voice');
 
-export const VOICE_EXTENSION_ROOT = path.resolve(internalDir, '../../..');
-export const VOICE_EXTENSION_PLUGINS_ROOT = path.join(VOICE_EXTENSION_ROOT, 'plugins');
+export const VOICE_EXTENSION_ROOT = extensionRoot;
+export const VOICE_EXTENSION_PLUGINS_ROOT = pluginsRoot;
