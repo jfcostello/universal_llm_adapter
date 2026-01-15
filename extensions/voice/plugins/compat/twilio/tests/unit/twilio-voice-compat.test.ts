@@ -848,8 +848,114 @@ describe('plugins/compat/twilio', () => {
     ).rejects.toMatchObject({ statusCode: 400, code: 'validation_error' });
   });
 
-  test('handleMediaConnection logs call_logs.persist_failed when persistCallLogs throws', async () => {
+  test('handleMediaConnection does not capture call logs when LLM_ADAPTER_DISABLE_FILE_LOGS=1', async () => {
+    const prevDisableFileLogs = process.env.LLM_ADAPTER_DISABLE_FILE_LOGS;
     const prevCallLogsEnabled = process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
+
+    process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';
+    process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED = '1';
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+    const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
+
+    const { registry } = createRegistryHarness();
+    const logger = createSpyLogger();
+
+    const compat = new TwilioVoiceCompat();
+    const persistSpy = jest.spyOn(compat as any, 'persistCallLogs').mockResolvedValue(undefined);
+
+    try {
+      const ws = new MockWebSocket();
+      const task = compat.handleMediaConnection({
+        ws: ws as any,
+        req: { url: `/voice/media?token=${encodeURIComponent(token)}` } as any,
+        callConfigId: 'cfg_1',
+        callConfig: {
+          realtimeSpec: { provider: 'realtime_p1' }
+        },
+        voiceProvider: 'twilio',
+        registry,
+        logger,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token', apiBaseUrl: 'https://api.example.test' }
+      } as any);
+
+      ws.emitMessage(startMessage());
+      await flush();
+      ws.emitMessage(stopMessage());
+      await task;
+      await flush();
+
+      expect(persistSpy).not.toHaveBeenCalled();
+    } finally {
+      persistSpy.mockRestore();
+      if (prevDisableFileLogs === undefined) {
+        delete process.env.LLM_ADAPTER_DISABLE_FILE_LOGS;
+      } else {
+        process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = prevDisableFileLogs;
+      }
+      if (prevCallLogsEnabled === undefined) {
+        delete process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
+      } else {
+        process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED = prevCallLogsEnabled;
+      }
+    }
+  });
+
+  test('handleMediaConnection does not capture call logs when LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED=0', async () => {
+    const prevDisableFileLogs = process.env.LLM_ADAPTER_DISABLE_FILE_LOGS;
+    const prevCallLogsEnabled = process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
+
+    process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '0';
+    process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED = '0';
+    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+    const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
+
+    const { registry } = createRegistryHarness();
+    const logger = createSpyLogger();
+
+    const compat = new TwilioVoiceCompat();
+    const persistSpy = jest.spyOn(compat as any, 'persistCallLogs').mockResolvedValue(undefined);
+
+    try {
+      const ws = new MockWebSocket();
+      const task = compat.handleMediaConnection({
+        ws: ws as any,
+        req: { url: `/voice/media?token=${encodeURIComponent(token)}` } as any,
+        callConfigId: 'cfg_1',
+        callConfig: {
+          realtimeSpec: { provider: 'realtime_p1' }
+        },
+        voiceProvider: 'twilio',
+        registry,
+        logger,
+        providerDefaults: { accountSid: 'AC123', authToken: 'token', apiBaseUrl: 'https://api.example.test' }
+      } as any);
+
+      ws.emitMessage(startMessage());
+      await flush();
+      ws.emitMessage(stopMessage());
+      await task;
+      await flush();
+
+      expect(persistSpy).not.toHaveBeenCalled();
+    } finally {
+      persistSpy.mockRestore();
+      if (prevDisableFileLogs === undefined) {
+        delete process.env.LLM_ADAPTER_DISABLE_FILE_LOGS;
+      } else {
+        process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = prevDisableFileLogs;
+      }
+      if (prevCallLogsEnabled === undefined) {
+        delete process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
+      } else {
+        process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED = prevCallLogsEnabled;
+      }
+    }
+  });
+
+  test('handleMediaConnection logs call_logs.persist_failed when persistCallLogs throws', async () => {
+    const prevDisableFileLogs = process.env.LLM_ADAPTER_DISABLE_FILE_LOGS;
+    const prevCallLogsEnabled = process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
+    process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '0';
     process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED = '1';
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
@@ -886,6 +992,11 @@ describe('plugins/compat/twilio', () => {
       expect(logger.warning.mock.calls.some(([msg]) => msg === 'voice.twilio.call_logs.persist_failed')).toBe(true);
     } finally {
       persistSpy.mockRestore();
+      if (prevDisableFileLogs === undefined) {
+        delete process.env.LLM_ADAPTER_DISABLE_FILE_LOGS;
+      } else {
+        process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = prevDisableFileLogs;
+      }
       if (prevCallLogsEnabled === undefined) {
         delete process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
       } else {
@@ -895,7 +1006,9 @@ describe('plugins/compat/twilio', () => {
   });
 
   test('handleMediaConnection defaults call log capture to enabled when LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED is unset', async () => {
+    const prevDisableFileLogs = process.env.LLM_ADAPTER_DISABLE_FILE_LOGS;
     const prevCallLogsEnabled = process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
+    process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '0';
     delete process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
 
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
@@ -933,6 +1046,11 @@ describe('plugins/compat/twilio', () => {
       expect(logger.warning.mock.calls.some(([msg]) => msg === 'voice.twilio.call_logs.persist_failed')).toBe(true);
     } finally {
       persistSpy.mockRestore();
+      if (prevDisableFileLogs === undefined) {
+        delete process.env.LLM_ADAPTER_DISABLE_FILE_LOGS;
+      } else {
+        process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = prevDisableFileLogs;
+      }
       if (prevCallLogsEnabled === undefined) {
         delete process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
       } else {
@@ -942,7 +1060,9 @@ describe('plugins/compat/twilio', () => {
   });
 
   test('handleMediaConnection uses String(error) fallback when persistCallLogs throws non-Error', async () => {
+    const prevDisableFileLogs = process.env.LLM_ADAPTER_DISABLE_FILE_LOGS;
     const prevCallLogsEnabled = process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
+    process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '0';
     process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED = '1';
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
     const token = makeToken('secret', { purpose: 'voice_media', callConfigId: 'cfg_1', voiceProvider: 'twilio' });
@@ -981,6 +1101,11 @@ describe('plugins/compat/twilio', () => {
       expect(warning?.[1]).toMatchObject({ message: 'boom' });
     } finally {
       persistSpy.mockRestore();
+      if (prevDisableFileLogs === undefined) {
+        delete process.env.LLM_ADAPTER_DISABLE_FILE_LOGS;
+      } else {
+        process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = prevDisableFileLogs;
+      }
       if (prevCallLogsEnabled === undefined) {
         delete process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
       } else {

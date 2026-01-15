@@ -76,6 +76,7 @@ function sleepUnref(ms: number): Promise<void> | undefined {
 }
 
 function isCallLogCaptureEnabled(): boolean {
+  if (process.env.LLM_ADAPTER_DISABLE_FILE_LOGS === '1') return false;
   const raw = process.env.LLM_ADAPTER_TWILIO_CALL_LOGS_ENABLED;
   if (raw === undefined || raw === null || raw === '') return true;
   const normalized = String(raw).trim().toLowerCase();
@@ -205,6 +206,7 @@ export default class TwilioVoiceCompat {
     providerDefaults?: any;
     logger?: any;
   }): Promise<void> {
+    if (process.env.LLM_ADAPTER_DISABLE_FILE_LOGS === '1') return;
     const providerCallId = String(options.providerCallId ?? '').trim();
     if (!providerCallId) return;
 
