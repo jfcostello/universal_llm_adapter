@@ -446,7 +446,7 @@ describe('modules/extensions/extension-paths', () => {
       }
     });
 
-    test('returns all three roots when extension exists in external, packageRoot, and cwd', () => {
+	    test('returns all three roots when extension exists in external, packageRoot, and cwd', () => {
       const rawTempPackageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-all-pkg-'));
       const rawTempCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-all-cwd-'));
       const rawTempExternalRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-all-ext-'));
@@ -495,6 +495,60 @@ describe('modules/extensions/extension-paths', () => {
         fs.rmSync(tempCwd, { recursive: true, force: true });
         fs.rmSync(tempExternalRoot, { recursive: true, force: true });
       }
-    });
-  });
-});
+	    });
+
+	    test('returns multiple external roots in reverse order (highest precedence first)', () => {
+	      const rawTempPackageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-extmulti-pkg-'));
+	      const rawTempCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-extmulti-cwd-'));
+	      const rawTempExternalRootLow = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-extmulti-low-'));
+	      const rawTempExternalRootHigh = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-extmulti-high-'));
+
+	      const tempPackageRoot = fs.realpathSync(rawTempPackageRoot);
+	      const tempCwd = fs.realpathSync(rawTempCwd);
+	      const tempExternalRootLow = fs.realpathSync(rawTempExternalRootLow);
+	      const tempExternalRootHigh = fs.realpathSync(rawTempExternalRootHigh);
+
+	      try {
+	        const extId = 'multi-ext';
+
+	        const lowExternalPluginsDir = path.join(tempExternalRootLow, extId, 'plugins');
+	        fs.mkdirSync(lowExternalPluginsDir, { recursive: true });
+
+	        const highExternalPluginsDir = path.join(tempExternalRootHigh, extId, 'plugins');
+	        fs.mkdirSync(highExternalPluginsDir, { recursive: true });
+
+	        const pkgPluginsDir = path.join(tempPackageRoot, 'extensions', extId, 'plugins');
+	        fs.mkdirSync(pkgPluginsDir, { recursive: true });
+
+	        const cwdPluginsDir = path.join(tempCwd, 'extensions', extId, 'plugins');
+	        fs.mkdirSync(cwdPluginsDir, { recursive: true });
+
+	        // externalRoots are configured low -> high precedence, but resolution should return roots high -> low
+	        const pathsConfig = {
+	          paths: {
+	            lookup: {
+	              extensions: {
+	                builtin: true,
+	                externalRoots: [tempExternalRootLow, tempExternalRootHigh]
+	              }
+	            }
+	          }
+	        };
+	        fs.writeFileSync(path.join(tempCwd, 'llm-adapter.paths.json'), JSON.stringify(pathsConfig, null, 2));
+
+	        process.chdir(tempCwd);
+	        resetExtensionPluginRootsCache();
+
+	        const result = getExtensionPluginRoots(extId, { packageRoot: tempPackageRoot });
+
+	        expect(result).toEqual([highExternalPluginsDir, lowExternalPluginsDir, pkgPluginsDir, cwdPluginsDir]);
+	      } finally {
+	        process.chdir(originalCwd);
+	        fs.rmSync(tempPackageRoot, { recursive: true, force: true });
+	        fs.rmSync(tempCwd, { recursive: true, force: true });
+	        fs.rmSync(tempExternalRootLow, { recursive: true, force: true });
+	        fs.rmSync(tempExternalRootHigh, { recursive: true, force: true });
+	      }
+	    });
+	  });
+	});

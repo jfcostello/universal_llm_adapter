@@ -52,7 +52,7 @@ for (const root of pluginRoots) {
 ```
 
 **Resolution order** (priority, highest first):
-1. External roots from `llm-adapter.paths.json` (if configured via `paths.lookup.extensions.externalRoots`)
+1. External roots from `llm-adapter.paths.json` (if configured via `paths.lookup.extensions.externalRoots`, returned in reverse order so later entries win)
 2. `PACKAGE_ROOT/extensions/{extensionId}/plugins` (production/dist)
 3. `cwd/extensions/{extensionId}/plugins` (development/source fallback)
 
