@@ -360,7 +360,7 @@ describe('extensions/voice: provider plugins loader', () => {
       }
     });
 
-    test('warns and overrides on duplicate provider ID across roots (last wins)', async () => {
+    test('warns and overrides on duplicate provider ID across roots (highest precedence wins)', async () => {
       const root1 = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-multi-root1-'));
       const root2 = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-multi-root2-'));
       const logger = { warning: jest.fn() };
@@ -380,9 +380,9 @@ describe('extensions/voice: provider plugins loader', () => {
         // listManifests should warn about override
         const manifests = await plugins.listManifests();
 
-        // Only one manifest loaded - last root wins (override)
+        // Only one manifest loaded - highest-precedence root wins (override)
         expect(manifests).toHaveLength(1);
-        expect(manifests[0]?.kind).toBe('kind-2'); // root2 wins
+        expect(manifests[0]?.kind).toBe('kind-1'); // root1 wins
 
         // Should have warned about the override
         expect(logger.warning).toHaveBeenCalledWith(

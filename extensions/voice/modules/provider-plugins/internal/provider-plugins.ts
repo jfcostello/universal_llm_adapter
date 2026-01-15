@@ -120,8 +120,10 @@ export function createVoiceProviderPlugins(options: {
     manifestsLoaded = true;
 
     // Search for manifests across all plugin roots and combine them
-    // Later roots override earlier roots (same pattern as core registry)
-    for (const pluginsRoot of pluginRoots) {
+    // Plugin roots are ordered high -> low precedence, so we load manifests low -> high.
+    // Later (higher-precedence) roots override earlier roots.
+    for (let i = pluginRoots.length - 1; i >= 0; i--) {
+      const pluginsRoot = pluginRoots[i]!;
       if (!fs.existsSync(pluginsRoot)) continue;
 
       const files = glob.sync('providers/*.json', { cwd: pluginsRoot }).sort();
