@@ -80,12 +80,23 @@ function normalizePluginRoots(pluginRoots?: string | string[]): string[] {
     return VOICE_EXTENSION_PLUGIN_ROOTS;
   }
 
-  return pluginRoots.map(p => {
-    const trimmed = p.trim();
-    return path.isAbsolute(trimmed)
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of pluginRoots) {
+    const trimmed = String(raw ?? '').trim();
+    if (!trimmed) continue;
+
+    const resolved = path.isAbsolute(trimmed)
       ? trimmed
       : path.resolve(process.cwd(), trimmed);
-  });
+
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    out.push(resolved);
+  }
+
+  return out.length > 0 ? out : VOICE_EXTENSION_PLUGIN_ROOTS;
 }
 
 export function createVoiceProviderPlugins(options: {

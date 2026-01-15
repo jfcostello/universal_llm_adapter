@@ -42,7 +42,7 @@ CLI-specific validation for the cancelOnUserSpeech flag.
 
 ### `validateCancelOnUserSpeechServer(raw, defaultValue)`
 Server-side validation for the cancelOnUserSpeech flag.
-- Uses `normalizeFlag` from shared module for standard boolean coercion
+- Uses the same truthy/falsy normalization as the CLI parser, but applies `defaultValue` when the value is omitted or unrecognized.
 
 ## Usage
 
@@ -75,4 +75,4 @@ const cancelOnUserSpeech = validateCancelOnUserSpeechCli(options.cancelOnUserSpe
 
 ## Dependencies
 
-- `modules/shared` - Uses `makeHttpError` for error creation and `normalizeFlag` for boolean coercion
+- `modules/shared` - Uses `makeHttpError` for error creation

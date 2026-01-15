@@ -29,6 +29,14 @@ function realpathIfExists(resolvedPath: string): string {
   return resolvedPath;
 }
 
+function isExistingDirectory(resolvedPath: string): boolean {
+  try {
+    return fs.statSync(resolvedPath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Get all plugin roots for an extension, in priority order.
  *
@@ -98,13 +106,13 @@ export function getExtensionPluginRoots(
   const result: string[] = [];
 
   for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      const canonicalPath = realpathIfExists(candidate);
-      // Deduplicate (e.g., when packageRoot === cwd)
-      if (!seen.has(canonicalPath)) {
-        seen.add(canonicalPath);
-        result.push(canonicalPath);
-      }
+    if (!isExistingDirectory(candidate)) continue;
+
+    const canonicalPath = realpathIfExists(candidate);
+    // Deduplicate (e.g., when packageRoot === cwd)
+    if (!seen.has(canonicalPath)) {
+      seen.add(canonicalPath);
+      result.push(canonicalPath);
     }
   }
 

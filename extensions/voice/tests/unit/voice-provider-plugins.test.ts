@@ -444,10 +444,81 @@ describe('extensions/voice: provider plugins loader', () => {
       }
     });
 
+    test('ignores whitespace entries in pluginRoots arrays (does not resolve to cwd)', async () => {
+      const originalCwd = process.cwd();
+      const cwdRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-pluginroots-cwd-'));
+      const validRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-pluginroots-valid-'));
+      try {
+        await writeJson(path.join(cwdRoot, 'providers', 'cwd-provider.json'), {
+          id: 'cwd-provider',
+          kind: 'cwd-kind'
+        });
+        await writeJson(path.join(validRoot, 'providers', 'valid-provider.json'), {
+          id: 'valid-provider',
+          kind: 'valid-kind'
+        });
+
+        process.chdir(cwdRoot);
+
+        const plugins = createVoiceProviderPlugins({ pluginRoots: ['   ', validRoot] });
+        const manifests = await plugins.listManifests();
+
+        expect(manifests.map(m => m.id)).toEqual(['valid-provider']);
+      } finally {
+        process.chdir(originalCwd);
+        await fs.rm(cwdRoot, { recursive: true, force: true });
+        await fs.rm(validRoot, { recursive: true, force: true });
+      }
+    });
+
+    test('dedupes duplicate pluginRoots entries', async () => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-pluginroots-dedupe-'));
+      const logger = { warning: jest.fn() };
+      try {
+        await writeJson(path.join(root, 'providers', 'dedupe-provider.json'), {
+          id: 'dedupe-provider',
+          kind: 'dedupe-kind'
+        });
+
+        const plugins = createVoiceProviderPlugins({ pluginRoots: [root, root], logger });
+        const manifests = await plugins.listManifests();
+
+        expect(manifests).toHaveLength(1);
+        expect(manifests[0]?.id).toBe('dedupe-provider');
+        expect(logger.warning).not.toHaveBeenCalled();
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
+
+    test('skips nullish entries in pluginRoots arrays', async () => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-pluginroots-nullish-'));
+      try {
+        await writeJson(path.join(root, 'providers', 'nullish-provider.json'), {
+          id: 'nullish-provider',
+          kind: 'nullish-kind'
+        });
+
+        const plugins = createVoiceProviderPlugins({ pluginRoots: [undefined as any, root] as any });
+        const manifests = await plugins.listManifests();
+
+        expect(manifests).toHaveLength(1);
+        expect(manifests[0]?.id).toBe('nullish-provider');
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
+
     test('handles empty pluginRoots array by using defaults', async () => {
       const plugins = createVoiceProviderPlugins({ pluginRoots: [] });
       const manifests = await plugins.listManifests();
       // Should use default VOICE_EXTENSION_PLUGIN_ROOTS which includes built-in test provider
+      expect(manifests.some(m => m.id === 'test')).toBe(true);
+    });
+
+    test('handles whitespace-only pluginRoots array by using defaults', async () => {
+      const plugins = createVoiceProviderPlugins({ pluginRoots: ['   '] });
+      const manifests = await plugins.listManifests();
       expect(manifests.some(m => m.id === 'test')).toBe(true);
     });
 

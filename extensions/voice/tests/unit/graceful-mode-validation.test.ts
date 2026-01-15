@@ -182,18 +182,24 @@ describe('extensions/voice/modules/graceful-mode-validation', () => {
   });
 
   describe('validateCancelOnUserSpeechServer', () => {
-    test('returns boolean for various inputs (delegates to normalizeFlag)', () => {
+    test('returns boolean for various inputs', () => {
       expect(validateCancelOnUserSpeechServer(true, false)).toBe(true);
       expect(validateCancelOnUserSpeechServer(false, true)).toBe(false);
       expect(validateCancelOnUserSpeechServer(1, false)).toBe(true);
       expect(validateCancelOnUserSpeechServer(0, true)).toBe(false);
       expect(validateCancelOnUserSpeechServer('true', false)).toBe(true);
       expect(validateCancelOnUserSpeechServer('false', true)).toBe(false);
+      expect(validateCancelOnUserSpeechServer({}, false)).toBe(true);
     });
 
     test('returns default when input is undefined', () => {
       expect(validateCancelOnUserSpeechServer(undefined, true)).toBe(true);
       expect(validateCancelOnUserSpeechServer(undefined, false)).toBe(false);
+    });
+
+    test('returns default when input is an empty string', () => {
+      expect(validateCancelOnUserSpeechServer('  ', true)).toBe(true);
+      expect(validateCancelOnUserSpeechServer('', false)).toBe(false);
     });
   });
 });

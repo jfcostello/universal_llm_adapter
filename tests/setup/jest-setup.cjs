@@ -10,6 +10,10 @@ dotenv.config();
 process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 // API keys should come from .env file - no test defaults
 process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';
+beforeEach(() => {
+  // Prevent test-order leakage: tests that validate file logging must explicitly opt-in.
+  process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';
+});
 
 // Silence expected warnings in test output.
 // These are dev-only warnings that fire when test fixtures use cwd-relative paths

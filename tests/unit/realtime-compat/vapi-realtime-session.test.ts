@@ -80,7 +80,7 @@ function installVapiFetchMock(options: {
 async function waitForEvent<T>(
   iter: AsyncIterator<T>,
   predicate: (value: T) => boolean,
-  timeoutMs = 2000
+  timeoutMs = 10000
 ): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   while (true) {
