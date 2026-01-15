@@ -127,4 +127,75 @@ describe('tests/helpers/realtime-runner: timeout diagnostics', () => {
     const result = await promise;
     expect(result.code).toBe(0);
   });
+
+  test('retries when the session closes early with ws_close error noise', async () => {
+    const { PassThrough } = await import('stream');
+
+    const makeChild = () => {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+
+      const child: any = new EventEmitter();
+      child.stdin = stdin;
+      child.stdout = stdout;
+      child.stderr = stderr;
+      child.kill = jest.fn();
+      child.once = child.once.bind(child);
+
+      stdin.on('finish', () => {
+        child.emit('close', 0);
+      });
+
+      return { child, stdout };
+    };
+
+    const first = makeChild();
+    const second = makeChild();
+
+    const spawn = jest.fn()
+      .mockReturnValueOnce(first.child)
+      .mockReturnValueOnce(second.child);
+
+    (jest as any).unstable_mockModule('child_process', () => ({
+      __esModule: true,
+      default: { spawn },
+      spawn
+    }));
+    (jest as any).unstable_mockModule('node:child_process', () => ({
+      __esModule: true,
+      default: { spawn },
+      spawn
+    }));
+
+    const { runRealtimeScenario } = await import('@tests/helpers/realtime-runner.ts');
+
+    const promise = runRealtimeScenario({
+      env: { ...process.env, LLM_LIVE_TRANSPORT: 'cli' },
+      pluginsPath: './plugins',
+      cwd: process.cwd(),
+      spec: { provider: 'p', model: 'm', history: [], timeout: { idleTimeoutMs: 0, maxDurationMs: 0 } },
+      steps: [{ type: 'wait_for_event', eventType: 'tool_call.end', timeoutMs: 1000 }],
+      timeoutMs: 1000
+    });
+
+    expect(spawn).toHaveBeenCalledTimes(1);
+
+    first.stdout.write(`${JSON.stringify({ type: 'event', event: { type: 'ready' } })}\n`);
+    first.stdout.write(`${JSON.stringify({ type: 'event', event: { type: 'error', code: 'ws_close', message: 'Realtime websocket closed unexpectedly' } })}\n`);
+    first.stdout.write(`${JSON.stringify({ type: 'event', event: { type: 'closed', reason: 'provider_close' } })}\n`);
+
+    const retryStart = Date.now();
+    while (spawn.mock.calls.length < 2) {
+      if (Date.now() - retryStart > 2000) throw new Error('Timed out waiting for retry attempt');
+      await new Promise(res => setTimeout(res, 10));
+    }
+
+    second.stdout.write(`${JSON.stringify({ type: 'event', event: { type: 'ready' } })}\n`);
+    await new Promise(res => setTimeout(res, 0));
+    second.stdout.write(`${JSON.stringify({ type: 'event', event: { type: 'tool_call.end', name: 'test.echo' } })}\n`);
+
+    const result = await promise;
+    expect(result.code).toBe(0);
+  });
 });

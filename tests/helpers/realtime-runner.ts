@@ -697,8 +697,8 @@ export async function runRealtimeScenario(options: RunRealtimeScenarioOptions): 
   const env = options.env || process.env;
 
   const maxAttemptsEnv = env.LLM_REALTIME_RUNNER_MAX_ATTEMPTS;
-  const maxAttemptsRaw = maxAttemptsEnv !== undefined ? Number(maxAttemptsEnv) : 2;
-  const maxAttempts = Number.isFinite(maxAttemptsRaw) ? Math.max(1, Math.floor(maxAttemptsRaw)) : 2;
+  const maxAttemptsRaw = maxAttemptsEnv !== undefined ? Number(maxAttemptsEnv) : 4;
+  const maxAttempts = Number.isFinite(maxAttemptsRaw) ? Math.max(1, Math.floor(maxAttemptsRaw)) : 4;
 
   const shouldRetry = (err: unknown, attempt: number): boolean => {
     if (attempt >= maxAttempts) return false;
@@ -709,14 +709,23 @@ export async function runRealtimeScenario(options: RunRealtimeScenarioOptions): 
     if (closeReason && closeReason !== 'provider_close') return false;
 
     const envelopes = Array.isArray((err as any)?.envelopes) ? (err as any).envelopes as RealtimeServerEnvelope[] : [];
-    const eventTypes = envelopes
+    const events = envelopes
       .filter(e => e?.type === 'event')
-      .map(e => String((e as any)?.event?.type ?? '').trim())
-      .filter(Boolean);
+      .map(e => (e as any)?.event);
 
-    // Retry only if we never made meaningful progress (e.g., ready -> closed).
-    const nonTrivial = eventTypes.filter(t => t !== 'ready' && t !== 'closed');
-    if (nonTrivial.length > 0) return false;
+    // Retry only if we never made meaningful progress (e.g., ready -> closed) and any observed
+    // errors are purely close-noise (ws_close) before the scenario could actually run.
+    const hasMeaningfulEvent = events.some((evt) => {
+      const type = String(evt?.type ?? '').trim();
+      if (!type) return false;
+      if (type === 'ready' || type === 'closed') return false;
+      if (type === 'error') {
+        const code = String(evt?.code ?? '').trim();
+        if (code === 'ws_close') return false;
+      }
+      return true;
+    });
+    if (hasMeaningfulEvent) return false;
 
     return true;
   };

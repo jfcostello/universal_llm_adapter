@@ -34,7 +34,7 @@ Validates and returns the maxWaitMs timeout value.
 - Returns `defaultValue` if raw is empty
 - Throws `HttpError` with 400 status if value is negative or exceeds limit
 
-### `validateCancelOnUserSpeechCli(raw, defaultValue)`
+### `validateCancelOnUserSpeechCli(raw)`
 CLI-specific validation for the cancelOnUserSpeech flag.
 - Accepts string values: `'true'`, `'1'`, `'yes'`, `'y'`, `'on'` (truthy) and `'false'`, `'0'`, `'no'`, `'n'`, `'off'` (falsy)
 - Returns `undefined` if raw is empty (to skip including in request)
@@ -42,7 +42,7 @@ CLI-specific validation for the cancelOnUserSpeech flag.
 
 ### `validateCancelOnUserSpeechServer(raw, defaultValue)`
 Server-side validation for the cancelOnUserSpeech flag.
-- Uses `normalizeFlag` from shared module for standard boolean coercion
+- Uses the same truthy/falsy normalization as the CLI parser, but applies `defaultValue` when the value is omitted or unrecognized.
 
 ## Usage
 
@@ -65,7 +65,7 @@ const cancelOnUserSpeech = validateCancelOnUserSpeechServer(body?.cancelOnUserSp
 // CLI command
 const mode = validateTransferMode(options.mode, 'immediate');
 const maxWaitMs = validateMaxWaitMs(options.maxWaitMs, 5000); // no limit for CLI
-const cancelOnUserSpeech = validateCancelOnUserSpeechCli(options.cancelOnUserSpeech, false);
+const cancelOnUserSpeech = validateCancelOnUserSpeechCli(options.cancelOnUserSpeech);
 ```
 
 ## Files
@@ -75,4 +75,4 @@ const cancelOnUserSpeech = validateCancelOnUserSpeechCli(options.cancelOnUserSpe
 
 ## Dependencies
 
-- `modules/shared` - Uses `makeHttpError` for error creation and `normalizeFlag` for boolean coercion
+- `modules/shared` - Uses `makeHttpError` for error creation

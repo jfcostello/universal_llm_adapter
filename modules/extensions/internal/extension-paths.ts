@@ -29,6 +29,14 @@ function realpathIfExists(resolvedPath: string): string {
   return resolvedPath;
 }
 
+function isExistingDirectory(resolvedPath: string): boolean {
+  try {
+    return fs.statSync(resolvedPath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Get all plugin roots for an extension, in priority order.
  *
@@ -38,7 +46,7 @@ function realpathIfExists(resolvedPath: string): string {
  * manifests remain in source.
  *
  * Resolution order (priority, highest first):
- * 1. External roots from llm-adapter.paths.json config (if present)
+ * 1. External roots from llm-adapter.paths.json config (if present; later entries win)
  * 2. packageRoot/extensions/{extensionId}/plugins (production/dist or custom root)
  * 3. cwd/extensions/{extensionId}/plugins (development/source fallback)
  *
@@ -82,7 +90,9 @@ export function getExtensionPluginRoots(
   const pathsConfig = getAdapterPathsConfig();
   if (pathsConfig) {
     const externalRoots = pathsConfig.paths.lookup.extensions.externalRoots;
-    for (const extRoot of externalRoots) {
+    // externalRoots are evaluated low -> high precedence, but we return plugin roots high -> low.
+    for (let i = externalRoots.length - 1; i >= 0; i--) {
+      const extRoot = externalRoots[i];
       candidates.push(path.resolve(extRoot, extensionId, 'plugins'));
     }
   }
@@ -96,13 +106,13 @@ export function getExtensionPluginRoots(
   const result: string[] = [];
 
   for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      const canonicalPath = realpathIfExists(candidate);
-      // Deduplicate (e.g., when packageRoot === cwd)
-      if (!seen.has(canonicalPath)) {
-        seen.add(canonicalPath);
-        result.push(canonicalPath);
-      }
+    if (!isExistingDirectory(candidate)) continue;
+
+    const canonicalPath = realpathIfExists(candidate);
+    // Deduplicate (e.g., when packageRoot === cwd)
+    if (!seen.has(canonicalPath)) {
+      seen.add(canonicalPath);
+      result.push(canonicalPath);
     }
   }
 

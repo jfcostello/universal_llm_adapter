@@ -135,46 +135,46 @@ describe('extensions/voice/modules/graceful-mode-validation', () => {
     });
   });
 
-  describe('validateCancelOnUserSpeechCli', () => {
-    test('returns undefined for undefined/null/empty input', () => {
-      expect(validateCancelOnUserSpeechCli(undefined, false)).toBeUndefined();
-      expect(validateCancelOnUserSpeechCli(null, true)).toBeUndefined();
-      expect(validateCancelOnUserSpeechCli('', false)).toBeUndefined();
-      expect(validateCancelOnUserSpeechCli('  ', true)).toBeUndefined();
-    });
+	  describe('validateCancelOnUserSpeechCli', () => {
+	    test('returns undefined for undefined/null/empty input', () => {
+	      expect(validateCancelOnUserSpeechCli(undefined)).toBeUndefined();
+	      expect(validateCancelOnUserSpeechCli(null)).toBeUndefined();
+	      expect(validateCancelOnUserSpeechCli('')).toBeUndefined();
+	      expect(validateCancelOnUserSpeechCli('  ')).toBeUndefined();
+	    });
 
-    test('returns true for truthy strings', () => {
-      expect(validateCancelOnUserSpeechCli('true', false)).toBe(true);
-      expect(validateCancelOnUserSpeechCli('1', false)).toBe(true);
-      expect(validateCancelOnUserSpeechCli('yes', false)).toBe(true);
-      expect(validateCancelOnUserSpeechCli('y', false)).toBe(true);
-      expect(validateCancelOnUserSpeechCli('on', false)).toBe(true);
-      expect(validateCancelOnUserSpeechCli('TRUE', false)).toBe(true); // case-insensitive
-      expect(validateCancelOnUserSpeechCli('Yes', false)).toBe(true);
-    });
+	    test('returns true for truthy strings', () => {
+	      expect(validateCancelOnUserSpeechCli('true')).toBe(true);
+	      expect(validateCancelOnUserSpeechCli('1')).toBe(true);
+	      expect(validateCancelOnUserSpeechCli('yes')).toBe(true);
+	      expect(validateCancelOnUserSpeechCli('y')).toBe(true);
+	      expect(validateCancelOnUserSpeechCli('on')).toBe(true);
+	      expect(validateCancelOnUserSpeechCli('TRUE')).toBe(true); // case-insensitive
+	      expect(validateCancelOnUserSpeechCli('Yes')).toBe(true);
+	    });
 
-    test('returns false for falsy strings', () => {
-      expect(validateCancelOnUserSpeechCli('false', true)).toBe(false);
-      expect(validateCancelOnUserSpeechCli('0', true)).toBe(false);
-      expect(validateCancelOnUserSpeechCli('no', true)).toBe(false);
-      expect(validateCancelOnUserSpeechCli('n', true)).toBe(false);
-      expect(validateCancelOnUserSpeechCli('off', true)).toBe(false);
-      expect(validateCancelOnUserSpeechCli('FALSE', true)).toBe(false); // case-insensitive
-      expect(validateCancelOnUserSpeechCli('No', true)).toBe(false);
-    });
+	    test('returns false for falsy strings', () => {
+	      expect(validateCancelOnUserSpeechCli('false')).toBe(false);
+	      expect(validateCancelOnUserSpeechCli('0')).toBe(false);
+	      expect(validateCancelOnUserSpeechCli('no')).toBe(false);
+	      expect(validateCancelOnUserSpeechCli('n')).toBe(false);
+	      expect(validateCancelOnUserSpeechCli('off')).toBe(false);
+	      expect(validateCancelOnUserSpeechCli('FALSE')).toBe(false); // case-insensitive
+	      expect(validateCancelOnUserSpeechCli('No')).toBe(false);
+	    });
 
-    test('throws on invalid strings', () => {
-      expect(() => validateCancelOnUserSpeechCli('maybe', false)).toThrow();
-      expect(() => validateCancelOnUserSpeechCli('2', false)).toThrow();
-      expect(() => validateCancelOnUserSpeechCli('yep', false)).toThrow();
-    });
+	    test('throws on invalid strings', () => {
+	      expect(() => validateCancelOnUserSpeechCli('maybe')).toThrow();
+	      expect(() => validateCancelOnUserSpeechCli('2')).toThrow();
+	      expect(() => validateCancelOnUserSpeechCli('yep')).toThrow();
+	    });
 
-    test('error has correct structure', () => {
-      try {
-        validateCancelOnUserSpeechCli('invalid', false);
-        fail('should throw');
-      } catch (err: any) {
-        expect(err.statusCode).toBe(400);
+	    test('error has correct structure', () => {
+	      try {
+	        validateCancelOnUserSpeechCli('invalid');
+	        fail('should throw');
+	      } catch (err: any) {
+	        expect(err.statusCode).toBe(400);
         expect(err.code).toBe('validation_error');
         expect(err.message).toBe('Invalid cancelOnUserSpeech');
       }
@@ -182,18 +182,24 @@ describe('extensions/voice/modules/graceful-mode-validation', () => {
   });
 
   describe('validateCancelOnUserSpeechServer', () => {
-    test('returns boolean for various inputs (delegates to normalizeFlag)', () => {
+    test('returns boolean for various inputs', () => {
       expect(validateCancelOnUserSpeechServer(true, false)).toBe(true);
       expect(validateCancelOnUserSpeechServer(false, true)).toBe(false);
       expect(validateCancelOnUserSpeechServer(1, false)).toBe(true);
       expect(validateCancelOnUserSpeechServer(0, true)).toBe(false);
       expect(validateCancelOnUserSpeechServer('true', false)).toBe(true);
       expect(validateCancelOnUserSpeechServer('false', true)).toBe(false);
+      expect(validateCancelOnUserSpeechServer({}, false)).toBe(true);
     });
 
     test('returns default when input is undefined', () => {
       expect(validateCancelOnUserSpeechServer(undefined, true)).toBe(true);
       expect(validateCancelOnUserSpeechServer(undefined, false)).toBe(false);
+    });
+
+    test('returns default when input is an empty string', () => {
+      expect(validateCancelOnUserSpeechServer('  ', true)).toBe(true);
+      expect(validateCancelOnUserSpeechServer('', false)).toBe(false);
     });
   });
 });

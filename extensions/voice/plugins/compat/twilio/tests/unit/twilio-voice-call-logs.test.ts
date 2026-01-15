@@ -4,7 +4,11 @@ import { jest } from '@jest/globals';
 import { withTempCwd } from '@tests/helpers/temp-files.ts';
 
 describe('plugins/compat/twilio: call log capture', () => {
-  const originalEnv = { ...process.env };
+  const originalEnv = { ...process.env, LLM_ADAPTER_DISABLE_FILE_LOGS: '0' };
+
+  beforeEach(() => {
+    process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '0';
+  });
 
   afterEach(() => {
     process.env = { ...originalEnv };
@@ -162,6 +166,32 @@ describe('plugins/compat/twilio: call log capture', () => {
           callConfigId: 'cfg_1',
           providerCallId: 'CA123',
           providerDefaults: { accountSid: 'AC123' }
+        })).resolves.toBeUndefined();
+
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(fs.existsSync(path.join(cwd, 'logs', 'voice', 'twilio'))).toBe(false);
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+  });
+
+  test('persistCallLogs is a no-op when LLM_ADAPTER_DISABLE_FILE_LOGS=1', async () => {
+    await withTempCwd('twilio-call-logs-disable-file-logs', async (cwd) => {
+      process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '1';
+      const fetchSpy = jest.spyOn(globalThis as any, 'fetch').mockImplementation(async () => {
+        throw new Error('fetch should not be called');
+      });
+
+      try {
+        const mod = await import('../../index.js');
+        const TwilioVoiceCompat = (mod as any).default;
+        const compat = new TwilioVoiceCompat();
+
+        await expect((compat as any).persistCallLogs({
+          callConfigId: 'cfg_1',
+          providerCallId: 'CA123',
+          providerDefaults: { accountSid: 'AC123', authToken: 'token', apiBaseUrl: 'https://api.example.test' }
         })).resolves.toBeUndefined();
 
         expect(fetchSpy).not.toHaveBeenCalled();

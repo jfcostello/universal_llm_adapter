@@ -80,12 +80,23 @@ function normalizePluginRoots(pluginRoots?: string | string[]): string[] {
     return VOICE_EXTENSION_PLUGIN_ROOTS;
   }
 
-  return pluginRoots.map(p => {
-    const trimmed = p.trim();
-    return path.isAbsolute(trimmed)
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of pluginRoots) {
+    const trimmed = String(raw ?? '').trim();
+    if (!trimmed) continue;
+
+    const resolved = path.isAbsolute(trimmed)
       ? trimmed
       : path.resolve(process.cwd(), trimmed);
-  });
+
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    out.push(resolved);
+  }
+
+  return out.length > 0 ? out : VOICE_EXTENSION_PLUGIN_ROOTS;
 }
 
 export function createVoiceProviderPlugins(options: {
@@ -120,8 +131,10 @@ export function createVoiceProviderPlugins(options: {
     manifestsLoaded = true;
 
     // Search for manifests across all plugin roots and combine them
-    // Later roots override earlier roots (same pattern as core registry)
-    for (const pluginsRoot of pluginRoots) {
+    // Plugin roots are ordered high -> low precedence, so we load manifests low -> high.
+    // Later (higher-precedence) roots override earlier roots.
+    for (let i = pluginRoots.length - 1; i >= 0; i--) {
+      const pluginsRoot = pluginRoots[i]!;
       if (!fs.existsSync(pluginsRoot)) continue;
 
       const files = glob.sync('providers/*.json', { cwd: pluginsRoot }).sort();

@@ -101,6 +101,27 @@ describe('modules/extensions/extension-paths', () => {
       }
     });
 
+    test('ignores plugins path when it exists but is not a directory', () => {
+      const rawTempPackageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-file-pkg-'));
+      const rawTempCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-file-cwd-'));
+      const tempPackageRoot = fs.realpathSync(rawTempPackageRoot);
+      const tempCwd = fs.realpathSync(rawTempCwd);
+      try {
+        const extDir = path.join(tempPackageRoot, 'extensions', 'file-ext');
+        fs.mkdirSync(extDir, { recursive: true });
+        fs.writeFileSync(path.join(extDir, 'plugins'), 'not-a-directory');
+
+        process.chdir(tempCwd);
+
+        const result = getExtensionPluginRoots('file-ext', { packageRoot: tempPackageRoot });
+        expect(result).toEqual([]);
+      } finally {
+        process.chdir(originalCwd);
+        fs.rmSync(tempPackageRoot, { recursive: true, force: true });
+        fs.rmSync(tempCwd, { recursive: true, force: true });
+      }
+    });
+
     test('caches results for subsequent calls with same extensionId', () => {
       const rawTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-cache-'));
       const tempRoot = fs.realpathSync(rawTempRoot);
@@ -494,6 +515,60 @@ describe('modules/extensions/extension-paths', () => {
         fs.rmSync(tempPackageRoot, { recursive: true, force: true });
         fs.rmSync(tempCwd, { recursive: true, force: true });
         fs.rmSync(tempExternalRoot, { recursive: true, force: true });
+      }
+    });
+
+    test('returns multiple external roots in reverse order (highest precedence first)', () => {
+      const rawTempPackageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-extmulti-pkg-'));
+      const rawTempCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-extmulti-cwd-'));
+      const rawTempExternalRootLow = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-extmulti-low-'));
+      const rawTempExternalRootHigh = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-ext-paths-extmulti-high-'));
+
+      const tempPackageRoot = fs.realpathSync(rawTempPackageRoot);
+      const tempCwd = fs.realpathSync(rawTempCwd);
+      const tempExternalRootLow = fs.realpathSync(rawTempExternalRootLow);
+      const tempExternalRootHigh = fs.realpathSync(rawTempExternalRootHigh);
+
+      try {
+        const extId = 'multi-ext';
+
+        const lowExternalPluginsDir = path.join(tempExternalRootLow, extId, 'plugins');
+        fs.mkdirSync(lowExternalPluginsDir, { recursive: true });
+
+        const highExternalPluginsDir = path.join(tempExternalRootHigh, extId, 'plugins');
+        fs.mkdirSync(highExternalPluginsDir, { recursive: true });
+
+        const pkgPluginsDir = path.join(tempPackageRoot, 'extensions', extId, 'plugins');
+        fs.mkdirSync(pkgPluginsDir, { recursive: true });
+
+        const cwdPluginsDir = path.join(tempCwd, 'extensions', extId, 'plugins');
+        fs.mkdirSync(cwdPluginsDir, { recursive: true });
+
+        // externalRoots are configured low -> high precedence, but resolution should return roots high -> low
+        const pathsConfig = {
+          paths: {
+            lookup: {
+              extensions: {
+                builtin: true,
+                externalRoots: [tempExternalRootLow, tempExternalRootHigh]
+              }
+            }
+          }
+        };
+        fs.writeFileSync(path.join(tempCwd, 'llm-adapter.paths.json'), JSON.stringify(pathsConfig, null, 2));
+
+        process.chdir(tempCwd);
+        resetExtensionPluginRootsCache();
+
+        const result = getExtensionPluginRoots(extId, { packageRoot: tempPackageRoot });
+
+        expect(result).toEqual([highExternalPluginsDir, lowExternalPluginsDir, pkgPluginsDir, cwdPluginsDir]);
+      } finally {
+        process.chdir(originalCwd);
+        fs.rmSync(tempPackageRoot, { recursive: true, force: true });
+        fs.rmSync(tempCwd, { recursive: true, force: true });
+        fs.rmSync(tempExternalRootLow, { recursive: true, force: true });
+        fs.rmSync(tempExternalRootHigh, { recursive: true, force: true });
       }
     });
   });

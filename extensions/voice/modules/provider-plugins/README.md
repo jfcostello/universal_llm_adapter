@@ -4,12 +4,12 @@ Loads voice provider manifests and compat modules from the voice extension plugi
 
 ## Multi-Root Resolution
 
-This module supports loading plugins from multiple root directories in priority order:
-1. External roots from `llm-adapter.paths.json` (if configured)
+This module supports loading plugins from multiple root directories in priority order (highest first):
+1. External roots from `llm-adapter.paths.json` (if configured; later entries win)
 2. `PACKAGE_ROOT/extensions/voice/plugins` (production/dist)
 3. `cwd/extensions/voice/plugins` (development/source fallback)
 
-**Manifest loading:** Manifests are loaded from all roots and combined. Duplicate provider IDs throw an error to prevent silent conflicts.
+**Manifest loading:** Manifests are loaded from all roots and combined. Duplicate provider IDs are resolved by precedence: higher-precedence roots override lower, and an override warning is emitted.
 
 **Compat module resolution:** Uses first-match-wins across roots via `resolveModuleEntryAcrossRoots()`.
 
@@ -21,4 +21,3 @@ This module supports loading plugins from multiple root directories in priority 
 ## Import rules
 - Runtime code must import only from `extensions/voice/modules/provider-plugins/index.ts`.
 - Do not import from `extensions/voice/modules/provider-plugins/internal/**` outside of this module.
-

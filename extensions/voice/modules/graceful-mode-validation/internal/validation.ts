@@ -1,4 +1,4 @@
-import { makeHttpError, normalizeFlag } from '../../../../../modules/shared/index.js';
+import { makeHttpError } from '../../../../../modules/shared/index.js';
 
 /**
  * Valid modes for graceful call ending.
@@ -95,38 +95,49 @@ export function validateMaxWaitMs(
  * Validates and returns cancelOnUserSpeech flag, throwing on invalid input.
  * For CLI use - validates string input from command line options.
  * @param raw - Raw input value from CLI (may be undefined/null/empty string)
- * @param defaultValue - Default value when raw is empty
  * @returns The validated boolean value, or undefined if raw is empty (to skip setting)
  * @throws HttpError with 400 status if value is invalid
  */
 export function validateCancelOnUserSpeechCli(
-  raw: string | undefined | null,
-  defaultValue: boolean
+  raw: string | undefined | null
 ): boolean | undefined {
   if (raw === undefined || raw === null) {
     return undefined; // Not provided, don't include in request
   }
 
-  const trimmed = String(raw).trim().toLowerCase();
-  if (!trimmed) {
+  const trimmedRaw = String(raw).trim();
+  if (!trimmedRaw) {
     return undefined; // Empty string, don't include in request
   }
 
-  const truthy = ['true', '1', 'yes', 'y', 'on'];
-  const falsy = ['false', '0', 'no', 'n', 'off'];
-
-  if (truthy.includes(trimmed)) {
-    return true;
-  }
-  if (falsy.includes(trimmed)) {
-    return false;
-  }
+  const parsed = parseCancelOnUserSpeechFlag(trimmedRaw);
+  if (parsed !== undefined) return parsed;
 
   throw makeHttpError({ message: 'Invalid cancelOnUserSpeech', statusCode: 400, code: 'validation_error' });
 }
 
+function parseCancelOnUserSpeechFlag(raw: unknown): boolean | undefined {
+  if (raw === null || raw === undefined) return undefined;
+  if (typeof raw === 'boolean') return raw;
+  if (typeof raw === 'number') return Boolean(raw);
+
+  if (typeof raw === 'string') {
+    const normalized = raw.trim().toLowerCase();
+    if (!normalized) return undefined;
+
+    const truthy = ['true', '1', 'yes', 'y', 'on'];
+    const falsy = ['false', '0', 'no', 'n', 'off'];
+    if (truthy.includes(normalized)) return true;
+    if (falsy.includes(normalized)) return false;
+
+    return undefined;
+  }
+
+  return Boolean(raw);
+}
+
 /**
- * Validates cancelOnUserSpeech for server use - uses normalizeFlag directly.
+ * Validates cancelOnUserSpeech for server use.
  * @param raw - Raw input value from request body
  * @param defaultValue - Default value when raw is undefined
  * @returns The validated boolean value
@@ -135,5 +146,5 @@ export function validateCancelOnUserSpeechServer(
   raw: unknown,
   defaultValue: boolean
 ): boolean {
-  return normalizeFlag(raw, defaultValue);
+  return parseCancelOnUserSpeechFlag(raw) ?? defaultValue;
 }
