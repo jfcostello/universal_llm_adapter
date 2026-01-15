@@ -520,7 +520,10 @@ async function readTextBody(
 export async function createVoiceServerRegistration(ctx: {
   server: http.Server;
   registry: any;
-  pluginsPath: string;
+  /**
+   * @deprecated Unused. Prefer `voicePluginRoots` or `providerPlugins`.
+   */
+  pluginsPath?: string;
   voicePluginRoots?: string | string[];
   upgradeRouter: any;
   store?: VoiceCallConfigStore;

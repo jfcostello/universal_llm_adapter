@@ -355,7 +355,7 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
             out.maxWaitMs = validateMaxWaitMs(maxWaitMsRaw, 0);
           }
 
-          const cancelOnUserSpeech = validateCancelOnUserSpeechCli(options.cancelOnUserSpeech, false);
+          const cancelOnUserSpeech = validateCancelOnUserSpeechCli(options.cancelOnUserSpeech);
           if (cancelOnUserSpeech !== undefined) {
             out.cancelOnUserSpeech = cancelOnUserSpeech;
           }
@@ -442,7 +442,7 @@ export async function runVoiceCli(ctx: { argv: string[]; deps: any; io?: Partial
           body.maxWaitMs = validateMaxWaitMs(maxWaitMsRaw, 0);
         }
 
-        const cancelOnUserSpeech = validateCancelOnUserSpeechCli(options.cancelOnUserSpeech, false);
+        const cancelOnUserSpeech = validateCancelOnUserSpeechCli(options.cancelOnUserSpeech);
         if (cancelOnUserSpeech !== undefined) {
           body.cancelOnUserSpeech = cancelOnUserSpeech;
         }

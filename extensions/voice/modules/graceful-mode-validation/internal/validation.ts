@@ -95,13 +95,11 @@ export function validateMaxWaitMs(
  * Validates and returns cancelOnUserSpeech flag, throwing on invalid input.
  * For CLI use - validates string input from command line options.
  * @param raw - Raw input value from CLI (may be undefined/null/empty string)
- * @param defaultValue - Default value when raw is empty
  * @returns The validated boolean value, or undefined if raw is empty (to skip setting)
  * @throws HttpError with 400 status if value is invalid
  */
 export function validateCancelOnUserSpeechCli(
-  raw: string | undefined | null,
-  defaultValue: boolean
+  raw: string | undefined | null
 ): boolean | undefined {
   if (raw === undefined || raw === null) {
     return undefined; // Not provided, don't include in request

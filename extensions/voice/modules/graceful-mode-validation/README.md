@@ -34,7 +34,7 @@ Validates and returns the maxWaitMs timeout value.
 - Returns `defaultValue` if raw is empty
 - Throws `HttpError` with 400 status if value is negative or exceeds limit
 
-### `validateCancelOnUserSpeechCli(raw, defaultValue)`
+### `validateCancelOnUserSpeechCli(raw)`
 CLI-specific validation for the cancelOnUserSpeech flag.
 - Accepts string values: `'true'`, `'1'`, `'yes'`, `'y'`, `'on'` (truthy) and `'false'`, `'0'`, `'no'`, `'n'`, `'off'` (falsy)
 - Returns `undefined` if raw is empty (to skip including in request)
@@ -65,7 +65,7 @@ const cancelOnUserSpeech = validateCancelOnUserSpeechServer(body?.cancelOnUserSp
 // CLI command
 const mode = validateTransferMode(options.mode, 'immediate');
 const maxWaitMs = validateMaxWaitMs(options.maxWaitMs, 5000); // no limit for CLI
-const cancelOnUserSpeech = validateCancelOnUserSpeechCli(options.cancelOnUserSpeech, false);
+const cancelOnUserSpeech = validateCancelOnUserSpeechCli(options.cancelOnUserSpeech);
 ```
 
 ## Files
