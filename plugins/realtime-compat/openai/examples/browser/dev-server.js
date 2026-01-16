@@ -39,12 +39,24 @@ function createStaticServer() {
       return;
     }
 
-    const pathname = decodeURIComponent(url.pathname);
-    const rel = pathname === '/' ? '/index.html' : pathname;
-    const safeRel = rel.replace(/\\.{2,}/g, '.');
-    const filePath = path.join(exampleDir, safeRel);
+    let pathname;
+    try {
+      pathname = decodeURIComponent(url.pathname);
+    } catch {
+      res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('Bad Request');
+      return;
+    }
 
-    if (!filePath.startsWith(exampleDir)) {
+    const rel = pathname === '/' ? '/index.html' : pathname;
+    const filePath = path.resolve(exampleDir, `.${rel}`);
+    const relative = path.relative(exampleDir, filePath);
+    const outside =
+      relative === '..' ||
+      relative.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relative);
+
+    if (outside) {
       res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
       res.end('Bad Request');
       return;
