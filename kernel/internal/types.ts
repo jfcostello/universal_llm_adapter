@@ -1165,23 +1165,56 @@ export interface TimeoutDefaults {
 /**
  * Server (HTTP/SSE) default settings.
  */
-export interface ServerAuthDefaults {
-  /**
-   * Auth mode for server access control.
-   *
-   * - `none`: no authentication
-   * - `apiKey`: shared secret token auth
-   * - `jwt`: JWT verification (e.g. OIDC)
-   * - `proxySigned`: trusted proxy/gateway signed identity headers
-   */
-  mode: 'none' | 'apiKey' | 'jwt' | 'proxySigned';
-
-  /**
-   * Mode-specific configuration. Kept open-ended because each mode has distinct
-   * configuration needs and is validated by the auth module at runtime.
-   */
-  [key: string]: any;
-}
+export type ServerAuthDefaults =
+  | { mode: 'none' }
+  | {
+      mode: 'apiKey';
+      allowBearer?: boolean;
+      allowHeader?: boolean;
+      headerName?: string;
+      realm?: string;
+      keys?: Array<{ id: string; token?: string; sha256?: string }>;
+    }
+  | {
+      mode: 'jwt';
+      allowBearer?: boolean;
+      allowHeader?: boolean;
+      headerName?: string;
+      realm?: string;
+      spki?: string;
+      jwksUrl?: string;
+      jwks?: unknown;
+      jwksTimeoutMs?: number;
+      jwksCooldownMs?: number;
+      jwksCacheMaxAgeMs?: number;
+      jwksMaxBytes?: number;
+      issuer?: string | string[];
+      audience?: string | string[];
+      algorithms?: string[];
+      clockToleranceSeconds?: number;
+      subjectClaim?: string;
+      tenantClaim?: string;
+      scopesClaim?: string;
+      scopesSeparator?: string;
+      requireSubject?: boolean;
+      requireExp?: boolean;
+      cacheMaxEntries?: number;
+    }
+  | {
+      mode: 'proxySigned';
+      realm?: string;
+      headers?: {
+        signature?: string;
+        keyId?: string;
+        timestamp?: string;
+        subject?: string;
+        tenant?: string;
+        scopes?: string;
+      };
+      maxSkewSeconds?: number;
+      scopesSeparator?: string;
+      keys?: Array<{ id: string; secret: string }>;
+    };
 
 export interface ServerRateLimitDefaults {
   enabled: boolean;
