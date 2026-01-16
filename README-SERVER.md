@@ -128,9 +128,8 @@ See `extensions/README.md`.
 | Option | CLI Flag | Default | Description |
 |--------|----------|---------|-------------|
 | `auth.mode` | `--auth-mode <mode>` | `none` | Auth mode (`none`, `apiKey`, `jwt`, `proxySigned`) |
-| `auth.mode` | `--auth-enabled` | | Shorthand for `--auth-mode apiKey` |
 | `auth.allowBearer` | `--no-auth-allow-bearer` | `true` | Allow Bearer token extraction |
-| `auth.allowHeader` | `--no-auth-allow-api-key-header` | `true` | Allow header token extraction (default `x-api-key`) |
+| `auth.allowHeader` | `--no-auth-allow-header` | `true` | Allow header token extraction (default `x-api-key`) |
 | `auth.headerName` | `--auth-header-name <name>` | `x-api-key` | Custom auth header name |
 | `auth.realm` | `--auth-realm <realm>` | | Authentication realm (`WWW-Authenticate`) |
 | `auth.keys` | (config only) | | Static keys (`apiKey`/`proxySigned` modes) |
@@ -633,7 +632,7 @@ Enable authentication to require API keys:
 
 ```bash
 # Via CLI
-llm-adapter serve --auth-enabled --port 3000
+llm-adapter serve --auth-mode apiKey --port 3000
 ```
 
 ```typescript
@@ -641,10 +640,13 @@ llm-adapter serve --auth-enabled --port 3000
 const server = await createServer({
   port: 3000,
   auth: {
-    enabled: true,
+    mode: 'apiKey',
     allowBearer: true,
-    allowApiKeyHeader: true,
-    apiKeys: ['key1', 'key2']
+    allowHeader: true,
+    keys: [
+      { id: 'key1', token: 'key1' },
+      { id: 'key2', token: 'key2' }
+    ]
   }
 });
 ```
@@ -673,9 +675,9 @@ Store SHA-256 hashes instead of plaintext keys:
 const server = await createServer({
   port: 3000,
   auth: {
-    enabled: true,
-    hashedKeys: [
-      '5e884898da28047d9...', // SHA-256 of actual key
+    mode: 'apiKey',
+    keys: [
+      { id: 'key1', sha256: 'sha256:5e884898da28047d9...' } // SHA-256 of the actual key
     ]
   }
 });
@@ -779,9 +781,7 @@ Server defaults can be configured in `plugins/configs/defaults.json`:
     "maxQueueSize": 1000,
     "queueTimeoutMs": 30000,
     "auth": {
-      "enabled": false,
-      "allowBearer": true,
-      "allowApiKeyHeader": true
+      "mode": "none"
     },
     "rateLimit": {
       "enabled": false,

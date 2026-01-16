@@ -176,7 +176,7 @@ describe('utils/server (integration) security + concurrency', () => {
     expect(ok.status).toBe(200);
   });
 
-  test('auth supports hashedKeys', async () => {
+  test('auth supports sha256 keys', async () => {
     if (!networkAvailable) return;
 
     const token = 'k3';

@@ -17,6 +17,7 @@ import {
   readJsonBody,
   writeHttpUpgradeResponse
 } from '../../../../../modules/server/index.js';
+import type { AuthContext } from '../../../../../modules/server/index.js';
 
 import type { VoiceProviderPlugins } from '../../provider-plugins/index.js';
 import { createVoiceProviderPlugins } from '../../provider-plugins/index.js';
@@ -538,7 +539,7 @@ export async function createVoiceServerRegistration(ctx: {
     securityHeadersEnabled?: boolean;
     idempotencyWaitMs?: number;
     idempotencyLockTtlSeconds?: number;
-    authorize?: ((req: http.IncomingMessage) => boolean | Promise<boolean>) | undefined;
+    authorize?: ((ctx: AuthContext, req: http.IncomingMessage) => boolean | Promise<boolean>) | undefined;
   };
 }): Promise<{
   handleHttp: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<boolean>;
@@ -550,7 +551,7 @@ export async function createVoiceServerRegistration(ctx: {
   const httpConfig = ctx.httpConfig ?? {};
   const maxRequestBytes = httpConfig.maxRequestBytes ?? Number.POSITIVE_INFINITY;
   const bodyReadTimeoutMs = httpConfig.bodyReadTimeoutMs ?? 0;
-  const authConfig = httpConfig.auth ?? { enabled: false };
+  const authConfig = httpConfig.auth ?? { mode: 'none' };
   const rateLimitConfig = httpConfig.rateLimit ?? { enabled: false };
   const corsConfig = httpConfig.cors ?? { enabled: false };
   const securityHeadersEnabled = httpConfig.securityHeadersEnabled ?? true;
@@ -1092,7 +1093,7 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
-          if (!authConfig?.enabled) {
+          if (!authConfig || authConfig.mode === 'none') {
             writeJson(res, 501, { type: 'error', error: { message: 'Voice metrics endpoint requires server auth to be enabled', code: 'not_implemented' } });
             return true;
           }
@@ -1119,7 +1120,7 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
-          if (!authConfig?.enabled) {
+          if (!authConfig || authConfig.mode === 'none') {
             writeJson(res, 501, { type: 'error', error: { message: 'Voice call events endpoint requires server auth to be enabled', code: 'not_implemented' } });
             return true;
           }
@@ -1304,7 +1305,7 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
-          if (!authConfig?.enabled) {
+          if (!authConfig || authConfig.mode === 'none') {
             writeJson(res, 501, { type: 'error', error: { message: 'Voice call end endpoint requires server auth to be enabled', code: 'not_implemented' } });
             return true;
           }
@@ -1499,7 +1500,7 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
-          if (!authConfig?.enabled) {
+          if (!authConfig || authConfig.mode === 'none') {
             writeJson(res, 501, { type: 'error', error: { message: 'Voice call transfer endpoint requires server auth to be enabled', code: 'not_implemented' } });
             return true;
           }
@@ -1718,7 +1719,7 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
-          if (!authConfig?.enabled) {
+          if (!authConfig || authConfig.mode === 'none') {
             writeJson(res, 501, { type: 'error', error: { message: 'Voice recording endpoint requires server auth to be enabled', code: 'not_implemented' } });
             return true;
           }
@@ -1861,7 +1862,7 @@ export async function createVoiceServerRegistration(ctx: {
 
           await assertAuthorizedAndRateLimited(req);
 
-          if (!authConfig?.enabled) {
+          if (!authConfig || authConfig.mode === 'none') {
             writeJson(res, 501, { type: 'error', error: { message: 'Voice calls endpoint requires server auth to be enabled', code: 'not_implemented' } });
             return true;
           }

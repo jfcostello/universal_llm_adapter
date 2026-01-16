@@ -51,9 +51,10 @@ async function startHarness(options: { store: any; providerPlugins: any; httpCon
   return { baseUrl, close };
 }
 
-describe('extensions/voice: recording webhook + retrieval', () => {
-  const prevSecret = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
-  const prevProxyTimeoutMs = process.env.LLM_ADAPTER_VOICE_RECORDING_PROXY_TIMEOUT_MS;
+	describe('extensions/voice: recording webhook + retrieval', () => {
+	  const apiKeyAuth = { mode: 'apiKey', keys: [{ id: 'k1', token: 'k1' }] };
+	  const prevSecret = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
+	  const prevProxyTimeoutMs = process.env.LLM_ADAPTER_VOICE_RECORDING_PROXY_TIMEOUT_MS;
 
   beforeEach(() => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
@@ -101,14 +102,14 @@ describe('extensions/voice: recording webhook + retrieval', () => {
         providerCallId: String(params.providerCallId ?? '')
       };
     });
-    const harness = await startHarness({
-      store,
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
-        getCompat: jest.fn(async () => ({ validateWebhookRequest, parseRecordingWebhook }))
-      },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
+	        getCompat: jest.fn(async () => ({ validateWebhookRequest, parseRecordingWebhook }))
+	      },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const res = await fetch(new URL('/voice/webhook/recording?callConfigId=cfg_1', harness.baseUrl), {
@@ -179,14 +180,14 @@ describe('extensions/voice: recording webhook + retrieval', () => {
     );
 
     const getRecordingDownloadRequest = jest.fn(async () => ({ url: mediaUrl, headers: {} }));
-    const harness = await startHarness({
-      store,
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
-        getCompat: jest.fn(async () => ({ getRecordingDownloadRequest }))
-      },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
+	        getCompat: jest.fn(async () => ({ getRecordingDownloadRequest }))
+	      },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const res = await fetch(new URL('/voice/calls/cfg_1/recording', harness.baseUrl), {
@@ -266,14 +267,14 @@ describe('extensions/voice: recording webhook + retrieval', () => {
     );
 
     const getRecordingDownloadRequest = jest.fn(async () => ({ url: mediaUrl, headers: {} }));
-    const harness = await startHarness({
-      store,
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
-        getCompat: jest.fn(async () => ({ getRecordingDownloadRequest }))
-      },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
+	        getCompat: jest.fn(async () => ({ getRecordingDownloadRequest }))
+	      },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const controller = new AbortController();
     try {
@@ -387,14 +388,14 @@ describe('extensions/voice: recording webhook + retrieval', () => {
     );
 
     const getRecordingDownloadRequest = jest.fn(async () => ({ url: mediaUrl, headers: {} }));
-    const harness = await startHarness({
-      store,
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
-        getCompat: jest.fn(async () => ({ getRecordingDownloadRequest }))
-      },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
+	        getCompat: jest.fn(async () => ({ getRecordingDownloadRequest }))
+	      },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const fetchPromise = fetch(new URL('/voice/calls/cfg_1/recording', harness.baseUrl), {

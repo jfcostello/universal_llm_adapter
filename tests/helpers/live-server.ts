@@ -38,7 +38,7 @@ export async function startLiveServerProcess(options: {
       '0',
       '--plugins',
       options.pluginsPath ?? './plugins',
-      ...(options.enableAuth ? ['--auth-enabled'] : []),
+      ...(options.enableAuth ? ['--auth-mode', 'apiKey'] : []),
       ...(options.enableFilepathDocs ? ['--policy-documents-filepath-enabled'] : []),
       ...filepathRoots.flatMap(root => ['--policy-documents-filepath-root', root]),
       ...(options.enableRealtimeWs ? ['--realtime-enabled'] : [])

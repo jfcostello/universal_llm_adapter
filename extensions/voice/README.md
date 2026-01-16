@@ -224,7 +224,7 @@ Start a local server (voice extension enabled) and set a token secret:
 ```bash
 export LLM_ADAPTER_VOICE_WS_TOKEN_SECRET="dev_secret"
 export LLM_ADAPTER_API_KEYS="dev_key_1"
-llm-adapter serve --auth-enabled --extension voice --port 3000
+llm-adapter serve --auth-mode apiKey --extension voice --port 3000
 ```
 
 Create a call config via `POST /voice/calls` (requires server auth to be enabled):

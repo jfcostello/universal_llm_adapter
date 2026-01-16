@@ -94,6 +94,7 @@ async function* iterateSse(res: Response, options: { timeoutMs: number }): Async
 }
 
 describe('extensions/voice: call events + control endpoints', () => {
+  const apiKeyAuth = { mode: 'apiKey', keys: [{ id: 'k1', token: 'k1' }] };
   const prevSecret = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
 
   beforeEach(() => {
@@ -128,12 +129,12 @@ describe('extensions/voice: call events + control endpoints', () => {
     const hub = createVoiceCallEventHub({ maxBufferedEventsPerCall: 10, maxActiveCalls: 10, callTtlMs: 0 });
     hub.emit('cfg_1', { type: 'user_transcript.final', text: 'hello' });
 
-    const harness = await startHarness({
-      store,
-      providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn() },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      eventsHub: hub
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn() },
+	      httpConfig: { auth: apiKeyAuth },
+	      eventsHub: hub
+	    });
 
     const controller = new AbortController();
     let res: Response | undefined;
@@ -188,12 +189,12 @@ describe('extensions/voice: call events + control endpoints', () => {
     hub.emit('cfg_1', { type: 'user_transcript.final', text: 'hello' });
     hub.emit('cfg_1', { type: 'assistant_transcript.final', text: 'skip' });
 
-    const harness = await startHarness({
-      store,
-      providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn() },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      eventsHub: hub
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn() },
+	      httpConfig: { auth: apiKeyAuth },
+	      eventsHub: hub
+	    });
 
     const controller = new AbortController();
     let res: Response | undefined;
@@ -249,12 +250,12 @@ describe('extensions/voice: call events + control endpoints', () => {
     const busy = hub.subscribe('busy', { includeDeltas: false }, () => {});
     expect(busy.accepted).toBe(true);
 
-    const harness = await startHarness({
-      store,
-      providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn() },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      eventsHub: hub
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn() },
+	      httpConfig: { auth: apiKeyAuth },
+	      eventsHub: hub
+	    });
 
     try {
       const res = await fetch(new URL('/voice/calls/cfg_1/events', harness.baseUrl), {
@@ -294,14 +295,14 @@ describe('extensions/voice: call events + control endpoints', () => {
     );
 
     const endCall = jest.fn(async () => ({ ok: true }));
-    const harness = await startHarness({
-      store,
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
-        getCompat: jest.fn(async () => ({ endCall }))
-      },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
+	        getCompat: jest.fn(async () => ({ endCall }))
+	      },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const res = await fetch(new URL('/voice/calls/cfg_1/end', harness.baseUrl), {
@@ -343,14 +344,14 @@ describe('extensions/voice: call events + control endpoints', () => {
     );
 
     const transferCall = jest.fn(async () => ({ ok: true }));
-    const harness = await startHarness({
-      store,
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
-        getCompat: jest.fn(async () => ({ transferCall }))
-      },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
+	        getCompat: jest.fn(async () => ({ transferCall }))
+	      },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const res = await fetch(new URL('/voice/calls/cfg_1/transfer', harness.baseUrl), {
@@ -393,14 +394,14 @@ describe('extensions/voice: call events + control endpoints', () => {
     );
 
     const transferCall = jest.fn(async () => ({ ok: true }));
-    const harness = await startHarness({
-      store,
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
-        getCompat: jest.fn(async () => ({ transferCall }))
-      },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
+	        getCompat: jest.fn(async () => ({ transferCall }))
+	      },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const res = await fetch(new URL('/voice/calls/cfg_1/transfer', harness.baseUrl), {
@@ -435,14 +436,14 @@ describe('extensions/voice: call events + control endpoints', () => {
       { ttlSeconds: 60 }
     );
 
-    const harness = await startHarness({
-      store,
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
-        getCompat: jest.fn(async () => ({})) // no transferCall method
-      },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
+	        getCompat: jest.fn(async () => ({})) // no transferCall method
+	      },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const res = await fetch(new URL('/voice/calls/cfg_1/transfer', harness.baseUrl), {
@@ -477,14 +478,14 @@ describe('extensions/voice: call events + control endpoints', () => {
     );
 
     const transferCall = jest.fn(async () => ({ ok: true }));
-    const harness = await startHarness({
-      store,
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
-        getCompat: jest.fn(async () => ({ transferCall }))
-      },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test', defaults: { ok: true } })),
+	        getCompat: jest.fn(async () => ({ transferCall }))
+	      },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const res = await fetch(new URL('/voice/calls/cfg_1/transfer', harness.baseUrl), {

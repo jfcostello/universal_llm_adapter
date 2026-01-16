@@ -87,10 +87,10 @@ const adapterServer = await createServer({
   port: ADAPTER_PORT,
   pluginsPath: path.join(repoRoot, 'plugins'),
   auth: {
-    enabled: true,
+    mode: 'apiKey',
     allowBearer: true,
-    allowApiKeyHeader: true,
-    apiKeys: [adapterAuthKey]
+    allowHeader: true,
+    keys: [{ id: 'browser', token: adapterAuthKey }]
   },
   cors: {
     enabled: true,
@@ -128,4 +128,3 @@ async function shutdown() {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
-

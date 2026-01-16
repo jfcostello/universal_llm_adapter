@@ -1464,7 +1464,7 @@ describe('cli/internal/unified-cli', () => {
 
       await program.parseAsync([
         'node', 'llm-adapter', 'serve',
-        '--auth-enabled',
+        '--auth-mode', 'apiKey',
         '--auth-header-name', 'x-custom-key'
       ]);
 
@@ -1903,7 +1903,7 @@ describe('cli/internal/unified-cli', () => {
 
       await program.parseAsync([
         'node', 'llm-adapter', 'serve',
-        '--auth-enabled',
+        '--auth-mode', 'apiKey',
         '--no-auth-allow-bearer'
       ]);
 
@@ -1911,13 +1911,13 @@ describe('cli/internal/unified-cli', () => {
       expect(serverOptions.auth.allowBearer).toBe(false);
     });
 
-    test('passes --no-auth-allow-api-key-header option', async () => {
+    test('passes --no-auth-allow-header option', async () => {
       const program = createUnifiedProgram(mockDeps);
 
       await program.parseAsync([
         'node', 'llm-adapter', 'serve',
-        '--auth-enabled',
-        '--no-auth-allow-api-key-header'
+        '--auth-mode', 'apiKey',
+        '--no-auth-allow-header'
       ]);
 
       const serverOptions = mockDeps.createServer.mock.calls[0][0];
@@ -1929,7 +1929,7 @@ describe('cli/internal/unified-cli', () => {
 
       await program.parseAsync([
         'node', 'llm-adapter', 'serve',
-        '--auth-enabled',
+        '--auth-mode', 'apiKey',
         '--auth-realm', 'my-realm'
       ]);
 

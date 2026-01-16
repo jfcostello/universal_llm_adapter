@@ -55,12 +55,14 @@ class MockStreamRes extends Writable {
   }
 }
 
-describe('extensions/voice: server http handlers', () => {
-  const prevSecret = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
-  const prevTtl = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS;
-  const prevMetricsEnabled = process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED;
-  const prevPublicBaseUrl = process.env.LLM_ADAPTER_VOICE_PUBLIC_BASE_URL;
-  const prevTrustProxyHeaders = process.env.LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS;
+	describe('extensions/voice: server http handlers', () => {
+	  const apiKeyAuth = { mode: 'apiKey', keys: [{ id: 'k1', token: 'k1' }] };
+	  const noAuth = { mode: 'none' };
+	  const prevSecret = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
+	  const prevTtl = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS;
+	  const prevMetricsEnabled = process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED;
+	  const prevPublicBaseUrl = process.env.LLM_ADAPTER_VOICE_PUBLIC_BASE_URL;
+	  const prevTrustProxyHeaders = process.env.LLM_ADAPTER_VOICE_TRUST_PROXY_HEADERS;
   const prevWebhookValidationRequired = process.env.LLM_ADAPTER_VOICE_WEBHOOK_VALIDATION_REQUIRED;
 
   afterEach(() => {
@@ -100,15 +102,15 @@ describe('extensions/voice: server http handlers', () => {
     const store = createInMemoryVoiceCallConfigStore();
     const providerPlugins = { getCompat: jest.fn(async () => ({ validateWebhookRequest: jest.fn(async () => {}), createWebhookResponse: jest.fn() })) };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: providerPlugins as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = createMockRes();
     await expect(reg.handleHttp({ url: '/health', method: 'GET' } as any, res)).resolves.toBe(false);
@@ -937,15 +939,15 @@ describe('extensions/voice: server http handlers', () => {
       }))
     };
 
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins: providerPlugins as any,
-        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-      });
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins: providerPlugins as any,
+	        httpConfig: { auth: apiKeyAuth }
+	      });
 
     const resWebhook = createMockRes();
     await expect(
@@ -997,15 +999,15 @@ describe('extensions/voice: server http handlers', () => {
       }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: providerPlugins as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const resWebhook = createMockRes();
     await expect(
@@ -1872,15 +1874,15 @@ describe('extensions/voice: server http handlers', () => {
     const store = createInMemoryVoiceCallConfigStore();
     const providerPlugins = { getCompat: jest.fn(), getManifest: jest.fn() };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: providerPlugins as any,
-      httpConfig: { auth: { enabled: false }, rateLimit: { enabled: true, requestsPerMinute: 1, burst: 1 } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: { auth: noAuth, rateLimit: { enabled: true, requestsPerMinute: 1, burst: 1 } }
+	    });
 
     const res = createMockRes();
     await expect(reg.handleHttp({ url: '/voice/calls', method: 'POST', headers: {}, socket: {} } as any, res)).resolves.toBe(true);
@@ -1947,13 +1949,13 @@ describe('extensions/voice: server http handlers', () => {
       pluginsPath: './plugins',
       upgradeRouter: {} as any,
       store,
-      providerPlugins: providerPlugins as any,
-      httpConfig: {
-        auth: { enabled: true, apiKeys: ['k1'] },
-        extensions: {
-          voice: {
-            timeouts: { callTimeoutMs: 10, silenceTimeoutMs: 20 },
-            assistantFirstTurn: { enabled: false },
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: {
+	        auth: apiKeyAuth,
+	        extensions: {
+	          voice: {
+	            timeouts: { callTimeoutMs: 10, silenceTimeoutMs: 20 },
+	            assistantFirstTurn: { enabled: false },
             recording: { enabled: false }
           }
         }
@@ -2019,12 +2021,12 @@ describe('extensions/voice: server http handlers', () => {
       pluginsPath: './plugins',
       upgradeRouter: {} as any,
       store,
-      providerPlugins: providerPlugins as any,
-      httpConfig: {
-        auth: { enabled: true, apiKeys: ['k1'] },
-        extensions: {
-          voice: {
-            assistantFirstTurn: { enabled: true, prompt: 'Hello there', role: 'user', delayMs: 0, missingPromptBehavior: 'reject' },
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: {
+	        auth: apiKeyAuth,
+	        extensions: {
+	          voice: {
+	            assistantFirstTurn: { enabled: true, prompt: 'Hello there', role: 'user', delayMs: 0, missingPromptBehavior: 'reject' },
             recording: { enabled: true, mode: 'provider', format: 'mp3', channels: 'mono' },
             timeouts: {}
           }
@@ -2053,15 +2055,15 @@ describe('extensions/voice: server http handlers', () => {
     const store = createInMemoryVoiceCallConfigStore();
     const providerPlugins = { getCompat: jest.fn(), getManifest: jest.fn() };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: providerPlugins as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = createMockRes();
     await expect(
@@ -2089,15 +2091,15 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({ createOutboundCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = createMockRes();
     await expect(
@@ -2139,15 +2141,15 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({ createOutboundCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = createMockRes();
     await expect(
@@ -2189,15 +2191,15 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({ createOutboundCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = createMockRes();
     await expect(
@@ -2233,15 +2235,15 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({ createOutboundCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = createMockRes();
     await expect(
@@ -2276,15 +2278,15 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({ createOutboundCall: jest.fn(async () => ({ providerCallId: 'pc_1' })) }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = createMockRes();
     await expect(
@@ -2319,15 +2321,15 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({ createOutboundCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const resZero = createMockRes();
     await expect(
@@ -2395,19 +2397,19 @@ describe('extensions/voice: server http handlers', () => {
         getCompat: jest.fn(async () => ({ createOutboundCall: jest.fn() }))
       };
 
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins,
-        httpConfig: {
-          auth: { enabled: true, apiKeys: ['k1'] },
-          idempotencyWaitMs: 200,
-          idempotencyLockTtlSeconds: 60
-        }
-      });
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins,
+	        httpConfig: {
+	          auth: apiKeyAuth,
+	          idempotencyWaitMs: 200,
+	          idempotencyLockTtlSeconds: 60
+	        }
+	      });
 
       const res = createMockRes();
       const promise = reg.handleHttp(
@@ -2463,19 +2465,19 @@ describe('extensions/voice: server http handlers', () => {
         getCompat: jest.fn(async () => ({ createOutboundCall: jest.fn() }))
       };
 
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins,
-        httpConfig: {
-          auth: { enabled: true, apiKeys: ['k1'] },
-          idempotencyWaitMs: 25,
-          idempotencyLockTtlSeconds: 60
-        }
-      });
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins,
+	        httpConfig: {
+	          auth: apiKeyAuth,
+	          idempotencyWaitMs: 25,
+	          idempotencyLockTtlSeconds: 60
+	        }
+	      });
 
       const res = createMockRes();
       const promise = reg.handleHttp(
@@ -2510,15 +2512,15 @@ describe('extensions/voice: server http handlers', () => {
     const store = createInMemoryVoiceCallConfigStore();
     const providerPlugins = { getCompat: jest.fn(), getManifest: jest.fn() };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: providerPlugins as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = createMockRes();
     await expect(
@@ -3096,31 +3098,31 @@ describe('extensions/voice: server http handlers', () => {
     }));
     const eventsHub = { emit: jest.fn(), subscribe, snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })), close: jest.fn() };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: { getCompat: jest.fn() } as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] }, extensions: { voice: { events: { includeDeltas: true, keepAliveIntervalMs: 5000 } } } },
-      eventsHub: eventsHub as any
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: { getCompat: jest.fn() } as any,
+	      httpConfig: { auth: apiKeyAuth, extensions: { voice: { events: { includeDeltas: true, keepAliveIntervalMs: 5000 } } } },
+	      eventsHub: eventsHub as any
+	    });
 
     const resMethod = createMockRes();
     await expect(reg.handleHttp({ url: '/voice/calls/cfg_events/events', method: 'POST', headers: { authorization: 'Bearer k1' }, socket: {} } as any, resMethod)).resolves.toBe(true);
     expect(String(resMethod.writeHead.mock.calls[0][0])).toBe('405');
 
-    const regNoAuth = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: { getCompat: jest.fn() } as any,
-      httpConfig: { auth: { enabled: false } },
-      eventsHub: eventsHub as any
-    });
+	    const regNoAuth = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: { getCompat: jest.fn() } as any,
+	      httpConfig: { auth: noAuth },
+	      eventsHub: eventsHub as any
+	    });
     const resNoAuth = createMockRes();
     await expect(regNoAuth.handleHttp({ url: '/voice/calls/cfg_events/events', method: 'GET' } as any, resNoAuth)).resolves.toBe(true);
     expect(String(resNoAuth.writeHead.mock.calls[0][0])).toBe('501');
@@ -3175,16 +3177,16 @@ describe('extensions/voice: server http handlers', () => {
     });
     const eventsHub = { emit: jest.fn(), subscribe, snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })), close: jest.fn() };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: { getCompat: jest.fn() } as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      eventsHub: eventsHub as any
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: { getCompat: jest.fn() } as any,
+	      httpConfig: { auth: apiKeyAuth },
+	      eventsHub: eventsHub as any
+	    });
 
     const req = new EventEmitter() as any;
     req.url = '/voice/calls/cfg_events_preheaders/events';
@@ -3258,11 +3260,11 @@ describe('extensions/voice: server http handlers', () => {
       store,
       providerPlugins: { getCompat: jest.fn() } as any,
       logging: { getLogger: () => logger },
-      httpConfig: {
-        auth: { enabled: true, apiKeys: ['k1'] },
-        extensions: { voice: { events: { maxActiveCalls: 1, keepAliveIntervalMs: 0 } } }
-      }
-    });
+	      httpConfig: {
+	        auth: apiKeyAuth,
+	        extensions: { voice: { events: { maxActiveCalls: 1, keepAliveIntervalMs: 0 } } }
+	      }
+	    });
 
     try {
       const reqA = new EventEmitter() as any;
@@ -3326,16 +3328,16 @@ describe('extensions/voice: server http handlers', () => {
       const subscribe = jest.fn((_id: string, _opts: any, _onEvent: any) => ({ accepted: true, replay: [], unsubscribe: jest.fn() }));
       const eventsHub = { emit: jest.fn(), subscribe, snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })), close: jest.fn() };
 
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins: { getCompat: jest.fn() } as any,
-        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-        eventsHub: eventsHub as any
-      });
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins: { getCompat: jest.fn() } as any,
+	        httpConfig: { auth: apiKeyAuth },
+	        eventsHub: eventsHub as any
+	      });
 
       const req = new EventEmitter() as any;
       req.url = '/voice/calls/cfg_events/events?eventTypes=,';
@@ -3374,16 +3376,16 @@ describe('extensions/voice: server http handlers', () => {
     const subscribe = jest.fn((_id: string, _opts: any, _onEvent: any) => ({ accepted: true, replay: [], unsubscribe: jest.fn() }));
     const eventsHub = { emit: jest.fn(), subscribe, snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })), close: jest.fn() };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: { getCompat: jest.fn() } as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      eventsHub: eventsHub as any
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: { getCompat: jest.fn() } as any,
+	      httpConfig: { auth: apiKeyAuth },
+	      eventsHub: eventsHub as any
+	    });
 
     const req = new EventEmitter() as any;
     req.url = '/voice/calls/cfg_events/events';
@@ -3437,13 +3439,13 @@ describe('extensions/voice: server http handlers', () => {
           pluginsPath: './plugins',
           upgradeRouter: {} as any,
           store,
-          providerPlugins: { getCompat: jest.fn() } as any,
-          httpConfig: {
-            auth: { enabled: true, apiKeys: ['k1'] },
-            extensions: { voice: { events: { keepAliveIntervalMs: 'nope', maxWriteQueueBytes: 'nope' } } }
-          },
-          eventsHub: eventsHub as any
-        });
+	          providerPlugins: { getCompat: jest.fn() } as any,
+	          httpConfig: {
+	            auth: apiKeyAuth,
+	            extensions: { voice: { events: { keepAliveIntervalMs: 'nope', maxWriteQueueBytes: 'nope' } } }
+	          },
+	          eventsHub: eventsHub as any
+	        });
   
         const req = new EventEmitter() as any;
         req.url = '/voice/calls/cfg_events/events';
@@ -3504,13 +3506,13 @@ describe('extensions/voice: server http handlers', () => {
           pluginsPath: './plugins',
           upgradeRouter: {} as any,
           store,
-          providerPlugins: { getCompat: jest.fn() } as any,
-          httpConfig: {
-            auth: { enabled: true, apiKeys: ['k1'] },
-            extensions: { voice: { events: { keepAliveIntervalMs: 0, maxWriteQueueBytes: 0 } } }
-          },
-          eventsHub: eventsHub as any
-        });
+	          providerPlugins: { getCompat: jest.fn() } as any,
+	          httpConfig: {
+	            auth: apiKeyAuth,
+	            extensions: { voice: { events: { keepAliveIntervalMs: 0, maxWriteQueueBytes: 0 } } }
+	          },
+	          eventsHub: eventsHub as any
+	        });
   
         const req = new EventEmitter() as any;
         req.url = '/voice/calls/cfg_events/events';
@@ -3565,16 +3567,16 @@ describe('extensions/voice: server http handlers', () => {
     });
     const eventsHub = { emit: jest.fn(), subscribe, snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })), close: jest.fn() };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: { getCompat: jest.fn() } as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      eventsHub: eventsHub as any
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: { getCompat: jest.fn() } as any,
+	      httpConfig: { auth: apiKeyAuth },
+	      eventsHub: eventsHub as any
+	    });
 
     const req = new EventEmitter() as any;
     req.url = '/voice/calls/cfg_events/events';
@@ -3628,16 +3630,16 @@ describe('extensions/voice: server http handlers', () => {
       });
       const eventsHub = { emit: jest.fn(), subscribe, snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })), close: jest.fn() };
 
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins: { getCompat: jest.fn() } as any,
-        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-        eventsHub: eventsHub as any
-      });
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins: { getCompat: jest.fn() } as any,
+	        httpConfig: { auth: apiKeyAuth },
+	        eventsHub: eventsHub as any
+	      });
 
       const req = new EventEmitter() as any;
       req.url = '/voice/calls/cfg_events_closed/events';
@@ -3694,16 +3696,16 @@ describe('extensions/voice: server http handlers', () => {
     });
     const eventsHub = { emit: jest.fn(), subscribe, snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })), close: jest.fn() };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: { getCompat: jest.fn() } as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      eventsHub: eventsHub as any
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: { getCompat: jest.fn() } as any,
+	      httpConfig: { auth: apiKeyAuth },
+	      eventsHub: eventsHub as any
+	    });
 
     const req = new EventEmitter() as any;
     req.url = '/voice/calls/cfg_events/events';
@@ -3764,16 +3766,16 @@ describe('extensions/voice: server http handlers', () => {
     });
     const eventsHub = { emit: jest.fn(), subscribe, snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })), close: jest.fn() };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: { getCompat: jest.fn() } as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      eventsHub: eventsHub as any
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: { getCompat: jest.fn() } as any,
+	      httpConfig: { auth: apiKeyAuth },
+	      eventsHub: eventsHub as any
+	    });
 
     const req = new EventEmitter() as any;
     req.url = '/voice/calls/cfg_events/events';
@@ -3821,16 +3823,16 @@ describe('extensions/voice: server http handlers', () => {
     }));
     const eventsHub = { emit: jest.fn(), subscribe, snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })), close: jest.fn() };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: { getCompat: jest.fn() } as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      eventsHub: eventsHub as any
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: { getCompat: jest.fn() } as any,
+	      httpConfig: { auth: apiKeyAuth },
+	      eventsHub: eventsHub as any
+	    });
 
     const req = new EventEmitter() as any;
     req.url = '/voice/calls/cfg_events/events';
@@ -3871,16 +3873,16 @@ describe('extensions/voice: server http handlers', () => {
     });
     const eventsHub = { emit: jest.fn(), subscribe, snapshot: jest.fn(() => ({ activeCalls: 0, totalSubscribers: 0, calls: [] })), close: jest.fn() };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: { getCompat: jest.fn() } as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] }, extensions: { voice: { events: { maxWriteQueueBytes: 1 } } } },
-      eventsHub: eventsHub as any
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: { getCompat: jest.fn() } as any,
+	      httpConfig: { auth: apiKeyAuth, extensions: { voice: { events: { maxWriteQueueBytes: 1 } } } },
+	      eventsHub: eventsHub as any
+	    });
 
     const req = new EventEmitter() as any;
     req.url = '/voice/calls/cfg_events/events';
@@ -3951,29 +3953,29 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({}))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const resMethod = createMockRes();
     await expect(reg.handleHttp({ url: '/voice/calls/cfg_end_ready/end', headers: { authorization: 'Bearer k1' }, socket: {} } as any, resMethod)).resolves.toBe(true);
     expect(String(resMethod.writeHead.mock.calls[0][0])).toBe('405');
 
-    const regNoAuth = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: false } }
-    });
+	    const regNoAuth = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: noAuth }
+	    });
     const resNoAuth = createMockRes();
     await expect(
       regNoAuth.handleHttp(
@@ -4086,12 +4088,12 @@ describe('extensions/voice: server http handlers', () => {
         pluginsPath: './plugins',
         upgradeRouter: {} as any,
         store,
-        providerPlugins,
-        httpConfig: {
-          auth: { enabled: true, apiKeys: ['k1'] },
-          extensions: {
-            voice: {
-              end: {
+	        providerPlugins,
+	        httpConfig: {
+	          auth: apiKeyAuth,
+	          extensions: {
+	            voice: {
+	              end: {
                 defaultMode: 'after_assistant_audio',
                 defaultMaxWaitMs: 1234,
                 defaultCancelOnUserSpeech: true
@@ -4201,12 +4203,12 @@ describe('extensions/voice: server http handlers', () => {
         pluginsPath: './plugins',
         upgradeRouter: {} as any,
         store,
-        providerPlugins,
-        httpConfig: {
-          auth: { enabled: true, apiKeys: ['k1'] },
-          extensions: {
-            voice: {
-              end: {
+	        providerPlugins,
+	        httpConfig: {
+	          auth: apiKeyAuth,
+	          extensions: {
+	            voice: {
+	              end: {
                 defaultMode: 'after_playback',
                 defaultMaxWaitMs: 'nope'
               }
@@ -4275,12 +4277,12 @@ describe('extensions/voice: server http handlers', () => {
       pluginsPath: './plugins',
       upgradeRouter: {} as any,
       store,
-      providerPlugins,
-      httpConfig: {
-        auth: { enabled: true, apiKeys: ['k1'] },
-        extensions: {
-          voice: {
-            end: {
+	      providerPlugins,
+	      httpConfig: {
+	        auth: apiKeyAuth,
+	        extensions: {
+	          voice: {
+	            end: {
               defaultMode: 'immediate',
               defaultMaxWaitMs: -1
             }
@@ -4336,16 +4338,16 @@ describe('extensions/voice: server http handlers', () => {
     };
 
     const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      eventsHub: eventsHub as any
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth },
+	      eventsHub: eventsHub as any
+	    });
 
     const res = new MockStreamRes() as any;
     await expect(
@@ -4392,16 +4394,16 @@ describe('extensions/voice: server http handlers', () => {
       };
 
       const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins,
-        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-        eventsHub: eventsHub as any
-      });
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins,
+	        httpConfig: { auth: apiKeyAuth },
+	        eventsHub: eventsHub as any
+	      });
 
       const res = new MockStreamRes() as any;
       await expect(
@@ -4456,16 +4458,16 @@ describe('extensions/voice: server http handlers', () => {
       };
 
       const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins,
-        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-        eventsHub: eventsHub as any
-      });
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins,
+	        httpConfig: { auth: apiKeyAuth },
+	        eventsHub: eventsHub as any
+	      });
 
       const res = new MockStreamRes() as any;
       await expect(
@@ -4518,16 +4520,16 @@ describe('extensions/voice: server http handlers', () => {
       };
 
       const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins,
-        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-        eventsHub: eventsHub as any
-      });
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins,
+	        httpConfig: { auth: apiKeyAuth },
+	        eventsHub: eventsHub as any
+	      });
 
       const res1 = new MockStreamRes() as any;
       await expect(
@@ -4593,16 +4595,16 @@ describe('extensions/voice: server http handlers', () => {
     };
 
     const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      eventsHub: eventsHub as any
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth },
+	      eventsHub: eventsHub as any
+	    });
 
     const res = new MockStreamRes() as any;
     await expect(
@@ -4656,16 +4658,16 @@ describe('extensions/voice: server http handlers', () => {
         close: jest.fn()
       };
 
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins,
-        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-        eventsHub
-      });
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins,
+	        httpConfig: { auth: apiKeyAuth },
+	        eventsHub
+	      });
 
       const res = new MockStreamRes() as any;
       await expect(
@@ -4726,16 +4728,16 @@ describe('extensions/voice: server http handlers', () => {
         close: jest.fn()
       };
 
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins,
-        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-        eventsHub
-      });
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins,
+	        httpConfig: { auth: apiKeyAuth },
+	        eventsHub
+	      });
 
       const res = new MockStreamRes() as any;
       await expect(
@@ -4806,17 +4808,17 @@ describe('extensions/voice: server http handlers', () => {
         error: jest.fn()
       };
 
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins,
-        logging: { getLogger: () => logger },
-        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-        eventsHub: eventsHub as any
-      });
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins,
+	        logging: { getLogger: () => logger },
+	        httpConfig: { auth: apiKeyAuth },
+	        eventsHub: eventsHub as any
+	      });
 
       const seen: any[] = [];
       eventsHub.subscribe('cfg_end_ready', { includeDeltas: false }, (evt) => {
@@ -4899,17 +4901,17 @@ describe('extensions/voice: server http handlers', () => {
         error: jest.fn()
       };
 
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins,
-        logging: { getLogger: () => logger },
-        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-        eventsHub: eventsHub as any
-      });
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins,
+	        logging: { getLogger: () => logger },
+	        httpConfig: { auth: apiKeyAuth },
+	        eventsHub: eventsHub as any
+	      });
 
       const seen: any[] = [];
       eventsHub.subscribe('cfg_end_ready', { includeDeltas: false }, (evt) => {
@@ -4972,17 +4974,17 @@ describe('extensions/voice: server http handlers', () => {
       };
 
       const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins,
-        logging: { getLogger: () => Promise.reject(new Error('nope')) } as any,
-        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-        eventsHub: eventsHub as any
-      });
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins,
+	        logging: { getLogger: () => Promise.reject(new Error('nope')) } as any,
+	        httpConfig: { auth: apiKeyAuth },
+	        eventsHub: eventsHub as any
+	      });
 
       const res = new MockStreamRes() as any;
       await expect(
@@ -5102,29 +5104,29 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({}))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const resMethod = createMockRes();
     await expect(reg.handleHttp({ url: '/voice/calls/cfg_recording_ready/recording', method: 'POST', headers: { authorization: 'Bearer k1' }, socket: {} } as any, resMethod)).resolves.toBe(true);
     expect(String(resMethod.writeHead.mock.calls[0][0])).toBe('405');
 
-    const regNoAuth = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: false } }
-    });
+	    const regNoAuth = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: noAuth }
+	    });
     const resNoAuth = createMockRes();
     await expect(regNoAuth.handleHttp({ url: '/voice/calls/cfg_recording_ready/recording' } as any, resNoAuth)).resolves.toBe(true);
     expect(String(resNoAuth.writeHead.mock.calls[0][0])).toBe('501');
@@ -5250,15 +5252,15 @@ describe('extensions/voice: server http handlers', () => {
 
       const prevFetch = globalThis.fetch;
       try {
-        const reg = await createVoiceServerRegistration({
-          server: {} as any,
-          registry: {},
-          pluginsPath: './plugins',
-          upgradeRouter: {} as any,
-          store,
-          providerPlugins,
-          httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-        });
+	        const reg = await createVoiceServerRegistration({
+	          server: {} as any,
+	          registry: {},
+	          pluginsPath: './plugins',
+	          upgradeRouter: {} as any,
+	          store,
+	          providerPlugins,
+	          httpConfig: { auth: apiKeyAuth }
+	        });
 
         const abortErr: any = new Error('aborted');
         abortErr.name = 'AbortError';
@@ -5316,15 +5318,15 @@ describe('extensions/voice: server http handlers', () => {
           getCompat: jest.fn(async () => ({ getRecordingDownloadRequest: jest.fn(async () => ({ url: 'https://example.com/r1' })) }))
         };
 
-        const reg = await createVoiceServerRegistration({
-          server: {} as any,
-          registry: {},
-          pluginsPath: './plugins',
-          upgradeRouter: {} as any,
-          store,
-          providerPlugins,
-          httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-        });
+	        const reg = await createVoiceServerRegistration({
+	          server: {} as any,
+	          registry: {},
+	          pluginsPath: './plugins',
+	          upgradeRouter: {} as any,
+	          store,
+	          providerPlugins,
+	          httpConfig: { auth: apiKeyAuth }
+	        });
 
         globalThis.fetch = jest.fn((_url: any, init: any) => {
           return new Promise((_resolve, reject) => {
@@ -5381,15 +5383,15 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({ createOutboundCall, endCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = createMockRes();
     await expect(
@@ -5435,15 +5437,15 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({ createOutboundCall, endCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = createMockRes();
     await expect(
@@ -5489,15 +5491,15 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({ createOutboundCall, endCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = createMockRes();
     await expect(
@@ -5542,16 +5544,16 @@ describe('extensions/voice: server http handlers', () => {
     };
 
     const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      eventsHub: eventsHub as any
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth },
+	      eventsHub: eventsHub as any
+	    });
 
     const res = new MockStreamRes() as any;
     await expect(
@@ -5596,16 +5598,16 @@ describe('extensions/voice: server http handlers', () => {
     };
 
     const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      eventsHub: eventsHub as any
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth },
+	      eventsHub: eventsHub as any
+	    });
 
     const res = new MockStreamRes() as any;
     await expect(
@@ -5650,16 +5652,16 @@ describe('extensions/voice: server http handlers', () => {
     };
 
     const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      eventsHub: eventsHub as any
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth },
+	      eventsHub: eventsHub as any
+	    });
 
     const res = new MockStreamRes() as any;
     await expect(
@@ -5706,16 +5708,16 @@ describe('extensions/voice: server http handlers', () => {
       };
 
       const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins,
-        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-        eventsHub: eventsHub as any
-      });
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins,
+	        httpConfig: { auth: apiKeyAuth },
+	        eventsHub: eventsHub as any
+	      });
 
       const res = new MockStreamRes() as any;
       await expect(
@@ -5770,16 +5772,16 @@ describe('extensions/voice: server http handlers', () => {
       };
 
       const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins,
-        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-        eventsHub: eventsHub as any
-      });
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins,
+	        httpConfig: { auth: apiKeyAuth },
+	        eventsHub: eventsHub as any
+	      });
 
       // First request schedules the transfer
       const res1 = new MockStreamRes() as any;
@@ -5842,16 +5844,16 @@ describe('extensions/voice: server http handlers', () => {
       };
 
       const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins,
-        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-        eventsHub: eventsHub as any
-      });
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins,
+	        httpConfig: { auth: apiKeyAuth },
+	        eventsHub: eventsHub as any
+	      });
 
       const res = new MockStreamRes() as any;
       await expect(
@@ -5910,16 +5912,16 @@ describe('extensions/voice: server http handlers', () => {
         close: jest.fn()
       };
 
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins,
-        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-        eventsHub
-      });
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins,
+	        httpConfig: { auth: apiKeyAuth },
+	        eventsHub
+	      });
 
       const res = new MockStreamRes() as any;
       await expect(
@@ -5985,18 +5987,18 @@ describe('extensions/voice: server http handlers', () => {
         error: jest.fn()
       };
 
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins,
-        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-        eventsHub: eventsHub as any,
-        voiceLoggingModule: {
-          closeVoiceLogger: async () => {},
-          resolveVoiceLogger: async () => logger
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins,
+	        httpConfig: { auth: apiKeyAuth },
+	        eventsHub: eventsHub as any,
+	        voiceLoggingModule: {
+	          closeVoiceLogger: async () => {},
+	          resolveVoiceLogger: async () => logger
         }
       });
 
@@ -6064,12 +6066,12 @@ describe('extensions/voice: server http handlers', () => {
         pluginsPath: './plugins',
         upgradeRouter: {} as any,
         store,
-        providerPlugins,
-        eventsHub,
-        httpConfig: {
-          auth: { enabled: true, apiKeys: ['k1'] }
-        }
-      });
+	        providerPlugins,
+	        eventsHub,
+	        httpConfig: {
+	          auth: apiKeyAuth
+	        }
+	      });
 
       const observed: any[] = [];
       eventsHub.subscribe('cfg_transfer_minimal_err', { includeDeltas: false, eventTypes: ['voice.call.transfer_failed'] }, (evt: any) => {
@@ -6136,12 +6138,12 @@ describe('extensions/voice: server http handlers', () => {
       pluginsPath: './plugins',
       upgradeRouter: {} as any,
       store,
-      providerPlugins,
-      httpConfig: {
-        auth: { enabled: true, apiKeys: ['k1'] },
-        extensions: {
-          voice: {
-            transfer: {
+	      providerPlugins,
+	      httpConfig: {
+	        auth: apiKeyAuth,
+	        extensions: {
+	          voice: {
+	            transfer: {
               defaultMode: 'immediate'
             }
           }
@@ -6206,16 +6208,16 @@ describe('extensions/voice: server http handlers', () => {
     };
 
     const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      eventsHub: eventsHub as any
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth },
+	      eventsHub: eventsHub as any
+	    });
 
     // Schedule a graceful transfer
     const res = new MockStreamRes() as any;
@@ -6262,16 +6264,16 @@ describe('extensions/voice: server http handlers', () => {
       };
 
       const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins,
-        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-        eventsHub: eventsHub as any
-      });
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins,
+	        httpConfig: { auth: apiKeyAuth },
+	        eventsHub: eventsHub as any
+	      });
 
       // First request: schedule graceful end
       const res1 = new MockStreamRes() as any;
@@ -6323,15 +6325,15 @@ describe('extensions/voice: server http handlers', () => {
       { ttlSeconds: 60 }
     );
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: { getCompat: jest.fn() } as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: { getCompat: jest.fn() } as any,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = new MockStreamRes() as any;
     await expect(
@@ -6368,15 +6370,15 @@ describe('extensions/voice: server http handlers', () => {
       { ttlSeconds: 60 }
     );
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: { getCompat: jest.fn() } as any,
-      httpConfig: { auth: { enabled: false } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: { getCompat: jest.fn() } as any,
+	      httpConfig: { auth: noAuth }
+	    });
 
     const res = new MockStreamRes() as any;
     await expect(
@@ -6396,15 +6398,15 @@ describe('extensions/voice: server http handlers', () => {
 
   test('/voice/calls/:id/transfer returns 404 for unknown callConfigId', async () => {
     const store = createInMemoryVoiceCallConfigStore();
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: { getCompat: jest.fn() } as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: { getCompat: jest.fn() } as any,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = new MockStreamRes() as any;
     await expect(
@@ -6440,15 +6442,15 @@ describe('extensions/voice: server http handlers', () => {
       { ttlSeconds: 60 }
     );
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: { getCompat: jest.fn() } as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: { getCompat: jest.fn() } as any,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = new MockStreamRes() as any;
     await expect(
@@ -6486,15 +6488,15 @@ describe('extensions/voice: server http handlers', () => {
       { ttlSeconds: 60 }
     );
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: { getCompat: jest.fn() } as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: { getCompat: jest.fn() } as any,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = new MockStreamRes() as any;
     await expect(
@@ -6537,15 +6539,15 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({ transferCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = new MockStreamRes() as any;
     await expect(
@@ -6589,15 +6591,15 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({}))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = new MockStreamRes() as any;
     await expect(
@@ -6644,16 +6646,16 @@ describe('extensions/voice: server http handlers', () => {
       };
 
       const eventsHub = createVoiceCallEventHub({ callTtlMs: 0 });
-      const reg = await createVoiceServerRegistration({
-        server: {} as any,
-        registry: {},
-        pluginsPath: './plugins',
-        upgradeRouter: {} as any,
-        store,
-        providerPlugins,
-        httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-        eventsHub: eventsHub as any
-      });
+	      const reg = await createVoiceServerRegistration({
+	        server: {} as any,
+	        registry: {},
+	        pluginsPath: './plugins',
+	        upgradeRouter: {} as any,
+	        store,
+	        providerPlugins,
+	        httpConfig: { auth: apiKeyAuth },
+	        eventsHub: eventsHub as any
+	      });
 
       // First request: schedule graceful transfer
       const res1 = new MockStreamRes() as any;
@@ -6711,15 +6713,15 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({ transferCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = new MockStreamRes() as any;
     await expect(
@@ -6768,16 +6770,16 @@ describe('extensions/voice: server http handlers', () => {
       close: () => {}
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      eventsHub: eventsHub as any
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth },
+	      eventsHub: eventsHub as any
+	    });
 
     const res = new MockStreamRes() as any;
     await expect(
@@ -6826,16 +6828,16 @@ describe('extensions/voice: server http handlers', () => {
       close: () => {}
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      eventsHub: eventsHub as any
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth },
+	      eventsHub: eventsHub as any
+	    });
 
     const res = new MockStreamRes() as any;
     await expect(
@@ -6884,15 +6886,15 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({ transferCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = new MockStreamRes() as any;
     await expect(
@@ -6942,15 +6944,15 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({ transferCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = new MockStreamRes() as any;
     await expect(
@@ -6992,18 +6994,18 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({ transferCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: {
-        auth: { enabled: true, apiKeys: ['k1'] },
-        extensions: {
-          voice: {
-            transfer: {
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: {
+	        auth: apiKeyAuth,
+	        extensions: {
+	          voice: {
+	            transfer: {
               defaultTimeoutSeconds: 45, // Valid custom timeout (1-600 range)
               defaultMaxWaitMs: 3000 // Valid custom maxWaitMs
             }
@@ -7054,18 +7056,18 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({ transferCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: {
-        auth: { enabled: true, apiKeys: ['k1'] },
-        extensions: {
-          voice: {
-            transfer: {
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: {
+	        auth: apiKeyAuth,
+	        extensions: {
+	          voice: {
+	            transfer: {
               defaultTimeoutSeconds: 'NaN', // Non-finite, should fallback to 30
               defaultMaxWaitMs: Infinity // Non-finite, should fallback to 5000
             }
@@ -7116,18 +7118,18 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({ transferCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: {
-        auth: { enabled: true, apiKeys: ['k1'] },
-        extensions: {
-          voice: {
-            transfer: {
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: {
+	        auth: apiKeyAuth,
+	        extensions: {
+	          voice: {
+	            transfer: {
               defaultTimeoutSeconds: 1000, // Out of range (1-600), should fallback to 30
               defaultMaxWaitMs: -100 // Negative, should fallback to 5000
             }
@@ -7179,18 +7181,18 @@ describe('extensions/voice: server http handlers', () => {
       }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: {
-        auth: { enabled: true, apiKeys: ['k1'] },
-        extensions: {
-          voice: {
-            transfer: {
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: {
+	        auth: apiKeyAuth,
+	        extensions: {
+	          voice: {
+	            transfer: {
               defaultMode: 'after_playback' // Valid mode from config
             }
           }
@@ -7239,17 +7241,17 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({ transferCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: {
-        auth: { enabled: true, apiKeys: ['k1'] }
-      }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: {
+	        auth: apiKeyAuth
+	      }
+	    });
 
     const res = new MockStreamRes() as any;
     await expect(
@@ -7296,17 +7298,17 @@ describe('extensions/voice: server http handlers', () => {
       getCompat: jest.fn(async () => ({ transferCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins,
-      httpConfig: {
-        auth: { enabled: true, apiKeys: ['k1'] }
-      }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins,
+	      httpConfig: {
+	        auth: apiKeyAuth
+	      }
+	    });
 
     const res = new MockStreamRes() as any;
     await expect(
@@ -7347,15 +7349,15 @@ describe('extensions/voice: server http handlers', () => {
       { ttlSeconds: 60 }
     );
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: { getCompat: jest.fn() } as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: { getCompat: jest.fn() } as any,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = createMockRes();
     // Request without method property - should default to GET and return 405

@@ -192,11 +192,16 @@ function resolveAuthConfig(optionsAuth: unknown, authDefaults: unknown): AuthCon
     throw new Error('Invalid auth config');
   }
 
-  const legacyEnabled = candidate.enabled === true && !candidate.mode;
-  if (!legacyEnabled && !candidate.mode) {
+  if ('enabled' in candidate) {
+    throw new Error('auth.enabled is no longer supported; use auth.mode');
+  }
+  if ('allowApiKeyHeader' in candidate) {
+    throw new Error('allowApiKeyHeader is no longer supported; use allowHeader');
+  }
+  if (!candidate.mode) {
     throw new Error('Auth mode is required');
   }
-  const mode = legacyEnabled ? 'apiKey' : String(candidate.mode);
+  const mode = String(candidate.mode);
   if (mode === 'none') return { mode: 'none' };
 
   if (mode === 'apiKey') {
@@ -211,7 +216,7 @@ function resolveAuthConfig(optionsAuth: unknown, authDefaults: unknown): AuthCon
     return {
       mode: 'apiKey',
       allowBearer: candidate.allowBearer,
-      allowHeader: candidate.allowHeader ?? candidate.allowApiKeyHeader,
+      allowHeader: candidate.allowHeader,
       headerName: candidate.headerName,
       realm: candidate.realm,
       keys
@@ -219,7 +224,7 @@ function resolveAuthConfig(optionsAuth: unknown, authDefaults: unknown): AuthCon
   }
 
   if (mode === 'jwt') {
-    return { ...candidate, mode: 'jwt', allowHeader: candidate.allowHeader ?? candidate.allowApiKeyHeader } as any;
+    return { ...candidate, mode: 'jwt' } as any;
   }
 
   if (mode === 'proxySigned') {

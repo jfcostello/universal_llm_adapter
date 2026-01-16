@@ -51,8 +51,9 @@ async function startHarness(options: { store: any; providerPlugins: any; httpCon
   return { baseUrl, close };
 }
 
-describe('extensions/voice: /voice/calls', () => {
-  const prevSecret = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
+	describe('extensions/voice: /voice/calls', () => {
+	  const apiKeyAuth = { mode: 'apiKey', keys: [{ id: 'k1', token: 'k1' }] };
+	  const prevSecret = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
 
   beforeEach(() => {
     process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
@@ -66,12 +67,12 @@ describe('extensions/voice: /voice/calls', () => {
     }
   });
 
-  test('rejects non-POST with 405', async () => {
-    const harness = await startHarness({
-      store: createInMemoryVoiceCallConfigStore(),
-      providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn() },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	  test('rejects non-POST with 405', async () => {
+	    const harness = await startHarness({
+	      store: createInMemoryVoiceCallConfigStore(),
+	      providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn() },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const res = await fetch(new URL('/voice/calls', harness.baseUrl), { method: 'GET' });
@@ -86,7 +87,7 @@ describe('extensions/voice: /voice/calls', () => {
       store: createInMemoryVoiceCallConfigStore(),
       providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn() },
       httpConfig: {
-        auth: { enabled: false },
+        auth: { mode: 'none' },
         rateLimit: { enabled: true, requestsPerMinute: 0, burst: 1 }
       }
     });
@@ -103,12 +104,12 @@ describe('extensions/voice: /voice/calls', () => {
     }
   });
 
-  test('returns 401 when auth is enabled but credentials are missing', async () => {
-    const harness = await startHarness({
-      store: createInMemoryVoiceCallConfigStore(),
-      providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn() },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	  test('returns 401 when auth is enabled but credentials are missing', async () => {
+	    const harness = await startHarness({
+	      store: createInMemoryVoiceCallConfigStore(),
+	      providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn() },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const res = await fetch(new URL('/voice/calls', harness.baseUrl), {
@@ -124,12 +125,12 @@ describe('extensions/voice: /voice/calls', () => {
     }
   });
 
-  test('validates required fields and ttlSeconds', async () => {
-    const harness = await startHarness({
-      store: createInMemoryVoiceCallConfigStore(),
-      providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })) },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	  test('validates required fields and ttlSeconds', async () => {
+	    const harness = await startHarness({
+	      store: createInMemoryVoiceCallConfigStore(),
+	      providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })) },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const resMissing = await fetch(new URL('/voice/calls', harness.baseUrl), {
@@ -155,14 +156,14 @@ describe('extensions/voice: /voice/calls', () => {
     await store.putIdempotency('idem_1', { callConfigId: 'cfg_cached', providerCallId: 'p_cached', status: 'queued' }, { ttlSeconds: 60 });
 
     const createOutboundCall = jest.fn(async () => ({ providerCallId: 'p1' }));
-    const harness = await startHarness({
-      store,
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
-        getCompat: jest.fn(async () => ({ createOutboundCall }))
-      },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
+	        getCompat: jest.fn(async () => ({ createOutboundCall }))
+	      },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const res = await fetch(new URL('/voice/calls', harness.baseUrl), {
@@ -186,14 +187,14 @@ describe('extensions/voice: /voice/calls', () => {
   test('idempotency: key may be supplied in JSON body', async () => {
     const store = createInMemoryVoiceCallConfigStore();
     const createOutboundCall = jest.fn(async () => ({ providerCallId: 'p1' }));
-    const harness = await startHarness({
-      store,
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
-        getCompat: jest.fn(async () => ({ createOutboundCall }))
-      },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
+	        getCompat: jest.fn(async () => ({ createOutboundCall }))
+	      },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const makeReq = () =>
@@ -230,14 +231,14 @@ describe('extensions/voice: /voice/calls', () => {
     const putIdempotency = jest.spyOn(store as any, 'putIdempotency');
 
     const createOutboundCall = jest.fn(async () => ({ providerCallId: 'p1' }));
-    const harness = await startHarness({
-      store,
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
-        getCompat: jest.fn(async () => ({ createOutboundCall }))
-      },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
+	        getCompat: jest.fn(async () => ({ createOutboundCall }))
+	      },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const longKey = 'k'.repeat(2000);
@@ -280,14 +281,14 @@ describe('extensions/voice: /voice/calls', () => {
       return { providerCallId: 'p1' };
     });
 
-    const harness = await startHarness({
-      store,
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
-        getCompat: jest.fn(async () => ({ createOutboundCall }))
-      },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
+	        getCompat: jest.fn(async () => ({ createOutboundCall }))
+	      },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const makeReq = () =>
@@ -331,18 +332,18 @@ describe('extensions/voice: /voice/calls', () => {
       return { providerCallId: 'p1' };
     });
 
-    const harness = await startHarness({
-      store,
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
-        getCompat: jest.fn(async () => ({ createOutboundCall }))
-      },
-      httpConfig: {
-        auth: { enabled: true, apiKeys: ['k1'] },
-        idempotencyWaitMs: 10,
-        idempotencyLockTtlSeconds: 60
-      }
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
+	        getCompat: jest.fn(async () => ({ createOutboundCall }))
+	      },
+	      httpConfig: {
+	        auth: apiKeyAuth,
+	        idempotencyWaitMs: 10,
+	        idempotencyLockTtlSeconds: 60
+	      }
+	    });
 
     try {
       const makeReq = () =>
@@ -371,16 +372,16 @@ describe('extensions/voice: /voice/calls', () => {
   });
 
   test('returns 400 for unknown voiceProvider', async () => {
-    const harness = await startHarness({
-      store: createInMemoryVoiceCallConfigStore(),
-      providerPlugins: {
-        getManifest: jest.fn(async () => {
-          throw new Error('unknown');
-        }),
-        getCompat: jest.fn()
-      },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const harness = await startHarness({
+	      store: createInMemoryVoiceCallConfigStore(),
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => {
+	          throw new Error('unknown');
+	        }),
+	        getCompat: jest.fn()
+	      },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const res = await fetch(new URL('/voice/calls', harness.baseUrl), {
@@ -397,14 +398,14 @@ describe('extensions/voice: /voice/calls', () => {
   });
 
   test('returns 502 when compat omits providerCallId', async () => {
-    const harness = await startHarness({
-      store: createInMemoryVoiceCallConfigStore(),
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
-        getCompat: jest.fn(async () => ({ createOutboundCall: async () => ({}) }))
-      },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const harness = await startHarness({
+	      store: createInMemoryVoiceCallConfigStore(),
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
+	        getCompat: jest.fn(async () => ({ createOutboundCall: async () => ({}) }))
+	      },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const res = await fetch(new URL('/voice/calls', harness.baseUrl), {
@@ -430,19 +431,19 @@ describe('extensions/voice: /voice/calls', () => {
       consumeNonceOnce: jest.fn(async () => true)
     };
 
-    const harness = await startHarness({
-      store,
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
-        getCompat: jest.fn(async () => ({ createOutboundCall: jest.fn() }))
-      },
-      httpConfig: {
-        auth: { enabled: true, apiKeys: ['k1'] },
-        maxRequestBytes: 1024,
-        bodyReadTimeoutMs: 50,
-        securityHeadersEnabled: false
-      }
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
+	        getCompat: jest.fn(async () => ({ createOutboundCall: jest.fn() }))
+	      },
+	      httpConfig: {
+	        auth: apiKeyAuth,
+	        maxRequestBytes: 1024,
+	        bodyReadTimeoutMs: 50,
+	        securityHeadersEnabled: false
+	      }
+	    });
 
     try {
       const res = await fetch(new URL('/voice/calls', harness.baseUrl), {
@@ -462,17 +463,17 @@ describe('extensions/voice: /voice/calls', () => {
     const store = createInMemoryVoiceCallConfigStore();
     const createOutboundCall = jest.fn(async () => ({ providerCallId: 'p1' }));
 
-    const harness = await startHarness({
-      store,
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
-        getCompat: jest.fn(async () => ({ createOutboundCall }))
-      },
-      httpConfig: {
-        auth: { enabled: true, apiKeys: ['k1'] },
-        rateLimit: { enabled: true, requestsPerMinute: 0, burst: 1 }
-      }
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
+	        getCompat: jest.fn(async () => ({ createOutboundCall }))
+	      },
+	      httpConfig: {
+	        auth: apiKeyAuth,
+	        rateLimit: { enabled: true, requestsPerMinute: 0, burst: 1 }
+	      }
+	    });
 
     try {
       const makeReq = () =>
@@ -506,14 +507,14 @@ describe('extensions/voice: /voice/calls', () => {
       throw err;
     });
 
-    const harness = await startHarness({
-      store,
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
-        getCompat: jest.fn(async () => ({ createOutboundCall }))
-      },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
+	        getCompat: jest.fn(async () => ({ createOutboundCall }))
+	      },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const res = await fetch(new URL('/voice/calls', harness.baseUrl), {
@@ -552,14 +553,14 @@ describe('extensions/voice: /voice/calls', () => {
   test('stores assistantFirstTurn config when provided', async () => {
     const store = createInMemoryVoiceCallConfigStore();
     const createOutboundCall = jest.fn(async () => ({ providerCallId: 'p1' }));
-    const harness = await startHarness({
-      store,
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
-        getCompat: jest.fn(async () => ({ createOutboundCall }))
-      },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
+	        getCompat: jest.fn(async () => ({ createOutboundCall }))
+	      },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const res = await fetch(new URL('/voice/calls', harness.baseUrl), {
@@ -605,12 +606,12 @@ describe('extensions/voice: /voice/calls', () => {
     const createOutboundCall = jest.fn(async () => ({ providerCallId: 'p1' }));
     const harness = await startHarness({
       store,
-      providerPlugins: {
-        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
-        getCompat: jest.fn(async () => ({ createOutboundCall }))
-      },
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	      providerPlugins: {
+	        getManifest: jest.fn(async () => ({ id: 'test', kind: 'test' })),
+	        getCompat: jest.fn(async () => ({ createOutboundCall }))
+	      },
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const res = await fetch(new URL('/voice/calls', harness.baseUrl), {

@@ -392,10 +392,9 @@ export function createUnifiedProgram(
     .option('--realtime-max-concurrent-sessions <n>', 'Max concurrent realtime sessions', parseNumber)
     .option('--realtime-max-audio-bytes-per-second <bytes>', 'Max audio throughput per session (bytes/sec)', parseNumber)
     .option('--realtime-max-session-duration-ms <ms>', 'Max realtime session duration', parseNumber)
-    .option('--auth-enabled', 'Enable API key/token auth')
     .option('--auth-mode <mode>', 'Auth mode (none|apiKey|jwt|proxySigned)')
     .option('--no-auth-allow-bearer', 'Disable Authorization: Bearer header support')
-    .option('--no-auth-allow-api-key-header', 'Disable API key header support')
+    .option('--no-auth-allow-header', 'Disable auth header token support')
     .option('--auth-header-name <name>', 'API key header name')
     .option('--auth-realm <realm>', 'WWW-Authenticate realm')
     .option('--rate-limit-enabled', 'Enable in-memory rate limiting')
@@ -443,9 +442,8 @@ export function createUnifiedProgram(
         if (authArgProvided) {
           const auth: any = {};
           if (options.authMode) auth.mode = String(options.authMode);
-          if (rawArgs.includes('--auth-enabled') && !auth.mode) auth.mode = 'apiKey';
           if (!auth.mode) {
-            throw new Error('Auth mode is required when specifying auth options (use --auth-mode or --auth-enabled)');
+            throw new Error('Auth mode is required when specifying auth options (use --auth-mode)');
           }
           if (
             rawArgs.includes('--auth-allow-bearer') ||
@@ -454,10 +452,10 @@ export function createUnifiedProgram(
             auth.allowBearer = options.authAllowBearer;
           }
           if (
-            rawArgs.includes('--auth-allow-api-key-header') ||
-            rawArgs.includes('--no-auth-allow-api-key-header')
+            rawArgs.includes('--auth-allow-header') ||
+            rawArgs.includes('--no-auth-allow-header')
           ) {
-            auth.allowHeader = options.authAllowApiKeyHeader;
+            auth.allowHeader = options.authAllowHeader;
           }
           if (options.authHeaderName) auth.headerName = options.authHeaderName;
           if (options.authRealm) auth.realm = options.authRealm;
