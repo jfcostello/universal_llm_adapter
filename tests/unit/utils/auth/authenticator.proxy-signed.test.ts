@@ -137,7 +137,7 @@ describe('utils/auth (proxySigned mode)', () => {
     ).resolves.toEqual({ mode: 'proxySigned', subject: 'user-kid' });
   });
 
-  test('authenticates a signed request with a single key and unknown key id', async () => {
+  test('rejects a signed request with a single key and unknown key id', async () => {
     const nowSeconds = Math.floor(Date.now() / 1000);
     const sig = signProxy({
       secret: 's1',
@@ -164,7 +164,7 @@ describe('utils/auth (proxySigned mode)', () => {
           'x-llm-adapter-key-id': 'k-unknown'
         }
       } as any)
-    ).resolves.toEqual({ mode: 'proxySigned', subject: 'user-kid-unknown' });
+    ).rejects.toMatchObject({ statusCode: 401, code: 'unauthorized' });
   });
 
   test('rejects when signature is missing', async () => {

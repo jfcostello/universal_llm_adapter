@@ -125,7 +125,7 @@ export function createProxySignedAuthenticator(config: ProxySignedAuthConfig): {
         resolvedKeyId = keyId;
       } else {
         secret = keyId ? (keyIdToSecret.get(keyId) ?? onlySecret) : onlySecret;
-        resolvedKeyId = keyId ?? onlyKey;
+        resolvedKeyId = onlyKey;
       }
 
       const method = String(req.method ?? '').toUpperCase();
@@ -157,4 +157,3 @@ export function createProxySignedAuthenticator(config: ProxySignedAuthConfig): {
     }
   };
 }
-
