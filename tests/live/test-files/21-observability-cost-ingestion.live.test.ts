@@ -68,5 +68,5 @@ const TEST_FILE = '21-observability-cost-ingestion';
     expect(totalCost as number).toBeGreaterThan(0);
     expect(totalCost as number).toBeGreaterThan((cost as number) * 0.5);
     expect(totalCost as number).toBeLessThan((cost as number) * 1.5);
-  }, liveTestTimeout(300_000));
+  }, liveTestTimeout(360_000));
 });

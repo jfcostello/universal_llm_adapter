@@ -13,7 +13,8 @@ function stripTrailingSlashes(url: string): string {
 }
 
 const GLOBAL_LOCK_DIR = path.join(os.tmpdir(), 'universal-llm-adapter-langfuse-read-lock');
-const GLOBAL_LOCK_TTL_MS = 5 * 60_000;
+// Keep this low so stale locks (including PID reuse) can’t block the suite for minutes.
+const GLOBAL_LOCK_TTL_MS = 90_000;
 const DEFAULT_LANGFUSE_429_COOLDOWN_MS = 60_000;
 const GLOBAL_MAX_CONCURRENT_READS = (() => {
   const raw = process.env.LLM_LIVE_LANGFUSE_MAX_CONCURRENT_READS;
@@ -30,6 +31,11 @@ function readPositiveIntEnv(env: NodeJS.ProcessEnv, key: string): number | null 
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
   return parsed;
+}
+
+function readLangfuseFetchTimeoutMs(env: NodeJS.ProcessEnv): number {
+  // Keep individual requests bounded so the global read slot can’t be held indefinitely.
+  return readPositiveIntEnv(env, 'LLM_LIVE_LANGFUSE_FETCH_TIMEOUT_MS') ?? 20_000;
 }
 
 function readGlobalCooldownUntil(): number | null {
@@ -67,8 +73,11 @@ function writeGlobalCooldownFor(ms: number): void {
   }
 }
 
-async function acquireGlobalReadSlot(): Promise<() => void> {
+async function acquireGlobalReadSlot(options: { timeoutMs?: number } = {}): Promise<() => void> {
   fs.mkdirSync(GLOBAL_LOCK_DIR, { recursive: true });
+  const timeoutMs = Math.max(250, Math.floor(options.timeoutMs ?? 30_000));
+  const start = Date.now();
+  const deadlineMs = start + timeoutMs;
 
   const slots = Array.from({ length: GLOBAL_MAX_CONCURRENT_READS }, (_, i) =>
     path.join(GLOBAL_LOCK_DIR, `slot-${i}.lock`)
@@ -76,11 +85,16 @@ async function acquireGlobalReadSlot(): Promise<() => void> {
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
+    if (Date.now() >= deadlineMs) {
+      throw new Error(`Timed out waiting for global Langfuse read slot (timeout ${timeoutMs}ms)`);
+    }
+
     const cooldownUntil = readGlobalCooldownUntil();
     if (cooldownUntil !== null) {
       const waitMs = Math.max(0, cooldownUntil - Date.now());
       const jitter = Math.floor(Math.random() * 250);
-      await sleep(waitMs + jitter);
+      const remainingMs = Math.max(0, deadlineMs - Date.now());
+      await sleep(Math.min(waitMs + jitter, remainingMs));
       continue;
     }
 
@@ -130,14 +144,33 @@ async function acquireGlobalReadSlot(): Promise<() => void> {
 
     // No slots available; jitter to avoid lock-step polling across workers.
     const jitter = Math.floor(Math.random() * 100);
-    await sleep(250 + jitter);
+    const remainingMs = Math.max(0, deadlineMs - Date.now());
+    await sleep(Math.min(250 + jitter, remainingMs));
   }
 }
 
-async function fetchWithGlobalReadSlot(input: string, init: RequestInit): Promise<Response> {
-  const release = await acquireGlobalReadSlot();
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(input, init);
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function fetchWithGlobalReadSlot(
+  input: string,
+  init: RequestInit,
+  options: { slotTimeoutMs: number; fetchTimeoutMs: number }
+): Promise<Response> {
+  const release = await acquireGlobalReadSlot({ timeoutMs: options.slotTimeoutMs });
+  try {
+    return await fetchWithTimeout(input, init, options.fetchTimeoutMs);
   } finally {
     release();
   }
@@ -267,9 +300,10 @@ export async function waitForLangfuseTrace(
   const logTimeoutMs = Math.max(250, Math.floor(opts.logTimeoutMs ?? 30_000));
   const assertLoggedContent = opts.assertLoggedContent !== false;
 
-  const url = `${baseUrl}/api/public/traces/${encodeURIComponent(String(traceId))}`;
+  const urlBase = `${baseUrl}/api/public/traces/${encodeURIComponent(String(traceId))}`;
   const start = Date.now();
   const useGlobalReadSlot = env.LLM_LIVE === '1';
+  const fetchTimeoutMs = readLangfuseFetchTimeoutMs(env);
 
   let delay = minDelayMs;
   let lastStatus: number | null = null;
@@ -289,6 +323,12 @@ export async function waitForLangfuseTrace(
     const fetchStart = Date.now();
     polls++;
     try {
+      // Cache-bust to avoid intermediary 404 caching causing long trace visibility delays.
+      const url = `${urlBase}?_=${Date.now()}`;
+      const remainingMs = Math.max(0, timeoutMs - (Date.now() - start));
+      // Allow waiting out a 429 cooldown, but don’t let slot acquisition block the whole loop forever.
+      const slotTimeoutMs = Math.min(remainingMs, Math.max(30_000, DEFAULT_LANGFUSE_429_COOLDOWN_MS + 5000));
+      const perRequestTimeoutMs = Math.min(fetchTimeoutMs, Math.max(1000, remainingMs));
       res = await withConcurrencyLimit(
         () =>
           useGlobalReadSlot
@@ -296,14 +336,18 @@ export async function waitForLangfuseTrace(
               method: 'GET',
               headers: {
                 Authorization: authorization,
-                Accept: 'application/json'
+                Accept: 'application/json',
+                'Cache-Control': 'no-cache',
+                Pragma: 'no-cache'
               }
-            })
+            }, { slotTimeoutMs, fetchTimeoutMs: perRequestTimeoutMs })
             : fetch(url, {
               method: 'GET',
               headers: {
                 Authorization: authorization,
-                Accept: 'application/json'
+                Accept: 'application/json',
+                'Cache-Control': 'no-cache',
+                Pragma: 'no-cache'
               }
             }),
         concurrency
@@ -390,7 +434,10 @@ export async function waitForLangfuseTrace(
 
     const jitter = Math.floor(Math.random() * Math.max(1, Math.floor(delay / 2)));
     await sleep(delay + jitter);
-    delay = Math.min(maxDelayMs, Math.floor(delay * 1.5) + 1);
+    // For 404 (eventual consistency), keep polling reasonably frequently so we don’t miss traces
+    // that become visible near the timeout boundary.
+    const effectiveMaxDelayMs = status === 404 ? Math.min(maxDelayMs, 15_000) : maxDelayMs;
+    delay = Math.min(effectiveMaxDelayMs, Math.floor(delay * 1.5) + 1);
   }
 }
 
@@ -408,6 +455,7 @@ export async function waitForLangfuseTraceToBeMissing(
   const env = opts.env ?? process.env;
   const baseUrl = stripTrailingSlashes(opts.baseUrl ?? getLangfuseBaseUrl(env));
   const authorization = buildLangfuseAuthHeader(env);
+  const fetchTimeoutMs = readLangfuseFetchTimeoutMs(env);
 
   const defaultTimeoutMs = env.LLM_LIVE === '1' ? 60_000 : 30_000;
   const timeoutMs = Math.max(100, Math.floor(opts.timeoutMs ?? defaultTimeoutMs));
@@ -421,7 +469,7 @@ export async function waitForLangfuseTraceToBeMissing(
   const concurrency = Math.max(1, Math.floor(opts.concurrency ?? DEFAULT_CONCURRENCY));
   const useGlobalReadSlot = env.LLM_LIVE === '1';
 
-  const url = `${baseUrl}/api/public/traces/${encodeURIComponent(String(traceId))}`;
+  const urlBase = `${baseUrl}/api/public/traces/${encodeURIComponent(String(traceId))}`;
   const start = Date.now();
   let delay = minDelayMs;
   let lastStatus: number | null = null;
@@ -435,6 +483,10 @@ export async function waitForLangfuseTraceToBeMissing(
 
     let res: Response;
     try {
+      const url = `${urlBase}?_=${Date.now()}`;
+      const remainingMs = Math.max(0, timeoutMs - (Date.now() - start));
+      const slotTimeoutMs = Math.min(remainingMs, Math.max(30_000, DEFAULT_LANGFUSE_429_COOLDOWN_MS + 5000));
+      const perRequestTimeoutMs = Math.min(fetchTimeoutMs, Math.max(1000, remainingMs));
       res = await withConcurrencyLimit(
         () =>
           useGlobalReadSlot
@@ -442,14 +494,18 @@ export async function waitForLangfuseTraceToBeMissing(
               method: 'GET',
               headers: {
                 Authorization: authorization,
-                Accept: 'application/json'
+                Accept: 'application/json',
+                'Cache-Control': 'no-cache',
+                Pragma: 'no-cache'
               }
-            })
+            }, { slotTimeoutMs, fetchTimeoutMs: perRequestTimeoutMs })
             : fetch(url, {
               method: 'GET',
               headers: {
                 Authorization: authorization,
-                Accept: 'application/json'
+                Accept: 'application/json',
+                'Cache-Control': 'no-cache',
+                Pragma: 'no-cache'
               }
             }),
         concurrency
