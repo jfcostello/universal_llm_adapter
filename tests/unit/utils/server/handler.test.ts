@@ -46,6 +46,8 @@ function makeRes() {
 
 describe('utils/server createServerHandler', () => {
   const registry = { loadAll: jest.fn() } as any;
+  const noneAuth = { mode: 'none' } as const;
+  const apiKeyAuth = { mode: 'apiKey', keys: [{ id: 'k1', token: 'k1' }] } as const;
   const config = {
     maxRequestBytes: 1024,
     bodyReadTimeoutMs: 1000,
@@ -55,10 +57,15 @@ describe('utils/server createServerHandler', () => {
     maxConcurrentStreams: 10,
     maxQueueSize: 10,
     queueTimeoutMs: 1000,
-    auth: { enabled: false },
+    auth: noneAuth,
     rateLimit: { enabled: false },
     cors: { enabled: false },
-    securityHeadersEnabled: true
+    securityHeadersEnabled: true,
+    policy: {
+      documents: {
+        filepath: { enabled: false }
+      }
+    }
   };
 
   test('handles GET /extensions/list', async () => {
@@ -101,7 +108,7 @@ describe('utils/server createServerHandler', () => {
         createCoordinator: jest.fn(),
         closeLogger: jest.fn()
       } as any,
-      config: { ...config, auth: { enabled: true } }
+      config: { ...config, auth: apiKeyAuth }
     });
 
     const req = makeReq('GET', '/extensions/list');
@@ -112,6 +119,29 @@ describe('utils/server createServerHandler', () => {
     const parsed = JSON.parse(out.body);
     expect(parsed.type).toBe('error');
     expect(parsed.error.code).toBe('unauthorized');
+  });
+
+  test('does not apply auth error headers after response headers are sent', async () => {
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn()
+      } as any,
+      config: { ...config, auth: apiKeyAuth }
+    });
+
+    const req = makeReq('GET', '/extensions/list');
+    const res: any = { headersSent: true, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
+    await handler(req, res);
+
+    expect(res.setHeader.mock.calls.map((call: any[]) => String(call?.[0]).toLowerCase())).not.toContain(
+      'www-authenticate'
+    );
+    expect(res.writeHead).toHaveBeenCalled();
   });
 
   test('handles /vector/run with vector coordinator', async () => {
@@ -364,6 +394,47 @@ describe('utils/server createServerHandler', () => {
     expect(JSON.parse(out.body).error.code).toBe('unsupported_media_type');
   });
 
+  test('rejects filepath document sources by default', async () => {
+    const coordinator = {
+      run: jest.fn().mockResolvedValue({ ok: true }),
+      runStream: jest.fn(),
+      close: jest.fn().mockResolvedValue(undefined)
+    };
+
+    const handler = createServerHandler({
+      registry,
+      pluginsPath: './plugins',
+      closeLoggerAfterRequest: false,
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue(registry),
+        createCoordinator: jest.fn().mockResolvedValue(coordinator),
+        closeLogger: jest.fn()
+      } as any,
+      config
+    });
+
+    const spec = {
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'document', source: { type: 'filepath', path: '/etc/passwd' } }]
+        }
+      ],
+      llmPriority: [{ provider: 'p', model: 'm' }],
+      settings: {}
+    };
+
+    const req = makeReq('POST', '/run', JSON.stringify(spec));
+    const out = makeRes();
+    await handler(req, out.res);
+
+    expect(out.status).toBe(400);
+    const parsed = JSON.parse(out.body);
+    expect(parsed.type).toBe('error');
+    expect(parsed.error.code).toBe('policy_violation');
+    expect(coordinator.run).not.toHaveBeenCalled();
+  });
+
   test('invokes close listener on /run client disconnect', async () => {
     const handler = createServerHandler({
       registry,
@@ -506,7 +577,7 @@ describe('utils/server createServerHandler', () => {
       },
       config: {
         ...config,
-        auth: { enabled: true, apiKeys: ['k1'] },
+        auth: apiKeyAuth,
         rateLimit: { enabled: true, requestsPerMinute: 60, burst: 1, trustProxyHeaders: false }
       } as any
     });
@@ -539,7 +610,7 @@ describe('utils/server createServerHandler', () => {
       },
       config: {
         ...config,
-        auth: { enabled: false },
+        auth: noneAuth,
         rateLimit: { enabled: true, requestsPerMinute: 60, burst: 1, trustProxyHeaders: false }
       } as any
     });
@@ -571,7 +642,7 @@ describe('utils/server createServerHandler', () => {
       },
       config: {
         ...config,
-        auth: { enabled: false },
+        auth: noneAuth,
         rateLimit: { enabled: true, requestsPerMinute: 60, burst: 1, trustProxyHeaders: false }
       } as any
     });
@@ -634,7 +705,7 @@ describe('utils/server createServerHandler', () => {
     expect(out.status).toBe(500);
     const parsed = JSON.parse(out.body);
     expect(parsed.type).toBe('error');
-    expect(parsed.error.message).toContain('boom');
+    expect(parsed.error.message).toBe('Server error');
   });
 
   test('uses default error message when error has no message', async () => {
@@ -691,7 +762,7 @@ describe('utils/server createServerHandler', () => {
 
     expect(out.status).toBe(200);
     expect(out.body).toContain('data:');
-    expect(out.body).toContain('stream boom');
+    expect(out.body).toContain('Server error');
   });
 
   test('streams SSE error when /vector/stream coordinator throws after headers sent', async () => {
@@ -719,7 +790,7 @@ describe('utils/server createServerHandler', () => {
 
     expect(out.status).toBe(200);
     expect(out.body).toContain('data:');
-    expect(out.body).toContain('vector stream boom');
+    expect(out.body).toContain('Server error');
   });
 
   test('streams SSE response for /stream success', async () => {
@@ -802,7 +873,7 @@ describe('utils/server createServerHandler', () => {
       },
       config: {
         ...config,
-        auth: { enabled: true, apiKeys: ['k1'] },
+        auth: apiKeyAuth,
         rateLimit: { enabled: true, requestsPerMinute: 60, burst: 1, trustProxyHeaders: false }
       } as any
     });
@@ -835,7 +906,7 @@ describe('utils/server createServerHandler', () => {
       },
       config: {
         ...config,
-        auth: { enabled: false },
+        auth: noneAuth,
         rateLimit: { enabled: true, requestsPerMinute: 60, burst: 1, trustProxyHeaders: false }
       } as any
     });
@@ -1002,7 +1073,7 @@ describe('utils/server createServerHandler', () => {
     await handler(req, out.res);
 
     expect(out.status).toBe(500);
-    expect(JSON.parse(out.body).error.message).toContain('boom-vector-timeout-branch');
+    expect(JSON.parse(out.body).error.message).toBe('Server error');
   });
 
   test('handles /vector/run coordinator error when requestTimeoutMs disabled', async () => {
@@ -1031,7 +1102,7 @@ describe('utils/server createServerHandler', () => {
     await handler(req, out.res);
 
     expect(out.status).toBe(500);
-    expect(JSON.parse(out.body).error.message).toContain('boom-vector');
+    expect(JSON.parse(out.body).error.message).toBe('Server error');
   });
 
   test('times out /embeddings/run when requestTimeoutMs exceeded', async () => {
@@ -1143,7 +1214,7 @@ describe('utils/server createServerHandler', () => {
     await handler(req, out.res);
 
     expect(out.status).toBe(500);
-    expect(JSON.parse(out.body).error.message).toContain('boom-embeddings-timeout-branch');
+    expect(JSON.parse(out.body).error.message).toBe('Server error');
   });
 
   test('handles /embeddings/run coordinator error when requestTimeoutMs disabled', async () => {
@@ -1168,7 +1239,7 @@ describe('utils/server createServerHandler', () => {
     await handler(req, out.res);
 
     expect(out.status).toBe(500);
-    expect(JSON.parse(out.body).error.message).toContain('boom-embeddings');
+    expect(JSON.parse(out.body).error.message).toBe('Server error');
   });
 
   test('completes /run before timeout when requestTimeoutMs set', async () => {
@@ -1252,7 +1323,7 @@ describe('utils/server createServerHandler', () => {
     await handler(req, out.res);
 
     expect(out.status).toBe(500);
-    expect(JSON.parse(out.body).error.message).toContain('boom-timeout-branch');
+    expect(JSON.parse(out.body).error.message).toBe('Server error');
   });
 
   test('times out /stream on request timeout', async () => {
@@ -1467,7 +1538,7 @@ describe('utils/server createServerHandler', () => {
 
     await handler(req, out.res);
 
-    expect(out.body).toContain('writeHead boom');
+    expect(out.body).toContain('Server error');
   });
 
   test('swallows iterator.return promise rejections via catch callback', async () => {
@@ -1527,7 +1598,7 @@ describe('utils/server createServerHandler', () => {
         createCoordinator: jest.fn(),
         closeLogger: jest.fn()
       } as any,
-      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+      config: { ...config, auth: apiKeyAuth } as any
     });
 
     const req = makeReq('POST', '/realtime/webrtc/client-secret', JSON.stringify({ provider: 'p' }));
@@ -1552,7 +1623,7 @@ describe('utils/server createServerHandler', () => {
         createCoordinator: jest.fn(),
         closeLogger: jest.fn()
       } as any,
-      config: { ...config, auth: { enabled: false } } as any
+      config: { ...config, auth: noneAuth } as any
     });
 
     const req = makeReq('POST', '/realtime/webrtc/client-secret', JSON.stringify({ provider: 'p' }));
@@ -1585,7 +1656,7 @@ describe('utils/server createServerHandler', () => {
         createCoordinator: jest.fn(),
         closeLogger: jest.fn()
       } as any,
-      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+      config: { ...config, auth: apiKeyAuth } as any
     });
 
     const req = makeReq(
@@ -1623,7 +1694,7 @@ describe('utils/server createServerHandler', () => {
         createCoordinator: jest.fn(),
         closeLogger: jest.fn()
       } as any,
-      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+      config: { ...config, auth: apiKeyAuth } as any
     });
 
     const req = makeReq('POST', '/realtime/webrtc/client-secret', JSON.stringify({ provider: 'p' }));
@@ -1648,7 +1719,7 @@ describe('utils/server createServerHandler', () => {
         createCoordinator: jest.fn(),
         closeLogger: jest.fn()
       } as any,
-      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+      config: { ...config, auth: apiKeyAuth } as any
     });
 
     const req = makeReq('POST', '/realtime/webrtc/client-secret', JSON.stringify({}));
@@ -1673,7 +1744,7 @@ describe('utils/server createServerHandler', () => {
         createCoordinator: jest.fn(),
         closeLogger: jest.fn()
       } as any,
-      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+      config: { ...config, auth: apiKeyAuth } as any
     });
 
     const req = makeReq(
@@ -1702,7 +1773,7 @@ describe('utils/server createServerHandler', () => {
         createCoordinator: jest.fn(),
         closeLogger: jest.fn()
       } as any,
-      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+      config: { ...config, auth: apiKeyAuth } as any
     });
 
     const req = makeReq(
@@ -1731,7 +1802,7 @@ describe('utils/server createServerHandler', () => {
         createCoordinator: jest.fn(),
         closeLogger: jest.fn()
       } as any,
-      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+      config: { ...config, auth: apiKeyAuth } as any
     });
 
     const req = makeReq(
@@ -1760,7 +1831,7 @@ describe('utils/server createServerHandler', () => {
         createCoordinator: jest.fn(),
         closeLogger: jest.fn()
       } as any,
-      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+      config: { ...config, auth: apiKeyAuth } as any
     });
 
     const req = makeReq(
@@ -1789,7 +1860,7 @@ describe('utils/server createServerHandler', () => {
         createCoordinator: jest.fn(),
         closeLogger: jest.fn()
       } as any,
-      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+      config: { ...config, auth: apiKeyAuth } as any
     });
 
     for (const expiresAfterSeconds of [0, -1]) {
@@ -1817,7 +1888,7 @@ describe('utils/server createServerHandler', () => {
         createCoordinator: jest.fn(),
         closeLogger: jest.fn()
       } as any,
-      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+      config: { ...config, auth: apiKeyAuth } as any
     });
 
     const req = makeReq('POST', '/realtime/webrtc/client-secret', JSON.stringify({ provider: 'p' }));
@@ -1844,7 +1915,7 @@ describe('utils/server createServerHandler', () => {
         createCoordinator: jest.fn(),
         closeLogger: jest.fn()
       } as any,
-      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+      config: { ...config, auth: apiKeyAuth } as any
     });
 
     const req = makeReq('POST', '/realtime/webrtc/client-secret', JSON.stringify({ provider: 'p' }));
@@ -1878,7 +1949,7 @@ describe('utils/server createServerHandler', () => {
         createCoordinator: jest.fn(),
         closeLogger: jest.fn()
       } as any,
-      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+      config: { ...config, auth: apiKeyAuth } as any
     });
 
     const req = makeReq('POST', '/realtime/webrtc/client-secret', JSON.stringify({ provider: 'p' }));
@@ -1912,7 +1983,7 @@ describe('utils/server createServerHandler', () => {
         createCoordinator: jest.fn(),
         closeLogger: jest.fn()
       } as any,
-      config: { ...config, auth: { enabled: true, apiKeys: ['k1'] } } as any
+      config: { ...config, auth: apiKeyAuth } as any
     });
 
     const req = makeReq('POST', '/realtime/webrtc/client-secret', JSON.stringify({ provider: 'p' }));

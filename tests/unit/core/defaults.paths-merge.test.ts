@@ -69,7 +69,13 @@ describe('core/defaults baseline + overlay merge (llm-adapter.paths.json)', () =
           {
             tools: { timeoutMs: 111 },
             retry: { rateLimitDelays: [111] },
-            server: { auth: { headerName: 'x-local', apiKeys: ['local-key'] } }
+            server: {
+              auth: {
+                mode: 'apiKey',
+                headerName: 'x-local',
+                keys: [{ id: 'local', token: 'local-key' }]
+              }
+            }
           },
           null,
           2
@@ -82,7 +88,9 @@ describe('core/defaults baseline + overlay merge (llm-adapter.paths.json)', () =
         JSON.stringify(
           {
             tools: { timeoutMs: 222 },
-            server: { auth: { allowBearer: false, apiKeys: ['ext-a-key'] } }
+            server: {
+              auth: { allowBearer: false, keys: [{ id: 'ext-a', token: 'ext-a-key' }] }
+            }
           },
           null,
           2
@@ -112,10 +120,10 @@ describe('core/defaults baseline + overlay merge (llm-adapter.paths.json)', () =
       expect(defaults.retry.rateLimitDelays).toEqual([333]);
 
       // Deep merge: keep baseline keys, allow nested overrides, and replace arrays.
-      expect(defaults.server.auth.enabled).toBe(false);
+      expect(defaults.server.auth.mode).toBe('apiKey');
       expect(defaults.server.auth.allowBearer).toBe(false);
       expect(defaults.server.auth.headerName).toBe('x-ext-b');
-      expect(defaults.server.auth.apiKeys).toEqual(['ext-a-key']);
+      expect(defaults.server.auth.keys).toEqual([{ id: 'ext-a', token: 'ext-a-key' }]);
     });
   });
 

@@ -18,6 +18,31 @@ describe('utils/server readJsonBody', () => {
     await expect(readJsonBody(req)).resolves.toEqual({ ok: true, n: 1 });
   });
 
+  test('parses valid JSON body when stream yields strings', async () => {
+    const req = new Readable({
+      read() {
+        this.push(JSON.stringify({ ok: true }));
+        this.push(null);
+      }
+    }) as any;
+    req.headers = { 'content-type': 'application/json' };
+    req.setEncoding('utf-8');
+
+    await expect(readJsonBody(req)).resolves.toEqual({ ok: true });
+  });
+
+  test('parses valid JSON body when stream yields Buffers', async () => {
+    const req = new Readable({
+      read() {
+        this.push(Buffer.from(JSON.stringify({ ok: true })));
+        this.push(null);
+      }
+    }) as any;
+    req.headers = { 'content-type': 'application/json' };
+
+    await expect(readJsonBody(req)).resolves.toEqual({ ok: true });
+  });
+
   test('throws on invalid JSON', async () => {
     const req = makeReq('{bad json}');
     await expect(readJsonBody(req)).rejects.toThrow('Invalid JSON body');
@@ -51,5 +76,21 @@ describe('utils/server readJsonBody', () => {
       message: expect.stringContaining('Request body read timed out'),
       statusCode: 408
     });
+  });
+
+  test('rejects on request error', async () => {
+    const req = new Readable({ read() {} }) as any;
+    req.headers = { 'content-type': 'application/json' };
+    const pending = readJsonBody(req);
+    req.emit('error', new Error('boom'));
+    await expect(pending).rejects.toThrow('boom');
+  });
+
+  test('rejects when request is aborted', async () => {
+    const req = new Readable({ read() {} }) as any;
+    req.headers = { 'content-type': 'application/json' };
+    const pending = readJsonBody(req);
+    req.emit('aborted');
+    await expect(pending).rejects.toMatchObject({ statusCode: 499, code: 'client_aborted' });
   });
 });

@@ -10,7 +10,8 @@ Shared, provider-agnostic transport utilities used by both the server and CLI la
 
 ### Exports
 
-- `mapErrorToHttp(error)` → `{ status, body }` where `body` is the structured `{ type: "error", error: { message, code, details? } }` envelope.
+- `mapErrorToHttp(error, options?)` → `{ status, body }` where `body` is the structured `{ type: "error", error: { message, code, details? } }` envelope.
+  - `options.redactServerErrors` (boolean, default `true`) – when true, 5xx messages are generic (`Server error`, `Upstream error`, etc).
 - `assertValidSpec(spec)` → throws a structured validation error on invalid LLM call specs.
 - `assertValidVectorSpec(spec)` → throws a structured validation error on invalid vector specs.
 - `assertValidEmbeddingSpec(spec)` → throws a structured validation error on invalid embedding specs.
@@ -19,4 +20,3 @@ Shared, provider-agnostic transport utilities used by both the server and CLI la
 
 - This module must remain **provider-agnostic** and safe to lazy-load.
 - Validation uses Ajv; schemas are intentionally permissive for unknown/extra fields, while enforcing required shapes for core fields.
-

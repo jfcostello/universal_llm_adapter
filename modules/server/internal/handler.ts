@@ -12,13 +12,18 @@ import { createLimiter } from './transport/limiter.js';
 import { mapErrorToHttp } from './transport/error-mapper.js';
 import { applyCors } from './security/cors.js';
 import { applySecurityHeaders } from './security/security-headers.js';
-import { assertAuthorized } from './security/auth.js';
 import { createRateLimiter, getClientIp } from './security/rate-limiter.js';
+import {
+  assertLlmSpecAllowedByPolicy,
+  normalizeServerPolicy,
+  type ServerPolicyConfig
+} from './security/policy.js';
 import { monotonicElapsedMs, monotonicNowNs } from '../../shared/index.js';
 import {
   runWithCoordinatorLifecycle,
   streamWithCoordinatorLifecycle
 } from '../../lifecycle/index.js';
+import { createAuthenticator, type AuthContext, type AuthErrorLike } from '../../auth/index.js';
 import type {
   EmbeddingCallSpec,
   LLMCallSpec,
@@ -59,8 +64,9 @@ interface HandlerOptions {
     rateLimit: any;
     cors: any;
     securityHeadersEnabled: boolean;
+    policy?: ServerPolicyConfig;
   };
-  authorize?: (req: http.IncomingMessage) => boolean | Promise<boolean>;
+  authorize?: (ctx: AuthContext, req: http.IncomingMessage) => boolean | Promise<boolean>;
 }
 
 function writeJson(res: http.ServerResponse, status: number, payload: any): void {
@@ -70,6 +76,9 @@ function writeJson(res: http.ServerResponse, status: number, payload: any): void
 
 export function createServerHandler(options: HandlerOptions): http.RequestListener {
   const { registry, pluginsPath, batchId, closeLoggerAfterRequest, deps, config, authorize, lifecycle } = options;
+
+  const authenticator = createAuthenticator(config.auth ?? { mode: 'none' });
+  const policy = normalizeServerPolicy(config.policy);
 
   const runWithCoordinatorLifecycleFn =
     lifecycle?.runWithCoordinatorLifecycle ?? runWithCoordinatorLifecycle;
@@ -108,16 +117,42 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
 
   const rateLimiter = createRateLimiter(config.rateLimit ?? { enabled: false });
 
-  async function assertAuthorizedAndRateLimited(req: http.IncomingMessage): Promise<string | undefined> {
-    const authIdentity = await assertAuthorized(req, config.auth ?? { enabled: false }, authorize);
+  function applyErrorHeaders(res: http.ServerResponse, error: any) {
+    const headers = (error as AuthErrorLike | undefined)?.headers;
+    if (!headers || typeof headers !== 'object') return;
+    if (res.headersSent) return;
+    for (const [key, value] of Object.entries(headers)) {
+      try {
+        res.setHeader(key, value);
+      } catch {
+        // ignore invalid header sets
+      }
+    }
+  }
+
+  function makeForbiddenError() {
+    const error = new Error('Forbidden');
+    (error as any).statusCode = 403;
+    (error as any).code = 'forbidden';
+    return error;
+  }
+
+  async function assertAuthorizedAndRateLimited(req: http.IncomingMessage): Promise<AuthContext> {
+    const authContext = await authenticator.authenticate(req);
+    if (authorize) {
+      const allowed = await authorize(authContext, req);
+      if (!allowed) {
+        throw makeForbiddenError();
+      }
+    }
     if (config.rateLimit?.enabled) {
       const key =
-        authIdentity ??
+        authContext.subject ??
         getClientIp(req, Boolean(config.rateLimit?.trustProxyHeaders)) ??
         'unknown';
       rateLimiter.check(key);
     }
-    return authIdentity;
+    return authContext;
   }
 
   function assertJsonContentType(req: http.IncomingMessage) {
@@ -250,6 +285,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
         }));
         writeJson(res, 200, { type: 'response', data: results });
       } catch (error: any) {
+        applyErrorHeaders(res, error);
         const mapped = mapErrorToHttp(error);
         writeJson(res, mapped.status, mapped.body);
       }
@@ -263,7 +299,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
 
     try {
       if (url === '/realtime/webrtc/client-secret') {
-        if (!config.auth?.enabled) {
+        if (!config.auth || config.auth.mode === 'none') {
           const error = new Error('Realtime client-secret endpoint requires server auth to be enabled');
           (error as any).statusCode = 501;
           (error as any).code = 'not_implemented';
@@ -385,6 +421,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           })) as LLMCallSpec;
 
           assertValidSpec(spec);
+          assertLlmSpecAllowedByPolicy(spec, policy);
           const correlationId = spec.metadata?.correlationId as string | undefined;
           const { getLogger } = await import('../../logging/index.js');
           const logger = getLogger(correlationId);
@@ -448,6 +485,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
             logger.error('HTTP /run failed', { durationMs: monotonicElapsedMs(startTimeMonoNs), error });
           }
         } catch (error: any) {
+          applyErrorHeaders(res, error);
           const mapped = mapErrorToHttp(error);
           writeJson(res, mapped.status, mapped.body);
         } finally {
@@ -472,6 +510,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
           })) as LLMCallSpec;
 
           assertValidSpec(spec);
+          assertLlmSpecAllowedByPolicy(spec, policy);
           const correlationId = spec.metadata?.correlationId as string | undefined;
           const { getLogger } = await import('../../logging/index.js');
           const logger = getLogger(correlationId);
@@ -621,6 +660,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
             logger.error('HTTP /vector/run failed', { durationMs: monotonicElapsedMs(startTimeMonoNs), error });
           }
         } catch (error: any) {
+          applyErrorHeaders(res, error);
           const mapped = mapErrorToHttp(error);
           writeJson(res, mapped.status, mapped.body);
         } finally {
@@ -804,6 +844,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
             logger.error('HTTP /embeddings/run failed', { durationMs: monotonicElapsedMs(startTimeMonoNs), error });
           }
         } catch (error: any) {
+          applyErrorHeaders(res, error);
           const mapped = mapErrorToHttp(error);
           writeJson(res, mapped.status, mapped.body);
         } finally {
@@ -815,6 +856,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
 
       writeJson(res, 404, { type: 'error', error: { message: 'Not found' } });
     } catch (error: any) {
+      applyErrorHeaders(res, error);
       const mapped = mapErrorToHttp(error);
 
       if ((req.url === '/stream' || req.url === '/vector/stream') && res.headersSent) {

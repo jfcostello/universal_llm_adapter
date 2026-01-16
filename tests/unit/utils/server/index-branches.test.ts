@@ -123,6 +123,101 @@ describe('utils/server index default branches', () => {
     await running.close();
   });
 
+  test('createServerHandlerWithDefaults applies policy overrides when policy is an object', async () => {
+    const handler = createServerHandlerWithDefaults({
+      registry: { loadAll: jest.fn() } as any,
+      policy: { documents: { filepath: { enabled: true } } },
+      deps: {
+        getDefaults: () => DEFAULTS_WITHOUT_NESTED
+      } as any
+    } as any);
+    expect(typeof handler).toBe('function');
+  });
+
+  test('createServerHandlerWithDefaults ignores non-object policy overrides', async () => {
+    const handler = createServerHandlerWithDefaults({
+      registry: { loadAll: jest.fn() } as any,
+      policy: 'nope' as any,
+      deps: {
+        getDefaults: () => DEFAULTS_WITHOUT_NESTED
+      } as any
+    } as any);
+    expect(typeof handler).toBe('function');
+  });
+
+  test('createServer applies policy overrides when policy is an object', async () => {
+    const running = await createServer({
+      policy: { documents: { filepath: { enabled: true } } },
+      deps: {
+        getDefaults: () => DEFAULTS_WITHOUT_NESTED,
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    await running.close();
+  });
+
+  test('createServer ignores non-object policy overrides', async () => {
+    const running = await createServer({
+      policy: 'nope' as any,
+      deps: {
+        getDefaults: () => DEFAULTS_WITHOUT_NESTED,
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    await running.close();
+  });
+
+  test('createServer applies HTTP server timeout settings', async () => {
+    const running = await createServer({
+      httpHeadersTimeoutMs: 1234,
+      httpRequestTimeoutMs: 2345,
+      httpKeepAliveTimeoutMs: 3456,
+      httpMaxHeadersCount: 42,
+      deps: {
+        getDefaults: () => DEFAULTS_WITHOUT_NESTED,
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    expect((running.server as any).headersTimeout).toBe(1234);
+    expect((running.server as any).requestTimeout).toBe(2345);
+    expect((running.server as any).keepAliveTimeout).toBe(3456);
+    expect((running.server as any).maxHeadersCount).toBe(42);
+
+    await running.close();
+  });
+
+  test('createServer clientError handler destroys sockets when socket.end throws', async () => {
+    const running = await createServer({
+      deps: {
+        getDefaults: () => DEFAULTS_WITHOUT_NESTED,
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    const socket = {
+      end: () => {
+        throw new Error('boom');
+      },
+      destroy: jest.fn()
+    } as any;
+
+    (running.server as any).emit('clientError', new Error('bad'), socket);
+    expect(socket.destroy).toHaveBeenCalled();
+
+    await running.close();
+  });
+
   test('createServer loads enabled extensions and allows them to intercept /voice/*', async () => {
     const running = await createServer({
       extensions: { enabled: ['voice'] },
@@ -229,7 +324,7 @@ describe('utils/server index default branches', () => {
         expect(res.statusCode).toBe(500);
         expect(res.body).toEqual({
           type: 'error',
-          error: { message: 'boom', code: 'internal' }
+          error: { message: 'Server error', code: 'internal' }
         });
       } finally {
         await running.close();
@@ -313,7 +408,7 @@ describe('utils/server index default branches', () => {
 
     const running = await createServer({
       realtime: { enabled: true, wsIdleTimeoutMs: 0, maxWsMessageBytes: 1024 },
-      auth: { enabled: true, apiKeys: ['test-key'] },
+      auth: { mode: 'apiKey', keys: [{ id: 'test-key', token: 'test-key' }] },
       rateLimit: { enabled: true, requestsPerMinute: 60, burst: 10 },
       deps: {
         getDefaults: () => DEFAULTS_WITHOUT_NESTED,
@@ -378,7 +473,7 @@ describe('utils/server index default branches', () => {
 
     const running = await createServer({
       realtime: { enabled: true, wsIdleTimeoutMs: 0, maxWsMessageBytes: 1024 },
-      auth: { enabled: true, apiKeys: ['test-key'] },
+      auth: { mode: 'apiKey', keys: [{ id: 'test-key', token: 'test-key' }] },
       deps: {
         getDefaults: () => DEFAULTS_WITHOUT_NESTED,
         createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),

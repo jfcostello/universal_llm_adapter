@@ -116,9 +116,7 @@ describe('core/defaults', () => {
       expect(server.maxConcurrentEmbeddingRequests).toBe(128);
       expect(server.embeddingMaxQueueSize).toBe(1000);
       expect(server.embeddingQueueTimeoutMs).toBe(30000);
-      expect(server.auth.enabled).toBe(false);
-      expect(server.auth.allowBearer).toBe(true);
-      expect(server.auth.allowApiKeyHeader).toBe(true);
+      expect(server.auth.mode).toBe('none');
       expect(server.rateLimit.enabled).toBe(false);
       expect(server.cors.enabled).toBe(false);
       expect(server.securityHeadersEnabled).toBe(true);

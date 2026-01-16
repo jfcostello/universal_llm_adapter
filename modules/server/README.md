@@ -46,25 +46,36 @@ Options:
 - `maxConcurrentEmbeddingRequests` (number, default `128`) — concurrent `/embeddings/run` executions.
 - `embeddingMaxQueueSize` (number, default `1000`) — queue size for embedding limiter when saturated.
 - `embeddingQueueTimeoutMs` (number, default `30000`) — max time an embedding request may wait in the queue.
-- `auth` (object, default disabled) — optional request auth.
-  - `enabled` (boolean)
-  - `allowBearer` (boolean, default `true`) — accept `Authorization: Bearer <token>`.
-  - `allowApiKeyHeader` (boolean, default `true`) — accept API key header.
-  - `headerName` (string, default `"x-api-key"`)
-  - `apiKeys` (string[] or comma‑separated string, **env only**) — active raw keys for rotation.
-  - `hashedKeys` (string[] or comma‑separated string) — optional `sha256:<hex>` digests.
-  - `realm` (string, default `"llm-adapter"`) — realm for 401 challenges.
+- `auth` (`AuthConfig`, default `{ mode: "none" }`) — request authentication.
+  - `mode` (`"none" | "apiKey" | "jwt" | "proxySigned"`)
+  - `apiKey` fields:
+    - `allowBearer` (boolean, default `true`) — accept `Authorization: Bearer <token>`
+    - `allowHeader` (boolean, default `true`) — accept `headerName: <token>`
+    - `headerName` (string, default `"x-api-key"`)
+    - `realm` (string, optional) — realm for 401 challenges
+    - `keys` (`{ id, token? , sha256? }[]`) — required (server can also load from `LLM_ADAPTER_API_KEYS` when omitted)
+  - `jwt` fields: `jwksUrl`/`jwks`, `issuer`, `audience`, `algorithms`, plus the same header extraction fields as `apiKey`
+  - `proxySigned` fields: `keys: [{ id, secret }]`, header mapping + timestamp skew controls
 - `rateLimit` (object, default disabled) — in‑memory token‑bucket limiter per client.
   - `enabled` (boolean)
   - `requestsPerMinute` (number, default `120`)
   - `burst` (number, default `30`)
   - `trustProxyHeaders` (boolean, default `false`) — if true, use `x-forwarded-for` for IP.
+  - `maxKeys` (number, default `10000`) — max distinct identities tracked (bounded memory).
+  - `keyTtlMs` (number, default `0`) — optional per-identity TTL (0 disables TTL eviction).
 - `cors` (object, default disabled) — CORS handling and preflight.
   - `enabled` (boolean)
   - `allowedOrigins` (string[] or `"*"`)
   - `allowedHeaders` (string[], default `["content-type","authorization","x-api-key"]`)
   - `allowCredentials` (boolean, default `false`)
+- `policy` (object, optional) — server-side safety gates for dangerous inputs.
+  - `documents.filepath.enabled` (boolean, default `false`) — allow `document.source.type="filepath"` in server requests.
+  - `documents.filepath.allowedRoots` (string[], default `[]`) — optional allowlist roots; empty means allow all.
 - `securityHeadersEnabled` (boolean, default `true`) — adds safe browser/proxy hardening headers.
+- `httpHeadersTimeoutMs` (number, default `20000`) — Node `server.headersTimeout` (slowloris protection).
+- `httpRequestTimeoutMs` (number, default `0`) — Node `server.requestTimeout` (0 disables).
+- `httpKeepAliveTimeoutMs` (number, default `5000`) — Node `server.keepAliveTimeout`.
+- `httpMaxHeadersCount` (number, default `1000`) — Node `server.maxHeadersCount`.
 - `authorize` (function, optional) — pluggable auth hook; returning false rejects with 403.
 - `deps` (partial `ServerDependencies`) — dependency injection for tests/embedding.
 - `registry` (`PluginRegistryLike`) — optional pre-built registry.
@@ -119,7 +130,7 @@ Accepts the same options and defaults as `createServer`.
 
 Mints a short-lived client credential suitable for establishing a realtime WebRTC session from a browser/mobile client **without** exposing long-lived provider credentials.
 
-- Auth: **required** (server `auth.enabled` must be true).
+- Auth: **required** (server `auth.mode` must not be `"none"`).
 - Rate limiting: uses the server rate limiter when enabled.
 - Body:
   - `provider` (string, required) — realtime provider id from `plugins/realtime-providers/*.json`
@@ -171,12 +182,14 @@ Production guidance:
 
 ## Auth & Security Controls
 
-- **Auth (opt‑in):** when `auth.enabled=true`, requests must include either:
-  - `Authorization: Bearer <key>` or
-  - `<headerName>: <key>` (default `x-api-key`).
-  Multiple active keys are supported for rotation.
-- **Hashed keys (optional):** if `auth.hashedKeys` is provided, the server will also accept
-  keys whose SHA‑256 digest matches an entry (values may be prefixed with `sha256:`).
+- **Auth (opt‑in):** when `auth.mode !== "none"`, requests must be authenticated.
+  - `apiKey`: accept `Authorization: Bearer <token>` and/or `headerName: <token>` (default `x-api-key`).
+  - `jwt`: accept `Authorization: Bearer <jwt>` and/or `headerName: <jwt>`, then validate offline.
+  - `proxySigned`: accept a gateway-signed identity via headers (no JWT verification work per request).
+- **API keys from env (server):** when `auth.mode="apiKey"` and `auth.keys` is omitted, keys can be
+  loaded from `LLM_ADAPTER_API_KEYS` (comma-separated). Entries can be raw tokens or sha256 digests.
+- **Policy gates (server):** dangerous inputs like `document.source.type="filepath"` are disabled by default
+  and require `policy.documents.filepath.enabled=true` (optionally restrict with `allowedRoots`).
 - **Rate limiting (opt‑in):** when `rateLimit.enabled=true`, requests are token‑bucket limited
   per client key (auth identity when present, otherwise IP). Exceeding the bucket returns `429`.
 - **CORS (opt‑in):** when `cors.enabled=true`, the server sets standard CORS headers on responses

@@ -193,7 +193,7 @@ describe('utils/server (integration) streaming semantics', () => {
     expect(client.events[0]).toEqual(firstEvent);
     expect(client.events[1]).toMatchObject({
       type: 'error',
-      error: { message: 'boom', code: 'internal' }
+      error: { message: 'Server error', code: 'internal' }
     });
   });
 

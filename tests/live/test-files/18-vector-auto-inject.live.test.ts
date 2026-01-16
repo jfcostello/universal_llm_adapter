@@ -8,7 +8,7 @@ const TEST_FILE = '18-vector-auto-inject';
 
 const STORE_ID = 'qdrant-cloud';
 const TOKEN = `AUTO_INJECT_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
-const SECRET = `AUTO_INJECT_SECRET_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+const SECRET = `AUTO_INJECT_SECRET_${Math.random().toString(16).slice(2, 8)}_${Math.random().toString(16).slice(2, 8)}`;
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));

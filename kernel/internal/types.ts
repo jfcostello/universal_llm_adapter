@@ -1166,13 +1166,21 @@ export interface TimeoutDefaults {
  * Server (HTTP/SSE) default settings.
  */
 export interface ServerAuthDefaults {
-  enabled: boolean;
-  allowBearer: boolean;
-  allowApiKeyHeader: boolean;
-  headerName: string;
-  apiKeys: string[] | string;
-  hashedKeys: string[] | string;
-  realm?: string;
+  /**
+   * Auth mode for server access control.
+   *
+   * - `none`: no authentication
+   * - `apiKey`: shared secret token auth
+   * - `jwt`: JWT verification (e.g. OIDC)
+   * - `proxySigned`: trusted proxy/gateway signed identity headers
+   */
+  mode: 'none' | 'apiKey' | 'jwt' | 'proxySigned';
+
+  /**
+   * Mode-specific configuration. Kept open-ended because each mode has distinct
+   * configuration needs and is validated by the auth module at runtime.
+   */
+  [key: string]: any;
 }
 
 export interface ServerRateLimitDefaults {
@@ -1180,6 +1188,10 @@ export interface ServerRateLimitDefaults {
   requestsPerMinute: number;
   burst: number;
   trustProxyHeaders: boolean;
+  /** Maximum number of distinct client keys tracked in memory */
+  maxKeys: number;
+  /** Optional TTL (ms) after which an idle key's bucket is reset */
+  keyTtlMs: number;
 }
 
 export interface ServerCorsDefaults {
@@ -1187,6 +1199,15 @@ export interface ServerCorsDefaults {
   allowedOrigins: string[] | '*';
   allowedHeaders: string[];
   allowCredentials: boolean;
+}
+
+export interface ServerPolicyDefaults {
+  documents: {
+    filepath: {
+      enabled: boolean;
+      allowedRoots: string[];
+    };
+  };
 }
 
 export interface ServerExtensionsDefaults {
@@ -1220,7 +1241,12 @@ export interface ServerDefaults {
   auth: ServerAuthDefaults;
   rateLimit: ServerRateLimitDefaults;
   cors: ServerCorsDefaults;
+  policy: ServerPolicyDefaults;
   securityHeadersEnabled: boolean;
+  httpHeadersTimeoutMs: number;
+  httpRequestTimeoutMs: number;
+  httpKeepAliveTimeoutMs: number;
+  httpMaxHeadersCount: number;
   extensions?: ServerExtensionsDefaults;
 }
 

@@ -32,8 +32,15 @@ describe('utils/server createLimiter', () => {
     release();
   });
 
+  test('rejects immediately when maxConcurrent is unlimited and signal already aborted', async () => {
+    const limiter = createLimiter({ maxConcurrent: Infinity as any, maxQueueSize: 0, queueTimeoutMs: 0 });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(limiter.acquire(controller.signal)).rejects.toMatchObject({ statusCode: 499, code: 'client_aborted' });
+  });
+
   test('queues when saturated and resolves FIFO', async () => {
-    const limiter = createLimiter({ maxConcurrent: 1, maxQueueSize: 2, queueTimeoutMs: 100 });
+    const limiter = createLimiter({ maxConcurrent: 1, maxQueueSize: 3, queueTimeoutMs: 100 });
     const release1 = await limiter.acquire();
 
     let acquiredSecond = false;
@@ -42,12 +49,60 @@ describe('utils/server createLimiter', () => {
       return release;
     });
 
+    let acquiredThird = false;
+    const third = limiter.acquire().then((release) => {
+      acquiredThird = true;
+      return release;
+    });
+
     await new Promise(r => setTimeout(r, 10));
     expect(acquiredSecond).toBe(false);
+    expect(acquiredThird).toBe(false);
 
     release1();
     const release2 = await second;
     expect(acquiredSecond).toBe(true);
+    expect(acquiredThird).toBe(false);
+    release2();
+
+    const release3 = await third;
+    expect(acquiredThird).toBe(true);
+    release3();
+  });
+
+  test('removes a canceled middle queue item', async () => {
+    const limiter = createLimiter({ maxConcurrent: 1, maxQueueSize: 3, queueTimeoutMs: 50 });
+    const release1 = await limiter.acquire();
+
+    const controller2 = new AbortController();
+    const controller3 = new AbortController();
+
+    const secondPromise = limiter.acquire(controller2.signal);
+    const thirdPromise = limiter.acquire(controller3.signal);
+    const fourthPromise = limiter.acquire();
+
+    controller3.abort();
+    await expect(thirdPromise).rejects.toMatchObject({ code: 'client_aborted' });
+
+    release1();
+    const release2 = await secondPromise;
+    release2();
+
+    const release4 = await fourthPromise;
+    release4();
+  });
+
+  test('queues with abort signal and resolves when released', async () => {
+    const limiter = createLimiter({ maxConcurrent: 1, maxQueueSize: 1, queueTimeoutMs: 100 });
+    const release1 = await limiter.acquire();
+
+    const controller = new AbortController();
+    const secondPromise = limiter.acquire(controller.signal);
+
+    await new Promise(r => setTimeout(r, 10));
+    release1();
+
+    const release2 = await secondPromise;
     release2();
   });
 

@@ -11,7 +11,7 @@ import { calculateBackoffDelay, isPlainObject, makeHttpError, normalizeFlag, rea
 import {
   applyCors,
   applySecurityHeaders,
-  assertAuthorized,
+  createAuthenticator,
   createRateLimiter,
   getClientIp,
   readJsonBody,
@@ -563,6 +563,7 @@ export async function createVoiceServerRegistration(ctx: {
   const authorize = httpConfig.authorize;
 
   const rateLimiter = createRateLimiter(rateLimitConfig);
+  const authenticator = createAuthenticator(authConfig ?? { mode: 'none' });
 
   let cachedVoiceLoggingModule: { getVoiceLogger: (correlationId?: string) => VoiceLogger; closeVoiceLogger: () => Promise<void> } | undefined;
   const resolveLogger = async (correlationId?: string): Promise<VoiceLogger | undefined> => {
@@ -616,15 +617,19 @@ export async function createVoiceServerRegistration(ctx: {
   const voiceDefaults = readVoiceExtensionDefaults(httpConfig);
 
   const assertAuthorizedAndRateLimited = async (req: http.IncomingMessage): Promise<string | undefined> => {
-    const authIdentity = await assertAuthorized(req, authConfig, authorize as any);
-    const clientIp = getClientIp(req, Boolean(rateLimitConfig?.trustProxyHeaders));
-    const key = authIdentity ?? clientIp ?? 'unknown';
-    if (rateLimitConfig?.enabled) {
-      if (authConfig?.enabled) {
-        rateLimiter.check(key);
+    const ctx = await authenticator.authenticate(req as any);
+    if (authorize) {
+      const allowed = await (authorize as any)(ctx, req);
+      if (!allowed) {
+        throw makeHttpError({ statusCode: 403, message: 'Forbidden', code: 'forbidden' });
       }
     }
-    return authIdentity;
+    const clientIp = getClientIp(req, Boolean(rateLimitConfig?.trustProxyHeaders));
+    const key = ctx.subject ?? clientIp ?? 'unknown';
+    if (rateLimitConfig?.enabled) {
+      rateLimiter.check(key);
+    }
+    return ctx.subject;
   };
 
   const require = createRequire(import.meta.url);

@@ -36,7 +36,7 @@ describe('utils/server default realtime dependency wiring', () => {
       host: '127.0.0.1',
       port: 0,
       realtime: { enabled: true, wsIdleTimeoutMs: 0, maxWsMessageBytes: 1024 },
-      auth: { enabled: true, apiKeys: ['test-key'] },
+      auth: { mode: 'apiKey', keys: [{ id: 'test-key', token: 'test-key' }] },
       deps: {
         createRegistry: jest.fn().mockResolvedValue(registry),
         createCoordinator: jest.fn(),
@@ -96,4 +96,3 @@ describe('utils/server default realtime dependency wiring', () => {
     await running.close();
   });
 });
-
