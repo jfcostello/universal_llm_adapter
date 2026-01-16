@@ -120,7 +120,8 @@ export function createProxySignedAuthenticator(config: ProxySignedAuthConfig): {
         secret = found;
         resolvedKeyId = keyId;
       } else {
-        secret = keyId ? (keyIdToSecret.get(keyId) ?? onlySecret) : onlySecret;
+        if (keyId && keyId !== onlyKey) unauthorized();
+        secret = onlySecret;
         resolvedKeyId = onlyKey;
       }
 

@@ -137,6 +137,36 @@ describe('utils/auth (proxySigned mode)', () => {
     ).resolves.toEqual({ mode: 'proxySigned', subject: 'user-kid' });
   });
 
+  test('rejects when a single-key config receives a mismatched key id header (even if the signature is otherwise valid)', async () => {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const sig = signProxy({
+      secret: 's1',
+      timestampSeconds: nowSeconds,
+      method: 'POST',
+      url: '/run',
+      subject: 'user-kid-mismatch',
+      keyId: 'k1'
+    });
+
+    const auth = createAuthenticator({
+      mode: 'proxySigned',
+      keys: [{ id: 'k1', secret: 's1' }]
+    });
+
+    await expect(
+      auth.authenticate({
+        method: 'POST',
+        url: '/run',
+        headers: {
+          'x-llm-adapter-signature': sig,
+          'x-llm-adapter-timestamp': String(nowSeconds),
+          'x-llm-adapter-subject': 'user-kid-mismatch',
+          'x-llm-adapter-key-id': 'k-unknown'
+        }
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 401, code: 'unauthorized' });
+  });
+
   test('rejects a signed request with a single key and unknown key id', async () => {
     const nowSeconds = Math.floor(Date.now() / 1000);
     const sig = signProxy({
