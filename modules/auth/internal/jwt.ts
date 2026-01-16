@@ -7,6 +7,7 @@ import { LruMap } from '../../../kernel/index.js';
 
 import type { AuthContext, JwtAuthConfig } from '../index.js';
 import { makeUnauthorizedError } from './errors.js';
+import { normalizeSeparator } from './normalize.js';
 import { sha256Hex } from './sha256.js';
 import { extractToken } from './token-extract.js';
 
@@ -21,11 +22,6 @@ type RemoteJwksState = {
 function normalizeClaimName(value: unknown, fallback: string): string {
   const trimmed = String(value ?? '').trim();
   return trimmed ? trimmed : fallback;
-}
-
-function normalizeSeparator(value: unknown, fallback: string): string {
-  const raw = String(value ?? '');
-  return raw ? raw : fallback;
 }
 
 function parseScopes(value: unknown, separator: string): string[] | undefined {

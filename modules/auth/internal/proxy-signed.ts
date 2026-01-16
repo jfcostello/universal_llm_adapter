@@ -5,6 +5,7 @@ import { safeEqual } from '../../security/index.js';
 
 import type { AuthContext, ProxySignedAuthConfig } from '../index.js';
 import { makeUnauthorizedError } from './errors.js';
+import { normalizeSeparator } from './normalize.js';
 
 function normalizeHeaderName(value: unknown, fallback: string): string {
   const trimmed = String(value ?? '').trim();
@@ -30,11 +31,6 @@ function normalizeSkewSeconds(value: unknown): number {
   const n = Number(value);
   if (!Number.isFinite(n)) return 30;
   return Math.max(0, Math.floor(n));
-}
-
-function normalizeSeparator(value: unknown, fallback: string): string {
-  const raw = String(value ?? '');
-  return raw ? raw : fallback;
 }
 
 function parseScopes(value: string | null, separator: string): string[] | undefined {
