@@ -561,10 +561,10 @@ export async function createVoiceServerRegistration(ctx: {
   const idempotencyLockTtlSeconds = Number.isFinite(httpConfig.idempotencyLockTtlSeconds)
     ? Math.max(1, Math.floor(Number(httpConfig.idempotencyLockTtlSeconds)))
     : 60;
-  const authorize = httpConfig.authorize;
+	  const authorize = httpConfig.authorize;
 
-  const rateLimiter = createRateLimiter(rateLimitConfig);
-  const authenticator = createAuthenticator(authConfig ?? { mode: 'none' });
+	  const rateLimiter = createRateLimiter(rateLimitConfig);
+	  const authenticator = createAuthenticator(authConfig);
 
   let cachedVoiceLoggingModule: { getVoiceLogger: (correlationId?: string) => VoiceLogger; closeVoiceLogger: () => Promise<void> } | undefined;
   const resolveLogger = async (correlationId?: string): Promise<VoiceLogger | undefined> => {

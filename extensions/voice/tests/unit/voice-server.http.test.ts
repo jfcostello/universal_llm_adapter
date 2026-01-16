@@ -1020,14 +1020,62 @@ class MockStreamRes extends Writable {
     expect(String(resMetrics.writeHead.mock.calls[0][0])).toBe('200');
     const metrics = JSON.parse(String(resMetrics.end.mock.calls[0][0]));
     const samples: any[] = Array.isArray(metrics.metrics) ? metrics.metrics : [];
-    const sample = samples.find(
-      (m) => m?.name === 'voice.compat.error_total' && m?.labels?.voiceProvider === 'test' && m?.labels?.stage === 'webhook_response'
-    );
-    expect(sample?.value).toBe(1);
-  });
+	    const sample = samples.find(
+	      (m) => m?.name === 'voice.compat.error_total' && m?.labels?.voiceProvider === 'test' && m?.labels?.stage === 'webhook_response'
+	    );
+	    expect(sample?.value).toBe(1);
+	  });
 
-  test('/voice/webhook invokes compat signature validation when provided (success continues)', async () => {
-    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
+	  test('/voice/metrics authorize callback allows when it returns true', async () => {
+	    process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED = '1';
+	
+	    const store = createInMemoryVoiceCallConfigStore();
+	    const providerPlugins = { getCompat: jest.fn(async () => ({ validateWebhookRequest: jest.fn(async () => {}), createWebhookResponse: jest.fn() })) };
+	    const authorize = jest.fn(async () => true);
+	
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: { auth: apiKeyAuth, authorize }
+	    });
+	
+	    const res = createMockRes();
+	    await expect(reg.handleHttp({ url: '/voice/metrics', method: 'GET', headers: { authorization: 'Bearer k1' }, socket: {} } as any, res)).resolves.toBe(true);
+	    expect(String(res.writeHead.mock.calls[0][0])).toBe('200');
+	    expect(authorize).toHaveBeenCalledTimes(1);
+	  });
+	
+	  test('/voice/metrics authorize callback denies when it returns false (403)', async () => {
+	    process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED = '1';
+	
+	    const store = createInMemoryVoiceCallConfigStore();
+	    const providerPlugins = { getCompat: jest.fn(async () => ({ validateWebhookRequest: jest.fn(async () => {}), createWebhookResponse: jest.fn() })) };
+	    const authorize = jest.fn(async () => false);
+	
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: { auth: apiKeyAuth, authorize }
+	    });
+	
+	    const res = createMockRes();
+	    await expect(reg.handleHttp({ url: '/voice/metrics', method: 'GET', headers: { authorization: 'Bearer k1' }, socket: {} } as any, res)).resolves.toBe(true);
+	    expect(String(res.writeHead.mock.calls[0][0])).toBe('403');
+	    const payload = JSON.parse(String(res.end.mock.calls[0][0]));
+	    expect(payload?.error?.code).toBe('forbidden');
+	    expect(authorize).toHaveBeenCalledTimes(1);
+	  });
+
+	  test('/voice/webhook invokes compat signature validation when provided (success continues)', async () => {
+	    process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
 
     const store = createInMemoryVoiceCallConfigStore();
     await store.putConfig(
@@ -1649,11 +1697,12 @@ class MockStreamRes extends Writable {
 
       const res = createMockRes();
       await expect(reg.handleHttp({ url: '/voice/webhook?callConfigId=cfg_1', method: 'GET', headers: { host: 'localhost' }, socket: {} } as any, res)).resolves.toBe(true);
-      expect(String(res.writeHead.mock.calls[0][0])).toBe('500');
+	      expect(String(res.writeHead.mock.calls[0][0])).toBe('500');
 
-      const payload = JSON.parse(String(res.end.mock.calls[0][0]));
-      expect(String(payload?.error?.message)).toContain('Invalid LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS');
-    });
+	      const payload = JSON.parse(String(res.end.mock.calls[0][0]));
+	      expect(String(payload?.error?.code)).toBe('internal');
+	      expect(String(payload?.error?.message)).toBe('Server error');
+	    });
 
     test('/voice/webhook tolerates partial compat webhook responses (defaults)', async () => {
       process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET = 'secret';
@@ -4360,12 +4409,12 @@ class MockStreamRes extends Writable {
         }),
         res
       )
-    ).resolves.toBe(true);
-    expect(String(res.writeHead.mock.calls[0][0])).toBe('503');
-    const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
-    expect(body).toEqual(expect.objectContaining({ type: 'error', error: expect.objectContaining({ message: 'provider error', code: 'E_END' }) }));
-    expect(endCall).toHaveBeenCalledTimes(1);
-  });
+	    ).resolves.toBe(true);
+	    expect(String(res.writeHead.mock.calls[0][0])).toBe('503');
+	    const body = JSON.parse(Buffer.concat(res.chunks).toString('utf-8'));
+	    expect(body).toEqual(expect.objectContaining({ type: 'error', error: expect.objectContaining({ message: 'Server busy', code: 'E_END' }) }));
+	    expect(endCall).toHaveBeenCalledTimes(1);
+	  });
 
   test('/voice/calls/:id/end mode=after_playback waits for voice.playback.drained', async () => {
     jest.useFakeTimers();

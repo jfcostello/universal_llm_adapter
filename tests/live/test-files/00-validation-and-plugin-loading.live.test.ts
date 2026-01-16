@@ -43,13 +43,25 @@ async function runCli(args: string[], env: NodeJS.ProcessEnv): Promise<{ code: n
   test('Invalid JSON input is rejected with a structured error + stable code', async () => {
     if (String(process.env.LLM_LIVE_TRANSPORT || '').trim().toLowerCase() === 'server') {
       const baseUrl = String(process.env.LLM_TEST_SERVER_URL || '').trim();
-      expect(baseUrl).toBeTruthy();
+	      expect(baseUrl).toBeTruthy();
 
-      const apiKey = String(process.env.LLM_TEST_SERVER_API_KEY || '').trim();
-      const res = await fetch(new URL('/run', baseUrl), {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
+	      const apiKey = String(process.env.LLM_TEST_SERVER_API_KEY || '').trim();
+
+	      // Prove server auth is enforced (and runs before body parsing) by sending invalid JSON without auth.
+	      const unauthRes = await fetch(new URL('/run', baseUrl), {
+	        method: 'POST',
+	        headers: { 'content-type': 'application/json' },
+	        body: '{'
+	      });
+	      expect(unauthRes.status).toBe(401);
+	      const unauthBody = await unauthRes.json();
+	      expect(unauthBody?.type).toBe('error');
+	      expect(unauthBody?.error?.code).toBe('unauthorized');
+
+	      const res = await fetch(new URL('/run', baseUrl), {
+	        method: 'POST',
+	        headers: {
+	          'content-type': 'application/json',
           ...(apiKey ? { 'x-api-key': apiKey } : {})
         },
         body: '{'
