@@ -12,6 +12,35 @@ function stripTrailingSlashes(url: string): string {
   return url.replace(/\/+$/, '');
 }
 
+function getLangfuseTraceIdFromListItem(item: any): string | null {
+  if (!item || typeof item !== 'object') return null;
+  const id = typeof item.id === 'string' ? String(item.id).trim() : '';
+  if (id) return id;
+  const externalId = typeof item.externalId === 'string' ? String(item.externalId).trim() : '';
+  if (externalId) return externalId;
+  const traceId = typeof item.traceId === 'string' ? String(item.traceId).trim() : '';
+  if (traceId) return traceId;
+  return null;
+}
+
+function extractLangfuseTraceFromListPayload(payload: any, traceId: string): any | null {
+  const want = String(traceId).trim();
+  if (!want) return null;
+
+  const candidates: any[] = Array.isArray(payload?.data)
+    ? payload.data
+    : Array.isArray(payload)
+      ? payload
+      : [];
+
+  for (const item of candidates) {
+    const id = getLangfuseTraceIdFromListItem(item);
+    if (id && id === want) return item;
+  }
+
+  return null;
+}
+
 const GLOBAL_LOCK_DIR = path.join(os.tmpdir(), 'universal-llm-adapter-langfuse-read-lock');
 // Keep this low so stale locks (including PID reuse) can’t block the suite for minutes.
 const GLOBAL_LOCK_TTL_MS = 90_000;
@@ -301,6 +330,7 @@ export async function waitForLangfuseTrace(
   const assertLoggedContent = opts.assertLoggedContent !== false;
 
   const urlBase = `${baseUrl}/api/public/traces/${encodeURIComponent(String(traceId))}`;
+  const listBaseUrl = `${baseUrl}/api/public/traces`;
   const start = Date.now();
   const useGlobalReadSlot = env.LLM_LIVE === '1';
   const fetchTimeoutMs = readLangfuseFetchTimeoutMs(env);
@@ -308,6 +338,7 @@ export async function waitForLangfuseTrace(
   let delay = minDelayMs;
   let lastStatus: number | null = null;
   let lastAssertionError: Error | null = null;
+  let consecutive404s = 0;
   let polls = 0;
   let fetchMs = 0;
   let assertionMs = 0;
@@ -364,6 +395,7 @@ export async function waitForLangfuseTrace(
 
     if (res.ok) {
       const trace = await res.json();
+      consecutive404s = 0;
 
       if (testFileBase && assertLoggedContent) {
         const assertStart = Date.now();
@@ -418,6 +450,120 @@ export async function waitForLangfuseTrace(
       );
     }
 
+    if (status === 404) {
+      consecutive404s += 1;
+
+      // Some Langfuse deployments can list traces before the individual trace endpoint becomes readable.
+      // After a short 404 streak, fall back to the list endpoint and search for the trace by id.
+      if (consecutive404s >= 2) {
+        let listRes: any;
+        const listFetchStart = Date.now();
+        try {
+          const url = `${listBaseUrl}?limit=100&_=${Date.now()}`;
+          const remainingMs = Math.max(0, timeoutMs - (Date.now() - start));
+          const slotTimeoutMs = Math.min(remainingMs, Math.max(30_000, DEFAULT_LANGFUSE_429_COOLDOWN_MS + 5000));
+          const perRequestTimeoutMs = Math.min(fetchTimeoutMs, Math.max(1000, remainingMs));
+
+          listRes = await withConcurrencyLimit(
+            () =>
+              useGlobalReadSlot
+                ? fetchWithGlobalReadSlot(url, {
+                  method: 'GET',
+                  headers: {
+                    Authorization: authorization,
+                    Accept: 'application/json',
+                    'Cache-Control': 'no-cache',
+                    Pragma: 'no-cache'
+                  }
+                }, { slotTimeoutMs, fetchTimeoutMs: perRequestTimeoutMs })
+                : fetch(url, {
+                  method: 'GET',
+                  headers: {
+                    Authorization: authorization,
+                    Accept: 'application/json',
+                    'Cache-Control': 'no-cache',
+                    Pragma: 'no-cache'
+                  }
+                }),
+            concurrency
+          );
+        } catch {
+          // Ignore list fetch errors; treat as retryable and continue with backoff below.
+        } finally {
+          fetchMs += Date.now() - listFetchStart;
+        }
+
+        if (listRes?.ok) {
+          const payload = await listRes.json().catch(() => null);
+          const fromList = extractLangfuseTraceFromListPayload(payload, traceId);
+          if (fromList) {
+            if (testFileBase && assertLoggedContent) {
+              const assertStart = Date.now();
+              try {
+                await assertLangfuseTraceContainsLoggedObservabilityContent({
+                  traceId,
+                  trace: fromList,
+                  testFileBase,
+                  timeoutMs: logTimeoutMs
+                });
+              } catch (error: any) {
+                lastAssertionError = error instanceof Error ? error : new Error(String(error));
+                const jitter = Math.floor(Math.random() * Math.max(1, Math.floor(delay / 2)));
+                await sleep(delay + jitter);
+                delay = Math.min(maxDelayMs, Math.floor(delay * 1.5) + 1);
+                continue;
+              } finally {
+                assertionMs += Date.now() - assertStart;
+              }
+            }
+
+            if (debugTraceWait) {
+              const totalMs = Date.now() - start;
+              const overheadMs = Math.max(0, totalMs - fetchMs - assertionMs);
+              console.error(JSON.stringify({
+                type: 'langfuse_trace_wait',
+                traceId: String(traceId),
+                testFileBase: testFileBase || undefined,
+                totalMs,
+                polls,
+                fetchMs,
+                assertionMs,
+                overheadMs,
+                resolvedVia: 'list'
+              }));
+            }
+
+            return fromList;
+          }
+        } else if (listRes && typeof listRes.status === 'number') {
+          const listStatus = Number(listRes.status);
+          lastStatus = listStatus;
+
+          const listRetryable = listStatus === 429 || (listStatus >= 500 && listStatus < 600);
+          if (!listRetryable) {
+            const text = await listRes.text().catch(() => '');
+            throw new Error(
+              `Langfuse trace list fetch failed (${listRes.status}) while waiting for ${traceId}: ${text.slice(0, 500)}`
+            );
+          }
+
+          if (listStatus === 429) {
+            const retryAfterHeader = listRes.headers?.get?.('retry-after');
+            const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN;
+            if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+              delay = Math.max(delay, Math.ceil(retryAfterSeconds * 1000));
+              writeGlobalCooldownFor(Math.ceil(retryAfterSeconds * 1000));
+            } else {
+              delay = Math.max(delay, DEFAULT_LANGFUSE_429_COOLDOWN_MS);
+              writeGlobalCooldownFor(DEFAULT_LANGFUSE_429_COOLDOWN_MS);
+            }
+          }
+        }
+      }
+    } else {
+      consecutive404s = 0;
+    }
+
     // Respect Retry-After when rate limited.
     if (status === 429) {
       const retryAfterHeader = res.headers?.get?.('retry-after');
@@ -470,6 +616,7 @@ export async function waitForLangfuseTraceToBeMissing(
   const useGlobalReadSlot = env.LLM_LIVE === '1';
 
   const urlBase = `${baseUrl}/api/public/traces/${encodeURIComponent(String(traceId))}`;
+  const listBaseUrl = `${baseUrl}/api/public/traces`;
   const start = Date.now();
   let delay = minDelayMs;
   let lastStatus: number | null = null;
@@ -520,7 +667,82 @@ export async function waitForLangfuseTraceToBeMissing(
     lastStatus = typeof res.status === 'number' ? res.status : null;
 
     // Success case: trace is not readable
-    if (res.status === 404) return;
+    if (res.status === 404) {
+      // Double-check the list endpoint; some deployments may list a trace before the trace id endpoint is readable.
+      let listRes: Response | null = null;
+      try {
+        const url = `${listBaseUrl}?limit=100&_=${Date.now()}`;
+        const remainingMs = Math.max(0, timeoutMs - (Date.now() - start));
+        const slotTimeoutMs = Math.min(remainingMs, Math.max(30_000, DEFAULT_LANGFUSE_429_COOLDOWN_MS + 5000));
+        const perRequestTimeoutMs = Math.min(fetchTimeoutMs, Math.max(1000, remainingMs));
+
+        listRes = await withConcurrencyLimit(
+          () =>
+            useGlobalReadSlot
+              ? fetchWithGlobalReadSlot(url, {
+                method: 'GET',
+                headers: {
+                  Authorization: authorization,
+                  Accept: 'application/json',
+                  'Cache-Control': 'no-cache',
+                  Pragma: 'no-cache'
+                }
+              }, { slotTimeoutMs, fetchTimeoutMs: perRequestTimeoutMs })
+              : fetch(url, {
+                method: 'GET',
+                headers: {
+                  Authorization: authorization,
+                  Accept: 'application/json',
+                  'Cache-Control': 'no-cache',
+                  Pragma: 'no-cache'
+                }
+              }),
+          concurrency
+        );
+      } catch {
+        // Treat list fetch errors as retryable.
+      }
+
+      if (listRes?.ok) {
+        const payload = await listRes.json().catch(() => null);
+        const fromList = extractLangfuseTraceFromListPayload(payload, traceId);
+        if (!fromList) return;
+        const text = stringifyLangfuseTrace(fromList);
+        throw new Error(
+          `Expected Langfuse trace to be missing but it is listed for ${traceId}: ${text.slice(0, 500)}`
+        );
+      }
+
+      if (listRes && typeof listRes.status === 'number') {
+        lastStatus = listRes.status;
+
+        const listStatus = Number(listRes.status);
+        const retryable = listStatus === 429 || (listStatus >= 500 && listStatus < 600);
+        if (!retryable) {
+          const text = await listRes.text().catch(() => '');
+          throw new Error(
+            `Langfuse trace list fetch failed (${listRes.status}) while verifying missing for ${traceId}: ${text.slice(0, 500)}`
+          );
+        }
+
+        // Respect Retry-After when rate limited (list endpoint).
+        if (listStatus === 429) {
+          const retryAfterHeader = listRes.headers?.get?.('retry-after');
+          const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN;
+          if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+            delay = Math.max(delay, Math.ceil(retryAfterSeconds * 1000));
+            writeGlobalCooldownFor(Math.ceil(retryAfterSeconds * 1000));
+          } else {
+            writeGlobalCooldownFor(20_000);
+          }
+        }
+      }
+
+      const jitter = Math.floor(Math.random() * Math.max(1, Math.floor(delay / 2)));
+      await sleep(delay + jitter);
+      delay = Math.min(maxDelayMs, Math.floor(delay * 1.5) + 1);
+      continue;
+    }
 
     // Failure case: trace is readable (export unexpectedly succeeded)
     if (res.ok) {
