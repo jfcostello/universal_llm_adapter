@@ -479,6 +479,60 @@ describe('utils/auth (jwt mode)', () => {
     ]);
   });
 
+  test('treats cacheMaxEntries=0 as cache disabled (forces re-verify on subsequent requests)', async () => {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const { token, jwks: jwksA } = await mintJwt({
+      subject: 'user-cache-0',
+      issuer: 'https://issuer.example',
+      audience: 'audience-remote',
+      iatSeconds: nowSeconds,
+      expSeconds: nowSeconds + 3600
+    });
+    const { jwks: jwksB } = await mintJwt({
+      subject: 'user-cache-0b',
+      issuer: 'https://issuer.example',
+      audience: 'audience-remote',
+      iatSeconds: nowSeconds,
+      expSeconds: nowSeconds + 3600
+    });
+
+    let servedA = false;
+    let jwksRequests = 0;
+    const server = await startStubServer((req, res) => {
+      if (req.url === '/jwks') {
+        jwksRequests += 1;
+        res.statusCode = 200;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify(servedA ? jwksB : jwksA));
+        servedA = true;
+        return;
+      }
+      res.statusCode = 404;
+      res.end('nope');
+    });
+
+    try {
+      const auth = createAuthenticator({
+        mode: 'jwt',
+        jwksUrl: `${server.url}/jwks`,
+        issuer: 'https://issuer.example',
+        audience: 'audience-remote',
+        jwksCacheMaxAgeMs: 0,
+        cacheMaxEntries: 0
+      } as any);
+
+      const req = makeReq({ authorization: `Bearer ${token}` });
+      await expect(auth.authenticate(req)).resolves.toMatchObject({ mode: 'jwt', subject: 'user-cache-0' });
+      expect(jwksRequests).toBe(1);
+
+      // With caching disabled, the 2nd auth attempt re-verifies and fetches JWKS again (which no longer matches).
+      await expect(auth.authenticate(req)).rejects.toMatchObject({ statusCode: 401, code: 'unauthorized' });
+      expect(jwksRequests).toBeGreaterThan(1);
+    } finally {
+      await server.close();
+    }
+  }, 60_000);
+
   test('expires cached entries and re-validates (fails once token is expired)', async () => {
     const nowSeconds = Math.floor(Date.now() / 1000);
     const expSeconds = nowSeconds + 2;

@@ -49,7 +49,7 @@ Config (`JwtAuthConfig`) highlights:
 - Key material: `jwksUrl` (recommended), inline `jwks`, or static `spki` (SPKI PEM; requires `algorithms`)
 - Claim enforcement: `issuer`, `audience`, `algorithms`, `requireExp`, `requireSubject`
 - Mapping: `subjectClaim`, `tenantClaim`, `scopesClaim`, `scopesSeparator`
-- Bounded verification cache: `cacheMaxEntries` (optional)
+- Bounded verification cache: `cacheMaxEntries` (optional; set to `0` to disable)
 
 JWKS fetches are cached; token verification does not perform network calls on the hot path.
 

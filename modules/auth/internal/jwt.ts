@@ -46,7 +46,7 @@ function parseScopes(value: unknown, separator: string): string[] | undefined {
 function normalizeCacheMaxEntries(value: unknown): number {
   const n = Number(value);
   if (!Number.isFinite(n)) return 10000;
-  return Math.max(1, Math.floor(n));
+  return Math.max(0, Math.floor(n));
 }
 
 function normalizeTimeoutMs(value: unknown, fallback: number): number {
@@ -169,7 +169,10 @@ export function createJwtAuthenticator(config: JwtAuthConfig): {
   const scopesSeparator = normalizeSeparator(config.scopesSeparator, ' ');
 
   const cacheMaxEntries = normalizeCacheMaxEntries(config.cacheMaxEntries);
-  const cache = new LruMap<string, CacheEntry>(cacheMaxEntries, { label: 'auth.jwt.token_cache' });
+  const cache =
+    cacheMaxEntries > 0
+      ? new LruMap<string, CacheEntry>(cacheMaxEntries, { label: 'auth.jwt.token_cache' })
+      : undefined;
   const inflight = new Map<string, Promise<AuthContext>>();
 
   const issuer = config.issuer;
@@ -330,7 +333,7 @@ export function createJwtAuthenticator(config: JwtAuthConfig): {
       ...(scopes ? { scopes } : {})
     };
 
-    if (hasExp) cache.set(digest, { ctx, expiresAtMs });
+    if (hasExp && cache) cache.set(digest, { ctx, expiresAtMs });
 
     return ctx;
   }
@@ -345,10 +348,12 @@ export function createJwtAuthenticator(config: JwtAuthConfig): {
       const digest = sha256Hex(token);
       const nowMs = Date.now();
 
-      const cached = cache.get(digest);
-      if (cached) {
-        if (nowMs < cached.expiresAtMs) return cached.ctx;
-        cache.delete(digest);
+      if (cache) {
+        const cached = cache.get(digest);
+        if (cached) {
+          if (nowMs < cached.expiresAtMs) return cached.ctx;
+          cache.delete(digest);
+        }
       }
 
       const existing = inflight.get(digest);
