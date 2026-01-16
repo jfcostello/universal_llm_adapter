@@ -78,10 +78,10 @@ describe('utils/server policy', () => {
     ).toThrow(/disabled by server policy/i);
   });
 
-	  test('rejects filepath document sources with missing path', () => {
-	    const policy = normalizeServerPolicy({ documents: { filepath: { enabled: true } } });
-	    expect(() =>
-	      assertLlmSpecAllowedByPolicy(
+  test('rejects filepath document sources with missing path', () => {
+    const policy = normalizeServerPolicy({ documents: { filepath: { enabled: true } } });
+    expect(() =>
+      assertLlmSpecAllowedByPolicy(
         {
           messages: [
             {
@@ -106,55 +106,55 @@ describe('utils/server policy', () => {
         } as any,
         policy
       )
-	    ).toThrow(/missing path/i);
-	  });
+    ).toThrow(/missing path/i);
+  });
 
-	  test('rejects filepath document sources when the referenced file does not exist', () => {
-	    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-policy-missing-file-'));
-	    const policy = normalizeServerPolicy({ documents: { filepath: { enabled: true } } });
+  test('rejects filepath document sources when the referenced file does not exist', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-policy-missing-file-'));
+    const policy = normalizeServerPolicy({ documents: { filepath: { enabled: true } } });
 
-	    expect(() =>
-	      assertLlmSpecAllowedByPolicy(
-	        {
-	          messages: [
-	            {
-	              role: 'user',
-	              content: [{ type: 'document', source: { type: 'filepath', path: 'missing.txt' } }]
-	            }
-	          ]
-	        } as any,
-	        policy,
-	        { cwd }
-	      )
-	    ).toThrow(/does not exist/i);
-	  });
+    expect(() =>
+      assertLlmSpecAllowedByPolicy(
+        {
+          messages: [
+            {
+              role: 'user',
+              content: [{ type: 'document', source: { type: 'filepath', path: 'missing.txt' } }]
+            }
+          ]
+        } as any,
+        policy,
+        { cwd }
+      )
+    ).toThrow(/does not exist/i);
+  });
 
-	  test('rejects when allowedRoots contains an invalid entry', () => {
-	    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-policy-bad-root-'));
-	    fs.writeFileSync(path.join(cwd, 'file.txt'), 'ok');
-	    const policy = normalizeServerPolicy({
-	      documents: { filepath: { enabled: true, allowedRoots: ['this/does/not/exist'] } }
-	    });
+  test('rejects when allowedRoots contains an invalid entry', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-policy-bad-root-'));
+    fs.writeFileSync(path.join(cwd, 'file.txt'), 'ok');
+    const policy = normalizeServerPolicy({
+      documents: { filepath: { enabled: true, allowedRoots: ['this/does/not/exist'] } }
+    });
 
-	    expect(() =>
-	      assertLlmSpecAllowedByPolicy(
-	        {
-	          messages: [
-	            {
-	              role: 'user',
-	              content: [{ type: 'document', source: { type: 'filepath', path: 'file.txt' } }]
-	            }
-	          ]
-	        } as any,
-	        policy,
-	        { cwd }
-	      )
-	    ).toThrow(/allowedRoots entry/i);
-	  });
+    expect(() =>
+      assertLlmSpecAllowedByPolicy(
+        {
+          messages: [
+            {
+              role: 'user',
+              content: [{ type: 'document', source: { type: 'filepath', path: 'file.txt' } }]
+            }
+          ]
+        } as any,
+        policy,
+        { cwd }
+      )
+    ).toThrow(/allowedRoots entry/i);
+  });
 
-	  test('defaults allowedRoots to cwd when enabled and allowedRoots is empty', () => {
-	    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-policy-cwd-'));
-	    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-policy-outside-'));
+  test('defaults allowedRoots to cwd when enabled and allowedRoots is empty', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-policy-cwd-'));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-policy-outside-'));
 
     const inRootFile = path.join(cwd, 'allowed.txt');
     const outsideFile = path.join(outside, 'blocked.txt');
