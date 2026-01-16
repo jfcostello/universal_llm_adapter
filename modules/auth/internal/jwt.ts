@@ -1,7 +1,7 @@
 import type http from 'http';
 import httpModule from 'http';
 import httpsModule from 'https';
-import { createLocalJWKSet, jwtVerify } from 'jose';
+import { createLocalJWKSet, importSPKI, jwtVerify } from 'jose';
 
 import { LruMap } from '../../../kernel/index.js';
 
@@ -176,35 +176,40 @@ export function createJwtAuthenticator(config: JwtAuthConfig): {
   const cache = new LruMap<string, CacheEntry>(cacheMaxEntries, { label: 'auth.jwt.token_cache' });
   const inflight = new Map<string, Promise<AuthContext>>();
 
-  const jwksUrl = String(config.jwksUrl ?? '').trim();
+  const issuer = config.issuer;
+  const audience = config.audience;
+  const algorithms = config.algorithms;
+
+  const spkiPem = String(config.spki ?? '').trim();
+  const jwksUrl = spkiPem ? '' : String(config.jwksUrl ?? '').trim();
   const remoteTimeoutMs = normalizeTimeoutMs((config as any).jwksTimeoutMs, 5000);
   const remoteCooldownMs = normalizeNonNegativeMs((config as any).jwksCooldownMs, 30000);
   const remoteCacheMaxAgeMs = normalizeNonNegativeMs((config as any).jwksCacheMaxAgeMs, 600000);
   const remoteMaxBytes = normalizeMaxBytes((config as any).jwksMaxBytes, 1024 * 1024);
 
   const remoteState: RemoteJwksState = {};
-  const remoteUrl = jwksUrl ? new URL(jwksUrl) : null;
+  const remoteUrl = jwksUrl ? new URL(jwksUrl) : undefined;
 
-  async function reloadRemoteJwks(): Promise<void> {
-    if (remoteState.pendingReload) return remoteState.pendingReload;
-
-    const promise = (async () => {
-      const json = await fetchRemoteJwksJson({
-        url: remoteUrl!,
-        timeoutMs: remoteTimeoutMs,
-        maxBytes: remoteMaxBytes
+  function reloadRemoteJwks(): Promise<void> {
+    const url = remoteUrl!;
+    if (!remoteState.pendingReload) {
+      remoteState.pendingReload = (async () => {
+        const json = await fetchRemoteJwksJson({
+          url,
+          timeoutMs: remoteTimeoutMs,
+          maxBytes: remoteMaxBytes
+        });
+        if (!json || typeof json !== 'object' || !Array.isArray((json as any).keys)) {
+          throw new Error('Invalid JWKS payload');
+        }
+        remoteState.local = createLocalJWKSet(json as any);
+        remoteState.fetchedAtMs = Date.now();
+      })().finally(() => {
+        remoteState.pendingReload = undefined;
       });
-      if (!json || typeof json !== 'object' || !Array.isArray((json as any).keys)) {
-        throw new Error('Invalid JWKS payload');
-      }
-      remoteState.local = createLocalJWKSet(json as any);
-      remoteState.fetchedAtMs = Date.now();
-    })().finally(() => {
-      remoteState.pendingReload = undefined;
-    });
+    }
 
-    remoteState.pendingReload = promise;
-    return promise;
+    return remoteState.pendingReload!;
   }
 
   async function maybeRefreshRemoteJwks(nowMs: number): Promise<void> {
@@ -233,33 +238,58 @@ export function createJwtAuthenticator(config: JwtAuthConfig): {
     }
   }
 
-  const keySet = jwksUrl
-    ? (async (protectedHeader: any, token: any) => {
-        const nowMs = Date.now();
-        await maybeRefreshRemoteJwks(nowMs);
-
-        const local = remoteState.local!;
-        try {
-          return await local(protectedHeader, token);
-        } catch (error) {
-          const nowMs2 = Date.now();
-          const fetchedAtMs = remoteState.fetchedAtMs!;
-          const inCooldown = remoteCooldownMs > 0 && fetchedAtMs > 0 && nowMs2 < fetchedAtMs + remoteCooldownMs;
-          if (!inCooldown && isJwksNoMatchingKey(error)) {
-            await reloadRemoteJwks();
-            return remoteState.local!(protectedHeader, token);
-          }
-          throw error;
+  const keySet = spkiPem
+    ? (() => {
+        const algsRaw = Array.isArray(algorithms)
+          ? algorithms
+              .filter((alg): alg is string => typeof alg === 'string')
+              .map(alg => alg.trim())
+              .filter(Boolean)
+          : [];
+        if (algsRaw.length === 0) {
+          throw new Error('jwt spki requires algorithms to be configured');
         }
-      })
-    : createLocalJWKSet(config.jwks as any);
 
-  const issuer = config.issuer;
-  const audience = config.audience;
-  const algorithms = config.algorithms;
+        const initKeysPromise: Promise<Map<string, any>> = Promise.all(
+          algsRaw.map(async (alg) => [alg, await importSPKI(spkiPem, alg)] as const)
+        ).then((entries) => new Map(entries));
+
+        return async (protectedHeader: any) => {
+          const byAlg = await initKeysPromise;
+          const alg = String((protectedHeader as any).alg).trim();
+          const key = byAlg.get(alg);
+          if (!key) {
+            throw makeUnauthorizedError({ realm });
+          }
+          return key;
+        };
+      })()
+    : jwksUrl
+      ? (async (protectedHeader: any, token: any) => {
+          const nowMs = Date.now();
+          await maybeRefreshRemoteJwks(nowMs);
+
+          const local = remoteState.local!;
+          try {
+            return await local(protectedHeader, token);
+          } catch (error) {
+            const nowMs2 = Date.now();
+            const fetchedAtMs = remoteState.fetchedAtMs!;
+            const inCooldown =
+              remoteCooldownMs > 0 && fetchedAtMs > 0 && nowMs2 < fetchedAtMs + remoteCooldownMs;
+            if (!inCooldown && isJwksNoMatchingKey(error)) {
+              await reloadRemoteJwks();
+              return remoteState.local!(protectedHeader, token);
+            }
+            throw error;
+          }
+        })
+      : createLocalJWKSet(config.jwks as any);
   const clockToleranceSeconds = config.clockToleranceSeconds;
   const clockTolerance =
     Number.isFinite(clockToleranceSeconds) ? Math.max(0, Number(clockToleranceSeconds)) : 0;
+  const jwtVerifyAlgorithms =
+    !spkiPem && Array.isArray(algorithms) && algorithms.length > 0 ? algorithms : undefined;
 
   async function verifyToken(token: string, digest: string): Promise<AuthContext> {
     let payload: any;
@@ -267,7 +297,7 @@ export function createJwtAuthenticator(config: JwtAuthConfig): {
       const verified = await jwtVerify(token, keySet as any, {
         issuer,
         audience,
-        algorithms: Array.isArray(algorithms) && algorithms.length > 0 ? algorithms : undefined,
+        algorithms: jwtVerifyAlgorithms,
         clockTolerance: clockTolerance > 0 ? clockTolerance : undefined
       });
       payload = verified.payload;

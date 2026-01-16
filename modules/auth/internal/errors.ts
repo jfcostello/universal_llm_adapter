@@ -29,6 +29,6 @@ export function makeUnauthorizedError(options: { realm?: string }): AuthError {
     message: 'Unauthorized',
     statusCode: 401,
     code: 'unauthorized',
-    headers: { 'www-authenticate': `Bearer realm=\"${realm}\"` }
+    headers: { 'WWW-Authenticate': `Bearer realm=\"${realm}\"` }
   });
 }

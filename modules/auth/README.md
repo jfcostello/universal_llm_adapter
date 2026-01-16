@@ -46,7 +46,7 @@ the server can load keys from `LLM_ADAPTER_API_KEYS` (comma-separated). Supporte
 ### `jwt`
 Config (`JwtAuthConfig`) highlights:
 - Credential extraction: `allowBearer`, `allowHeader`, `headerName`, `realm`
-- Key material: `jwksUrl` (recommended) or inline `jwks`
+- Key material: `jwksUrl` (recommended), inline `jwks`, or static `spki` (SPKI PEM; requires `algorithms`)
 - Claim enforcement: `issuer`, `audience`, `algorithms`, `requireExp`, `requireSubject`
 - Mapping: `subjectClaim`, `tenantClaim`, `scopesClaim`, `scopesSeparator`
 - Bounded verification cache: `cacheMaxEntries` (optional)

@@ -106,6 +106,21 @@ describe('utils/server createLimiter', () => {
     release2();
   });
 
+  test('aborted queued acquire stays rejected even after capacity is released', async () => {
+    const limiter = createLimiter({ maxConcurrent: 1, maxQueueSize: 1, queueTimeoutMs: 1000 });
+    const release1 = await limiter.acquire();
+
+    const controller = new AbortController();
+    const secondPromise = limiter.acquire(controller.signal);
+    await new Promise(r => setTimeout(r, 10));
+    controller.abort();
+    await expect(secondPromise).rejects.toMatchObject({ code: 'client_aborted' });
+
+    release1();
+    const release2 = await limiter.acquire();
+    release2();
+  });
+
   test('rejects when queue is full', async () => {
     const limiter = createLimiter({ maxConcurrent: 1, maxQueueSize: 0, queueTimeoutMs: 50 });
     const release1 = await limiter.acquire();

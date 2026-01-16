@@ -1437,6 +1437,28 @@ describe('cli/internal/unified-cli', () => {
       });
     });
 
+    test('passes rate limit bounds options', async () => {
+      const program = createUnifiedProgram(mockDeps);
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'serve',
+        '--rate-limit-enabled',
+        '--rate-limit-max-keys',
+        '123',
+        '--rate-limit-key-ttl-ms',
+        '456'
+      ]);
+
+      const serverOptions = mockDeps.createServer.mock.calls[0][0];
+      expect(serverOptions.rateLimit).toEqual({
+        enabled: true,
+        maxKeys: 123,
+        keyTtlMs: 456
+      });
+    });
+
     test('passes auth options', async () => {
       const program = createUnifiedProgram(mockDeps);
 
@@ -1561,6 +1583,30 @@ describe('cli/internal/unified-cli', () => {
         maxAudioBytesPerSecond: 890,
         maxSessionDurationMs: 123456
       });
+    });
+
+    test('passes http server hardening options', async () => {
+      const program = createUnifiedProgram(mockDeps);
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'serve',
+        '--http-headers-timeout-ms',
+        '111',
+        '--http-request-timeout-ms',
+        '222',
+        '--http-keep-alive-timeout-ms',
+        '333',
+        '--http-max-headers-count',
+        '444'
+      ]);
+
+      const serverOptions = mockDeps.createServer.mock.calls[0][0];
+      expect(serverOptions.httpHeadersTimeoutMs).toBe(111);
+      expect(serverOptions.httpRequestTimeoutMs).toBe(222);
+      expect(serverOptions.httpKeepAliveTimeoutMs).toBe(333);
+      expect(serverOptions.httpMaxHeadersCount).toBe(444);
     });
 
     test('passes minimal realtime config when only enabled flag is provided', async () => {

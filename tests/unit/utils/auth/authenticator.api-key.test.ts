@@ -146,7 +146,7 @@ describe('utils/auth (apiKey mode)', () => {
     await expect(auth.authenticate(makeReq())).rejects.toMatchObject({
       statusCode: 401,
       code: 'unauthorized',
-      headers: { 'www-authenticate': expect.stringContaining('test-realm') }
+      headers: { 'WWW-Authenticate': expect.stringContaining('test-realm') }
     });
   });
 
@@ -159,7 +159,7 @@ describe('utils/auth (apiKey mode)', () => {
     await expect(auth.authenticate(makeReq())).rejects.toMatchObject({
       statusCode: 401,
       code: 'unauthorized',
-      headers: { 'www-authenticate': expect.stringContaining('llm-adapter') }
+      headers: { 'WWW-Authenticate': expect.stringContaining('llm-adapter') }
     });
   });
 

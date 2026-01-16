@@ -29,6 +29,11 @@ export interface JwtAuthConfig {
   allowHeader?: boolean;
   headerName?: string;
   realm?: string;
+  /**
+   * Static public key in SPKI PEM format.
+   * Useful for enterprise deployments that do not use JWKS.
+   */
+  spki?: string;
   jwksUrl?: string;
   jwks?: unknown;
   jwksTimeoutMs?: number;

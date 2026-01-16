@@ -33,8 +33,8 @@ export function createAuthenticatorInternal(config: AuthConfig): Authenticator {
 
   if (mode === 'jwt') {
     const cfg: any = config as any;
-    if (!cfg.jwksUrl && !cfg.jwks) {
-      throw new Error('jwt auth requires jwksUrl or jwks');
+    if (!cfg.jwksUrl && !cfg.jwks && !cfg.spki) {
+      throw new Error('jwt auth requires jwksUrl, jwks, or spki');
     }
     return createLazyAuthenticator(async () => {
       const { createJwtAuthenticator } = await import('./jwt.js');

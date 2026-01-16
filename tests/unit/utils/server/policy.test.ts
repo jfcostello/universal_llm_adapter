@@ -1,3 +1,7 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+
 import { assertLlmSpecAllowedByPolicy, normalizeServerPolicy } from '@/modules/server/internal/security/policy.ts';
 
 describe('utils/server policy', () => {
@@ -74,10 +78,10 @@ describe('utils/server policy', () => {
     ).toThrow(/disabled by server policy/i);
   });
 
-  test('rejects filepath document sources with missing path', () => {
-    const policy = normalizeServerPolicy({ documents: { filepath: { enabled: true } } });
-    expect(() =>
-      assertLlmSpecAllowedByPolicy(
+	  test('rejects filepath document sources with missing path', () => {
+	    const policy = normalizeServerPolicy({ documents: { filepath: { enabled: true } } });
+	    expect(() =>
+	      assertLlmSpecAllowedByPolicy(
         {
           messages: [
             {
@@ -102,27 +106,103 @@ describe('utils/server policy', () => {
         } as any,
         policy
       )
-    ).toThrow(/missing path/i);
-  });
+	    ).toThrow(/missing path/i);
+	  });
 
-  test('allows filepath document sources when enabled and allowedRoots is empty', () => {
+	  test('rejects filepath document sources when the referenced file does not exist', () => {
+	    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-policy-missing-file-'));
+	    const policy = normalizeServerPolicy({ documents: { filepath: { enabled: true } } });
+
+	    expect(() =>
+	      assertLlmSpecAllowedByPolicy(
+	        {
+	          messages: [
+	            {
+	              role: 'user',
+	              content: [{ type: 'document', source: { type: 'filepath', path: 'missing.txt' } }]
+	            }
+	          ]
+	        } as any,
+	        policy,
+	        { cwd }
+	      )
+	    ).toThrow(/does not exist/i);
+	  });
+
+	  test('rejects when allowedRoots contains an invalid entry', () => {
+	    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-policy-bad-root-'));
+	    fs.writeFileSync(path.join(cwd, 'file.txt'), 'ok');
+	    const policy = normalizeServerPolicy({
+	      documents: { filepath: { enabled: true, allowedRoots: ['this/does/not/exist'] } }
+	    });
+
+	    expect(() =>
+	      assertLlmSpecAllowedByPolicy(
+	        {
+	          messages: [
+	            {
+	              role: 'user',
+	              content: [{ type: 'document', source: { type: 'filepath', path: 'file.txt' } }]
+	            }
+	          ]
+	        } as any,
+	        policy,
+	        { cwd }
+	      )
+	    ).toThrow(/allowedRoots entry/i);
+	  });
+
+	  test('defaults allowedRoots to cwd when enabled and allowedRoots is empty', () => {
+	    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-policy-cwd-'));
+	    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-policy-outside-'));
+
+    const inRootFile = path.join(cwd, 'allowed.txt');
+    const outsideFile = path.join(outside, 'blocked.txt');
+    fs.writeFileSync(inRootFile, 'ok');
+    fs.writeFileSync(outsideFile, 'nope');
+
     const policy = normalizeServerPolicy({ documents: { filepath: { enabled: true, allowedRoots: [] } } });
+
     expect(() =>
       assertLlmSpecAllowedByPolicy(
         {
           messages: [
             {
               role: 'user',
-              content: [{ type: 'document', source: { type: 'filepath', path: '/etc/passwd' } }]
+              content: [{ type: 'document', source: { type: 'filepath', path: inRootFile } }]
             }
           ]
         } as any,
-        policy
+        policy,
+        { cwd }
       )
     ).not.toThrow();
+
+    expect(() =>
+      assertLlmSpecAllowedByPolicy(
+        {
+          messages: [
+            {
+              role: 'user',
+              content: [{ type: 'document', source: { type: 'filepath', path: outsideFile } }]
+            }
+          ]
+        } as any,
+        policy,
+        { cwd }
+      )
+    ).toThrow(/allowedRoots/i);
   });
 
   test('enforces allowedRoots for filepath document sources', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-policy-roots-'));
+    const allowedDir = path.join(cwd, 'allowed');
+    const nopeDir = path.join(cwd, 'nope');
+    fs.mkdirSync(allowedDir, { recursive: true });
+    fs.mkdirSync(nopeDir, { recursive: true });
+    fs.writeFileSync(path.join(allowedDir, 'file.txt'), 'ok');
+    fs.writeFileSync(path.join(nopeDir, 'file.txt'), 'nope');
+
     const policy = normalizeServerPolicy({ documents: { filepath: { enabled: true, allowedRoots: ['allowed'] } } });
     expect(() =>
       assertLlmSpecAllowedByPolicy(
@@ -135,7 +215,7 @@ describe('utils/server policy', () => {
           ]
         } as any,
         policy,
-        { cwd: '/tmp' }
+        { cwd }
       )
     ).not.toThrow();
 
@@ -150,8 +230,38 @@ describe('utils/server policy', () => {
           ]
         } as any,
         policy,
-        { cwd: '/tmp' }
+        { cwd }
       )
     ).toThrow(/outside of allowedRoots/i);
+  });
+
+  test('rejects symlink escape out of an allowed root', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'llm-adapter-policy-symlink-'));
+    const allowedDir = path.join(cwd, 'allowed');
+    const outsideDir = path.join(cwd, 'outside');
+    fs.mkdirSync(allowedDir, { recursive: true });
+    fs.mkdirSync(outsideDir, { recursive: true });
+
+    const outsideFile = path.join(outsideDir, 'secret.txt');
+    fs.writeFileSync(outsideFile, 'secret');
+
+    const linkDir = path.join(allowedDir, 'link');
+    fs.symlinkSync(outsideDir, linkDir, 'junction');
+
+    const policy = normalizeServerPolicy({ documents: { filepath: { enabled: true, allowedRoots: ['allowed'] } } });
+    expect(() =>
+      assertLlmSpecAllowedByPolicy(
+        {
+          messages: [
+            {
+              role: 'user',
+              content: [{ type: 'document', source: { type: 'filepath', path: 'allowed/link/secret.txt' } }]
+            }
+          ]
+        } as any,
+        policy,
+        { cwd }
+      )
+    ).toThrow(/allowedRoots/i);
   });
 });

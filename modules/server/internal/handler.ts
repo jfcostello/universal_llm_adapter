@@ -80,6 +80,30 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
   const authenticator = createAuthenticator(config.auth ?? { mode: 'none' });
   const policy = normalizeServerPolicy(config.policy);
 
+  const resolvedPluginsPath = path.isAbsolute(pluginsPath)
+    ? pluginsPath
+    : path.resolve(process.cwd(), pluginsPath);
+  const READY_CACHE_TTL_MS = 1000;
+  let readyCache: { ok: boolean; checkedAtMs: number } | undefined;
+
+  async function checkReady(): Promise<boolean> {
+    const now = Date.now();
+    if (readyCache && now - readyCache.checkedAtMs < READY_CACHE_TTL_MS) {
+      return readyCache.ok;
+    }
+
+    let ok = false;
+    try {
+      await fs.promises.access(resolvedPluginsPath);
+      ok = true;
+    } catch {
+      ok = false;
+    }
+
+    readyCache = { ok, checkedAtMs: now };
+    return ok;
+  }
+
   const runWithCoordinatorLifecycleFn =
     lifecycle?.runWithCoordinatorLifecycle ?? runWithCoordinatorLifecycle;
   const streamWithCoordinatorLifecycleFn =
@@ -262,10 +286,7 @@ export function createServerHandler(options: HandlerOptions): http.RequestListen
     }
 
     if (method === 'GET' && url === '/ready') {
-      const resolvedPluginsPath = path.isAbsolute(pluginsPath)
-        ? pluginsPath
-        : path.resolve(process.cwd(), pluginsPath);
-      const ready = fs.existsSync(resolvedPluginsPath);
+      const ready = await checkReady();
       if (!ready) {
         writeJson(res, 503, { ok: false });
         return;

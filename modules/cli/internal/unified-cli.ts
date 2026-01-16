@@ -402,8 +402,14 @@ export function createUnifiedProgram(
     .option('--rate-limit-requests-per-minute <n>', 'Allowed requests per minute per client', parseNumber)
     .option('--rate-limit-burst <n>', 'Burst capacity for rate limiter', parseNumber)
     .option('--rate-limit-trust-proxy-headers', 'Trust x-forwarded-for for rate limiting')
+    .option('--rate-limit-max-keys <n>', 'Max distinct identities tracked in memory', parseNumber)
+    .option('--rate-limit-key-ttl-ms <ms>', 'Optional per-identity TTL in ms (0 disables)', parseNumber)
     .option('--cors-enabled', 'Enable CORS headers and OPTIONS preflight')
     .option('--no-security-headers-enabled', 'Disable default security headers')
+    .option('--http-headers-timeout-ms <ms>', 'Node server.headersTimeout in ms', parseNumber)
+    .option('--http-request-timeout-ms <ms>', 'Node server.requestTimeout in ms', parseNumber)
+    .option('--http-keep-alive-timeout-ms <ms>', 'Node server.keepAliveTimeout in ms', parseNumber)
+    .option('--http-max-headers-count <n>', 'Node server.maxHeadersCount', parseNumber)
     .option('--policy-documents-filepath-enabled', 'Allow documents with source.type="filepath"')
     .option('--policy-documents-filepath-root <path>', 'Allowed root for filepath docs (repeatable)', collectString, [])
     .option('--extension <name>', 'Enable a server extension (repeatable)', collectString, [])
@@ -472,6 +478,12 @@ export function createUnifiedProgram(
           if (rawArgs.includes('--rate-limit-trust-proxy-headers')) {
             rateLimit.trustProxyHeaders = true;
           }
+          if (options.rateLimitMaxKeys !== undefined) {
+            rateLimit.maxKeys = options.rateLimitMaxKeys;
+          }
+          if (options.rateLimitKeyTtlMs !== undefined) {
+            rateLimit.keyTtlMs = options.rateLimitKeyTtlMs;
+          }
           serverOptions.rateLimit = rateLimit;
         }
 
@@ -523,6 +535,22 @@ export function createUnifiedProgram(
           rawArgs?.includes('--no-security-headers-enabled')
         ) {
           serverOptions.securityHeadersEnabled = options.securityHeadersEnabled;
+        }
+
+        const httpArgProvided = rawArgs?.some(arg => arg.startsWith('--http-'));
+        if (httpArgProvided) {
+          if (options.httpHeadersTimeoutMs !== undefined) {
+            serverOptions.httpHeadersTimeoutMs = options.httpHeadersTimeoutMs;
+          }
+          if (options.httpRequestTimeoutMs !== undefined) {
+            serverOptions.httpRequestTimeoutMs = options.httpRequestTimeoutMs;
+          }
+          if (options.httpKeepAliveTimeoutMs !== undefined) {
+            serverOptions.httpKeepAliveTimeoutMs = options.httpKeepAliveTimeoutMs;
+          }
+          if (options.httpMaxHeadersCount !== undefined) {
+            serverOptions.httpMaxHeadersCount = options.httpMaxHeadersCount;
+          }
         }
 
         if (Array.isArray(options.extension) && options.extension.length > 0) {

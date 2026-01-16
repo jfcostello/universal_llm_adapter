@@ -161,6 +161,7 @@ export function createLimiter(options: LimiterOptions) {
 
       if (signal) {
         if (signal.aborted) {
+          item.node = undefined;
           reject(makeError('Client disconnected', 'client_aborted', 499));
           return;
         }

@@ -35,10 +35,10 @@ describe('utils/server (integration) health and readiness endpoints', () => {
     expect(JSON.parse(res.body)).toEqual({ ok: true });
   });
 
-  test('GET /ready returns 200 when pluginsPath exists', async () => {
-    if (!networkAvailable) return;
+	  test('GET /ready returns 200 when pluginsPath exists', async () => {
+	    if (!networkAvailable) return;
 
-    const server = await createServer({
+	    const server = await createServer({
       pluginsPath: path.resolve(process.cwd(), 'plugins'),
       deps: {
         createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
@@ -47,17 +47,21 @@ describe('utils/server (integration) health and readiness endpoints', () => {
           runStream: jest.fn(),
           close: jest.fn().mockResolvedValue(undefined)
         }),
-        closeLogger: jest.fn().mockResolvedValue(undefined)
-      }
-    } as any);
+	        closeLogger: jest.fn().mockResolvedValue(undefined)
+	      }
+	    } as any);
 
-    const res = await requestRaw(server.url, { method: 'GET', path: '/ready' });
-    await server.close();
+	    const res = await requestRaw(server.url, { method: 'GET', path: '/ready' });
+	    const res2 = await requestRaw(server.url, { method: 'GET', path: '/ready' });
+	    await server.close();
 
-    expect(res.status).toBe(200);
-    expect(res.headers['content-type']).toContain('application/json');
-    expect(JSON.parse(res.body)).toEqual({ ok: true });
-  });
+	    expect(res.status).toBe(200);
+	    expect(res.headers['content-type']).toContain('application/json');
+	    expect(JSON.parse(res.body)).toEqual({ ok: true });
+	    expect(res2.status).toBe(200);
+	    expect(res2.headers['content-type']).toContain('application/json');
+	    expect(JSON.parse(res2.body)).toEqual({ ok: true });
+	  });
 
   test('GET /ready returns 503 when pluginsPath does not exist', async () => {
     if (!networkAvailable) return;

@@ -134,6 +134,7 @@ See `extensions/README.md`.
 | `auth.headerName` | `--auth-header-name <name>` | `x-api-key` | Custom auth header name |
 | `auth.realm` | `--auth-realm <realm>` | | Authentication realm (`WWW-Authenticate`) |
 | `auth.keys` | (config only) | | Static keys (`apiKey`/`proxySigned` modes) |
+| `auth.spki` | (config only) | | Static public key in SPKI PEM format (`jwt` mode) |
 | `auth.jwksUrl` | (config only) | | JWKS URL (`jwt` mode) |
 | `auth.jwks` | (config only) | | Inline JWKS (`jwt` mode) |
 
@@ -145,7 +146,10 @@ Notes:
 | Option | CLI Flag | Default | Description |
 |--------|----------|---------|-------------|
 | `policy.documents.filepath.enabled` | `--policy-documents-filepath-enabled` | `false` | Allow `document.source.type="filepath"` in server requests |
-| `policy.documents.filepath.allowedRoots` | `--policy-documents-filepath-root <path>` | `[]` | Allowed roots for filepath docs (repeatable); empty = allow all |
+| `policy.documents.filepath.allowedRoots` | `--policy-documents-filepath-root <path>` | `[]` | Allowed roots for filepath docs (repeatable); empty defaults to server cwd |
+
+Notes:
+- Enforcement resolves both the requested file path and each allowed root via `realpath`, preventing symlink escapes.
 
 ### Security: Rate Limiting
 
@@ -155,8 +159,8 @@ Notes:
 | `rateLimit.requestsPerMinute` | `--rate-limit-requests-per-minute <n>` | | Requests per minute per client |
 | `rateLimit.burst` | `--rate-limit-burst <n>` | | Burst allowance |
 | `rateLimit.trustProxyHeaders` | `--rate-limit-trust-proxy-headers` | `false` | Trust X-Forwarded-For headers |
-| `rateLimit.maxKeys` | (config only) | `10000` | Max distinct identities tracked in memory |
-| `rateLimit.keyTtlMs` | (config only) | `0` | Optional identity TTL (0 disables TTL eviction) |
+| `rateLimit.maxKeys` | `--rate-limit-max-keys <n>` | `10000` | Max distinct identities tracked in memory |
+| `rateLimit.keyTtlMs` | `--rate-limit-key-ttl-ms <n>` | `0` | Optional identity TTL (0 disables TTL eviction) |
 
 ### Security: CORS and Headers
 
@@ -167,6 +171,15 @@ Notes:
 | `cors.allowedHeaders` | (config only) | | Array of allowed headers |
 | `cors.allowCredentials` | (config only) | | Allow credentials |
 | `securityHeadersEnabled` | `--no-security-headers-enabled` | `true` | Add security headers to responses |
+
+### HTTP Server Hardening
+
+| Option | CLI Flag | Default | Description |
+|--------|----------|---------|-------------|
+| `httpHeadersTimeoutMs` | `--http-headers-timeout-ms <n>` | `20000` | Node `server.headersTimeout` (slowloris protection) |
+| `httpRequestTimeoutMs` | `--http-request-timeout-ms <n>` | `0` | Node `server.requestTimeout` (0 disables) |
+| `httpKeepAliveTimeoutMs` | `--http-keep-alive-timeout-ms <n>` | `5000` | Node `server.keepAliveTimeout` |
+| `httpMaxHeadersCount` | `--http-max-headers-count <n>` | `1000` | Node `server.maxHeadersCount` |
 
 ---
 

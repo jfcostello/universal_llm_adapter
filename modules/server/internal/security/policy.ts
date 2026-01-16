@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import type { LLMCallSpec } from '../../../../kernel/index.js';
 
@@ -40,13 +41,38 @@ function makePolicyError(message: string) {
   return error;
 }
 
-function isWithinAllowedRoots(options: { filePath: string; allowedRoots: string[]; cwd: string }): boolean {
-  if (options.allowedRoots.length === 0) return true;
-  const absoluteFilePath = path.resolve(options.cwd, options.filePath);
+function realpathSyncSafe(value: string): string {
+  return fs.realpathSync(value);
+}
 
-  for (const rootRaw of options.allowedRoots) {
+function isWithinAllowedRoots(options: {
+  filePath: string;
+  allowedRoots: string[];
+  cwd: string;
+  rootRealpathCache: Map<string, string>;
+}): boolean {
+  const roots = options.allowedRoots.length > 0 ? options.allowedRoots : [options.cwd];
+  const absoluteFilePath = path.resolve(options.cwd, options.filePath);
+  let realFilePath: string;
+  try {
+    realFilePath = realpathSyncSafe(absoluteFilePath);
+  } catch {
+    throw makePolicyError('Invalid filepath document source: path does not exist');
+  }
+
+  for (const rootRaw of roots) {
     const absoluteRoot = path.resolve(options.cwd, rootRaw);
-    const rel = path.relative(absoluteRoot, absoluteFilePath);
+    let realRoot = options.rootRealpathCache.get(absoluteRoot);
+    if (!realRoot) {
+      try {
+        realRoot = realpathSyncSafe(absoluteRoot);
+      } catch {
+        throw makePolicyError('Invalid filepath policy allowedRoots entry');
+      }
+      options.rootRealpathCache.set(absoluteRoot, realRoot);
+    }
+
+    const rel = path.relative(realRoot, realFilePath);
     if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
       return true;
     }
@@ -62,6 +88,7 @@ export function assertLlmSpecAllowedByPolicy(
 ): void {
   const cwd = options.cwd ?? process.cwd();
   const filepathPolicy = policy.documents.filepath;
+  const rootRealpathCache = new Map<string, string>();
 
   for (const msg of spec.messages ?? []) {
     const parts = Array.isArray((msg as any)?.content) ? (msg as any).content : [];
@@ -84,7 +111,8 @@ export function assertLlmSpecAllowedByPolicy(
         !isWithinAllowedRoots({
           filePath,
           allowedRoots: filepathPolicy.allowedRoots,
-          cwd
+          cwd,
+          rootRealpathCache
         })
       ) {
         throw makePolicyError('Filepath document source is outside of allowedRoots');
@@ -92,4 +120,3 @@ export function assertLlmSpecAllowedByPolicy(
     }
   }
 }
-

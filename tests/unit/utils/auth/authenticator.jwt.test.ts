@@ -1,5 +1,5 @@
 import { describe, expect, jest, test } from '@jest/globals';
-import { SignJWT, exportJWK, generateKeyPair } from 'jose';
+import { SignJWT, exportJWK, exportSPKI, generateKeyPair } from 'jose';
 
 import { createAuthenticator } from '@/modules/auth/index.ts';
 import { startStubServer } from '@tests/helpers/http-server.ts';
@@ -35,13 +35,85 @@ async function mintJwt(options: {
 
 describe('utils/auth (jwt mode)', () => {
   test('throws when jwt mode is missing jwksUrl and jwks', () => {
-    expect(() => createAuthenticator({ mode: 'jwt' } as any)).toThrow('jwksUrl or jwks');
+    expect(() => createAuthenticator({ mode: 'jwt' } as any)).toThrow('jwksUrl, jwks, or spki');
   });
 
-  test('authenticates a bearer JWT with local JWKS and maps tenant + scopes', async () => {
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    const { token, jwks } = await mintJwt({
-      subject: 'user-1',
+	  test('authenticates a bearer JWT with static SPKI PEM', async () => {
+	    const nowSeconds = Math.floor(Date.now() / 1000);
+	    const { publicKey, privateKey } = await generateKeyPair('RS256');
+	    const spki = await exportSPKI(publicKey);
+
+    const token = await new SignJWT({})
+      .setProtectedHeader({ alg: 'RS256' })
+      .setIssuer('https://issuer.example')
+      .setAudience('audience-spki')
+      .setSubject('user-spki')
+      .setIssuedAt(nowSeconds)
+      .setExpirationTime(nowSeconds + 3600)
+      .sign(privateKey);
+
+    const auth = createAuthenticator({
+      mode: 'jwt',
+      spki,
+      issuer: 'https://issuer.example',
+      audience: 'audience-spki',
+      algorithms: ['RS256']
+    } as any);
+
+    await expect(auth.authenticate(makeReq({ authorization: `Bearer ${token}` }))).resolves.toMatchObject({
+      mode: 'jwt',
+	      subject: 'user-spki'
+	    });
+	  });
+
+	  test('throws when jwt spki is configured without algorithms', async () => {
+	    const { publicKey } = await generateKeyPair('RS256');
+	    const spki = await exportSPKI(publicKey);
+
+	    const auth = createAuthenticator({
+	      mode: 'jwt',
+	      spki,
+	      issuer: 'https://issuer.example',
+	      audience: 'audience-spki'
+	    } as any);
+
+	    await expect(auth.authenticate(makeReq({ authorization: 'Bearer test' }))).rejects.toThrow(
+	      /spki requires algorithms/i
+	    );
+	  });
+
+	  test('rejects a bearer JWT when token algorithm is not configured for spki', async () => {
+	    const nowSeconds = Math.floor(Date.now() / 1000);
+	    const { publicKey, privateKey } = await generateKeyPair('RS512');
+	    const spki = await exportSPKI(publicKey);
+
+	    const token = await new SignJWT({})
+	      .setProtectedHeader({ alg: 'RS512' })
+	      .setIssuer('https://issuer.example')
+	      .setAudience('audience-spki')
+	      .setSubject('user-spki-bad-alg')
+	      .setIssuedAt(nowSeconds)
+	      .setExpirationTime(nowSeconds + 3600)
+	      .sign(privateKey);
+
+	    const auth = createAuthenticator({
+	      mode: 'jwt',
+	      spki,
+	      issuer: 'https://issuer.example',
+	      audience: 'audience-spki',
+	      algorithms: ['RS256']
+	    } as any);
+
+	    await expect(auth.authenticate(makeReq({ authorization: `Bearer ${token}` }))).rejects.toMatchObject({
+	      statusCode: 401,
+	      code: 'unauthorized'
+	    });
+	  });
+
+	  test('authenticates a bearer JWT with local JWKS and maps tenant + scopes', async () => {
+	    const nowSeconds = Math.floor(Date.now() / 1000);
+	    const { token, jwks } = await mintJwt({
+	      subject: 'user-1',
       issuer: 'https://issuer.example',
       audience: 'audience-1',
       iatSeconds: nowSeconds,
@@ -211,7 +283,7 @@ describe('utils/auth (jwt mode)', () => {
     await expect(auth.authenticate(makeReq())).rejects.toMatchObject({
       statusCode: 401,
       code: 'unauthorized',
-      headers: { 'www-authenticate': expect.stringContaining('jwt-realm') }
+      headers: { 'WWW-Authenticate': expect.stringContaining('jwt-realm') }
     });
   });
 
@@ -1006,6 +1078,7 @@ describe('utils/auth (jwt mode)', () => {
     (jest as any).unstable_mockModule('jose', () => ({
       createLocalJWKSet: () => ({}),
       createRemoteJWKSet: () => ({}),
+      importSPKI: async () => ({}),
       jwtVerify: async () => ({ payload: 'nope' })
     }));
 

@@ -14,7 +14,7 @@ coordinator lifecycle helpers.
 - `modules/server/index.ts` — public API.
 - `modules/server/internal/handler.ts` — internal request handler orchestrator.
 - `modules/server/internal/transport/*` — body parsing, spec validation, error mapping, concurrency/queueing.
-- `modules/server/internal/security/*` — auth, rate limiting, CORS, security headers.
+- `modules/server/internal/security/*` — policy, rate limiting, CORS, security headers.
 - `modules/server/internal/streaming/*` — SSE helpers.
 
 Only `index.ts` should be imported by other code.
@@ -51,11 +51,11 @@ Options:
   - `apiKey` fields:
     - `allowBearer` (boolean, default `true`) — accept `Authorization: Bearer <token>`
     - `allowHeader` (boolean, default `true`) — accept `headerName: <token>`
-    - `headerName` (string, default `"x-api-key"`)
-    - `realm` (string, optional) — realm for 401 challenges
-    - `keys` (`{ id, token? , sha256? }[]`) — required (server can also load from `LLM_ADAPTER_API_KEYS` when omitted)
-  - `jwt` fields: `jwksUrl`/`jwks`, `issuer`, `audience`, `algorithms`, plus the same header extraction fields as `apiKey`
-  - `proxySigned` fields: `keys: [{ id, secret }]`, header mapping + timestamp skew controls
+	  - `headerName` (string, default `"x-api-key"`)
+	  - `realm` (string, optional) — realm for 401 challenges
+	  - `keys` (`{ id, token? , sha256? }[]`) — required (server can also load from `LLM_ADAPTER_API_KEYS` when omitted)
+	  - `jwt` fields: `jwksUrl`/`jwks`/`spki`, `issuer`, `audience`, `algorithms`, plus the same header extraction fields as `apiKey`
+	  - `proxySigned` fields: `keys: [{ id, secret }]`, header mapping + timestamp skew controls
 - `rateLimit` (object, default disabled) — in‑memory token‑bucket limiter per client.
   - `enabled` (boolean)
   - `requestsPerMinute` (number, default `120`)
@@ -68,9 +68,9 @@ Options:
   - `allowedOrigins` (string[] or `"*"`)
   - `allowedHeaders` (string[], default `["content-type","authorization","x-api-key"]`)
   - `allowCredentials` (boolean, default `false`)
-- `policy` (object, optional) — server-side safety gates for dangerous inputs.
-  - `documents.filepath.enabled` (boolean, default `false`) — allow `document.source.type="filepath"` in server requests.
-  - `documents.filepath.allowedRoots` (string[], default `[]`) — optional allowlist roots; empty means allow all.
+	- `policy` (object, optional) — server-side safety gates for dangerous inputs.
+	  - `documents.filepath.enabled` (boolean, default `false`) — allow `document.source.type="filepath"` in server requests.
+	  - `documents.filepath.allowedRoots` (string[], default `[]`) — optional allowlist roots; empty defaults to server cwd (symlink-safe via `realpath`).
 - `securityHeadersEnabled` (boolean, default `true`) — adds safe browser/proxy hardening headers.
 - `httpHeadersTimeoutMs` (number, default `20000`) — Node `server.headersTimeout` (slowloris protection).
 - `httpRequestTimeoutMs` (number, default `0`) — Node `server.requestTimeout` (0 disables).
