@@ -1,5 +1,6 @@
 import { jest } from '@jest/globals';
 import http from 'http';
+import net from 'net';
 import { createServer } from '@/modules/server/index.ts';
 import {
   baseSpec,
@@ -334,5 +335,44 @@ describe('utils/server (integration) transport + timeouts', () => {
     const parsed = JSON.parse(res.body);
     expect(parsed.type).toBe('error');
     expect(parsed.error.code).toBe('body_read_timeout');
+  });
+
+  test('clientError returns 400 for non-HTTP traffic', async () => {
+    if (!networkAvailable) return;
+
+    const server = await createServer({
+      deps: {
+        createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
+        createCoordinator: jest.fn(),
+        closeLogger: jest.fn().mockResolvedValue(undefined)
+      }
+    } as any);
+
+    const target = new URL(server.url);
+    const raw = await new Promise<string>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      const socket = net.connect({ host: target.hostname, port: Number(target.port) });
+      const timeout = setTimeout(() => {
+        socket.destroy();
+        reject(new Error('timeout'));
+      }, 200);
+
+      socket.on('data', (c) => chunks.push(Buffer.from(c)));
+      socket.on('error', (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+      socket.on('close', () => {
+        clearTimeout(timeout);
+        resolve(Buffer.concat(chunks).toString('utf-8'));
+      });
+
+      // TLS-like bytes sent to a plain HTTP server should trigger `clientError`.
+      socket.write(Buffer.from([0x16, 0x03, 0x01, 0x00, 0x00]));
+    });
+
+    await server.close();
+
+    expect(raw).toContain('400');
   });
 });

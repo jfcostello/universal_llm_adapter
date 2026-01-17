@@ -896,9 +896,9 @@ describe('cli/internal/unified-cli', () => {
       ]);
 
       expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
-      expect(capturedErrors[capturedErrors.length - 1]).toContain(
-        'Registry does not support realtime client-secret minting'
-      );
+      const err = JSON.parse(capturedErrors[capturedErrors.length - 1]);
+      expect(err.error.code).toBe('not_implemented');
+      expect(err.error.message).toContain('Registry does not support realtime client-secret minting');
     });
 
     test('fails when provider is missing compat mapping', async () => {
@@ -924,7 +924,9 @@ describe('cli/internal/unified-cli', () => {
       ]);
 
       expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
-      expect(capturedErrors[capturedErrors.length - 1]).toContain('not supported for provider');
+      const err = JSON.parse(capturedErrors[capturedErrors.length - 1]);
+      expect(err.error.code).toBe('not_implemented');
+      expect(err.error.message).toContain(`Realtime client-secret minting not supported for provider '${providerId}'`);
     });
 
     test('fails when compat does not support client-secret minting', async () => {
@@ -952,7 +954,9 @@ describe('cli/internal/unified-cli', () => {
       ]);
 
       expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
-      expect(capturedErrors[capturedErrors.length - 1]).toContain('client-secret minting not supported');
+      const err = JSON.parse(capturedErrors[capturedErrors.length - 1]);
+      expect(err.error.code).toBe('not_implemented');
+      expect(err.error.message).toContain(`Realtime client-secret minting not supported for provider '${providerId}'`);
     });
 
     test('fails when compat response is missing clientSecret', async () => {
@@ -982,7 +986,9 @@ describe('cli/internal/unified-cli', () => {
       ]);
 
       expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
-      expect(capturedErrors[capturedErrors.length - 1]).toContain('missing client secret');
+      const err = JSON.parse(capturedErrors[capturedErrors.length - 1]);
+      expect(err.error.code).toBe('upstream_error');
+      expect(err.error.message).toContain('Realtime client secret response missing client secret value');
     });
 
     test('handles non-Error failures from compat mintClientSecret', async () => {
@@ -1014,7 +1020,7 @@ describe('cli/internal/unified-cli', () => {
       ]);
 
       expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
-      expect(capturedErrors[capturedErrors.length - 1]).toContain('boom');
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('Server error');
     });
   });
 
@@ -1069,7 +1075,9 @@ describe('cli/internal/unified-cli', () => {
       await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', VALID_LLM_SPEC_JSON]);
 
       expect(capturedExitCodes).toEqual([1]);
-      expect(capturedErrors[capturedErrors.length - 1]).toContain('Test error');
+      const err = JSON.parse(capturedErrors[capturedErrors.length - 1]);
+      expect(err.error.code).toBe('internal');
+      expect(err.error.message).toContain('Test error');
     });
 
     test('handles error without message property', async () => {
@@ -1080,7 +1088,7 @@ describe('cli/internal/unified-cli', () => {
       await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', VALID_LLM_SPEC_JSON]);
 
       expect(capturedExitCodes).toEqual([1]);
-      expect(capturedErrors[capturedErrors.length - 1]).toContain('string error');
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('Server error');
     });
 
     test('writeStructuredError falls back when error mapper throws (message + code)', async () => {
@@ -1194,7 +1202,7 @@ describe('cli/internal/unified-cli', () => {
       await program.parseAsync(['node', 'llm-adapter', 'stream', '--spec', VALID_LLM_SPEC_JSON]);
 
       expect(capturedExitCodes).toEqual([1]);
-      expect(capturedErrors[capturedErrors.length - 1]).toContain('string stream error');
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('Server error');
     });
   });
 
@@ -1242,7 +1250,7 @@ describe('cli/internal/unified-cli', () => {
       await program.parseAsync(['node', 'llm-adapter', 'vector', 'run', '--spec', VALID_VECTOR_SPEC_JSON]);
 
       expect(capturedExitCodes).toEqual([1]);
-      expect(capturedErrors[capturedErrors.length - 1]).toContain('string vector error');
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('Server error');
     });
   });
 
@@ -1369,7 +1377,7 @@ describe('cli/internal/unified-cli', () => {
       await program.parseAsync(['node', 'llm-adapter', 'embeddings', 'run', '--spec', VALID_EMBEDDINGS_SPEC_JSON]);
 
       expect(capturedExitCodes).toEqual([1]);
-      expect(capturedErrors[capturedErrors.length - 1]).toContain('string embedding error');
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('Server error');
     });
   });
 
@@ -1429,19 +1437,54 @@ describe('cli/internal/unified-cli', () => {
       });
     });
 
+    test('passes rate limit bounds options', async () => {
+      const program = createUnifiedProgram(mockDeps);
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'serve',
+        '--rate-limit-enabled',
+        '--rate-limit-max-keys',
+        '123',
+        '--rate-limit-key-ttl-ms',
+        '456'
+      ]);
+
+      const serverOptions = mockDeps.createServer.mock.calls[0][0];
+      expect(serverOptions.rateLimit).toEqual({
+        enabled: true,
+        maxKeys: 123,
+        keyTtlMs: 456
+      });
+    });
+
     test('passes auth options', async () => {
       const program = createUnifiedProgram(mockDeps);
 
       await program.parseAsync([
         'node', 'llm-adapter', 'serve',
-        '--auth-enabled',
+        '--auth-mode', 'apiKey',
         '--auth-header-name', 'x-custom-key'
       ]);
 
       const serverOptions = mockDeps.createServer.mock.calls[0][0];
       expect(serverOptions.auth).toBeDefined();
-      expect(serverOptions.auth.enabled).toBe(true);
+      expect(serverOptions.auth.mode).toBe('apiKey');
       expect(serverOptions.auth.headerName).toBe('x-custom-key');
+    });
+
+    test('passes --auth-mode option', async () => {
+      const program = createUnifiedProgram(mockDeps);
+
+      await program.parseAsync([
+        'node', 'llm-adapter', 'serve',
+        '--auth-mode', 'apiKey'
+      ]);
+
+      const serverOptions = mockDeps.createServer.mock.calls[0][0];
+      expect(serverOptions.auth).toBeDefined();
+      expect(serverOptions.auth.mode).toBe('apiKey');
     });
 
     test('passes cors options', async () => {
@@ -1451,6 +1494,50 @@ describe('cli/internal/unified-cli', () => {
 
       const serverOptions = mockDeps.createServer.mock.calls[0][0];
       expect(serverOptions.cors).toEqual({ enabled: true });
+    });
+
+    test('passes policy filepath options', async () => {
+      const program = createUnifiedProgram(mockDeps);
+
+      await program.parseAsync([
+        'node', 'llm-adapter', 'serve',
+        '--policy-documents-filepath-enabled',
+        '--policy-documents-filepath-root', '/tmp',
+        '--policy-documents-filepath-root', '/var'
+      ]);
+
+      const serverOptions = mockDeps.createServer.mock.calls[0][0];
+      expect(serverOptions.policy).toEqual({
+        documents: { filepath: { enabled: true, allowedRoots: ['/tmp', '/var'] } }
+      });
+    });
+
+    test('passes policy filepath enabled without roots', async () => {
+      const program = createUnifiedProgram(mockDeps);
+
+      await program.parseAsync([
+        'node', 'llm-adapter', 'serve',
+        '--policy-documents-filepath-enabled'
+      ]);
+
+      const serverOptions = mockDeps.createServer.mock.calls[0][0];
+      expect(serverOptions.policy).toEqual({
+        documents: { filepath: { enabled: true } }
+      });
+    });
+
+    test('passes policy filepath roots without explicit enabled flag', async () => {
+      const program = createUnifiedProgram(mockDeps);
+
+      await program.parseAsync([
+        'node', 'llm-adapter', 'serve',
+        '--policy-documents-filepath-root', '/tmp'
+      ]);
+
+      const serverOptions = mockDeps.createServer.mock.calls[0][0];
+      expect(serverOptions.policy).toEqual({
+        documents: { filepath: { enabled: true, allowedRoots: ['/tmp'] } }
+      });
     });
 
     test('passes enabled extensions via --extension (repeatable)', async () => {
@@ -1498,6 +1585,30 @@ describe('cli/internal/unified-cli', () => {
       });
     });
 
+    test('passes http server hardening options', async () => {
+      const program = createUnifiedProgram(mockDeps);
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'serve',
+        '--http-headers-timeout-ms',
+        '111',
+        '--http-request-timeout-ms',
+        '222',
+        '--http-keep-alive-timeout-ms',
+        '333',
+        '--http-max-headers-count',
+        '444'
+      ]);
+
+      const serverOptions = mockDeps.createServer.mock.calls[0][0];
+      expect(serverOptions.httpHeadersTimeoutMs).toBe(111);
+      expect(serverOptions.httpRequestTimeoutMs).toBe(222);
+      expect(serverOptions.httpKeepAliveTimeoutMs).toBe(333);
+      expect(serverOptions.httpMaxHeadersCount).toBe(444);
+    });
+
     test('passes minimal realtime config when only enabled flag is provided', async () => {
       const program = createUnifiedProgram(mockDeps);
 
@@ -1525,7 +1636,9 @@ describe('cli/internal/unified-cli', () => {
       await program.parseAsync(['node', 'llm-adapter', 'serve']);
 
       expect(capturedExitCodes).toEqual([1]);
-      expect(capturedErrors[capturedErrors.length - 1]).toContain('createServer');
+      const err = JSON.parse(capturedErrors[capturedErrors.length - 1]);
+      expect(err.error.code).toBe('internal');
+      expect(err.error.message).toContain('createServer dependency missing');
     });
 
     test('exits with code 1 on server error', async () => {
@@ -1544,7 +1657,7 @@ describe('cli/internal/unified-cli', () => {
       await program.parseAsync(['node', 'llm-adapter', 'serve']);
 
       expect(capturedExitCodes).toEqual([1]);
-      expect(capturedErrors[capturedErrors.length - 1]).toContain('string server error');
+      expect(capturedErrors[capturedErrors.length - 1]).toContain('Server error');
     });
   });
 
@@ -1772,12 +1885,25 @@ describe('cli/internal/unified-cli', () => {
       ).rejects.toThrow('Invalid number: not-a-number');
     });
 
+    test('fails when auth options are provided without auth mode', async () => {
+      const program = createUnifiedProgram(mockDeps);
+
+      await program.parseAsync([
+        'node', 'llm-adapter', 'serve',
+        '--auth-header-name', 'x-custom-key'
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      const err = JSON.parse(capturedErrors[capturedErrors.length - 1]);
+      expect(err.error.message).toContain('Auth mode is required when specifying auth options');
+    });
+
     test('passes --no-auth-allow-bearer option', async () => {
       const program = createUnifiedProgram(mockDeps);
 
       await program.parseAsync([
         'node', 'llm-adapter', 'serve',
-        '--auth-enabled',
+        '--auth-mode', 'apiKey',
         '--no-auth-allow-bearer'
       ]);
 
@@ -1785,17 +1911,17 @@ describe('cli/internal/unified-cli', () => {
       expect(serverOptions.auth.allowBearer).toBe(false);
     });
 
-    test('passes --no-auth-allow-api-key-header option', async () => {
+    test('passes --no-auth-allow-header option', async () => {
       const program = createUnifiedProgram(mockDeps);
 
       await program.parseAsync([
         'node', 'llm-adapter', 'serve',
-        '--auth-enabled',
-        '--no-auth-allow-api-key-header'
+        '--auth-mode', 'apiKey',
+        '--no-auth-allow-header'
       ]);
 
       const serverOptions = mockDeps.createServer.mock.calls[0][0];
-      expect(serverOptions.auth.allowApiKeyHeader).toBe(false);
+      expect(serverOptions.auth.allowHeader).toBe(false);
     });
 
     test('passes --auth-realm option', async () => {
@@ -1803,7 +1929,7 @@ describe('cli/internal/unified-cli', () => {
 
       await program.parseAsync([
         'node', 'llm-adapter', 'serve',
-        '--auth-enabled',
+        '--auth-mode', 'apiKey',
         '--auth-realm', 'my-realm'
       ]);
 

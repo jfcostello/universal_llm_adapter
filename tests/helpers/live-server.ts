@@ -9,6 +9,8 @@ export async function startLiveServerProcess(options: {
   batchId: string;
   enableRealtimeWs?: boolean;
   enableAuth?: boolean;
+  enableFilepathDocs?: boolean;
+  filepathDocsAllowedRoots?: string[];
 }): Promise<{ url: string; logPath: string; close: () => Promise<void> }> {
   const rootDir = options.rootDir ?? process.cwd();
   const script = path.join(rootDir, 'dist', 'bin', 'cli.js');
@@ -17,6 +19,13 @@ export async function startLiveServerProcess(options: {
 
   const logPath = path.join(logsDir, `${new Date().toISOString().split('T')[0]}-server-process-${Date.now()}.log`);
   const logStream = fs.createWriteStream(logPath, { flags: 'a' });
+
+  const filepathRoots =
+    options.enableFilepathDocs === true
+      ? (options.filepathDocsAllowedRoots && options.filepathDocsAllowedRoots.length > 0
+          ? options.filepathDocsAllowedRoots
+          : [rootDir])
+      : [];
 
   const child = spawn(
     process.execPath,
@@ -29,7 +38,9 @@ export async function startLiveServerProcess(options: {
       '0',
       '--plugins',
       options.pluginsPath ?? './plugins',
-      ...(options.enableAuth ? ['--auth-enabled'] : []),
+      ...(options.enableAuth ? ['--auth-mode', 'apiKey'] : []),
+      ...(options.enableFilepathDocs ? ['--policy-documents-filepath-enabled'] : []),
+      ...filepathRoots.flatMap(root => ['--policy-documents-filepath-root', root]),
       ...(options.enableRealtimeWs ? ['--realtime-enabled'] : [])
     ],
     {

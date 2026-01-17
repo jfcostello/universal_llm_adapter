@@ -84,7 +84,16 @@ describe('helpers/langfuse', () => {
   test('waitForLangfuseTrace times out when trace never appears', async () => {
     const { waitForLangfuseTrace } = await import('../../helpers/langfuse.ts');
 
-    const fetchMock = jest.fn(async () => {
+    const fetchMock = jest.fn(async (input: any) => {
+      const url = String(input ?? '');
+      // The helper may fall back to the list endpoint; simulate a healthy list that doesn't include the trace.
+      if (url.includes('/api/public/traces?')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: [] })
+        } as any;
+      }
       return {
         ok: false,
         status: 404,
@@ -96,8 +105,8 @@ describe('helpers/langfuse', () => {
     await expect(
       waitForLangfuseTrace('trace-never', {
         env: { LANGFUSE_PUBLIC_KEY: 'pk', LANGFUSE_SECRET_KEY: 'sk' },
-        timeoutMs: 30,
-        minDelayMs: 5,
+        timeoutMs: 50,
+        minDelayMs: 1,
         maxDelayMs: 5
       })
     ).rejects.toThrow(/Timed out waiting for Langfuse trace/i);

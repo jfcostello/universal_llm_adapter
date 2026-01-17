@@ -9,6 +9,7 @@ function createMockRes() {
 }
 
 describe('extensions/voice: observability metrics', () => {
+  const apiKeyAuth = { mode: 'apiKey', keys: [{ id: 'k1', token: 'k1' }] };
   const prevMetricsEnabled = process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED;
 
   afterEach(() => {
@@ -38,15 +39,15 @@ describe('extensions/voice: observability metrics', () => {
     process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED = '1';
 
     const store = createInMemoryVoiceCallConfigStore();
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: { getCompat: jest.fn() } as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: { getCompat: jest.fn() } as any,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = createMockRes();
     await expect(reg.handleHttp({ url: '/voice/metrics', method: 'GET', headers: { authorization: 'Bearer k1' }, socket: {} } as any, res)).resolves.toBe(true);
@@ -62,15 +63,15 @@ describe('extensions/voice: observability metrics', () => {
     process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED = '1';
 
     const store = createInMemoryVoiceCallConfigStore();
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: { getCompat: jest.fn() } as any,
-      httpConfig: { auth: { enabled: false } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: { getCompat: jest.fn() } as any,
+	      httpConfig: { auth: { mode: 'none' } }
+	    });
 
     const res = createMockRes();
     await expect(reg.handleHttp({ url: '/voice/metrics', method: 'GET', headers: {}, socket: {} } as any, res)).resolves.toBe(true);
@@ -99,15 +100,15 @@ describe('extensions/voice: observability metrics', () => {
     process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED = '1';
 
     const store = createInMemoryVoiceCallConfigStore();
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: { getCompat: jest.fn() } as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: { getCompat: jest.fn() } as any,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     const res = createMockRes();
     await expect(reg.handleHttp({ url: '/voice/metrics', headers: { authorization: 'Bearer k1' }, socket: {} } as any, res)).resolves.toBe(true);

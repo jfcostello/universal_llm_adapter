@@ -106,19 +106,15 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
     embeddingMaxQueueSize: 1000,
     embeddingQueueTimeoutMs: 30000,
     auth: {
-      enabled: false,
-      allowBearer: true,
-      allowApiKeyHeader: true,
-      headerName: 'x-api-key',
-      apiKeys: [],
-      hashedKeys: [],
-      realm: 'llm-adapter'
+      mode: 'none'
     },
     rateLimit: {
       enabled: false,
       requestsPerMinute: 120,
       burst: 30,
-      trustProxyHeaders: false
+      trustProxyHeaders: false,
+      maxKeys: 10000,
+      keyTtlMs: 0
     },
     cors: {
       enabled: false,
@@ -126,7 +122,19 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
       allowedHeaders: ['content-type', 'authorization', 'x-api-key'],
       allowCredentials: false
     },
+    policy: {
+      documents: {
+        filepath: {
+          enabled: false,
+          allowedRoots: []
+        }
+      }
+    },
     securityHeadersEnabled: true,
+    httpHeadersTimeoutMs: 20000,
+    httpRequestTimeoutMs: 0,
+    httpKeepAliveTimeoutMs: 5000,
+    httpMaxHeadersCount: 1000,
     extensions: {
       enabled: []
     }

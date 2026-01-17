@@ -113,7 +113,7 @@ describe('utils/server (integration) security + concurrency', () => {
     if (!networkAvailable) return;
 
     const server = await createServer({
-      auth: { enabled: true, apiKeys: ['k1'] },
+      auth: { mode: 'apiKey', keys: [{ id: 'k1', token: 'k1' }] },
       deps: {
         createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
         createCoordinator: jest.fn().mockResolvedValue({
@@ -143,11 +143,11 @@ describe('utils/server (integration) security + concurrency', () => {
 
     const server = await createServer({
       auth: {
-        enabled: true,
-        apiKeys: ['k2'],
+        mode: 'apiKey',
+        keys: [{ id: 'k2', token: 'k2' }],
         headerName: 'x-custom-key',
         allowBearer: false,
-        allowApiKeyHeader: true
+        allowHeader: true
       },
       deps: {
         createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
@@ -176,7 +176,7 @@ describe('utils/server (integration) security + concurrency', () => {
     expect(ok.status).toBe(200);
   });
 
-  test('auth supports hashedKeys', async () => {
+  test('auth supports sha256 keys', async () => {
     if (!networkAvailable) return;
 
     const token = 'k3';
@@ -184,8 +184,8 @@ describe('utils/server (integration) security + concurrency', () => {
 
     const server = await createServer({
       auth: {
-        enabled: true,
-        hashedKeys: [`sha256:${digest}`]
+        mode: 'apiKey',
+        keys: [{ id: 'k3', sha256: `sha256:${digest}` }]
       },
       deps: {
         createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
@@ -213,7 +213,7 @@ describe('utils/server (integration) security + concurrency', () => {
     const authorize = jest.fn().mockResolvedValue(false);
 
     const server = await createServer({
-      auth: { enabled: true, apiKeys: ['k4'] },
+      auth: { mode: 'apiKey', keys: [{ id: 'k4', token: 'k4' }] },
       authorize,
       deps: {
         createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),
@@ -304,7 +304,7 @@ describe('utils/server (integration) security + concurrency', () => {
     if (!networkAvailable) return;
 
     const server = await createServer({
-      auth: { enabled: true, apiKeys: ['k5'] },
+      auth: { mode: 'apiKey', keys: [{ id: 'k5', token: 'k5' }] },
       rateLimit: { enabled: true, requestsPerMinute: 0, burst: 1, trustProxyHeaders: true },
       deps: {
         createRegistry: jest.fn().mockResolvedValue({ loadAll: jest.fn() }),

@@ -104,4 +104,21 @@ describe('utils/server mapErrorToHttp', () => {
     expect(mapped.status).toBe(504);
     expect(mapped.body.error.code).toBe('timeout');
   });
+
+  test('maps not implemented to 501', () => {
+    const err: any = new Error('boom');
+    err.statusCode = 501;
+    const mapped = mapErrorToHttp(err);
+    expect(mapped.status).toBe(501);
+    expect(mapped.body.error.code).toBe('not_implemented');
+    expect(mapped.body.error.message).toBe('Not implemented');
+  });
+
+  test('does not redact server errors when requested', () => {
+    const err: any = new Error('boom with details');
+    err.statusCode = 500;
+    const mapped = mapErrorToHttp(err, { redactServerErrors: false });
+    expect(mapped.status).toBe(500);
+    expect(mapped.body.error.message).toBe('boom with details');
+  });
 });

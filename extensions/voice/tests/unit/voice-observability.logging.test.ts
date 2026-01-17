@@ -21,9 +21,10 @@ describe('extensions/voice: observability logging', () => {
     return logger;
   }
 
-  const prevSecret = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
+	const prevSecret = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
+	const apiKeyAuth = { mode: 'apiKey', keys: [{ id: 'k1', token: 'k1' }] };
 
-  afterEach(() => {
+	afterEach(() => {
     if (prevSecret === undefined) {
       delete process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
     } else {
@@ -129,16 +130,16 @@ describe('extensions/voice: observability logging', () => {
       getCompat: jest.fn(async () => ({ createOutboundCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: providerPlugins as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      logging: { getLogger: () => logger }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: { auth: apiKeyAuth },
+	      logging: { getLogger: () => logger }
+	    });
 
     const res = createMockRes();
     const req = Object.assign(
@@ -190,16 +191,16 @@ describe('extensions/voice: observability logging', () => {
       getCompat: jest.fn(async () => ({ createOutboundCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: providerPlugins as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      logging: { getLogger: () => logger }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: { auth: apiKeyAuth },
+	      logging: { getLogger: () => logger }
+	    });
 
     const res = createMockRes();
     const req = Object.assign(
@@ -249,16 +250,16 @@ describe('extensions/voice: observability logging', () => {
       getCompat: jest.fn(async () => ({ createOutboundCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: providerPlugins as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      logging: { getLogger: () => logger }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: { auth: apiKeyAuth },
+	      logging: { getLogger: () => logger }
+	    });
 
     const res = createMockRes();
     const req = Object.assign(
@@ -303,16 +304,16 @@ describe('extensions/voice: observability logging', () => {
       getCompat: jest.fn(async () => ({ createOutboundCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: providerPlugins as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      logging: { getLogger: () => logger }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: { auth: apiKeyAuth },
+	      logging: { getLogger: () => logger }
+	    });
 
     const res = createMockRes();
     const req = Object.assign(
@@ -362,16 +363,16 @@ describe('extensions/voice: observability logging', () => {
       getCompat: jest.fn(async () => ({ createOutboundCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: providerPlugins as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      logging: { getLogger: () => logger }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: { auth: apiKeyAuth },
+	      logging: { getLogger: () => logger }
+	    });
 
     const res = createMockRes();
     const req = Object.assign(
@@ -418,16 +419,16 @@ describe('extensions/voice: observability logging', () => {
       getCompat: jest.fn(async () => ({ createOutboundCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: providerPlugins as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      logging: { getLogger: () => logger }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: { auth: apiKeyAuth },
+	      logging: { getLogger: () => logger }
+	    });
 
     const rawRequestId = `req_${'a'.repeat(200)}\n\t, ignored`;
     const expected = `req_${'a'.repeat(124)}`;
@@ -482,16 +483,16 @@ describe('extensions/voice: observability logging', () => {
       getCompat: jest.fn(async () => ({ createOutboundCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: providerPlugins as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      logging: { getLogger: () => logger }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: { auth: apiKeyAuth },
+	      logging: { getLogger: () => logger }
+	    });
 
     const res = createMockRes();
     const req = Object.assign(
@@ -711,16 +712,16 @@ describe('extensions/voice: observability logging', () => {
     const store = createInMemoryVoiceCallConfigStore();
     await store.putIdempotency('idem_1', { status: 'queued' }, { ttlSeconds: 60 });
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn() } as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      logging: { getLogger: () => logger }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn() } as any,
+	      httpConfig: { auth: apiKeyAuth },
+	      logging: { getLogger: () => logger }
+	    });
 
     const req = Object.assign(
       Readable.from([
@@ -791,16 +792,16 @@ describe('extensions/voice: observability logging', () => {
       getCompat: jest.fn(async () => ({ createOutboundCall }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: providerPlugins as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      logging: { getLogger: () => logger }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: { auth: apiKeyAuth },
+	      logging: { getLogger: () => logger }
+	    });
 
     const makeReq = () =>
       Object.assign(
@@ -845,21 +846,21 @@ describe('extensions/voice: observability logging', () => {
     const { createInMemoryVoiceCallConfigStore } = await import('../../modules/call-config-store/index.js');
 
     const store = createInMemoryVoiceCallConfigStore();
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store: {
-        ...store,
-        getIdempotency: async () => {
-          throw new Error('boom');
-        }
-      },
-      providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn() } as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      logging: { getLogger: () => logger }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store: {
+	        ...store,
+	        getIdempotency: async () => {
+	          throw new Error('boom');
+	        }
+	      },
+	      providerPlugins: { getCompat: jest.fn(), getManifest: jest.fn() } as any,
+	      httpConfig: { auth: apiKeyAuth },
+	      logging: { getLogger: () => logger }
+	    });
 
     const req = Object.assign(
       Readable.from([
@@ -907,16 +908,16 @@ describe('extensions/voice: observability logging', () => {
       }))
     };
 
-    const reg = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store,
-      providerPlugins: providerPlugins as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      logging: { getLogger: () => logger }
-    });
+	    const reg = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store,
+	      providerPlugins: providerPlugins as any,
+	      httpConfig: { auth: apiKeyAuth },
+	      logging: { getLogger: () => logger }
+	    });
 
     const req = Object.assign(
       Readable.from([
@@ -952,16 +953,16 @@ describe('extensions/voice: observability logging', () => {
       }))
     };
 
-    const reg500 = await createVoiceServerRegistration({
-      server: {} as any,
-      registry: {},
-      pluginsPath: './plugins',
-      upgradeRouter: {} as any,
-      store: createInMemoryVoiceCallConfigStore(),
-      providerPlugins: providerPlugins500 as any,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } },
-      logging: { getLogger: () => logger }
-    });
+	    const reg500 = await createVoiceServerRegistration({
+	      server: {} as any,
+	      registry: {},
+	      pluginsPath: './plugins',
+	      upgradeRouter: {} as any,
+	      store: createInMemoryVoiceCallConfigStore(),
+	      providerPlugins: providerPlugins500 as any,
+	      httpConfig: { auth: apiKeyAuth },
+	      logging: { getLogger: () => logger }
+	    });
 
     const req500 = Object.assign(
       Readable.from([

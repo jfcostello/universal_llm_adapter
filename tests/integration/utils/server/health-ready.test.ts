@@ -52,11 +52,15 @@ describe('utils/server (integration) health and readiness endpoints', () => {
     } as any);
 
     const res = await requestRaw(server.url, { method: 'GET', path: '/ready' });
+    const res2 = await requestRaw(server.url, { method: 'GET', path: '/ready' });
     await server.close();
 
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('application/json');
     expect(JSON.parse(res.body)).toEqual({ ok: true });
+    expect(res2.status).toBe(200);
+    expect(res2.headers['content-type']).toContain('application/json');
+    expect(JSON.parse(res2.body)).toEqual({ ok: true });
   });
 
   test('GET /ready returns 503 when pluginsPath does not exist', async () => {

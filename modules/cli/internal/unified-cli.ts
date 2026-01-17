@@ -100,7 +100,7 @@ export function createUnifiedProgram(
   const writeStructuredError = async (error: any) => {
     try {
       const { mapErrorToHttp } = await import('../../transport/index.js');
-      const mapped = mapErrorToHttp(error);
+      const mapped = mapErrorToHttp(error, { redactServerErrors: false });
       deps.error(JSON.stringify(mapped.body));
       return;
     } catch {
@@ -392,21 +392,29 @@ export function createUnifiedProgram(
     .option('--realtime-max-concurrent-sessions <n>', 'Max concurrent realtime sessions', parseNumber)
     .option('--realtime-max-audio-bytes-per-second <bytes>', 'Max audio throughput per session (bytes/sec)', parseNumber)
     .option('--realtime-max-session-duration-ms <ms>', 'Max realtime session duration', parseNumber)
-    .option('--auth-enabled', 'Enable API key/token auth')
+    .option('--auth-mode <mode>', 'Auth mode (none|apiKey|jwt|proxySigned)')
     .option('--no-auth-allow-bearer', 'Disable Authorization: Bearer header support')
-    .option('--no-auth-allow-api-key-header', 'Disable API key header support')
+    .option('--no-auth-allow-header', 'Disable auth header token support')
     .option('--auth-header-name <name>', 'API key header name')
     .option('--auth-realm <realm>', 'WWW-Authenticate realm')
     .option('--rate-limit-enabled', 'Enable in-memory rate limiting')
     .option('--rate-limit-requests-per-minute <n>', 'Allowed requests per minute per client', parseNumber)
     .option('--rate-limit-burst <n>', 'Burst capacity for rate limiter', parseNumber)
     .option('--rate-limit-trust-proxy-headers', 'Trust x-forwarded-for for rate limiting')
+    .option('--rate-limit-max-keys <n>', 'Max distinct identities tracked in memory', parseNumber)
+    .option('--rate-limit-key-ttl-ms <ms>', 'Optional per-identity TTL in ms (0 disables)', parseNumber)
     .option('--cors-enabled', 'Enable CORS headers and OPTIONS preflight')
     .option('--no-security-headers-enabled', 'Disable default security headers')
+    .option('--http-headers-timeout-ms <ms>', 'Node server.headersTimeout in ms', parseNumber)
+    .option('--http-request-timeout-ms <ms>', 'Node server.requestTimeout in ms', parseNumber)
+    .option('--http-keep-alive-timeout-ms <ms>', 'Node server.keepAliveTimeout in ms', parseNumber)
+    .option('--http-max-headers-count <n>', 'Node server.maxHeadersCount', parseNumber)
+    .option('--policy-documents-filepath-enabled', 'Allow documents with source.type="filepath"')
+    .option('--policy-documents-filepath-root <path>', 'Allowed root for filepath docs (repeatable)', collectString, [])
     .option('--extension <name>', 'Enable a server extension (repeatable)', collectString, [])
     .action(async (options, command) => {
       try {
-        const rawArgs = command.parent?.rawArgs as unknown as string[];
+        const rawArgs = (command.parent as any).rawArgs as string[];
         const serverOptions: ServerOptions = {
           host: options.host,
           port: options.port,
@@ -430,10 +438,13 @@ export function createUnifiedProgram(
         };
 
         // Parse auth options only if any auth arg was provided
-        const authArgProvided = rawArgs?.some(arg => arg.startsWith('--auth-'));
+        const authArgProvided = rawArgs.some(arg => arg.startsWith('--auth-') || arg.startsWith('--no-auth-'));
         if (authArgProvided) {
           const auth: any = {};
-          if (rawArgs.includes('--auth-enabled')) auth.enabled = true;
+          if (options.authMode) auth.mode = String(options.authMode);
+          if (!auth.mode) {
+            throw new Error('Auth mode is required when specifying auth options (use --auth-mode)');
+          }
           if (
             rawArgs.includes('--auth-allow-bearer') ||
             rawArgs.includes('--no-auth-allow-bearer')
@@ -441,10 +452,10 @@ export function createUnifiedProgram(
             auth.allowBearer = options.authAllowBearer;
           }
           if (
-            rawArgs.includes('--auth-allow-api-key-header') ||
-            rawArgs.includes('--no-auth-allow-api-key-header')
+            rawArgs.includes('--auth-allow-header') ||
+            rawArgs.includes('--no-auth-allow-header')
           ) {
-            auth.allowApiKeyHeader = options.authAllowApiKeyHeader;
+            auth.allowHeader = options.authAllowHeader;
           }
           if (options.authHeaderName) auth.headerName = options.authHeaderName;
           if (options.authRealm) auth.realm = options.authRealm;
@@ -465,12 +476,40 @@ export function createUnifiedProgram(
           if (rawArgs.includes('--rate-limit-trust-proxy-headers')) {
             rateLimit.trustProxyHeaders = true;
           }
+          if (options.rateLimitMaxKeys !== undefined) {
+            rateLimit.maxKeys = options.rateLimitMaxKeys;
+          }
+          if (options.rateLimitKeyTtlMs !== undefined) {
+            rateLimit.keyTtlMs = options.rateLimitKeyTtlMs;
+          }
           serverOptions.rateLimit = rateLimit;
         }
 
         // Parse CORS options
         if (rawArgs?.includes('--cors-enabled')) {
           serverOptions.cors = { enabled: true };
+        }
+
+        // Parse policy options
+        const policyArgProvided = rawArgs.some(arg => arg.startsWith('--policy-'));
+        if (policyArgProvided) {
+          const allowedRoots = (options.policyDocumentsFilepathRoot as any[])
+            .map((v: any) => String(v))
+            .filter(Boolean);
+
+          if (
+            rawArgs.includes('--policy-documents-filepath-enabled') ||
+            allowedRoots.length > 0
+          ) {
+            serverOptions.policy = {
+              documents: {
+                filepath: {
+                  enabled: true,
+                  ...(allowedRoots.length > 0 ? { allowedRoots } : {})
+                }
+              }
+            };
+          }
         }
 
         const realtimeArgProvided = rawArgs?.some(arg => arg.startsWith('--realtime-'));
@@ -494,6 +533,22 @@ export function createUnifiedProgram(
           rawArgs?.includes('--no-security-headers-enabled')
         ) {
           serverOptions.securityHeadersEnabled = options.securityHeadersEnabled;
+        }
+
+        const httpArgProvided = rawArgs?.some(arg => arg.startsWith('--http-'));
+        if (httpArgProvided) {
+          if (options.httpHeadersTimeoutMs !== undefined) {
+            serverOptions.httpHeadersTimeoutMs = options.httpHeadersTimeoutMs;
+          }
+          if (options.httpRequestTimeoutMs !== undefined) {
+            serverOptions.httpRequestTimeoutMs = options.httpRequestTimeoutMs;
+          }
+          if (options.httpKeepAliveTimeoutMs !== undefined) {
+            serverOptions.httpKeepAliveTimeoutMs = options.httpKeepAliveTimeoutMs;
+          }
+          if (options.httpMaxHeadersCount !== undefined) {
+            serverOptions.httpMaxHeadersCount = options.httpMaxHeadersCount;
+          }
         }
 
         if (Array.isArray(options.extension) && options.extension.length > 0) {
@@ -570,6 +625,27 @@ export function createUnifiedProgram(
         const { loadSpec } = await import('./spec-loader.js');
         const { writeJsonToStdout } = await import('./stdout-writer.js');
 
+        const makeValidationError = (message: string) => {
+          const err: any = new Error(message);
+          err.statusCode = 400;
+          err.code = 'validation_error';
+          return err;
+        };
+
+        const makeNotImplementedError = (message: string) => {
+          const err: any = new Error(message);
+          err.statusCode = 501;
+          err.code = 'not_implemented';
+          return err;
+        };
+
+        const makeUpstreamError = (message: string) => {
+          const err: any = new Error(message);
+          err.statusCode = 502;
+          err.code = 'upstream_error';
+          return err;
+        };
+
         const body = await loadSpec<RealtimeClientSecretRequest>(options);
         const providerId = String((body as any)?.provider ?? '').trim();
         const model = (body as any)?.model !== undefined ? String((body as any).model) : undefined;
@@ -586,21 +662,21 @@ export function createUnifiedProgram(
         const MAX_CLIENT_SECRET_EXPIRES_AFTER_SECONDS = 600;
 
         if (!providerId) {
-          throw new Error('Missing provider');
+          throw makeValidationError('Missing provider');
         }
 
         if (expiresAfterSeconds !== undefined) {
           if (!Number.isFinite(expiresAfterSeconds)) {
-            throw new Error('Invalid expiresAfterSeconds');
+            throw makeValidationError('Invalid expiresAfterSeconds');
           }
           if (!Number.isInteger(expiresAfterSeconds)) {
-            throw new Error('expiresAfterSeconds must be an integer');
+            throw makeValidationError('expiresAfterSeconds must be an integer');
           }
           if (
             expiresAfterSeconds < MIN_CLIENT_SECRET_EXPIRES_AFTER_SECONDS ||
             expiresAfterSeconds > MAX_CLIENT_SECRET_EXPIRES_AFTER_SECONDS
           ) {
-            throw new Error(
+            throw makeValidationError(
               `expiresAfterSeconds must be between ${MIN_CLIENT_SECRET_EXPIRES_AFTER_SECONDS} and ${MAX_CLIENT_SECRET_EXPIRES_AFTER_SECONDS}`
             );
           }
@@ -613,18 +689,18 @@ export function createUnifiedProgram(
 
         const reg = registry as any;
         if (typeof reg.getRealtimeProvider !== 'function' || typeof reg.getRealtimeCompat !== 'function') {
-          throw new Error('Registry does not support realtime client-secret minting');
+          throw makeNotImplementedError('Registry does not support realtime client-secret minting');
         }
 
         const provider = await reg.getRealtimeProvider(providerId);
         const compatKind = provider?.compat;
         if (!compatKind) {
-          throw new Error(`Realtime client-secret minting not supported for provider '${providerId}'`);
+          throw makeNotImplementedError(`Realtime client-secret minting not supported for provider '${providerId}'`);
         }
 
         const compat = await reg.getRealtimeCompat(compatKind);
         if (!compat || typeof compat.mintClientSecret !== 'function') {
-          throw new Error(`Realtime client-secret minting not supported for provider '${providerId}'`);
+          throw makeNotImplementedError(`Realtime client-secret minting not supported for provider '${providerId}'`);
         }
 
         const result = await compat.mintClientSecret({
@@ -640,7 +716,7 @@ export function createUnifiedProgram(
 
         const clientSecret = String(result?.clientSecret ?? '');
         if (!clientSecret) {
-          throw new Error('Realtime client secret response missing client secret value');
+          throw makeUpstreamError('Realtime client secret response missing client secret value');
         }
 
         await writeJsonToStdout(

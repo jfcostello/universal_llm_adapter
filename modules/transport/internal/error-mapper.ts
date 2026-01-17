@@ -19,13 +19,23 @@ function normalizeCode(status: number, error: any): string {
   if (status === 415) return 'unsupported_media_type';
   if (status === 408) return 'body_read_timeout';
   if (status === 429) return 'rate_limited';
+  if (status === 501) return 'not_implemented';
+  if (status === 502) return 'upstream_error';
   if (status === 503) return explicitCode === 'queue_timeout' ? 'queue_timeout' : 'server_busy';
   if (status === 504) return 'timeout';
 
   return 'internal';
 }
 
-export function mapErrorToHttp(error: any): { status: number; body: any } {
+export interface MapErrorToHttpOptions {
+  redactServerErrors?: boolean;
+}
+
+export function mapErrorToHttp(
+  error: any,
+  options: MapErrorToHttpOptions = {}
+): { status: number; body: any } {
+  const redactServerErrors = options.redactServerErrors ?? true;
   let status = Number(error?.statusCode) || 500;
 
   // Normalize domain errors to stable HTTP codes
@@ -39,12 +49,22 @@ export function mapErrorToHttp(error: any): { status: number; body: any } {
     status = 502;
   }
 
-  const message =
-    typeof error === 'string' || typeof error === 'number' || typeof error === 'boolean'
-      ? String(error)
-      : error?.message ?? 'Server error';
   const code = normalizeCode(status, error);
-  const details = error?.details;
+  const isServerError = status >= 500;
+
+  const message = (() => {
+    if (isServerError && redactServerErrors) {
+      if (status === 501) return 'Not implemented';
+      if (status === 502) return 'Upstream error';
+      if (status === 503) return code === 'queue_timeout' ? 'Queue timeout' : 'Server busy';
+      if (status === 504) return 'Request timed out';
+      return 'Server error';
+    }
+
+    return error?.message ?? 'Server error';
+  })();
+
+  const details = isServerError ? undefined : error?.details;
 
   return {
     status,
@@ -58,4 +78,3 @@ export function mapErrorToHttp(error: any): { status: number; body: any } {
     }
   };
 }
-

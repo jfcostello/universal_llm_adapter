@@ -288,13 +288,19 @@ describe('server/internal/extensions/host', () => {
         registry: {},
         pluginsPath: './plugins',
         upgradeRouter: { register, close: () => {} },
-        httpConfig: { auth: { enabled: true }, rateLimit: { enabled: false } },
+        httpConfig: {
+          auth: { mode: 'apiKey', keys: [{ id: 'k1', token: 'k1' }] },
+          rateLimit: { enabled: false }
+        },
         importExtension
       } as any);
 
       expect(registerServer).toHaveBeenCalledTimes(1);
       const ctx = registerServer.mock.calls[0][0];
-      expect(ctx.httpConfig).toEqual({ auth: { enabled: true }, rateLimit: { enabled: false } });
+      expect(ctx.httpConfig).toEqual({
+        auth: { mode: 'apiKey', keys: [{ id: 'k1', token: 'k1' }] },
+        rateLimit: { enabled: false }
+      });
     });
   });
 
@@ -368,7 +374,7 @@ describe('server/internal/extensions/host', () => {
         registry: {},
         pluginsPath: './plugins',
         upgradeRouter: { register: () => () => {}, close: () => {} },
-        httpConfig: { auth: { enabled: true } },
+        httpConfig: { auth: { mode: 'none' } },
         importExtension
       } as any);
 

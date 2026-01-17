@@ -1,7 +1,9 @@
 import http from 'http';
 import { AddressInfo } from 'net';
-import { PluginRegistry, getAdapterPathsConfig, getDefaults } from '../../kernel/index.js';
+import { PluginRegistry, deepMerge, getAdapterPathsConfig, getDefaults } from '../../kernel/index.js';
 import type { LLMCallSpec, LLMStreamEvent } from '../../kernel/index.js';
+import type { AuthConfig, AuthContext } from '../auth/index.js';
+import { readTrimmedStringProperty } from '../shared/index.js';
 import {
   resolveEffectivePluginsPath,
   type CoordinatorLifecycleDeps,
@@ -19,8 +21,8 @@ export {
 // Public server helpers intended for use by extensions.
 export { readJsonBody } from './internal/transport/body-parser.js';
 export { writeHttpUpgradeResponse } from './internal/transport/upgrade-router.js';
-export type { AuthConfig, AuthorizeCallback } from './internal/security/auth.js';
-export { assertAuthorized } from './internal/security/auth.js';
+export type { AuthConfig, AuthContext, AuthErrorLike, Authenticator } from '../auth/index.js';
+export { createAuthenticator } from '../auth/index.js';
 export type { CorsConfig } from './internal/security/cors.js';
 export { applyCors } from './internal/security/cors.js';
 export { applySecurityHeaders } from './internal/security/security-headers.js';
@@ -37,21 +39,13 @@ export interface ServerDependencies
   createRealtimeSession?: (registry: PluginRegistryLike, spec: any) => PromiseLike<any> | any;
 }
 
-export interface ServerAuthOptions {
-  enabled?: boolean;
-  allowBearer?: boolean;
-  allowApiKeyHeader?: boolean;
-  headerName?: string;
-  apiKeys?: string[] | string;
-  hashedKeys?: string[] | string;
-  realm?: string;
-}
-
 export interface ServerRateLimitOptions {
   enabled?: boolean;
   requestsPerMinute?: number;
   burst?: number;
   trustProxyHeaders?: boolean;
+  maxKeys?: number;
+  keyTtlMs?: number;
 }
 
 export interface ServerCorsOptions {
@@ -59,6 +53,15 @@ export interface ServerCorsOptions {
   allowedOrigins?: string[] | '*';
   allowedHeaders?: string[];
   allowCredentials?: boolean;
+}
+
+export interface ServerPolicyOptions {
+  documents?: {
+    filepath?: {
+      enabled?: boolean;
+      allowedRoots?: string[];
+    };
+  };
 }
 
 export interface ServerOptions {
@@ -95,11 +98,16 @@ export interface ServerOptions {
   maxConcurrentEmbeddingRequests?: number;
   embeddingMaxQueueSize?: number;
   embeddingQueueTimeoutMs?: number;
-  auth?: ServerAuthOptions;
+  auth?: AuthConfig;
   rateLimit?: ServerRateLimitOptions;
   cors?: ServerCorsOptions;
+  policy?: ServerPolicyOptions;
   securityHeadersEnabled?: boolean;
-  authorize?: (req: http.IncomingMessage) => boolean | Promise<boolean>;
+  httpHeadersTimeoutMs?: number;
+  httpRequestTimeoutMs?: number;
+  httpKeepAliveTimeoutMs?: number;
+  httpMaxHeadersCount?: number;
+  authorize?: (ctx: AuthContext, req: http.IncomingMessage) => boolean | Promise<boolean>;
   deps?: Partial<ServerDependencies>;
   registry?: PluginRegistryLike;
 }
@@ -151,6 +159,81 @@ function resolvePluginsPathWithConfig(pluginsPath: string): string {
   });
 }
 
+function parseApiKeyEntriesFromEnv(env: NodeJS.ProcessEnv): Array<{ id: string; token?: string; sha256?: string }> {
+  const raw = readTrimmedStringProperty(env, 'LLM_ADAPTER_API_KEYS');
+  if (!raw) return [];
+
+  const entries = raw
+    .split(',')
+    .map((v) => String(v).trim())
+    .filter(Boolean);
+
+  const keys: Array<{ id: string; token?: string; sha256?: string }> = [];
+  for (let i = 0; i < entries.length; i += 1) {
+    const entry = entries[i];
+    const match = entry.match(/^([^:=]{1,128})[:=](.+)$/);
+    const id = match ? match[1].trim() : `key_${i + 1}`;
+    const value = match ? match[2].trim() : entry.trim();
+
+    if (/^sha256:/i.test(value) || /^[0-9a-f]{64}$/i.test(value)) {
+      keys.push({ id, sha256: value });
+    } else {
+      keys.push({ id, token: value });
+    }
+  }
+
+  return keys;
+}
+
+function resolveAuthConfig(optionsAuth: unknown, authDefaults: unknown): AuthConfig {
+  const candidate: any = optionsAuth ?? authDefaults;
+
+  if (!candidate || typeof candidate !== 'object') {
+    throw new Error('Invalid auth config');
+  }
+
+  if ('enabled' in candidate) {
+    throw new Error('auth.enabled is no longer supported; use auth.mode');
+  }
+  if ('allowApiKeyHeader' in candidate) {
+    throw new Error('allowApiKeyHeader is no longer supported; use allowHeader');
+  }
+  if (!candidate.mode) {
+    throw new Error('Auth mode is required');
+  }
+  const mode = String(candidate.mode);
+  if (mode === 'none') return { mode: 'none' };
+
+  if (mode === 'apiKey') {
+    const keys =
+      Array.isArray(candidate.keys) && candidate.keys.length > 0
+        ? candidate.keys
+        : parseApiKeyEntriesFromEnv(process.env);
+    if (!Array.isArray(keys) || keys.length === 0) {
+      throw new Error('apiKey auth requires at least one key (set LLM_ADAPTER_API_KEYS or auth.keys)');
+    }
+
+    return {
+      mode: 'apiKey',
+      allowBearer: candidate.allowBearer,
+      allowHeader: candidate.allowHeader,
+      headerName: candidate.headerName,
+      realm: candidate.realm,
+      keys
+    } as any;
+  }
+
+  if (mode === 'jwt') {
+    return { ...candidate, mode: 'jwt' } as any;
+  }
+
+  if (mode === 'proxySigned') {
+    return { ...candidate, mode: 'proxySigned' } as any;
+  }
+
+  throw new Error(`Unsupported auth mode: ${mode}`);
+}
+
 export function createServerHandlerWithDefaults(
   options: ServerOptions = {}
 ): http.RequestListener {
@@ -159,9 +242,15 @@ export function createServerHandlerWithDefaults(
     throw new Error('registry must be provided to createServerHandlerWithDefaults');
   }
   const serverDefaults = (deps.getDefaults ?? getDefaults)().server;
-  const authDefaults = serverDefaults.auth ?? {};
+  const authDefaults = serverDefaults.auth ?? { mode: 'none' };
+  const authConfig = resolveAuthConfig(options.auth, authDefaults);
   const rateLimitDefaults = serverDefaults.rateLimit ?? {};
   const corsDefaults = serverDefaults.cors ?? {};
+  const policyDefaults = (serverDefaults as any).policy ?? {};
+  const policyConfig =
+    options.policy && typeof options.policy === 'object'
+      ? (deepMerge(policyDefaults as any, options.policy as any) as any)
+      : policyDefaults;
   const pluginsPath = resolvePluginsPathWithConfig(options.pluginsPath ?? './plugins');
   return createServerHandler({
     registry: options.registry,
@@ -192,9 +281,10 @@ export function createServerHandlerWithDefaults(
         options.embeddingMaxQueueSize ?? serverDefaults.embeddingMaxQueueSize,
       embeddingQueueTimeoutMs:
         options.embeddingQueueTimeoutMs ?? serverDefaults.embeddingQueueTimeoutMs,
-      auth: { ...authDefaults, ...options.auth },
+      auth: authConfig as any,
       rateLimit: { ...rateLimitDefaults, ...options.rateLimit },
       cors: { ...corsDefaults, ...options.cors },
+      policy: policyConfig,
       securityHeadersEnabled:
         options.securityHeadersEnabled ?? serverDefaults.securityHeadersEnabled
     }
@@ -204,12 +294,17 @@ export function createServerHandlerWithDefaults(
 export async function createServer(options: ServerOptions = {}): Promise<RunningServer> {
   const deps: ServerDependencies = { ...defaultDependencies, ...options.deps };
   const serverDefaults = (deps.getDefaults ?? getDefaults)().server;
-  const authDefaults = serverDefaults.auth ?? {};
+  const authDefaults = serverDefaults.auth ?? { mode: 'none' };
   const rateLimitDefaults = serverDefaults.rateLimit ?? {};
   const corsDefaults = serverDefaults.cors ?? {};
-  const authConfig = { ...authDefaults, ...options.auth };
+  const policyDefaults = (serverDefaults as any).policy ?? {};
+  const authConfig = resolveAuthConfig(options.auth, authDefaults) as any;
   const rateLimitConfig = { ...rateLimitDefaults, ...options.rateLimit };
   const corsConfig = { ...corsDefaults, ...options.cors };
+  const policyConfig =
+    options.policy && typeof options.policy === 'object'
+      ? (deepMerge(policyDefaults as any, options.policy as any) as any)
+      : policyDefaults;
   const host = options.host ?? '127.0.0.1';
   const port = options.port ?? 0;
   const pluginsPath = resolvePluginsPathWithConfig(options.pluginsPath ?? './plugins');
@@ -265,6 +360,7 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
       auth: authConfig,
       rateLimit: rateLimitConfig,
       cors: corsConfig,
+      policy: policyConfig,
       securityHeadersEnabled:
         options.securityHeadersEnabled ?? serverDefaults.securityHeadersEnabled
     }
@@ -281,6 +377,12 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
           const { mapErrorToHttp } = await import('../transport/index.js');
           const mapped = mapErrorToHttp(error);
           if (!res.headersSent) {
+            const extraHeaders = (error as any)?.headers;
+            if (extraHeaders && typeof extraHeaders === 'object') {
+              for (const [key, value] of Object.entries(extraHeaders)) {
+                try { res.setHeader(key, value as any); } catch {}
+              }
+            }
             res.setHeader('content-type', 'application/json');
             res.statusCode = mapped.status;
           }
@@ -303,6 +405,40 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
   };
 
   const server = http.createServer(handler);
+
+  // Transport hardening defaults (safe by default; configurable for enterprise deployments).
+  const httpHeadersTimeoutMs =
+    options.httpHeadersTimeoutMs ?? (serverDefaults as any).httpHeadersTimeoutMs ?? 20000;
+  const httpRequestTimeoutMs =
+    options.httpRequestTimeoutMs ?? (serverDefaults as any).httpRequestTimeoutMs ?? 0;
+  const httpKeepAliveTimeoutMs =
+    options.httpKeepAliveTimeoutMs ?? (serverDefaults as any).httpKeepAliveTimeoutMs ?? 5000;
+  const httpMaxHeadersCount =
+    options.httpMaxHeadersCount ?? (serverDefaults as any).httpMaxHeadersCount ?? 1000;
+
+  if (Number.isFinite(Number(httpHeadersTimeoutMs))) {
+    (server as any).headersTimeout = Math.max(0, Number(httpHeadersTimeoutMs));
+  }
+  if (Number.isFinite(Number(httpRequestTimeoutMs))) {
+    (server as any).requestTimeout = Math.max(0, Number(httpRequestTimeoutMs));
+  }
+  if (Number.isFinite(Number(httpKeepAliveTimeoutMs))) {
+    (server as any).keepAliveTimeout = Math.max(0, Number(httpKeepAliveTimeoutMs));
+  }
+  if (Number.isFinite(Number(httpMaxHeadersCount))) {
+    (server as any).maxHeadersCount = Math.max(0, Math.floor(Number(httpMaxHeadersCount)));
+  }
+
+  // Avoid unhandled parse errors taking down the process; respond with a generic 400 and close.
+  server.on('clientError', (_err, socket) => {
+    try {
+      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+    } catch {
+      try {
+        socket.destroy();
+      } catch {}
+    }
+  });
   const { attachUpgradeRouter } = await import('./internal/transport/upgrade-router.js');
   const upgradeRouter = attachUpgradeRouter(server);
 
@@ -317,13 +453,14 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
 
   let closeRealtimeWs: (() => Promise<void>) | undefined;
   if (realtimeEnabled) {
-    if (!authConfig.enabled) {
+    if (!authConfig || authConfig.mode === 'none') {
       throw new Error('Realtime WS requires server auth to be enabled');
     }
 
-    const { assertAuthorized } = await import('./internal/security/auth.js');
+    const { createAuthenticator } = await import('../auth/index.js');
     const { createRateLimiter } = await import('./internal/security/rate-limiter.js');
     const rateLimiter = createRateLimiter(rateLimitConfig as any);
+    const authenticator = createAuthenticator(authConfig as any);
 
     const { attachRealtimeWsServer } = await import('./internal/realtime/ws.js');
     const realtime = await attachRealtimeWsServer({
@@ -331,7 +468,17 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
       upgradeRouter,
       registry,
       authorizeUpgrade: async (req) => {
-        const authIdentity = await assertAuthorized(req, authConfig as any, options.authorize as any) as string;
+        const ctx = await authenticator.authenticate(req);
+        if (options.authorize) {
+          const allowed = await (options.authorize as any)(ctx, req);
+          if (!allowed) {
+            const error = new Error('Forbidden');
+            (error as any).statusCode = 403;
+            (error as any).code = 'forbidden';
+            throw error;
+          }
+        }
+        const authIdentity = ctx.subject ?? 'unknown';
         if (rateLimitConfig.enabled) {
           rateLimiter.check(authIdentity);
         }
@@ -364,6 +511,7 @@ export async function createServer(options: ServerOptions = {}): Promise<Running
       auth: authConfig,
       rateLimit: rateLimitConfig,
       cors: corsConfig,
+      policy: policyConfig,
       securityHeadersEnabled:
         options.securityHeadersEnabled ?? serverDefaults.securityHeadersEnabled,
       extensions: serverDefaults.extensions,

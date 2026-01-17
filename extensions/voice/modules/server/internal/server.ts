@@ -11,12 +11,13 @@ import { calculateBackoffDelay, isPlainObject, makeHttpError, normalizeFlag, rea
 import {
   applyCors,
   applySecurityHeaders,
-  assertAuthorized,
+  createAuthenticator,
   createRateLimiter,
   getClientIp,
   readJsonBody,
   writeHttpUpgradeResponse
 } from '../../../../../modules/server/index.js';
+import type { AuthContext } from '../../../../../modules/server/index.js';
 
 import type { VoiceProviderPlugins } from '../../provider-plugins/index.js';
 import { createVoiceProviderPlugins } from '../../provider-plugins/index.js';
@@ -538,7 +539,7 @@ export async function createVoiceServerRegistration(ctx: {
     securityHeadersEnabled?: boolean;
     idempotencyWaitMs?: number;
     idempotencyLockTtlSeconds?: number;
-    authorize?: ((req: http.IncomingMessage) => boolean | Promise<boolean>) | undefined;
+    authorize?: ((ctx: AuthContext, req: http.IncomingMessage) => boolean | Promise<boolean>) | undefined;
   };
 }): Promise<{
   handleHttp: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<boolean>;
@@ -550,7 +551,7 @@ export async function createVoiceServerRegistration(ctx: {
   const httpConfig = ctx.httpConfig ?? {};
   const maxRequestBytes = httpConfig.maxRequestBytes ?? Number.POSITIVE_INFINITY;
   const bodyReadTimeoutMs = httpConfig.bodyReadTimeoutMs ?? 0;
-  const authConfig = httpConfig.auth ?? { enabled: false };
+  const authConfig = httpConfig.auth ?? { mode: 'none' };
   const rateLimitConfig = httpConfig.rateLimit ?? { enabled: false };
   const corsConfig = httpConfig.cors ?? { enabled: false };
   const securityHeadersEnabled = httpConfig.securityHeadersEnabled ?? true;
@@ -560,9 +561,10 @@ export async function createVoiceServerRegistration(ctx: {
   const idempotencyLockTtlSeconds = Number.isFinite(httpConfig.idempotencyLockTtlSeconds)
     ? Math.max(1, Math.floor(Number(httpConfig.idempotencyLockTtlSeconds)))
     : 60;
-  const authorize = httpConfig.authorize;
+	  const authorize = httpConfig.authorize;
 
-  const rateLimiter = createRateLimiter(rateLimitConfig);
+	  const rateLimiter = createRateLimiter(rateLimitConfig);
+	  const authenticator = createAuthenticator(authConfig);
 
   let cachedVoiceLoggingModule: { getVoiceLogger: (correlationId?: string) => VoiceLogger; closeVoiceLogger: () => Promise<void> } | undefined;
   const resolveLogger = async (correlationId?: string): Promise<VoiceLogger | undefined> => {
@@ -616,15 +618,19 @@ export async function createVoiceServerRegistration(ctx: {
   const voiceDefaults = readVoiceExtensionDefaults(httpConfig);
 
   const assertAuthorizedAndRateLimited = async (req: http.IncomingMessage): Promise<string | undefined> => {
-    const authIdentity = await assertAuthorized(req, authConfig, authorize as any);
-    const clientIp = getClientIp(req, Boolean(rateLimitConfig?.trustProxyHeaders));
-    const key = authIdentity ?? clientIp ?? 'unknown';
-    if (rateLimitConfig?.enabled) {
-      if (authConfig?.enabled) {
-        rateLimiter.check(key);
+    const ctx = await authenticator.authenticate(req as any);
+    if (authorize) {
+      const allowed = await (authorize as any)(ctx, req);
+      if (!allowed) {
+        throw makeHttpError({ statusCode: 403, message: 'Forbidden', code: 'forbidden' });
       }
     }
-    return authIdentity;
+    const clientIp = getClientIp(req, Boolean(rateLimitConfig?.trustProxyHeaders));
+    const key = ctx.subject ?? clientIp ?? 'unknown';
+    if (rateLimitConfig?.enabled) {
+      rateLimiter.check(key);
+    }
+    return ctx.subject;
   };
 
   const require = createRequire(import.meta.url);
@@ -1087,7 +1093,7 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
-          if (!authConfig?.enabled) {
+          if (!authConfig || authConfig.mode === 'none') {
             writeJson(res, 501, { type: 'error', error: { message: 'Voice metrics endpoint requires server auth to be enabled', code: 'not_implemented' } });
             return true;
           }
@@ -1114,7 +1120,7 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
-          if (!authConfig?.enabled) {
+          if (!authConfig || authConfig.mode === 'none') {
             writeJson(res, 501, { type: 'error', error: { message: 'Voice call events endpoint requires server auth to be enabled', code: 'not_implemented' } });
             return true;
           }
@@ -1299,7 +1305,7 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
-          if (!authConfig?.enabled) {
+          if (!authConfig || authConfig.mode === 'none') {
             writeJson(res, 501, { type: 'error', error: { message: 'Voice call end endpoint requires server auth to be enabled', code: 'not_implemented' } });
             return true;
           }
@@ -1494,7 +1500,7 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
-          if (!authConfig?.enabled) {
+          if (!authConfig || authConfig.mode === 'none') {
             writeJson(res, 501, { type: 'error', error: { message: 'Voice call transfer endpoint requires server auth to be enabled', code: 'not_implemented' } });
             return true;
           }
@@ -1713,7 +1719,7 @@ export async function createVoiceServerRegistration(ctx: {
             return true;
           }
 
-          if (!authConfig?.enabled) {
+          if (!authConfig || authConfig.mode === 'none') {
             writeJson(res, 501, { type: 'error', error: { message: 'Voice recording endpoint requires server auth to be enabled', code: 'not_implemented' } });
             return true;
           }
@@ -1856,7 +1862,7 @@ export async function createVoiceServerRegistration(ctx: {
 
           await assertAuthorizedAndRateLimited(req);
 
-          if (!authConfig?.enabled) {
+          if (!authConfig || authConfig.mode === 'none') {
             writeJson(res, 501, { type: 'error', error: { message: 'Voice calls endpoint requires server auth to be enabled', code: 'not_implemented' } });
             return true;
           }

@@ -32,6 +32,37 @@ describe('utils/server rate-limiter', () => {
     jest.useRealTimers();
   });
 
+  test('evicts least recently used keys when maxKeys exceeded', () => {
+    const limiter = createRateLimiter({
+      enabled: true,
+      requestsPerMinute: 0,
+      burst: 1,
+      maxKeys: 2
+    } as any);
+
+    limiter.check('k1');
+    limiter.check('k2');
+    limiter.check('k3'); // evicts k1
+
+    // k1 should have been evicted and recreated with a fresh token.
+    expect(() => limiter.check('k1')).not.toThrow();
+  });
+
+  test('resets buckets after keyTtlMs', () => {
+    jest.useFakeTimers();
+    const limiter = createRateLimiter({
+      enabled: true,
+      requestsPerMinute: 0,
+      burst: 1,
+      keyTtlMs: 1000
+    } as any);
+
+    limiter.check('ttl');
+    jest.advanceTimersByTime(1100);
+    expect(() => limiter.check('ttl')).not.toThrow();
+    jest.useRealTimers();
+  });
+
   test('uses fallback values when limits omitted', () => {
     const limiter = createRateLimiter({ enabled: true } as any);
     expect(() => limiter.check('c1')).not.toThrow();
@@ -43,6 +74,14 @@ describe('utils/server rate-limiter', () => {
       socket: { remoteAddress: '9.9.9.9' }
     };
     expect(getClientIp(req, false)).toBe('9.9.9.9');
+    expect(getClientIp(req, true)).toBe('1.2.3.4');
+  });
+
+  test('getClientIp supports x-forwarded-for header arrays', () => {
+    const req: any = {
+      headers: { 'x-forwarded-for': ['1.2.3.4', '5.6.7.8'] },
+      socket: { remoteAddress: '9.9.9.9' }
+    };
     expect(getClientIp(req, true)).toBe('1.2.3.4');
   });
 

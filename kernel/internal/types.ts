@@ -1165,21 +1165,66 @@ export interface TimeoutDefaults {
 /**
  * Server (HTTP/SSE) default settings.
  */
-export interface ServerAuthDefaults {
-  enabled: boolean;
-  allowBearer: boolean;
-  allowApiKeyHeader: boolean;
-  headerName: string;
-  apiKeys: string[] | string;
-  hashedKeys: string[] | string;
-  realm?: string;
-}
+export type ServerAuthDefaults =
+  | { mode: 'none' }
+  | {
+      mode: 'apiKey';
+      allowBearer?: boolean;
+      allowHeader?: boolean;
+      headerName?: string;
+      realm?: string;
+      keys?: Array<{ id: string; token?: string; sha256?: string }>;
+    }
+  | {
+      mode: 'jwt';
+      allowBearer?: boolean;
+      allowHeader?: boolean;
+      headerName?: string;
+      realm?: string;
+      spki?: string;
+      jwksUrl?: string;
+      jwks?: unknown;
+      jwksTimeoutMs?: number;
+      jwksCooldownMs?: number;
+      jwksCacheMaxAgeMs?: number;
+      jwksMaxBytes?: number;
+      issuer?: string | string[];
+      audience?: string | string[];
+      algorithms?: string[];
+      clockToleranceSeconds?: number;
+      subjectClaim?: string;
+      tenantClaim?: string;
+      scopesClaim?: string;
+      scopesSeparator?: string;
+      requireSubject?: boolean;
+      requireExp?: boolean;
+      cacheMaxEntries?: number;
+    }
+  | {
+      mode: 'proxySigned';
+      realm?: string;
+      headers?: {
+        signature?: string;
+        keyId?: string;
+        timestamp?: string;
+        subject?: string;
+        tenant?: string;
+        scopes?: string;
+      };
+      maxSkewSeconds?: number;
+      scopesSeparator?: string;
+      keys?: Array<{ id: string; secret: string }>;
+    };
 
 export interface ServerRateLimitDefaults {
   enabled: boolean;
   requestsPerMinute: number;
   burst: number;
   trustProxyHeaders: boolean;
+  /** Maximum number of distinct client keys tracked in memory */
+  maxKeys: number;
+  /** Optional TTL (ms) after which an idle key's bucket is reset */
+  keyTtlMs: number;
 }
 
 export interface ServerCorsDefaults {
@@ -1187,6 +1232,15 @@ export interface ServerCorsDefaults {
   allowedOrigins: string[] | '*';
   allowedHeaders: string[];
   allowCredentials: boolean;
+}
+
+export interface ServerPolicyDefaults {
+  documents: {
+    filepath: {
+      enabled: boolean;
+      allowedRoots: string[];
+    };
+  };
 }
 
 export interface ServerExtensionsDefaults {
@@ -1220,7 +1274,12 @@ export interface ServerDefaults {
   auth: ServerAuthDefaults;
   rateLimit: ServerRateLimitDefaults;
   cors: ServerCorsDefaults;
+  policy: ServerPolicyDefaults;
   securityHeadersEnabled: boolean;
+  httpHeadersTimeoutMs: number;
+  httpRequestTimeoutMs: number;
+  httpKeepAliveTimeoutMs: number;
+  httpMaxHeadersCount: number;
   extensions?: ServerExtensionsDefaults;
 }
 

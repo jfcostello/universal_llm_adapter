@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 import { spawn } from 'child_process';
 import crypto from 'crypto';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
@@ -206,7 +207,9 @@ async function main() {
     // (for example `npm run test:live:openrouter -- --transport=both`). Always enable realtime
     // WS routes for the live server process. Note: realtime WS requires auth.
     enableAuth: true,
-    enableRealtimeWs: true
+    enableRealtimeWs: true,
+    enableFilepathDocs: true,
+    filepathDocsAllowedRoots: [rootDir, os.tmpdir()]
   });
 
   try {

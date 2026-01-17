@@ -118,6 +118,7 @@ See `extensions/README.md`.
 | `realtime.wsPath` | `--realtime-ws-path <path>` | `/realtime/ws` | WebSocket path for realtime sessions |
 | `realtime.maxWsMessageBytes` | `--realtime-max-ws-message-bytes <n>` | `262144` | Maximum WebSocket message size |
 | `realtime.wsIdleTimeoutMs` | `--realtime-ws-idle-timeout-ms <n>` | `60000` | WebSocket idle timeout |
+| `realtime.openHandshakeTimeoutMs` | `--realtime-open-handshake-timeout-ms <n>` | `60000` | WebSocket open handshake timeout |
 | `realtime.maxConcurrentSessions` | `--realtime-max-concurrent-sessions <n>` | `20` | Max concurrent realtime sessions |
 | `realtime.maxAudioBytesPerSecond` | `--realtime-max-audio-bytes-per-second <n>` | `256000` | Max audio throughput per session (bytes/sec) |
 | `realtime.maxSessionDurationMs` | `--realtime-max-session-duration-ms <n>` | `3600000` | Max realtime session duration |
@@ -126,16 +127,28 @@ See `extensions/README.md`.
 
 | Option | CLI Flag | Default | Description |
 |--------|----------|---------|-------------|
-| `auth.enabled` | `--auth-enabled` | `false` | Enable authentication |
-| `auth.allowBearer` | `--no-auth-allow-bearer` | `true` | Allow Bearer token auth |
-| `auth.allowApiKeyHeader` | `--no-auth-allow-api-key-header` | `true` | Allow x-api-key header |
-| `auth.headerName` | `--auth-header-name <name>` | | Custom auth header name |
-| `auth.realm` | `--auth-realm <realm>` | | Authentication realm |
-| `auth.apiKeys` | (config only) | | Array of valid API keys |
-| `auth.hashedKeys` | (config only) | | Array of SHA-256 hashed keys |
+| `auth.mode` | `--auth-mode <mode>` | `none` | Auth mode (`none`, `apiKey`, `jwt`, `proxySigned`) |
+| `auth.allowBearer` | `--no-auth-allow-bearer` | `true` | Allow Bearer token extraction |
+| `auth.allowHeader` | `--no-auth-allow-header` | `true` | Allow header token extraction (default `x-api-key`) |
+| `auth.headerName` | `--auth-header-name <name>` | `x-api-key` | Custom auth header name |
+| `auth.realm` | `--auth-realm <realm>` | | Authentication realm (`WWW-Authenticate`) |
+| `auth.keys` | (config only) | | Static keys (`apiKey`/`proxySigned` modes) |
+| `auth.spki` | (config only) | | Static public key in SPKI PEM format (`jwt` mode) |
+| `auth.jwksUrl` | (config only) | | JWKS URL (`jwt` mode) |
+| `auth.jwks` | (config only) | | Inline JWKS (`jwt` mode) |
 
 Notes:
-- With the default config (`plugins/configs/defaults.json`), raw API keys can be supplied via `LLM_ADAPTER_API_KEYS` (comma-separated).
+- For `apiKey` mode, raw keys can be supplied via `LLM_ADAPTER_API_KEYS` (comma-separated) when `auth.keys` is omitted.
+
+### Security: Policy
+
+| Option | CLI Flag | Default | Description |
+|--------|----------|---------|-------------|
+| `policy.documents.filepath.enabled` | `--policy-documents-filepath-enabled` | `false` | Allow `document.source.type="filepath"` in server requests |
+| `policy.documents.filepath.allowedRoots` | `--policy-documents-filepath-root <path>` | `[]` | Allowed roots for filepath docs (repeatable); empty defaults to server cwd |
+
+Notes:
+- Enforcement resolves both the requested file path and each allowed root via `realpath`, preventing symlink escapes.
 
 ### Security: Rate Limiting
 
@@ -145,6 +158,8 @@ Notes:
 | `rateLimit.requestsPerMinute` | `--rate-limit-requests-per-minute <n>` | | Requests per minute per client |
 | `rateLimit.burst` | `--rate-limit-burst <n>` | | Burst allowance |
 | `rateLimit.trustProxyHeaders` | `--rate-limit-trust-proxy-headers` | `false` | Trust X-Forwarded-For headers |
+| `rateLimit.maxKeys` | `--rate-limit-max-keys <n>` | `10000` | Max distinct identities tracked in memory |
+| `rateLimit.keyTtlMs` | `--rate-limit-key-ttl-ms <n>` | `0` | Optional identity TTL (0 disables TTL eviction) |
 
 ### Security: CORS and Headers
 
@@ -155,6 +170,15 @@ Notes:
 | `cors.allowedHeaders` | (config only) | | Array of allowed headers |
 | `cors.allowCredentials` | (config only) | | Allow credentials |
 | `securityHeadersEnabled` | `--no-security-headers-enabled` | `true` | Add security headers to responses |
+
+### HTTP Server Hardening
+
+| Option | CLI Flag | Default | Description |
+|--------|----------|---------|-------------|
+| `httpHeadersTimeoutMs` | `--http-headers-timeout-ms <n>` | `20000` | Node `server.headersTimeout` (slowloris protection) |
+| `httpRequestTimeoutMs` | `--http-request-timeout-ms <n>` | `0` | Node `server.requestTimeout` (0 disables) |
+| `httpKeepAliveTimeoutMs` | `--http-keep-alive-timeout-ms <n>` | `5000` | Node `server.keepAliveTimeout` |
+| `httpMaxHeadersCount` | `--http-max-headers-count <n>` | `1000` | Node `server.maxHeadersCount` |
 
 ---
 
@@ -218,7 +242,7 @@ Lists available extensions across configured pack roots (same shape as `llm-adap
 
 Notes:
 
-- Requires auth when `auth.enabled: true` (401/403 on failure).
+- Requires auth when `auth.mode != "none"` (401/403 on failure).
 - Subject to rate limiting when `rateLimit.enabled: true` (429 on limit).
 
 **Example:**
@@ -242,7 +266,7 @@ Realtime sessions over WebSocket using the same message/envelope contract as `ll
 
 - The first emitted event must be `{ "type": "ready", ... }`.
 - `spec.provider` must reference a realtime provider id from `plugins/realtime-providers/*.json`.
-- Authentication must be enabled (`auth.enabled: true`) for this endpoint.
+- Authentication must be enabled (`auth.mode != "none"`) for this endpoint.
 - Configure limits via the `realtime.*` options (message size, idle timeout, concurrency, audio rate, max duration).
 - The WebSocket idle timeout defaults to `realtime.wsIdleTimeoutMs` and is updated to `spec.timeout.idleTimeoutMs` after `open` (when provided).
 
@@ -608,7 +632,7 @@ Enable authentication to require API keys:
 
 ```bash
 # Via CLI
-llm-adapter serve --auth-enabled --port 3000
+llm-adapter serve --auth-mode apiKey --port 3000
 ```
 
 ```typescript
@@ -616,10 +640,13 @@ llm-adapter serve --auth-enabled --port 3000
 const server = await createServer({
   port: 3000,
   auth: {
-    enabled: true,
+    mode: 'apiKey',
     allowBearer: true,
-    allowApiKeyHeader: true,
-    apiKeys: ['key1', 'key2']
+    allowHeader: true,
+    keys: [
+      { id: 'key1', token: 'key1' },
+      { id: 'key2', token: 'key2' }
+    ]
   }
 });
 ```
@@ -648,9 +675,9 @@ Store SHA-256 hashes instead of plaintext keys:
 const server = await createServer({
   port: 3000,
   auth: {
-    enabled: true,
-    hashedKeys: [
-      '5e884898da28047d9...', // SHA-256 of actual key
+    mode: 'apiKey',
+    keys: [
+      { id: 'key1', sha256: 'sha256:5e884898da28047d9...' } // SHA-256 of the actual key
     ]
   }
 });
@@ -754,9 +781,7 @@ Server defaults can be configured in `plugins/configs/defaults.json`:
     "maxQueueSize": 1000,
     "queueTimeoutMs": 30000,
     "auth": {
-      "enabled": false,
-      "allowBearer": true,
-      "allowApiKeyHeader": true
+      "mode": "none"
     },
     "rateLimit": {
       "enabled": false,

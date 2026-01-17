@@ -219,6 +219,7 @@ async function pool<T, R>(items: T[], concurrency: number, fn: (item: T, index: 
 }
 
 describe('extensions/voice: webhook + media wiring', () => {
+  const apiKeyAuth = { mode: 'apiKey', keys: [{ id: 'k1', token: 'k1' }] };
   const prevSecret = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_SECRET;
   const prevTtl = process.env.LLM_ADAPTER_VOICE_WS_TOKEN_TTL_SECONDS;
   const prevMetricsEnabled = process.env.LLM_ADAPTER_VOICE_METRICS_ENABLED;
@@ -928,11 +929,11 @@ describe('extensions/voice: webhook + media wiring', () => {
       }))
     };
 
-    const harness = await startHarness({
-      store,
-      providerPlugins,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const harness = await startHarness({
+	      store,
+	      providerPlugins,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     let eventsRes: Response | undefined;
     try {
@@ -1028,8 +1029,8 @@ describe('extensions/voice: webhook + media wiring', () => {
       })
     };
 
-    const harness = await startHarness({ store, providerPlugins, httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } } });
-    try {
+	    const harness = await startHarness({ store, providerPlugins, httpConfig: { auth: apiKeyAuth } });
+	    try {
       const res = await fetch(new URL('/voice/webhook?callConfigId=cfg_1', harness.baseUrl));
       const wsUrl = extractStreamUrl(await res.text());
 
@@ -1097,8 +1098,8 @@ describe('extensions/voice: webhook + media wiring', () => {
       })
     };
 
-    const harness = await startHarness({ store, providerPlugins, logging: { getLogger: () => logger }, httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } } });
-    try {
+	    const harness = await startHarness({ store, providerPlugins, logging: { getLogger: () => logger }, httpConfig: { auth: apiKeyAuth } });
+	    try {
       const res = await fetch(new URL('/voice/webhook?callConfigId=cfg_1', harness.baseUrl));
       const wsUrl = extractStreamUrl(await res.text());
 
@@ -1317,10 +1318,10 @@ describe('extensions/voice: webhook + media wiring', () => {
 
   test('reliability: supports concurrent /voice/calls → /voice/webhook → /voice/media (test compat)', async () => {
     const store = createInMemoryVoiceCallConfigStore();
-    const harness = await startHarness({
-      store,
-      httpConfig: { auth: { enabled: true, apiKeys: ['k1'] } }
-    });
+	    const harness = await startHarness({
+	      store,
+	      httpConfig: { auth: apiKeyAuth }
+	    });
 
     try {
       const callCount = 10;
