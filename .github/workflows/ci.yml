@@ -27,7 +27,19 @@ jobs:
 
       - name: Test
         run: npm test
+        env:
+          # Dummy values for manifest loading (unit tests don't make actual API calls)
+          OPENAI_API_KEY: dummy-key-for-manifest-loading
+          ANTHROPIC_API_KEY: dummy-key-for-manifest-loading
+          OPENROUTER_API_KEY: dummy-key-for-manifest-loading
+          GOOGLE_API_KEY: dummy-key-for-manifest-loading
 
       - name: Test Extensions
         run: npm run test:extensions
+        env:
+          # Dummy values for manifest loading (unit tests don't make actual API calls)
+          OPENAI_API_KEY: dummy-key-for-manifest-loading
+          ANTHROPIC_API_KEY: dummy-key-for-manifest-loading
+          OPENROUTER_API_KEY: dummy-key-for-manifest-loading
+          GOOGLE_API_KEY: dummy-key-for-manifest-loading
 
