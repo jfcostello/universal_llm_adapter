@@ -10,6 +10,8 @@ const IGNORED_DIRS = new Set([
   '.worktrees',
   '.git',
   '.history',
+  '.claude',
+  '.codex',
   'logs'
 ]);
 
@@ -154,7 +156,11 @@ describe('guardrails/repo', () => {
       .filter(f => fs.existsSync(f))
       .filter(f => !isUnder('tests', f))
       .filter(f => !isUnder('plugins', f))
-      .filter(f => !isUnderExtensionPlugins(f));
+      .filter(f => !isUnder('.claude', f))
+      .filter(f => !isUnder('.codex', f))
+      .filter(f => !isUnderExtensionPlugins(f))
+      // Exclude AI assistant config files that legitimately reference providers
+      .filter(f => !['CLAUDE.md', 'agents.md'].includes(path.basename(f)));
 
     for (const file of trackedDocs) {
       const rel = toRepoRelative(file);
