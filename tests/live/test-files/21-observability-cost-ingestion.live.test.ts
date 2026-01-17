@@ -55,7 +55,8 @@ const TEST_FILE = '21-observability-cost-ingestion';
     expect(cost as number).toBeGreaterThan(0);
 
     // Langfuse may expose the trace before cost aggregation settles; poll until totalCost reflects usage.cost.
-    const deadlineMs = Date.now() + 120_000;
+    // Observed in server transport runs: trace cost aggregation can lag by >2 minutes under load.
+    const deadlineMs = Date.now() + 240_000;
     let trace = await waitForLangfuseTrace(traceId);
     let totalCost = getLangfuseTraceTotalCost(trace);
     while ((totalCost ?? 0) <= 0 && Date.now() < deadlineMs) {
