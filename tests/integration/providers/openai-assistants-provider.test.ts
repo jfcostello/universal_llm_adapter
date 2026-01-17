@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import OpenAI, { AzureOpenAI } from 'openai';
+import { AzureOpenAI } from 'openai';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -33,6 +33,14 @@ describe('integration/providers/openai-assistants-provider', () => {
       expect(client).toBeDefined();
     });
 
+    test('getSDKClient extracts API key from lowercase headers.authorization', () => {
+      delete process.env.OPENAI_API_KEY;
+      const headers = { authorization: 'Bearer test-key-from-headers' };
+      const client = (compat as any).getSDKClient(headers as any);
+      expect(client).toBeDefined();
+      process.env.OPENAI_API_KEY = 'test-openai-api-key';
+    });
+
     test('getSDKClient falls back to OPENAI_API_KEY', () => {
       const client = (compat as any).getSDKClient();
       expect(client).toBeDefined();
@@ -53,6 +61,19 @@ describe('integration/providers/openai-assistants-provider', () => {
 
       expect(client).toBeDefined();
       expect(client).toBeInstanceOf(AzureOpenAI);
+    });
+
+    test('getSDKClient uses AzureOpenAI with case-insensitive Azure headers', () => {
+      delete process.env.OPENAI_API_KEY;
+      const client = (compat as any).getSDKClient({
+        'API-KEY': 'test-azure-key',
+        'X-AZURE-ENDPOINT': 'https://example-resource.openai.azure.com',
+        'X-OPENAI-API-VERSION': '2024-05-01-preview'
+      } as any);
+
+      expect(client).toBeDefined();
+      expect(client).toBeInstanceOf(AzureOpenAI);
+      process.env.OPENAI_API_KEY = 'test-openai-api-key';
     });
 
     test('getSDKClient uses Azure env fallbacks for endpoint and api version', () => {
@@ -756,6 +777,70 @@ describe('integration/providers/openai-assistants-provider', () => {
       }
     });
 
+    test('callSDK does not treat old tool cycles as follow-up when conversation has continued', async () => {
+      const mockRun = {
+        id: 'run_new',
+        thread_id: 'thread_new',
+        status: 'completed'
+      };
+
+      const mockClient = {
+        beta: {
+          threads: {
+            createAndRunPoll: jest.fn().mockResolvedValue(mockRun),
+            runs: {
+              submitToolOutputsAndPoll: jest.fn()
+            },
+            messages: {
+              list: jest.fn().mockResolvedValue({ data: [] })
+            }
+          }
+        }
+      };
+
+      const originalGetSDKClient = (compat as any).getSDKClient;
+      (compat as any).getSDKClient = jest.fn().mockReturnValue(mockClient);
+
+      try {
+        await compat.callSDK?.(
+          'gpt-4.1-mini',
+          { assistantId: 'asst_test' } as any,
+          [
+            {
+              role: Role.ASSISTANT,
+              content: [],
+              toolCalls: [
+                {
+                  id: 'call_1',
+                  name: 't1',
+                  arguments: { a: 1 },
+                  metadata: { threadId: 'thread_old', runId: 'run_old' }
+                }
+              ]
+            },
+            {
+              role: Role.TOOL,
+              toolCallId: 'call_1',
+              content: [
+                { type: 'text', text: 'ok' },
+                { type: 'tool_result', toolName: 't1', result: { ok: true } }
+              ]
+            },
+            {
+              role: Role.USER,
+              content: [{ type: 'text', text: 'New question' }]
+            }
+          ] as any,
+          []
+        );
+
+        expect(mockClient.beta.threads.runs.submitToolOutputsAndPoll).not.toHaveBeenCalled();
+        expect(mockClient.beta.threads.createAndRunPoll).toHaveBeenCalled();
+      } finally {
+        (compat as any).getSDKClient = originalGetSDKClient;
+      }
+    });
+
     test('callSDK throws when assistantId missing', async () => {
       await expect(
         compat.callSDK?.('gpt-4.1-mini', {}, [{ role: Role.USER, content: [{ type: 'text', text: 'Hi' }] }], [])
@@ -1253,16 +1338,12 @@ describe('integration/providers/openai-assistants-provider', () => {
       expect(result.toolCalls).toBeUndefined();
     });
 
-    test('extractToolSubmissionContext skips non-tool and irrelevant tool messages', () => {
+    test('extractToolSubmissionContext skips irrelevant tool messages', () => {
       expect((compat as any).extractToolSubmissionContext([
         {
           role: Role.ASSISTANT,
           content: [],
           toolCalls: [{ id: 'call_1', name: 't1', arguments: {}, metadata: { threadId: 't', runId: 'r' } }]
-        },
-        {
-          role: Role.USER,
-          content: [{ type: 'text', text: 'ignore' }]
         },
         {
           role: Role.TOOL,
@@ -1278,6 +1359,59 @@ describe('integration/providers/openai-assistants-provider', () => {
           content: [
             { type: 'text', text: 'ok' },
             { type: 'tool_result', toolName: 't1', result: { ok: true } }
+          ]
+        }
+      ])).toEqual({
+        threadId: 't',
+        runId: 'r',
+        toolOutputs: [{ tool_call_id: 'call_1', output: 'ok' }]
+      });
+    });
+
+    test('extractToolSubmissionContext returns null when a new user message appears after tool results', () => {
+      expect((compat as any).extractToolSubmissionContext([
+        {
+          role: Role.ASSISTANT,
+          content: [],
+          toolCalls: [{ id: 'call_1', name: 't1', arguments: {}, metadata: { threadId: 't', runId: 'r' } }]
+        },
+        {
+          role: Role.TOOL,
+          toolCallId: 'call_1',
+          content: [
+            { type: 'text', text: 'ok' },
+            { type: 'tool_result', toolName: 't1', result: { ok: true } }
+          ]
+        },
+        {
+          role: Role.USER,
+          content: [{ type: 'text', text: 'New question' }]
+        }
+      ])).toBeNull();
+    });
+
+    test('extractToolSubmissionContext ignores tool budget final prompt user message', () => {
+      expect((compat as any).extractToolSubmissionContext([
+        {
+          role: Role.ASSISTANT,
+          content: [],
+          toolCalls: [{ id: 'call_1', name: 't1', arguments: {}, metadata: { threadId: 't', runId: 'r' } }]
+        },
+        {
+          role: Role.TOOL,
+          toolCallId: 'call_1',
+          content: [
+            { type: 'text', text: 'ok' },
+            { type: 'tool_result', toolName: 't1', result: { ok: true } }
+          ]
+        },
+        {
+          role: Role.USER,
+          content: [
+            {
+              type: 'text',
+              text: 'All tool calls have been consumed (1 of 1). Provide your final response using the information gathered so far.'
+            }
           ]
         }
       ])).toEqual({

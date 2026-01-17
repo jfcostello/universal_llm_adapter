@@ -70,7 +70,7 @@ export function getMissingRequiredEnv(options: {
     anthropic: ['ANTHROPIC_API_KEY'],
     openai: ['OPENAI_API_KEY'],
     'openai-responses': ['OPENAI_API_KEY'],
-    'openai-assistants': ['OPENAI_API_KEY'],
+    'openai-assistants': ['OPENAI_API_KEY', 'OPENAI_ASSISTANTS_ASSISTANT_ID'],
     'azure-openai-assistants': ['AZURE_OPENAI_API_KEY', 'AZURE_OPENAI_ENDPOINT', 'OPENAI_API_VERSION'],
     openrouter: ['OPENROUTER_API_KEY'],
     google: ['GEMINI_API_KEY'],

@@ -156,6 +156,7 @@ export interface LLMCallSettings {
   batchId?: string;
   /** Enable optional usage cost calculation when provider omits cost */
   usageCost?: boolean;
+  assistantId?: string;
   provider?: Record<string, any>;
   [key: string]: any;
 }

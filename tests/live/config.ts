@@ -110,7 +110,7 @@ export const testRuns: TestRun[] = [
     settings: {
       temperature: 0.3,
       maxTokens: 60000,
-      assistantId: 'asst_9TSYykiznIDJuHDI3NTWIdFI',
+      assistantId: String(process.env.OPENAI_ASSISTANTS_ASSISTANT_ID ?? '').trim() || undefined,
       usageCost: true
     }
   }

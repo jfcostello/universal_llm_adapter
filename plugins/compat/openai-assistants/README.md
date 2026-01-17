@@ -41,7 +41,13 @@ Client selection is based on headers:
 - Otherwise OpenAI is selected via `headers.Authorization` (`Bearer ...`) or `OPENAI_API_KEY`.
 
 ## Internal layout (A)
-- `internal/openai-assistants.ts` – compat implementation
+- `internal/openai-assistants.ts` – compat implementation (orchestration)
+- `internal/mappings.ts` – shared types/constants
+- `internal/messages.ts` – message serialization + instruction extraction
+- `internal/settings.ts` – run params + document upload + attachments
+- `internal/tools.ts` – tool + tool_choice serialization
+- `internal/stream.ts` – stream event parsing
+- `internal/response.ts` – run status + message parsing
 
 ## Notes
 - Loaded by the plugin registry via the provider's `compat` setting.
