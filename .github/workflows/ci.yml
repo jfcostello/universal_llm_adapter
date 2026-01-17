@@ -28,3 +28,6 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Test Extensions
+        run: npm run test:extensions
+
