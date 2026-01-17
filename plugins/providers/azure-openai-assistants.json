@@ -1,0 +1,23 @@
+{
+  "id": "azure-openai-assistants",
+  "compat": "openai-assistants",
+  "endpoint": {
+    "urlTemplate": "SDK_BASED_NOT_USED",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json",
+      "api-key": "${AZURE_OPENAI_API_KEY?}",
+      "x-azure-endpoint": "${AZURE_OPENAI_ENDPOINT?}",
+      "x-openai-api-version": "${OPENAI_API_VERSION?}"
+    }
+  },
+  "retryWords": [
+    "rate",
+    "overload",
+    "limit",
+    "exhausted",
+    "Service Unavailable",
+    "Too many requests"
+  ]
+}
+

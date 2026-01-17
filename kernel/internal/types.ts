@@ -188,7 +188,8 @@ export const PROVIDER_SETTING_KEYS = [
   'topLogprobs',
   'reasoning',
   'reasoningBudget',
-  'usageCost'
+  'usageCost',
+  'assistantId'
 ] as const;
 
 export interface LLMPriorityItem {

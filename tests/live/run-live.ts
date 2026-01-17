@@ -135,7 +135,7 @@ async function main() {
             new Set(realtimeTestRuns.map(r => String((r as any)?.provider || '').trim()).filter(Boolean))
           )
         : expectsLlmSuites
-          ? ['anthropic', 'openai-responses', 'openrouter', 'google']
+          ? ['anthropic', 'openai-responses', 'openrouter', 'google', 'openai-assistants']
           : [];
 
   const missingEnv = getMissingRequiredEnv({ selectedProviders: effectiveProviders, testPathPatterns, env: baseEnv });

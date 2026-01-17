@@ -1,0 +1,21 @@
+{
+  "id": "openai-assistants",
+  "compat": "openai-assistants",
+  "endpoint": {
+    "urlTemplate": "SDK_BASED_NOT_USED",
+    "method": "POST",
+    "headers": {
+      "Authorization": "Bearer ${OPENAI_API_KEY}",
+      "Content-Type": "application/json"
+    }
+  },
+  "retryWords": [
+    "rate",
+    "overload",
+    "limit",
+    "exhausted",
+    "Service Unavailable",
+    "Too many requests"
+  ]
+}
+
