@@ -5,6 +5,7 @@ import { safeEqual } from '../../security/index.js';
 
 import type { AuthContext, ProxySignedAuthConfig } from '../index.js';
 import { makeUnauthorizedError } from './errors.js';
+import { normalizeProxySignedKeys } from './key-normalizers.js';
 import { normalizeSeparator } from './normalize.js';
 
 function normalizeHeaderName(value: unknown, fallback: string): string {
@@ -42,29 +43,6 @@ function parseScopes(value: string | null, separator: string): string[] | undefi
   return parts.length > 0 ? parts : undefined;
 }
 
-function normalizeKeys(keys: ProxySignedAuthConfig['keys']): Map<string, string> {
-  if (!Array.isArray(keys) || keys.length === 0) {
-    throw new Error('proxySigned auth requires at least one key');
-  }
-
-  const map = new Map<string, string>();
-  for (const entry of keys) {
-    const id = String(entry?.id ?? '').trim();
-    const secret = String(entry?.secret ?? '').trim();
-    if (!id) {
-      throw new Error('proxySigned auth key id is required');
-    }
-    if (!secret) {
-      throw new Error('proxySigned auth key secret is required');
-    }
-    if (map.has(id)) {
-      throw new Error('proxySigned auth key id must be unique');
-    }
-    map.set(id, secret);
-  }
-  return map;
-}
-
 export function createProxySignedAuthenticator(config: ProxySignedAuthConfig): {
   authenticate: (req: http.IncomingMessage) => Promise<AuthContext>;
 } {
@@ -79,7 +57,7 @@ export function createProxySignedAuthenticator(config: ProxySignedAuthConfig): {
   const tenantHeader = normalizeHeaderName(config.headers?.tenant, 'x-llm-adapter-tenant');
   const scopesHeader = normalizeHeaderName(config.headers?.scopes, 'x-llm-adapter-scopes');
 
-  const keyIdToSecret = normalizeKeys(config.keys);
+  const keyIdToSecret = normalizeProxySignedKeys(config.keys);
   const requireKeyId = keyIdToSecret.size > 1;
   const onlyKey = keyIdToSecret.keys().next().value as string;
   const onlySecret = keyIdToSecret.get(onlyKey) as string;

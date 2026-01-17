@@ -1,7 +1,6 @@
 import type http from 'http';
 import type { AuthConfig, AuthContext, Authenticator } from '../index.js';
-import { createApiKeyAuthenticator } from './api-key.js';
-import { createProxySignedAuthenticator } from './proxy-signed.js';
+import { normalizeApiKeyKeys, normalizeProxySignedKeys } from './key-normalizers.js';
 
 function createLazyAuthenticator(loader: () => Promise<Authenticator>): Authenticator {
   let promise: Promise<Authenticator> | undefined;
@@ -24,11 +23,21 @@ export function createAuthenticatorInternal(config: AuthConfig): Authenticator {
   }
 
   if (mode === 'apiKey') {
-    return createApiKeyAuthenticator(config as any);
+    const cfg: any = config as any;
+    normalizeApiKeyKeys(cfg?.keys);
+    return createLazyAuthenticator(async () => {
+      const { createApiKeyAuthenticator } = await import('./api-key.js');
+      return createApiKeyAuthenticator(cfg);
+    });
   }
 
   if (mode === 'proxySigned') {
-    return createProxySignedAuthenticator(config as any);
+    const cfg: any = config as any;
+    normalizeProxySignedKeys(cfg?.keys);
+    return createLazyAuthenticator(async () => {
+      const { createProxySignedAuthenticator } = await import('./proxy-signed.js');
+      return createProxySignedAuthenticator(cfg);
+    });
   }
 
   if (mode === 'jwt') {
