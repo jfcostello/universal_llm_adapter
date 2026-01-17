@@ -1,0 +1,87 @@
+import type {
+  JsonValue,
+  ProcessRouteManifest,
+  RealtimeCompatSession,
+  RealtimeEvent,
+  RealtimeSessionSpec
+} from '../../../../../kernel/index.js';
+
+type ToolCoordinatorLike = {
+  routeAndInvoke: (
+    toolName: string,
+    callId: string,
+    args: any,
+    context: { provider: string; model: string; metadata?: any; logger?: any; callProgress?: any }
+  ) => Promise<any>;
+};
+
+export class RealtimeToolHandler {
+  private enabledToolNames: Set<string> | undefined;
+  private toolCoordinatorPromise: Promise<ToolCoordinatorLike> | undefined;
+
+  constructor(private options: {
+    registry: { getProcessRoutes: () => Promise<ProcessRouteManifest[]> };
+    spec: RealtimeSessionSpec;
+    compatSession: RealtimeCompatSession;
+    pushEvent: (event: RealtimeEvent) => void;
+    closeOnError: () => Promise<void>;
+    recordToolCall?: (call: { id: string; name: string; arguments?: any }) => void;
+  }) {
+    if (options.spec.functionToolNames && options.spec.functionToolNames.length > 0) {
+      this.enabledToolNames = new Set(options.spec.functionToolNames);
+    }
+  }
+
+  async handleToolCallEnd(event: Extract<RealtimeEvent, { type: 'tool_call.end' }>): Promise<void> {
+    if (!this.enabledToolNames) {
+      this.options.pushEvent({ type: 'error', message: 'Tool call received but tools are not enabled', code: 'tools_disabled' });
+      await this.options.closeOnError();
+      return;
+    }
+
+    if (!this.enabledToolNames.has(event.name)) {
+      this.options.pushEvent({ type: 'error', message: `Tool not enabled: ${event.name}`, code: 'tool_not_enabled' });
+      await this.options.closeOnError();
+      return;
+    }
+
+    this.options.recordToolCall?.({
+      id: event.toolCallId,
+      name: event.name,
+      arguments: event.arguments
+    });
+
+    const coordinator = await this.ensureToolCoordinator();
+    try {
+      const result = await coordinator.routeAndInvoke(
+        event.name,
+        event.toolCallId,
+        event.arguments,
+        {
+          provider: this.options.spec.provider,
+          model: this.options.spec.model ?? this.options.spec.provider,
+          metadata: this.options.spec.metadata ?? {}
+        }
+      );
+      await this.options.compatSession.sendToolResult({
+        toolCallId: event.toolCallId,
+        result: result as JsonValue
+      });
+      this.options.pushEvent({ type: 'tool_result.sent', toolCallId: event.toolCallId });
+    } catch (error: any) {
+      this.options.pushEvent({ type: 'error', message: `Tool execution failed: ${error?.message ?? String(error)}`, code: 'tool_error' });
+      await this.options.closeOnError();
+    }
+  }
+
+  private async ensureToolCoordinator(): Promise<ToolCoordinatorLike> {
+    if (!this.toolCoordinatorPromise) {
+      this.toolCoordinatorPromise = (async () => {
+        const routes = await this.options.registry.getProcessRoutes();
+        const { ToolCoordinator } = await import('../../../../tools/index.js');
+        return new ToolCoordinator(routes as any, undefined, { registry: this.options.registry as any }) as unknown as ToolCoordinatorLike;
+      })();
+    }
+    return await this.toolCoordinatorPromise;
+  }
+}

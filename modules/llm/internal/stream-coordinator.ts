@@ -9,12 +9,11 @@ import type {
   ObservabilityContext
 } from '../../../kernel/index.js';
 import { StreamEventType, ToolCallEventType, getDefaults, safeJsonParse } from '../../../kernel/index.js';
-import { deriveObservabilityModel, logObservabilityEvent, monotonicElapsedMs, monotonicNowNs, normalizeFlag } from '../../shared/index.js';
+import { monotonicNowNs, normalizeFlag } from '../../shared/index.js';
 import { partitionSettings } from '../../settings/index.js';
 import { usageStatsToJson } from '../../usage/index.js';
-import { redactJsonCredentials } from '../../security/index.js';
 import { randomUUID } from 'crypto';
-import { filterContentForObservability, filterMessagesForObservability } from '../../shared/index.js';
+import { recordStreamLlmRequestObservability, recordStreamLlmResponseObservability } from './stream-coordinator-observability.js';
 
 interface StreamingContext {
   provider: string;
@@ -58,45 +57,19 @@ export class StreamCoordinator {
       ? await this.registry.getCompatModuleForProvider(providerManifest.id)
       : await this.registry.getCompatModule(providerManifest.compat);
 
-    // Record LLM request event if observability is enabled (never throws)
     if (context.observability) {
-      try {
-        const captureMessages = context.observability.captureMessages ?? 'full';
-        const event = {
-          traceId: context.observability.traceId,
-          generationId,
-          timestampMs: startTimeMs,
-          provider: providerManifest.id,
-          model,
-          messages: filterMessagesForObservability(messages, captureMessages),
-          sessionId: context.observability.sessionId,
-          metadata: context.observability.metadata,
-          tools: tools.map((t: any) => ({ name: t.name, description: t.description })),
-          settings: executionSpec.settings as any
-        };
-
-        context.observability.exporter.recordLLMRequest(event as any);
-
-        if (process.env.LLM_LIVE === '1') {
-          try {
-            logObservabilityEvent(
-              {
-                eventType: 'LLM_REQUEST',
-                traceId: event.traceId,
-                generationId: event.generationId,
-                event
-              },
-              context.metadata
-            );
-          } catch {
-            // ignore
-          }
-        }
-      } catch (e) {
-        context.logger?.warning?.('Failed to record observability request event', {
-          error: (e as Error).message
-        });
-      }
+      recordStreamLlmRequestObservability({
+        observability: context.observability,
+        logger: context.logger,
+        metadata: context.metadata,
+        generationId,
+        timestampMs: startTimeMs,
+        provider: providerManifest.id,
+        model,
+        messages,
+        tools,
+        settings: executionSpec.settings
+      });
     }
 
     // Track accumulated content and tool calls for final response
@@ -366,80 +339,20 @@ export class StreamCoordinator {
       }
     }
 
-    // Record final response event if observability is enabled (never throws)
     if (context.observability) {
-      try {
-        const captureMessages = context.observability.captureMessages ?? 'full';
-        const captureToolArgs = context.observability.captureToolArgs ?? true;
-        const observabilityModel = deriveObservabilityModel({
-          provider: providerManifest.id,
-          model,
-          providerHint: upstreamProviderHint
-        });
-        const endTimeMs = Date.now();
-        const durationMs = monotonicElapsedMs(startTimeMonoNs);
-        const promptTokens = latestUsage?.promptTokens ?? undefined;
-        const completionTokens = latestUsage?.completionTokens ?? undefined;
-        const totalTokens = latestUsage?.totalTokens ?? (
-          typeof promptTokens === 'number' || typeof completionTokens === 'number'
-            ? (promptTokens || 0) + (completionTokens || 0)
-            : undefined
-        );
-
-        const event = {
-          traceId: context.observability.traceId,
-          generationId,
-          sessionId: context.observability.sessionId,
-          timestampMs: endTimeMs,
-          provider: providerManifest.id,
-          model: observabilityModel,
-          content: filterContentForObservability([{ type: 'text', text: accumulatedContent }] as any, captureMessages),
-          toolCalls: allToolCalls.map(tc => {
-            const base = { id: (tc as any).id, name: (tc as any).name } as any;
-            if (!captureToolArgs) return base;
-            const args = (tc as any).arguments ?? (tc as any).args;
-            const metadata = (tc as any).metadata;
-            return {
-              ...base,
-              ...(args !== undefined ? { arguments: redactJsonCredentials(args) } : {}),
-              ...(metadata !== undefined ? { metadata: redactJsonCredentials(metadata) } : {})
-            };
-          }),
-          usage: latestUsage ? {
-            promptTokens,
-            completionTokens,
-            totalTokens,
-            cachedTokens: latestUsage.cachedTokens ?? undefined,
-            reasoningTokens: latestUsage.reasoningTokens ?? undefined,
-            audioTokens: latestUsage.audioTokens ?? undefined,
-            cost: latestUsage.cost ?? undefined
-          } : undefined,
-          durationMs,
-          metadata: context.observability.metadata
-        };
-
-          context.observability.exporter.recordLLMResponse(event as any);
-
-          if (process.env.LLM_LIVE === '1') {
-            try {
-              logObservabilityEvent(
-                {
-                  eventType: 'LLM_RESPONSE',
-                  traceId: event.traceId,
-                generationId: event.generationId,
-                event
-              },
-              context.metadata
-            );
-          } catch {
-            // ignore
-          }
-        }
-      } catch (e) {
-        context.logger?.warning?.('Failed to record observability response event', {
-          error: (e as Error).message
-        });
-      }
+      recordStreamLlmResponseObservability({
+        observability: context.observability,
+        logger: context.logger,
+        metadata: context.metadata,
+        generationId,
+        startTimeMonoNs,
+        provider: providerManifest.id,
+        model,
+        providerHint: upstreamProviderHint,
+        accumulatedContent,
+        toolCalls: allToolCalls,
+        usage: latestUsage
+      });
     }
 
     yield {

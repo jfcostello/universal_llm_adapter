@@ -276,6 +276,30 @@ describe('managers/llm-manager', () => {
     ).rejects.toThrow('[test-openai] network down');
   });
 
+  test('wraps unexpected SDK setup errors as ProviderExecutionError', async () => {
+    const compat = { callSDK: jest.fn() };
+    const registry = { getCompatModule: jest.fn(() => compat) } as any;
+    const manager = new LLMManager(registry);
+
+    const sdkProvider = {
+      ...provider,
+      endpoint: {
+        ...provider.endpoint,
+        urlTemplate: 'sdk://service/{model}'
+      }
+    };
+
+    const logger = {
+      info: () => {
+        throw new Error('logger boom');
+      }
+    } as any;
+
+    await expect(
+      manager.callProvider(sdkProvider, 'model-x', {}, [], [], undefined, {}, logger)
+    ).rejects.toThrow('[test-openai] logger boom');
+  });
+
   test('streamProvider yields parsed SSE chunks and skips invalid rows', async () => {
     const compat = {
       buildPayload: jest.fn(() => ({ base: true })),

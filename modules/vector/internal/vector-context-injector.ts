@@ -1,25 +1,11 @@
-/**
- * VectorContextInjector - Handles RAG context injection for auto and both modes.
- * Retrieves relevant context from vector stores and injects into messages.
- */
-
-import {
-  Message,
-  Role,
-  VectorContextConfig,
-  TextContent,
-  QueryConstructionSettings,
-} from '../../../kernel/index.js';
-import type { PluginRegistry, EmbeddingPriorityItem } from '../../../kernel/index.js';
-import { getDefaults } from '../../../kernel/index.js';
-import {
-  resolveLoggingDeps,
-} from '../../../kernel/index.js';
+// VectorContextInjector - handles RAG context injection for auto/both modes.
+import { getDefaults, Message, QueryConstructionSettings, resolveLoggingDeps, Role, TextContent, VectorContextConfig } from '../../../kernel/index.js';
 import type {
   AdapterLogger,
-  LoggingDeps,
   IEmbeddingOperationLogger,
-  IVectorOperationLogger
+  IVectorOperationLogger,
+  LoggingDeps,
+  PluginRegistry
 } from '../../../kernel/index.js';
 import { interpolate } from '../../string/index.js';
 import type { EmbeddingManager } from '../../embeddings/index.js';
@@ -42,19 +28,6 @@ export interface InjectionResult {
 
 // Get defaults from config (lazy loaded)
 const getVectorDefaults = () => getDefaults().vector;
-
-/**
- * @deprecated Use getVectorDefaults().injectTemplate for dynamic access
- */
-const DEFAULT_INJECT_TEMPLATE = 'Relevant context:\n{{results}}';
-/**
- * @deprecated Use getVectorDefaults().resultFormat for dynamic access
- */
-const DEFAULT_RESULT_FORMAT = '- {{payload.text}} (score: {{score}})';
-/**
- * @deprecated Use getVectorDefaults().topK for dynamic access
- */
-const DEFAULT_TOP_K = 5;
 
 export class VectorContextInjector {
   private registry: PluginRegistry;

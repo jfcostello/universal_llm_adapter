@@ -57,6 +57,7 @@
     "prebuild": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "tsc",
     "dev": "tsx watch bin/cli.ts serve",
+    "check:god-files": "tsx tests/helpers/check-god-files.ts",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config jest.unit.config.js",
     "test:extensions": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config jest.extensions.config.js",
     "test:all": "tsx tests/live/run-all.ts",
