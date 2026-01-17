@@ -40,6 +40,16 @@ describe('settings-partitioner', () => {
     expect(providerExtras).toEqual({ fakeField: 'value' });
   });
 
+  test('treats assistantId as provider setting (not provider extra)', () => {
+    const { provider, providerExtras } = partitionSettings({
+      assistantId: 'asst_test',
+      fakeField: 'value'
+    } as any);
+
+    expect(provider).toEqual({ assistantId: 'asst_test', fakeField: 'value' });
+    expect(providerExtras).toEqual({ fakeField: 'value' });
+  });
+
   test('includes known provider settings without duplicating extras', () => {
     const { runtime, provider, providerExtras } = partitionSettings({
       temperature: 0.7,

@@ -98,6 +98,21 @@ export const testRuns: TestRun[] = [
       temperature: 0,
       maxTokens: 60000
     }
+  },
+  {
+    name: 'openai-assistants',
+    llmPriority: [
+      {
+        provider: 'openai-assistants',
+        model: 'gpt-4.1-mini'
+      }
+    ],
+    settings: {
+      temperature: 0.3,
+      maxTokens: 60000,
+      assistantId: String(process.env.OPENAI_ASSISTANTS_ASSISTANT_ID ?? '').trim() || undefined,
+      usageCost: true
+    }
   }
 ];
 

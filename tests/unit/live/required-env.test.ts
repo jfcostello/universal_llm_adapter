@@ -39,6 +39,22 @@ describe('live/required-env', () => {
     expect(missing).toEqual(['OPENAI_API_KEY']);
   });
 
+  test('getMissingRequiredEnv requires assistantId for selected providers (openai-assistants)', async () => {
+    const { getMissingRequiredEnv } = await import('../../live/required-env.ts');
+    const missing = getMissingRequiredEnv({
+      selectedProviders: ['openai-assistants'],
+      testPathPatterns: ['00-foundation'],
+      env: {}
+    });
+    // Langfuse keys are required for LLM live runs when observability provider is langfuse.
+    expect(missing).toEqual([
+      'OPENAI_API_KEY',
+      'OPENAI_ASSISTANTS_ASSISTANT_ID',
+      'LANGFUSE_PUBLIC_KEY',
+      'LANGFUSE_SECRET_KEY'
+    ]);
+  });
+
   test('getMissingRequiredEnv requires provider key for selected providers (grok)', async () => {
     const { getMissingRequiredEnv } = await import('../../live/required-env.ts');
     const missing = getMissingRequiredEnv({
