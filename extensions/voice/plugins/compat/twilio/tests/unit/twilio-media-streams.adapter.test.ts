@@ -1,4 +1,4 @@
-import { createTwilioMediaStreamsProtocolAdapter } from '@/extensions/voice/plugins/compat/twilio/internal/media-streams/adapter.ts';
+import { createTwilioMediaStreamsProtocolAdapter } from '@/extensions/voice/plugins/compat/twilio/internal/media/streams/adapter.ts';
 
 describe('plugins/compat/twilio: media stream protocol adapter', () => {
   test('maps inbound events and builds outbound messages', () => {
@@ -102,4 +102,3 @@ describe('plugins/compat/twilio: media stream protocol adapter', () => {
     expect((start as any).metadata.customParameters).toEqual({});
   });
 });
-

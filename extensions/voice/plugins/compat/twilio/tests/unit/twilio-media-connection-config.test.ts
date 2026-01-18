@@ -1,4 +1,4 @@
-import { resolveMediaConnectionConfig } from '../../internal/media-connection-config.ts';
+import { resolveMediaConnectionConfig } from '../../internal/media/media-connection-config.ts';
 
 describe('plugins/compat/twilio — media connection config', () => {
   test('accepts undefined callConfig', () => {

@@ -43,7 +43,7 @@ export function prepareMessagesWithDocuments(spec: LLMCallSpec): Message[] {
 
             const decoded = Buffer.from(base64, 'base64').toString('utf-8');
             const header = `Document (${processed.filename}; ${processed.mimeType}):\n`;
-            return { type: 'text', text: `${header}${decoded}` } as any;
+            return { type: 'text', text: `${header}${decoded}` };
           }
         }
 

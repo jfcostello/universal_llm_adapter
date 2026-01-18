@@ -5,11 +5,11 @@ import path from 'path';
 import { safeEqual } from '../../../../../../modules/security/index.js';
 import { calculateBackoffDelay, makeHttpError } from '../../../../../../modules/shared/index.js';
 
-import { createOutboundCall } from './outbound-call.js';
-import { endCall } from './end-call.js';
-import { handleMediaConnection } from './media-connection.js';
-import { persistCallLogs } from './persist-call-logs.js';
-import { getRecordingDownloadRequest } from './recording-download.js';
+import { createOutboundCall } from './calls/outbound-call.js';
+import { endCall } from './calls/end-call.js';
+import { handleMediaConnection } from './media/media-connection.js';
+import { persistCallLogs } from './logs/persist-call-logs.js';
+import { getRecordingDownloadRequest } from './recordings/recording-download.js';
 import {
   buildTwiMLConnectStream,
   computeRequestSignature,
@@ -18,7 +18,7 @@ import {
   sleepUnref,
   splitMediaWsUrl
 } from './shared.js';
-import { transferCall } from './transfer-call.js';
+import { transferCall } from './calls/transfer-call.js';
 
 export default class TwilioVoiceCompat {
   private async fetchJsonWithRetry(options: {

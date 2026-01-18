@@ -14,13 +14,11 @@ Owns registration and handler wiring for the voice extension on top of an existi
 - Manage per-call event hub + metrics wiring.
 
 ## Layout
-- `http-*.ts`: HTTP route handlers.
-- `ws-*.ts`: WebSocket upgrade/session handling.
-- `config-normalize.ts`: env/default normalization for the extension.
-- `logger.ts`: logger resolution for calls/sessions.
-- `types.ts`: shared types for server wiring.
+- `internal/config/*`: env/default normalization and public URL helpers.
+- `internal/core/*`: shared types and logger/context helpers.
+- `internal/http/*`: HTTP route handlers and HTTP utilities.
+- `internal/ws/*`: WebSocket upgrade/session handling and WS utilities.
 
 ## Import rules
 - Runtime code must import only from `extensions/voice/modules/server/index.ts`.
 - Do not import from `extensions/voice/modules/server/internal/**` outside of the voice server module.
-
