@@ -23,7 +23,6 @@ const FALLBACK_IGNORED_DIR_NAMES = new Set([
   'dist',
   'build',
   'coverage',
-  'logs',
   '.history',
   '.worktrees',
   '.cache',
@@ -56,28 +55,33 @@ function listTrackedFiles(rootDir: string): string[] | null {
   }
 }
 
-function listAllFilesFallback(rootDir: string): string[] {
+function findCodePathsUnderLogsFallback(rootDir: string): string[] {
   const root = path.resolve(rootDir);
-  const results: string[] = [];
+  const violations: string[] = [];
 
-  const visit = (dir: string) => {
+  const visit = (dir: string, insideLogsDir: boolean) => {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = path.join(dir, entry.name);
 
       if (entry.isDirectory()) {
         if (FALLBACK_IGNORED_DIR_NAMES.has(entry.name)) continue;
-        visit(fullPath);
+        const nextInsideLogsDir = insideLogsDir || entry.name === 'logs';
+        visit(fullPath, nextInsideLogsDir);
         continue;
       }
 
+      if (!insideLogsDir) continue;
       if (!entry.isFile()) continue;
-      results.push(path.relative(root, fullPath).replace(/\\/g, '/'));
+
+      const relPath = path.relative(root, fullPath).replace(/\\/g, '/');
+      if (!isCodeFile(relPath)) continue;
+      violations.push(relPath);
     }
   };
 
-  visit(root);
-  return results;
+  visit(root, false);
+  return violations;
 }
 
 function hasLogsDirectorySegment(relPath: string): boolean {
@@ -92,13 +96,13 @@ function isCodeFile(relPath: string): boolean {
 describe('architecture: no code under logs/ directories', () => {
   test('tracked code paths do not include a logs directory segment', () => {
     const tracked = listTrackedFiles(REPO_ROOT);
-    const files = tracked ?? listAllFilesFallback(REPO_ROOT);
-
-    const violations = files
-      .map((p) => String(p).replace(/\\/g, '/'))
-      .filter((p) => isCodeFile(p))
-      .filter((p) => hasLogsDirectorySegment(p))
-      .sort((a, b) => a.localeCompare(b));
+    const violations = tracked
+      ? tracked
+          .map((p) => String(p).replace(/\\/g, '/'))
+          .filter((p) => isCodeFile(p))
+          .filter((p) => hasLogsDirectorySegment(p))
+          .sort((a, b) => a.localeCompare(b))
+      : findCodePathsUnderLogsFallback(REPO_ROOT).sort((a, b) => a.localeCompare(b));
 
     if (violations.length > 0) {
       const formatted = violations.map((p) => `- ${p}`).join('\n');
@@ -110,4 +114,3 @@ describe('architecture: no code under logs/ directories', () => {
     }
   });
 });
-
