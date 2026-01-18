@@ -15,16 +15,15 @@ export function createVoiceLoggerResolver(options: { logging?: VoiceLogging }) {
       }
     }
 
-	    try {
-	      if (!cachedVoiceLoggingModule) {
-	        cachedVoiceLoggingModule = await import('../../../../../logger/index.js');
-	      }
-	      const mod = cachedVoiceLoggingModule!;
-	      return mod.getVoiceLogger(correlationId);
-	    } catch {
-	      return undefined;
-	    }
-	  };
+    try {
+      if (!cachedVoiceLoggingModule) {
+        cachedVoiceLoggingModule = await import('../../../../../logger/index.js');
+      }
+      return cachedVoiceLoggingModule.getVoiceLogger(correlationId);
+    } catch {
+      return undefined;
+    }
+  };
 
   const safeLog = (
     logger: VoiceLogger | undefined,
