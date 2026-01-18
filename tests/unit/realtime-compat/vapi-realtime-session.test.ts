@@ -170,10 +170,16 @@ async function startWsServer() {
   const receivedJson: any[] = [];
   const receivedBinary: Buffer[] = [];
   let connected: any | undefined;
+  let resolveConnected: ((ws: any) => void) | undefined;
+  const connectedPromise = new Promise<any>((resolve) => {
+    resolveConnected = resolve;
+  });
   let closed = false;
 
   wss.on('connection', (ws: any) => {
     connected = ws;
+    resolveConnected?.(ws);
+    resolveConnected = undefined;
     ws.on('message', (data: any, isBinary: boolean) => {
       if (isBinary) {
         receivedBinary.push(Buffer.from(data));
@@ -202,7 +208,19 @@ async function startWsServer() {
     await new Promise<void>((resolve) => wss.close(() => resolve()));
   };
 
-  return { url, wss, receivedJson, receivedBinary, getConnected: () => connected, close };
+  const waitForConnected = async (timeoutMs = 10_000) => {
+    if (connected) return connected;
+    let timer: any;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Timed out waiting for websocket connection')), timeoutMs);
+      if (typeof timer?.unref === 'function') timer.unref();
+    });
+    return Promise.race([connectedPromise, timeout]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
+  };
+
+  return { url, wss, receivedJson, receivedBinary, getConnected: () => connected, waitForConnected, close };
 }
 
 describe('plugins/realtime-compat/vapi — ws session', () => {
@@ -1085,7 +1103,7 @@ describe('plugins/realtime-compat/vapi — ws session', () => {
       const it = session.events()[Symbol.asyncIterator]();
       await waitForEvent(it, (e: any) => e?.type === 'ready');
 
-      const ws = server.getConnected();
+      const ws = await server.waitForConnected();
       expect(ws).toBeTruthy();
 
       // parsed.type fallback
