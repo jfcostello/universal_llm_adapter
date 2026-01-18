@@ -8,7 +8,7 @@ import { calculateBackoffDelay, makeHttpError } from '../../../../../../modules/
 import { createOutboundCall } from './calls/outbound-call.js';
 import { endCall } from './calls/end-call.js';
 import { handleMediaConnection } from './media/media-connection.js';
-import { persistCallLogs } from './logs/persist-call-logs.js';
+import { persistCallLogs } from './logging/persist-call-logs.js';
 import { getRecordingDownloadRequest } from './recordings/recording-download.js';
 import {
   buildTwiMLConnectStream,
