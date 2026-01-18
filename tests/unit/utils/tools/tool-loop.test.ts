@@ -1,6 +1,7 @@
 import { describe, expect, jest, test } from '@jest/globals';
 import { runToolLoop, __toolLoopTestUtils__ } from '@/modules/tools/index.ts';
 import { ToolCallBudget } from '@/modules/tools/index.ts';
+import { executeStreamToolCallsRound } from '@/modules/tools/internal/tool-loop/internal/stream-execute.ts';
 import { Role, StreamEventType, ToolCallEventType } from '@/kernel/index.ts';
 import { calculateUsageCost } from '@/modules/usage-cost/index.ts';
 
@@ -17,6 +18,32 @@ const createLoggerStub = () => ({
 }) as any;
 
 describe('utils/tools/runToolLoop', () => {
+  test('executeStreamToolCallsRound returns early when no tool calls', async () => {
+    const gen = executeStreamToolCallsRound({
+      toolCallsToExecute: [],
+      toolCallReasoning: undefined,
+      messages: [],
+      tools: [],
+      toolNameMap: {},
+      toolByName: new Map(),
+      budget: new ToolCallBudget(0),
+      toolCountdownEnabled: false,
+      maxResultLength: null,
+      providerManifest,
+      model: 'model',
+      metadata: undefined,
+      logger: createLoggerStub(),
+      invokeTool: async () => ({ result: null }),
+      calledToolNames: new Set(),
+      preserveToolResults: 'all',
+      preserveReasoning: 'all'
+    } as any);
+
+    const first = await gen.next();
+    expect(first.done).toBe(true);
+    expect(first.value).toEqual({ terminalStopThisRound: false });
+  });
+
   test('non-stream loop handles string runtime flags and records tool results', async () => {
     const callProvider = jest.fn().mockResolvedValue({
       provider: 'provider',

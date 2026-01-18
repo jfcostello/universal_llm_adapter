@@ -199,6 +199,7 @@ describe('extensions/voice: server upgrade handler', () => {
     });
 
     await reg.close();
+    await reg.close();
 
     const socket = makeSocket();
     await expect(reg.handleUpgrade({ req: { url: '/voice/media?token=bad' } as any, socket, head: Buffer.alloc(0), pathname: '/voice/media' })).resolves.toBe(true);

@@ -12,42 +12,8 @@ import { calculateBackoffDelay, setUnrefTimeout } from '../../../../modules/shar
 import { buildGeminiActivityEndMessage, buildGeminiActivityStartMessage, buildGeminiCommitTextTurnMessage, buildGeminiInterruptMessage, buildGeminiRealtimeAudioMessage, buildGeminiRealtimeTextMessage, buildGeminiSendTextMessage, buildGeminiSetupMessage, buildGeminiToolResponseMessage } from './commands.js';
 import { convertSessionAudioToProviderPcm16_16k } from './audio.js';
 import { mapGeminiLiveServerMessage, type GeminiRealtimeMapperState } from './event-mapper.js';
-
-type WsLike = {
-  readyState: number;
-  on: (event: string, cb: (...args: any[]) => void) => void;
-  send: (data: any) => void;
-  close: (code?: number, reason?: string) => void;
-  terminate: () => void;
-};
-
-function resolveRealtimeUrl(options: { urlTemplate: string; model: string; query?: Record<string, string> }): string {
-  const template = String(options.urlTemplate);
-  const base = template.includes('{model}')
-    ? template.replace('{model}', encodeURIComponent(options.model))
-    : template;
-
-  const url = new URL(base);
-  if (options.query) {
-    for (const [k, v] of Object.entries(options.query)) {
-      url.searchParams.set(k, v.includes('{model}') ? v.replace('{model}', options.model) : v);
-    }
-  }
-  return url.toString();
-}
-
-function generateSessionId(): string {
-  return `sess_local_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-}
-
-function send(ws: WsLike, msg: any): void {
-  ws.send(JSON.stringify(msg));
-}
-
-function ensureJsonObject(value: JsonValue): any {
-  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
-  return { output: value };
-}
+import { ensureJsonObject, generateSessionId, resolveRealtimeUrl, send } from './session-helpers.js';
+import type { WsLike } from './session-helpers.js';
 
 export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeCompat['createSession']>[0]): RealtimeCompatSession {
   const provider = options.provider;

@@ -32,3 +32,5 @@ export { emitManifestOverrideWarning } from './internal/manifest-override-warnin
 
 export type { ValidateE164Result } from './internal/validate-e164.js';
 export { validateE164 } from './internal/validate-e164.js';
+
+export { parseNonNegativeInt } from './internal/parse-non-negative-int.js';
