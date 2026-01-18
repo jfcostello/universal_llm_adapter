@@ -1,3 +1,4 @@
+import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
@@ -37,6 +38,28 @@ const CODE_FILE_EXTENSIONS = new Set([
   '.mjs',
   '.cjs'
 ]);
+
+function listTrackedFiles(rootDir: string): string[] | null {
+  try {
+    const result = spawnSync('git', ['ls-files', '-z'], {
+      cwd: rootDir,
+      encoding: 'buffer',
+      windowsHide: true
+    });
+
+    if (result.error) return null;
+    if (result.status !== 0) return null;
+
+    const stdout = Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(String(result.stdout ?? ''), 'utf8');
+    if (stdout.length === 0) return [];
+    return stdout
+      .toString('utf8')
+      .split('\u0000')
+      .filter(Boolean);
+  } catch {
+    return null;
+  }
+}
 
 function isTestPath(relativePath: string): boolean {
   const normalized = relativePath.replace(/\\/g, '/').toLowerCase();
@@ -81,6 +104,33 @@ export function findGodFileViolations(options: GodFileScanOptions): GodFileViola
   const maxLines = Math.max(1, Math.floor(options.maxLines));
 
   const violations: GodFileViolation[] = [];
+
+  const tracked = listTrackedFiles(rootDir);
+  if (tracked) {
+    for (const relPathRaw of tracked) {
+      const relPath = String(relPathRaw).replace(/\\/g, '/');
+      const filePath = path.join(rootDir, relPath);
+
+      if (isTestPath(relPath)) continue;
+      if (isExemptFile(filePath)) continue;
+      if (!isCodeFile(filePath)) continue;
+
+      let text: string;
+      try {
+        text = fs.readFileSync(filePath, 'utf8');
+      } catch {
+        // If a tracked file is missing locally (e.g. sparse checkout), ignore it.
+        continue;
+      }
+
+      const lineCount = countLines(text);
+      if (lineCount > maxLines) {
+        violations.push({ filePath: relPath, lineCount });
+      }
+    }
+
+    return violations.sort((a, b) => b.lineCount - a.lineCount || a.filePath.localeCompare(b.filePath));
+  }
 
   const visit = (dir: string) => {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
