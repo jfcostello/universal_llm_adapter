@@ -356,25 +356,60 @@ describe('integration/realtime-compat/gemini session', () => {
 
   test('does not reconnect after close (covers connect closed guard)', async () => {
     const server = await startWsServer({ closeOnSetup: true });
+    const originalSetTimeout = globalThis.setTimeout;
+    const capturedTimeouts: Array<{ callback: () => void; ms: number; stack: string }> = [];
     try {
+      // Deterministically cover the `connect()` closed guard by simulating a reconnect timer that fires
+      // after the client calls `session.close()` (a real race when a timer callback is already queued).
+      globalThis.setTimeout = ((callback: any, ms: any, ...args: any[]) => {
+        const id = originalSetTimeout(callback, ms, ...args) as any;
+        try {
+          const stack = new Error().stack ?? '';
+          if (stack.includes('plugins/realtime-compat/gemini/internal/session.ts') && typeof callback === 'function') {
+            capturedTimeouts.push({
+              callback: () => callback(...args),
+              ms: Number(ms),
+              stack
+            });
+          }
+        } catch {}
+        return id;
+      }) as any;
+
       const session = createGeminiRealtimeCompatSession({
         provider: {
           id: 'google',
           compat: 'gemini',
           endpoint: { urlTemplate: server.urlTemplate, headers: {} }
         } as any,
-        spec: { provider: 'google', model: 'm', turnDetection: { mode: 'manual_commit' } }
+        spec: { provider: 'google', model: 'm', turnDetection: { mode: 'manual_commit' }, handshake: { readyFallbackMs: 60000 } }
       } as any);
 
       await waitForMessage(server.messages, m => m?.setup?.model === 'models/m', 2000);
-      await new Promise(res => setTimeout(res, 50));
+      await new Promise(res => originalSetTimeout(res, 50));
+
+      const waitForReconnectTimerCallback = async (): Promise<() => void> => {
+        const start = Date.now();
+        while (Date.now() - start < 2000) {
+          // The setupComplete deadline timer uses readyFallbackMs (configured above),
+          // but reconnect backoff is <= 2000ms.
+          const match = capturedTimeouts.find(t => t.ms <= 2000 && t.stack.includes('scheduleReconnect'));
+          if (match) return match.callback;
+          await new Promise(res => originalSetTimeout(res, 10));
+        }
+        throw new Error('Timed out waiting for reconnect timer to be scheduled');
+      };
+
+      const reconnectCallback = await waitForReconnectTimerCallback();
 
       await session.close();
+      reconnectCallback();
 
-      await new Promise(res => setTimeout(res, 800));
+      await new Promise(res => originalSetTimeout(res, 25));
       const setupCount = server.messages.filter(m => m?.setup?.model === 'models/m').length;
       expect(setupCount).toBe(1);
     } finally {
+      globalThis.setTimeout = originalSetTimeout;
       await server.close();
     }
   });
