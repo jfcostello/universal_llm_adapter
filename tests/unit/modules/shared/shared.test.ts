@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 import {
   normalizeFlag,
+  parseNonNegativeInt,
   assertValidExtensionName,
   readTrimmedStringProperty,
   makeHttpError,
@@ -88,6 +89,32 @@ describe('modules/shared', () => {
       expect(normalizeFlag({}, false)).toBe(true);
       expect(normalizeFlag([], false)).toBe(true);
       expect(normalizeFlag(() => {}, false)).toBe(true);
+    });
+  });
+
+  describe('parseNonNegativeInt', () => {
+    test('returns defaultValue for null and undefined', () => {
+      expect(parseNonNegativeInt(null, 5)).toBe(5);
+      expect(parseNonNegativeInt(undefined, 5)).toBe(5);
+    });
+
+    test('coerces numbers by flooring and clamping to >= 0', () => {
+      expect(parseNonNegativeInt(0, 5)).toBe(0);
+      expect(parseNonNegativeInt(3.9, 5)).toBe(3);
+      expect(parseNonNegativeInt(-1, 5)).toBe(0);
+    });
+
+    test('returns defaultValue for non-finite numbers', () => {
+      expect(parseNonNegativeInt(Number.NaN, 5)).toBe(5);
+      expect(parseNonNegativeInt(Number.POSITIVE_INFINITY, 5)).toBe(5);
+      expect(parseNonNegativeInt(Number.NEGATIVE_INFINITY, 5)).toBe(5);
+    });
+
+    test('parses strings via parseInt and clamps negatives', () => {
+      expect(parseNonNegativeInt('7', 5)).toBe(7);
+      expect(parseNonNegativeInt('7.9', 5)).toBe(7);
+      expect(parseNonNegativeInt('-2', 5)).toBe(0);
+      expect(parseNonNegativeInt('nope', 5)).toBe(5);
     });
   });
 
