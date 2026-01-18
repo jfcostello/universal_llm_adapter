@@ -15,13 +15,13 @@ import { createVoiceCallConfigStoreFromEnv } from '../../../call-config-store/in
 import { createVoiceCallEventHub, type VoiceCallEventHub } from '../../../call-events/index.js';
 import { createVoiceMetrics } from '../../../observability/index.js';
 
-import { readVoiceExtensionDefaults } from './config-normalize.js';
-import type { VoiceServerContext } from './context.js';
-import { createVoiceHttpHandler } from './http-handler.js';
-import { createVoiceLoggerResolver } from './logger.js';
-import type { VoiceLogging, VoiceServerRegistration } from './types.js';
-import { asPlainObject } from './utils-ws.js';
-import { createVoiceMediaWs } from './ws-media.js';
+import { readVoiceExtensionDefaults } from './internal/config/config-normalize.js';
+import type { VoiceServerContext } from './internal/core/context.js';
+import { createVoiceLoggerResolver } from './internal/core/logger.js';
+import type { VoiceLogging, VoiceServerRegistration } from './internal/core/types.js';
+import { createVoiceHttpHandler } from './internal/http/http-handler.js';
+import { asPlainObject } from './internal/ws/utils-ws.js';
+import { createVoiceMediaWs } from './internal/ws/ws-media.js';
 
 export async function createVoiceServerRegistration(ctx: {
   server: http.Server;
@@ -242,4 +242,3 @@ export async function createVoiceServerRegistration(ctx: {
     close
   };
 }
-

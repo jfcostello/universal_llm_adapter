@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
 
 import type { PluginRegistryLike } from './deps.js';
+import { makeCliError } from './cli-error.js';
 import type { UnifiedCliContext } from './types.js';
 
 type RealtimeClientMessage =
@@ -46,26 +47,11 @@ export function registerRealtimeCommands(program: Command, ctx: UnifiedCliContex
         const { loadSpec } = await import('../../spec-loader.js');
         const { writeJsonToStdout } = await import('../../stdout-writer.js');
 
-        const makeValidationError = (message: string) => {
-          const err: any = new Error(message);
-          err.statusCode = 400;
-          err.code = 'validation_error';
-          return err;
-        };
+        const makeValidationError = (message: string) => makeCliError({ message, statusCode: 400, code: 'validation_error' });
 
-        const makeNotImplementedError = (message: string) => {
-          const err: any = new Error(message);
-          err.statusCode = 501;
-          err.code = 'not_implemented';
-          return err;
-        };
+        const makeNotImplementedError = (message: string) => makeCliError({ message, statusCode: 501, code: 'not_implemented' });
 
-        const makeUpstreamError = (message: string) => {
-          const err: any = new Error(message);
-          err.statusCode = 502;
-          err.code = 'upstream_error';
-          return err;
-        };
+        const makeUpstreamError = (message: string) => makeCliError({ message, statusCode: 502, code: 'upstream_error' });
 
         const body = await loadSpec<RealtimeClientSecretRequest>(options);
         const providerId = String((body as any)?.provider ?? '').trim();

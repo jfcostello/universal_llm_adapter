@@ -364,7 +364,7 @@ describe('integration/realtime-compat/gemini session', () => {
       globalThis.setTimeout = ((callback: any, ms: any, ...args: any[]) => {
         const id = originalSetTimeout(callback, ms, ...args) as any;
         try {
-          const stack = new Error().stack ?? '';
+          const stack = (new Error().stack ?? '').replace(/\\/g, '/');
           if (stack.includes('plugins/realtime-compat/gemini/internal/session.ts') && typeof callback === 'function') {
             capturedTimeouts.push({
               callback: () => callback(...args),

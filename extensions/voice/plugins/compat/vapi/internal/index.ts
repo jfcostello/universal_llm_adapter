@@ -1,10 +1,10 @@
 import type http from 'http';
 
-import { createOutboundCall } from './outbound-call.js';
-import { endCall } from './end-call.js';
-import { getRecordingDownloadRequest } from './recording.js';
-import { createWebhookResponse } from './webhook-response.js';
-import { validateWebhookRequest } from './webhook-auth.js';
+import { createOutboundCall } from './calls/outbound-call.js';
+import { endCall } from './calls/end-call.js';
+import { getRecordingDownloadRequest } from './recordings/recording.js';
+import { createWebhookResponse } from './webhooks/webhook-response.js';
+import { validateWebhookRequest } from './webhooks/webhook-auth.js';
 
 export default class VapiVoiceCompat {
   async validateWebhookRequest(options: {
@@ -53,4 +53,3 @@ export default class VapiVoiceCompat {
     try { options.ws?.close?.(); } catch {}
   }
 }
-
