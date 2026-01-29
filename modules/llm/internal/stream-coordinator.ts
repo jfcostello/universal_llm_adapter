@@ -8,7 +8,7 @@ import type {
   AdapterLogger,
   ObservabilityContext
 } from '../../../kernel/index.js';
-import { StreamEventType, ToolCallEventType, getDefaults, safeJsonParse } from '../../../kernel/index.js';
+import { StreamEventType, ToolCallEventType, getDefaults, safeJsonParse, sanitizeToolName } from '../../../kernel/index.js';
 import { monotonicNowNs, normalizeFlag } from '../../shared/index.js';
 import { partitionSettings } from '../../settings/index.js';
 import { usageStatsToJson } from '../../usage/index.js';
@@ -262,8 +262,9 @@ export class StreamCoordinator {
         });
 
         const toolNameMap = Object.fromEntries(context.toolNameMap.entries());
+        const toolBySchemaName = new Map(tools.map(tool => [tool.name, tool]));
 
-        const { runToolLoop } = await import('../../tools/index.js');
+        const { runToolLoop, resolveToolRoutingHints } = await import('../../tools/index.js');
         const streamGenerator = runToolLoop({
           mode: 'stream',
           llmManager: this.llmManager,
@@ -282,16 +283,29 @@ export class StreamCoordinator {
           metadata: executionSpec.metadata,
           initialToolCalls: preparedToolCalls,
           initialReasoning: reasoningAggregate,
-          invokeTool: async (toolName, call) => {
+          invokeTool: async (toolName, call, invocationContext) => {
+            const schemaName = typeof (call as any)?.name === 'string' ? String((call as any).name).trim() : '';
+            const toolDef = schemaName
+              ? toolBySchemaName.get(schemaName) ?? toolBySchemaName.get(sanitizeToolName(schemaName))
+              : undefined;
+            const { toolId, processRouteId } = resolveToolRoutingHints({
+              toolName,
+              toolDef,
+              toolRouting: executionSpec.toolRouting
+            });
+
             return this.toolCoordinator.routeAndInvoke(
               toolName,
               call.id,
               call.arguments,
               {
-                provider,
-                model,
-                metadata: executionSpec.metadata,
-                logger: context.logger
+                provider: invocationContext.provider,
+                model: invocationContext.model,
+                metadata: invocationContext.metadata,
+                logger: invocationContext.logger,
+                callProgress: invocationContext.callProgress,
+                toolId,
+                processRouteId
               }
             );
           }

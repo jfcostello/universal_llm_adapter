@@ -224,8 +224,9 @@ export class LLMCoordinator {
     // Ensure the proxy has a current spec if it needs to lazily initialize the tool coordinator.
     this.activeToolSpec = spec;
 
-    const { runToolLoop } = await import('../../../tools/index.js');
-
+    const { runToolLoop, resolveToolRoutingHints } = await import('../../../tools/index.js');
+    const toolBySanitizedName = new Map(tools.map(tool => [tool.name, tool]));
+    const toolRouting = spec.toolRouting;
     return runToolLoop({
       mode: 'nonstream',
       llmManager: this.llmManager,
@@ -244,6 +245,11 @@ export class LLMCoordinator {
       metadata: spec.metadata,
       initialResponse: response,
       invokeTool: async (toolName, call, context) => {
+        const callName = typeof (call as any)?.name === 'string' ? String((call as any).name) : '';
+        const toolDef = toolBySanitizedName.get(callName) ||
+          (callName ? toolBySanitizedName.get(sanitizeToolName(callName)) : undefined);
+        const { toolId, processRouteId } = resolveToolRoutingHints({ toolName, toolDef, toolRouting });
+
         return this.toolCoordinator.routeAndInvoke(
           toolName,
           call.id,
@@ -253,7 +259,9 @@ export class LLMCoordinator {
             model: context.model,
             metadata: context.metadata,
             logger: context.logger,
-            callProgress: context.callProgress
+            callProgress: context.callProgress,
+            toolId,
+            processRouteId
           }
         );
       }

@@ -24,7 +24,7 @@ describe('ToolCoordinator edge cases', () => {
   }
 
   test('wraps primitive module result and logs call progress', async () => {
-    const logger = { info: jest.fn() } as any;
+    const logger = { debug: jest.fn(), info: jest.fn() } as any;
     const route = {
       id: 'raw-module',
       match: { type: 'exact', pattern: 'raw.tool' },
@@ -51,12 +51,13 @@ describe('ToolCoordinator edge cases', () => {
     );
 
     expect(result).toEqual({ result: 'raw-value' });
-    expect(logger.info).toHaveBeenCalledWith('Routing tool call', expect.objectContaining({
+    expect(logger.debug).toHaveBeenCalledWith('Routing tool call', expect.objectContaining({
       routeId: 'raw-module',
       invokeKind: 'module',
       toolCallProgress: '1 of 1',
       finalToolCall: true
     }));
+    expect(logger.info).not.toHaveBeenCalledWith('Routing tool call', expect.anything());
   });
 
   test('throws descriptive error when module metadata missing', async () => {

@@ -5,4 +5,4 @@ export * from './internal/tool-discovery.js';
 export * from './internal/tool-loop.js';
 export * from './internal/tool-message.js';
 export * from './internal/tool-names.js';
-
+export * from './internal/tool-routing.js';

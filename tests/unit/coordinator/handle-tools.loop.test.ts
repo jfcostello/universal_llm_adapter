@@ -161,6 +161,179 @@ describe('coordinator handleTools loop behaviour', () => {
     });
   });
 
+  test('passes tool routing overrides (runtime + tool definition) to ToolCoordinator', async () => {
+    const registry = createRegistryStub();
+    const coordinator = new LLMCoordinator(registry);
+
+    const logger = { info: jest.fn() };
+
+    const followUpResponse = {
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [{ type: 'text', text: 'follow-up' }],
+      finishReason: 'stop',
+      toolCalls: []
+    } as any;
+
+    (coordinator as any).toolCoordinator = {
+      routeAndInvoke: jest.fn().mockResolvedValue({ result: { echoed: true } })
+    };
+
+    (coordinator as any).llmManager = {
+      callProvider: jest.fn().mockResolvedValueOnce(followUpResponse)
+    };
+
+    const makeMessages = () => [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }];
+    const messages = makeMessages();
+    const response = {
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [{ type: 'text', text: 'needs tool' }],
+      toolCalls: [{ id: 'call-1', name: 'func_tool', arguments: {} }]
+    } as any;
+
+    const tools = [
+      { name: 'func_tool', description: 'desc', parametersJsonSchema: { type: 'object' }, id: 'tool-123', processRouteId: 'route-tool' }
+    ];
+    const toolNameMap = { func_tool: 'func.tool' };
+
+    // Runtime override by name should win over runtime by id and tool definition.
+    const spec = {
+      settings: {},
+      metadata: {},
+      toolRouting: {
+        routesByName: { 'func.tool': 'route-runtime-name' },
+        routesById: { 'tool-123': 'route-runtime-id' }
+      }
+    } as any;
+
+    await (coordinator as any).handleTools(
+      spec,
+      { maxToolIterations: 1 },
+      {},
+      { id: 'provider' },
+      'model',
+      messages,
+      tools as any,
+      response,
+      logger,
+      {},
+      toolNameMap
+    );
+
+    expect((coordinator as any).toolCoordinator.routeAndInvoke).toHaveBeenCalledWith(
+      'func.tool',
+      'call-1',
+      {},
+      expect.objectContaining({
+        processRouteId: 'route-runtime-name',
+        toolId: 'tool-123'
+      })
+    );
+
+    // Runtime override by id should be used when no name mapping is provided.
+    (coordinator as any).toolCoordinator.routeAndInvoke.mockClear();
+    await (coordinator as any).handleTools(
+      {
+        settings: {},
+        metadata: {},
+        toolRouting: { routesById: { 'tool-123': 'route-runtime-id' } }
+      } as any,
+      { maxToolIterations: 1 },
+      {},
+      { id: 'provider' },
+      'model',
+      makeMessages(),
+      tools as any,
+      response,
+      logger,
+      {},
+      toolNameMap
+    );
+
+    expect((coordinator as any).toolCoordinator.routeAndInvoke).toHaveBeenCalledWith(
+      'func.tool',
+      'call-1',
+      {},
+      expect.objectContaining({ processRouteId: 'route-runtime-id', toolId: 'tool-123' })
+    );
+
+    // Tool definition route should be used when no runtime mapping exists.
+    (coordinator as any).toolCoordinator.routeAndInvoke.mockClear();
+    await (coordinator as any).handleTools(
+      { settings: {}, metadata: {} } as any,
+      { maxToolIterations: 1 },
+      {},
+      { id: 'provider' },
+      'model',
+      makeMessages(),
+      tools as any,
+      response,
+      logger,
+      {},
+      toolNameMap
+    );
+
+    expect((coordinator as any).toolCoordinator.routeAndInvoke).toHaveBeenCalledWith(
+      'func.tool',
+      'call-1',
+      {},
+      expect.objectContaining({ processRouteId: 'route-tool', toolId: 'tool-123' })
+    );
+  });
+
+  test('treats blank tool routing hints as undefined', async () => {
+    const registry = createRegistryStub();
+    const coordinator = new LLMCoordinator(registry);
+
+    (coordinator as any).toolCoordinator = {
+      routeAndInvoke: jest.fn().mockResolvedValue({ result: { echoed: true } })
+    };
+
+    (coordinator as any).llmManager = {
+      callProvider: jest.fn().mockResolvedValueOnce({
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: [{ type: 'text', text: 'follow-up' }],
+        finishReason: 'stop',
+        toolCalls: []
+      } as any)
+    };
+
+    const spec = { settings: {}, metadata: {} } as any;
+    const response = {
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [{ type: 'text', text: 'needs tool' }],
+      toolCalls: [{ id: 'call-1', name: 'func_tool', arguments: {} }]
+    } as any;
+
+    await (coordinator as any).handleTools(
+      spec,
+      { maxToolIterations: 1 },
+      {},
+      { id: 'provider' },
+      'model',
+      [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }],
+      [{ name: 'func_tool', description: 'desc', parametersJsonSchema: { type: 'object' }, id: '   ', processRouteId: '  ' }] as any,
+      response,
+      { info: jest.fn() },
+      {},
+      { func_tool: 'func.tool' }
+    );
+
+    expect((coordinator as any).toolCoordinator.routeAndInvoke).toHaveBeenCalledWith(
+      'func.tool',
+      'call-1',
+      {},
+      expect.objectContaining({ toolId: undefined, processRouteId: undefined })
+    );
+  });
+
   test('runs final prompt when budget exhausted', async () => {
     const registry = createRegistryStub();
     const coordinator = new LLMCoordinator(registry);

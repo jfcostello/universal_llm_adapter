@@ -3,7 +3,7 @@ import type { ObservabilitySpec } from '../../observability-spec-types.js';
 import type { ContentPart, Message, ReasoningData, Role } from './chat.js';
 import type { JsonObject, JsonValue } from './json.js';
 import type { LLMCallSettings, LLMPriorityItem } from './settings.js';
-import type { ToolCall, ToolChoice, UnifiedTool } from './tools.js';
+import type { ToolCall, ToolChoice, ToolRoutingSpec, UnifiedTool } from './tools.js';
 import type { VectorContextConfig } from './vector-context.js';
 
 export interface LLMCallSpec {
@@ -19,6 +19,8 @@ export interface LLMCallSpec {
   vectorContext?: VectorContextConfig;
   llmPriority: LLMPriorityItem[];
   toolChoice?: ToolChoice;
+  /** Optional adapter-side tool routing overrides for this call. */
+  toolRouting?: ToolRoutingSpec;
   rateLimitRetryDelays?: number[];
   settings: LLMCallSettings;
   metadata?: JsonObject;

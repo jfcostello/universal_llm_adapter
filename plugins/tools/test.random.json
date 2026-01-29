@@ -1,4 +1,5 @@
 {
+  "id": "test-tool-random",
   "name": "test.random",
   "description": "Generate a random number or unique identifier for testing purposes",
   "parametersJsonSchema": {

@@ -1,6 +1,7 @@
 {
   "name": "test.control",
   "description": "Live-test helper tool that can override terminal behavior and introduce deterministic delays for timeout coverage.",
+  "processRouteId": "test-control-explicit",
   "terminal": true,
   "parametersJsonSchema": {
     "type": "object",

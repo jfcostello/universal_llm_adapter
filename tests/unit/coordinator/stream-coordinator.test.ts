@@ -833,4 +833,272 @@ describe('StreamCoordinator', () => {
     expect(doneMissingPrompt?.response?.usage?.cost).toBeUndefined();
   });
 
+  test('stream tool routing: schemaName is empty when call.name is missing', async () => {
+    const streamResponses = [
+      (async function* () {
+        yield { choices: [{}] };
+      })(),
+      (async function* () {
+        yield { choices: [{ delta: { content: 'follow-up' } }] };
+      })()
+    ];
+
+    let parseCallCount = 0;
+    const { coordinator, toolCoordinator, compatModule, llmManager } = createCoordinator({
+      compatModule: {
+        parseStreamChunk: jest.fn((chunk: any) => {
+          parseCallCount++;
+          if (parseCallCount === 1) {
+            return {
+              text: undefined,
+              toolEvents: [
+                { type: ToolCallEventType.TOOL_CALL_START, callId: '1', name: undefined },
+                { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: '1', argumentsDelta: '{"a":1}' },
+                { type: ToolCallEventType.TOOL_CALL_END, callId: '1', name: undefined, arguments: '{"a":1}' }
+              ]
+            };
+          }
+          return { text: chunk.choices?.[0]?.delta?.content, toolEvents: undefined };
+        })
+      },
+      llmManager: { streamProvider: jest.fn(() => streamResponses.shift()!) },
+      toolCoordinator: { routeAndInvoke: jest.fn().mockResolvedValue({ result: { ok: true } }) }
+    });
+
+    const spec: any = {
+      llmPriority: [{ provider: 'provider', model: 'model' }],
+      settings: { maxToolIterations: 1 },
+      metadata: {}
+    };
+    const context = createContext();
+
+    for await (const _ of coordinator.coordinateStream(spec, [], [], context)) {
+      // drain
+    }
+
+    expect(llmManager.streamProvider).toHaveBeenCalledTimes(2);
+    expect(compatModule.parseStreamChunk).toHaveBeenCalled();
+    expect(toolCoordinator.routeAndInvoke).toHaveBeenCalledWith(
+      'unknown_tool',
+      '1',
+      { a: 1 },
+      expect.objectContaining({ toolId: undefined, processRouteId: undefined })
+    );
+  });
+
+  test('stream tool routing: schemaName is empty when call.name is whitespace', async () => {
+    const streamResponses = [
+      (async function* () {
+        yield { choices: [{}] };
+      })(),
+      (async function* () {
+        yield { choices: [{ delta: { content: 'follow-up' } }] };
+      })()
+    ];
+
+    let parseCallCount = 0;
+    const { coordinator, toolCoordinator } = createCoordinator({
+      compatModule: {
+        parseStreamChunk: jest.fn((chunk: any) => {
+          parseCallCount++;
+          if (parseCallCount === 1) {
+            return {
+              text: undefined,
+              toolEvents: [
+                { type: ToolCallEventType.TOOL_CALL_START, callId: '1', name: '   ' },
+                { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: '1', argumentsDelta: '{"a":1}' },
+                { type: ToolCallEventType.TOOL_CALL_END, callId: '1', name: '   ', arguments: '{"a":1}' }
+              ]
+            };
+          }
+          return { text: chunk.choices?.[0]?.delta?.content, toolEvents: undefined };
+        })
+      },
+      llmManager: { streamProvider: jest.fn(() => streamResponses.shift()!) },
+      toolCoordinator: { routeAndInvoke: jest.fn().mockResolvedValue({ result: { ok: true } }) }
+    });
+
+    const spec: any = {
+      llmPriority: [{ provider: 'provider', model: 'model' }],
+      settings: { maxToolIterations: 1 },
+      metadata: {}
+    };
+    const context = createContext();
+
+    for await (const _ of coordinator.coordinateStream(spec, [], [], context)) {
+      // drain
+    }
+
+    expect(toolCoordinator.routeAndInvoke).toHaveBeenCalledWith(
+      '   ',
+      '1',
+      { a: 1 },
+      expect.objectContaining({ toolId: undefined, processRouteId: undefined })
+    );
+  });
+
+  test('stream tool routing: direct schema match falls back when routesById maps to whitespace', async () => {
+    const streamResponses = [
+      (async function* () {
+        yield { choices: [{}] };
+      })(),
+      (async function* () {
+        yield { choices: [{ delta: { content: 'follow-up' } }] };
+      })()
+    ];
+
+    let parseCallCount = 0;
+    const { coordinator, toolCoordinator } = createCoordinator({
+      compatModule: {
+        parseStreamChunk: jest.fn((chunk: any) => {
+          parseCallCount++;
+          if (parseCallCount === 1) {
+            return {
+              text: undefined,
+              toolEvents: [
+                { type: ToolCallEventType.TOOL_CALL_START, callId: '1', name: 'tool_sanitized' },
+                { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: '1', argumentsDelta: '{"a":1}' },
+                { type: ToolCallEventType.TOOL_CALL_END, callId: '1', name: 'tool_sanitized', arguments: '{"a":1}' }
+              ]
+            };
+          }
+          return { text: chunk.choices?.[0]?.delta?.content, toolEvents: undefined };
+        })
+      },
+      llmManager: { streamProvider: jest.fn(() => streamResponses.shift()!) },
+      toolCoordinator: { routeAndInvoke: jest.fn().mockResolvedValue({ result: { ok: true } }) }
+    });
+
+    const spec: any = {
+      llmPriority: [{ provider: 'provider', model: 'model' }],
+      settings: { maxToolIterations: 1 },
+      toolRouting: { routesById: { 'tool-123': '   ' } },
+      metadata: {}
+    };
+    const context = createContext();
+    context.toolNameMap = new Map([['tool_sanitized', 'tool.original']]);
+
+    const tools = [{ name: 'tool_sanitized', id: 'tool-123', processRouteId: 'route-tool' }];
+
+    for await (const _ of coordinator.coordinateStream(spec, [], tools as any, context)) {
+      // drain
+    }
+
+    expect(toolCoordinator.routeAndInvoke).toHaveBeenCalledWith(
+      'tool.original',
+      '1',
+      { a: 1 },
+      expect.objectContaining({ toolId: 'tool-123', processRouteId: 'route-tool' })
+    );
+  });
+
+  test('stream tool routing: falls back to sanitizeToolName(call.name) for tool definition lookup', async () => {
+    const streamResponses = [
+      (async function* () {
+        yield { choices: [{}] };
+      })(),
+      (async function* () {
+        yield { choices: [{ delta: { content: 'follow-up' } }] };
+      })()
+    ];
+
+    let parseCallCount = 0;
+    const { coordinator, toolCoordinator } = createCoordinator({
+      compatModule: {
+        parseStreamChunk: jest.fn((chunk: any) => {
+          parseCallCount++;
+          if (parseCallCount === 1) {
+            return {
+              text: undefined,
+              toolEvents: [
+                { type: ToolCallEventType.TOOL_CALL_START, callId: '1', name: 'tool.sanitized' },
+                { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: '1', argumentsDelta: '{"a":1}' },
+                { type: ToolCallEventType.TOOL_CALL_END, callId: '1', name: 'tool.sanitized', arguments: '{"a":1}' }
+              ]
+            };
+          }
+          return { text: chunk.choices?.[0]?.delta?.content, toolEvents: undefined };
+        })
+      },
+      llmManager: { streamProvider: jest.fn(() => streamResponses.shift()!) },
+      toolCoordinator: { routeAndInvoke: jest.fn().mockResolvedValue({ result: { ok: true } }) }
+    });
+
+    const spec: any = {
+      llmPriority: [{ provider: 'provider', model: 'model' }],
+      settings: { maxToolIterations: 1 },
+      toolRouting: { routesById: { 'tool-123': 'route-runtime-id' } },
+      metadata: {}
+    };
+    const context = createContext();
+    context.toolNameMap = new Map([['tool_sanitized', 'tool.original']]);
+
+    const tools = [{ name: 'tool_sanitized', id: 'tool-123', processRouteId: 'route-tool' }];
+
+    for await (const _ of coordinator.coordinateStream(spec, [], tools as any, context)) {
+      // drain
+    }
+
+    expect(toolCoordinator.routeAndInvoke).toHaveBeenCalledWith(
+      'tool.original',
+      '1',
+      { a: 1 },
+      expect.objectContaining({ toolId: 'tool-123', processRouteId: 'route-runtime-id' })
+    );
+  });
+
+  test('stream tool routing: treats blank tool id/processRouteId as undefined', async () => {
+    const streamResponses = [
+      (async function* () {
+        yield { choices: [{}] };
+      })(),
+      (async function* () {
+        yield { choices: [{ delta: { content: 'follow-up' } }] };
+      })()
+    ];
+
+    let parseCallCount = 0;
+    const { coordinator, toolCoordinator } = createCoordinator({
+      compatModule: {
+        parseStreamChunk: jest.fn((chunk: any) => {
+          parseCallCount++;
+          if (parseCallCount === 1) {
+            return {
+              text: undefined,
+              toolEvents: [
+                { type: ToolCallEventType.TOOL_CALL_START, callId: '1', name: 'tool_sanitized' },
+                { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: '1', argumentsDelta: '{"a":1}' },
+                { type: ToolCallEventType.TOOL_CALL_END, callId: '1', name: 'tool_sanitized', arguments: '{"a":1}' }
+              ]
+            };
+          }
+          return { text: chunk.choices?.[0]?.delta?.content, toolEvents: undefined };
+        })
+      },
+      llmManager: { streamProvider: jest.fn(() => streamResponses.shift()!) },
+      toolCoordinator: { routeAndInvoke: jest.fn().mockResolvedValue({ result: { ok: true } }) }
+    });
+
+    const spec: any = {
+      llmPriority: [{ provider: 'provider', model: 'model' }],
+      settings: { maxToolIterations: 1 },
+      metadata: {}
+    };
+    const context = createContext();
+    context.toolNameMap = new Map([['tool_sanitized', 'tool.original']]);
+
+    const tools = [{ name: 'tool_sanitized', id: '   ', processRouteId: '  ' }];
+
+    for await (const _ of coordinator.coordinateStream(spec, [], tools as any, context)) {
+      // drain
+    }
+
+    expect(toolCoordinator.routeAndInvoke).toHaveBeenCalledWith(
+      'tool.original',
+      '1',
+      { a: 1 },
+      expect.objectContaining({ toolId: undefined, processRouteId: undefined })
+    );
+  });
+
 });

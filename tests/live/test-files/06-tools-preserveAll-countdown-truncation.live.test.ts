@@ -1,5 +1,6 @@
 import { buildLogPathFor, mergeSettings, parseLogBodies, runLlmOnce } from '@tests/helpers/live.ts';
 import type { LLMResponse, Message } from '@tests/helpers/live-types.ts';
+import { getToolRoutingRouteIds } from '@tests/helpers/adapter-logs.ts';
 import { filteredTestRuns } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
@@ -103,6 +104,9 @@ function findToolTextParts(messages: any[]): string[] {
     expect(toolResults[0]?.tool).toBe('test.random');
     expect(typeof toolResults[0]?.result?.randomValue).toBe('number');
     expect(typeof toolResults[0]?.result?.timestamp).toBe('number');
+
+    const routeIds = getToolRoutingRouteIds(call.result.logs, 'test.random');
+    expect(routeIds).toContain('test-random-by-id');
 
     const logPath = buildLogPathFor(TEST_FILE);
     const bodies = parseLogBodies(logPath);

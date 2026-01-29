@@ -535,6 +535,13 @@ curl http://127.0.0.1:3000/embeddings/run \
   "mcpServers": ["testmcp"],
   "toolChoice": "auto",
 
+  // Optional tool routing overrides (highest precedence)
+  // Note: routesByName keys use the adapter tool name (tool manifest `name`), not the provider-facing sanitized name.
+  "toolRouting": {
+    "routesByName": { "test.echo": "test-echo" },
+    "routesById": { "echo-tool": "test-echo" }
+  },
+
   // Vector/RAG (optional)
   "vectorContext": {
     "stores": ["memory"],

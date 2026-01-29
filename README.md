@@ -230,8 +230,10 @@ Tool definitions live in `plugins/tools/*.json`:
 
 ```json
 {
+  "id": "echo-tool",
   "name": "test.echo",
   "description": "Echo back a message exactly as provided",
+  "processRouteId": "test-echo",
   "terminal": true,
   "parametersJsonSchema": {
     "type": "object",
@@ -254,18 +256,52 @@ There are two ways to mark terminal:
 
 When terminal, the adapter returns the tool result to the client and sets `finishReason: 'tool_stop'`.
 
+#### Tool Routing
+
+By default, tool calls are routed by tool name via `plugins/processes/*.json` (`match` rules).
+
+Optional routing hints (not exposed to the model/tool schema sent to providers):
+
+- Tool manifest: `id` (stable hidden identifier) and/or `processRouteId` (force a specific process route id)
+- Process route manifest: `matchToolId` (route by tool `id` without encoding it into the tool name)
+- Per-call overrides: `spec.toolRouting` (wins over tool/process definitions)
+
+Note: `toolRouting.routesByName` keys use the adapter tool name (`UnifiedTool.name` / `plugins/tools/*.json` `name`, e.g. `test.echo`), not the provider-facing sanitized name.
+
+Routing precedence (highest → lowest):
+
+1. `spec.toolRouting.routesByName[toolName]`
+2. `spec.toolRouting.routesById[toolId]`
+3. Tool `processRouteId`
+4. Process route `matchToolId` (matches tool `id`)
+5. Process route `match` (matches tool name)
+
+MCP fallback: when MCP is configured, tool names starting with `${serverId}.` or `${serverId}_` are routed to a virtual `invoke.kind: "mcp"` route for that server. The fallback route ids (`mcp-${serverId}`) are internal and are not valid values for explicit `processRouteId` / `toolRouting` route ids; define an explicit process route with `invoke.kind: "mcp"` if you need a stable route id.
+
 Process routing (how tools are invoked) lives in `plugins/processes/*.json`:
 
 ```json
 {
   "id": "test-echo",
   "match": { "type": "exact", "pattern": "test.echo" },
+  "matchToolId": { "type": "exact", "pattern": "echo-tool" },
   "invoke": {
     "kind": "module",
     "module": "../dist/plugins/modules/test-echo/index.js",
     "function": "handle"
   },
   "timeoutMs": 5000
+}
+```
+
+Runtime override example:
+
+```json
+{
+  "toolRouting": {
+    "routesByName": { "test.echo": "test-echo" },
+    "routesById": { "echo-tool": "test-echo" }
+  }
 }
 ```
 
