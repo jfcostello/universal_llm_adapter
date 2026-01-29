@@ -264,7 +264,7 @@ export class StreamCoordinator {
         const toolNameMap = Object.fromEntries(context.toolNameMap.entries());
         const toolBySchemaName = new Map(tools.map(tool => [tool.name, tool]));
 
-        const { runToolLoop } = await import('../../tools/index.js');
+        const { runToolLoop, resolveToolRoutingHints } = await import('../../tools/index.js');
         const streamGenerator = runToolLoop({
           mode: 'stream',
           llmManager: this.llmManager,
@@ -283,37 +283,27 @@ export class StreamCoordinator {
           metadata: executionSpec.metadata,
           initialToolCalls: preparedToolCalls,
           initialReasoning: reasoningAggregate,
-          invokeTool: async (toolName, call) => {
-            const schemaName = typeof (call as any)?.name === 'string' && String((call as any).name).trim()
-              ? String((call as any).name).trim()
-              : '';
-            const lookupName = schemaName && toolBySchemaName.has(schemaName)
-              ? schemaName
-              : schemaName
-                ? sanitizeToolName(schemaName)
-                : '';
-            const toolDef = lookupName ? toolBySchemaName.get(lookupName) : undefined;
-            const toolId = typeof (toolDef as any)?.id === 'string' ? String((toolDef as any).id).trim() || undefined : undefined;
-            const toolProcessRouteId =
-              typeof (toolDef as any)?.processRouteId === 'string' ? String((toolDef as any).processRouteId).trim() || undefined : undefined;
-            const toolRouting = executionSpec.toolRouting;
-            const routeFromName = toolRouting?.routesByName?.[toolName];
-            const routeFromId = toolId ? toolRouting?.routesById?.[toolId] : undefined;
-            const processRouteId = typeof routeFromName === 'string' && routeFromName.trim()
-              ? routeFromName.trim()
-              : typeof routeFromId === 'string' && routeFromId.trim()
-                ? routeFromId.trim()
-                : toolProcessRouteId;
+          invokeTool: async (toolName, call, invocationContext) => {
+            const schemaName = typeof (call as any)?.name === 'string' ? String((call as any).name).trim() : '';
+            const toolDef = schemaName
+              ? toolBySchemaName.get(schemaName) ?? toolBySchemaName.get(sanitizeToolName(schemaName))
+              : undefined;
+            const { toolId, processRouteId } = resolveToolRoutingHints({
+              toolName,
+              toolDef,
+              toolRouting: executionSpec.toolRouting
+            });
 
             return this.toolCoordinator.routeAndInvoke(
               toolName,
               call.id,
               call.arguments,
               {
-                provider,
-                model,
-                metadata: executionSpec.metadata,
-                logger: context.logger,
+                provider: invocationContext.provider,
+                model: invocationContext.model,
+                metadata: invocationContext.metadata,
+                logger: invocationContext.logger,
+                callProgress: invocationContext.callProgress,
                 toolId,
                 processRouteId
               }

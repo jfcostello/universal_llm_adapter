@@ -29,8 +29,28 @@ When terminal, the response `finishReason` is set to `tool_stop`.
 
 Tool routing is handled by `ToolCoordinator` via process routes (`plugins/processes/*.json`).
 
-Routing precedence (highest → lowest):
+Routing happens in two steps:
+1) Resolve routing hints (`toolId`, `processRouteId`) from tool definitions + runtime overrides.
+2) Select the process route (and then fall back to matchers).
 
-1. Explicit `processRouteId` from runtime (`spec.toolRouting`) or tool definitions (`UnifiedTool.processRouteId`)
-2. `ProcessRouteManifest.matchToolId` (matches `UnifiedTool.id`)
-3. `ProcessRouteManifest.match` (matches tool name)
+### Resolve routing hints
+
+`processRouteId` precedence (highest → lowest):
+1. Runtime override by name: `spec.toolRouting.routesByName[toolName]`
+2. Runtime override by id: `spec.toolRouting.routesById[toolId]`
+3. Tool definition: `UnifiedTool.processRouteId`
+
+All values are trimmed; blank strings are treated as unset.
+
+If an explicit route id is specified (steps 1–3) and it does not exist in `plugins/processes/*.json`, routing fails fast with a clear error.
+
+### Select route
+
+Route selection precedence (highest → lowest):
+1. Explicit `processRouteId`
+2. Exact id shortcut: `route.id === toolId`
+3. `ProcessRouteManifest.matchToolId` (matches `toolId`)
+4. `ProcessRouteManifest.match` (matches tool name)
+5. MCP prefix fallback: when MCP is configured, tool names starting with `${serverId}.` or `${serverId}_` are routed to a virtual `invoke.kind: "mcp"` route for that server.
+
+Note: MCP fallback route ids (`mcp-${serverId}`) are internal and are not valid values for explicit `processRouteId`. Use name-prefix routing (or define an explicit process route with `invoke.kind: "mcp"` if you need a stable route id).

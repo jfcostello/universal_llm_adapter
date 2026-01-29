@@ -1,14 +1,11 @@
 import { spawn } from 'child_process';
 import path from 'path';
 import { pathToFileURL } from 'url';
-
 import axios from 'axios';
 import { Minimatch } from 'minimatch';
-
 import { ProcessRouteManifest, VectorContextConfig, ToolExecutionError, getDefaults } from '../../../../kernel/index.js';
 import type { PluginRegistry } from '../../../../kernel/index.js';
 import type { MCPClientPool } from '../../../mcp/index.js';
-
 import { invokeCommand as invokeCommandImpl } from './internal/invoke-command.js';
 import { resolveInvokeModulePath } from './internal/resolve-invoke-module-path.js';
 import { createTimeout as createTimeoutImpl } from './internal/timeout.js';
@@ -120,12 +117,10 @@ export class ToolCoordinator {
     if (this.isVectorSearchTool(toolName)) {
       return this.invokeVectorSearch(toolName, callId, args, context);
     }
-
     const route = this.selectRoute(toolName, { processRouteId: context.processRouteId, toolId: context.toolId });
     if (!route) {
       throw new ToolExecutionError(`No matching process route for tool '${toolName}'`);
     }
-
     const ctx: ToolContext = {
       toolName,
       callId,
@@ -135,6 +130,10 @@ export class ToolCoordinator {
       metadata: context.metadata || {},
       callProgress: context.callProgress
     };
+    if (context.callProgress && typeof context.callProgress === 'object' && !Array.isArray(context.callProgress)) {
+      (context.callProgress as any).routeId = route.id;
+      (context.callProgress as any).invokeKind = route.invoke.kind;
+    }
 
     if (context.logger) {
       const logFields: any = {
@@ -143,12 +142,10 @@ export class ToolCoordinator {
         routeId: route.id,
         invokeKind: route.invoke.kind
       };
-
-      if (context.callProgress) {
+      if (context.callProgress && typeof context.callProgress === 'object' && !Array.isArray(context.callProgress)) {
         Object.assign(logFields, context.callProgress);
       }
-
-      context.logger.info('Routing tool call', logFields);
+      context.logger.debug?.('Routing tool call', logFields);
     }
 
     const timeoutMs = route.timeoutMs ?? getDefaults().tools.timeoutMs;
@@ -247,6 +244,10 @@ export class ToolCoordinator {
     }
     const toolId = options?.toolId;
     if (toolId) {
+      const routedById = this.routesById.get(toolId);
+      if (routedById) {
+        return routedById;
+      }
       for (const compiled of this.compiledToolIdRoutes) {
         if (compiled.match(toolId)) {
           return compiled.route;

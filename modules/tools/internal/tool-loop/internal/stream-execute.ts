@@ -108,11 +108,13 @@ export async function* executeStreamToolCallsRound(options: {
       progressFields = createProgressFields(options.budget);
     }
 
-    options.logger.info('Invoking tool', {
+    const logPayload: Record<string, any> = {
       toolName: targetToolName,
       callId: toolCall.id,
       ...(progressFields ?? {})
-    });
+    };
+
+    options.logger.info('Invoking tool', logPayload);
 
     let normalizedPayload: any;
     let overrideTerminal: boolean | undefined;
@@ -125,14 +127,10 @@ export async function* executeStreamToolCallsRound(options: {
           model: options.model,
           metadata: options.metadata,
           logger: options.logger,
-          callProgress: progressFields
+          callProgress: logPayload
         }
       );
-      options.logger.info('Tool completed', {
-        toolName: targetToolName,
-        callId: toolCall.id,
-        ...(progressFields ?? {})
-      });
+      options.logger.info('Tool completed', logPayload);
       overrideTerminal = resolveTerminalOverride(invocationResult);
       normalizedPayload = invocationResult?.result !== undefined
         ? invocationResult.result

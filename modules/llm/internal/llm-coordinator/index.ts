@@ -224,8 +224,9 @@ export class LLMCoordinator {
     // Ensure the proxy has a current spec if it needs to lazily initialize the tool coordinator.
     this.activeToolSpec = spec;
 
-    const { runToolLoop } = await import('../../../tools/index.js');
+    const { runToolLoop, resolveToolRoutingHints } = await import('../../../tools/index.js');
     const toolBySanitizedName = new Map(tools.map(tool => [tool.name, tool]));
+    const toolRouting = spec.toolRouting;
     return runToolLoop({
       mode: 'nonstream',
       llmManager: this.llmManager,
@@ -244,18 +245,10 @@ export class LLMCoordinator {
       metadata: spec.metadata,
       initialResponse: response,
       invokeTool: async (toolName, call, context) => {
-        const toolDef = toolBySanitizedName.get(call.name);
-        const toolId = typeof toolDef?.id === 'string' ? String(toolDef.id).trim() || undefined : undefined;
-        const toolProcessRouteId =
-          typeof toolDef?.processRouteId === 'string' ? String(toolDef.processRouteId).trim() || undefined : undefined;
-        const toolRouting = spec.toolRouting;
-        const routeFromName = toolRouting?.routesByName?.[toolName];
-        const routeFromId = toolId ? toolRouting?.routesById?.[toolId] : undefined;
-        const processRouteId = typeof routeFromName === 'string' && routeFromName.trim()
-          ? routeFromName.trim()
-          : typeof routeFromId === 'string' && routeFromId.trim()
-            ? routeFromId.trim()
-            : toolProcessRouteId;
+        const callName = typeof (call as any)?.name === 'string' ? String((call as any).name) : '';
+        const toolDef = toolBySanitizedName.get(callName) ||
+          (callName ? toolBySanitizedName.get(sanitizeToolName(callName)) : undefined);
+        const { toolId, processRouteId } = resolveToolRoutingHints({ toolName, toolDef, toolRouting });
 
         return this.toolCoordinator.routeAndInvoke(
           toolName,

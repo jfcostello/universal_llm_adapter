@@ -30,7 +30,9 @@ export function findToolRoutingLogs(
 ): AdapterLogLine[] {
   const target = typeof options.toolName === 'string' ? options.toolName : '';
   return parseAdapterLogLines(lines).filter((entry) => {
-    if (entry.message !== 'Routing tool call') return false;
+    // Route ids are surfaced on tool lifecycle logs (info-level) so live tests can assert routing
+    // without requiring debug-level adapter logging.
+    if (entry.message !== 'Tool completed') return false;
     if (!target) return true;
     return entry.data?.toolName === target;
   });

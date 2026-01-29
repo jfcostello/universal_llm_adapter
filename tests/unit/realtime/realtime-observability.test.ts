@@ -524,7 +524,8 @@ describe('modules/realtime: observability (per-turn traces)', () => {
     jest.unstable_mockModule('../../../modules/tools/index.js', () => ({
       ToolCoordinator: class {
         routeAndInvoke = routeAndInvoke;
-      }
+      },
+      resolveToolRoutingHints: () => ({ toolId: undefined, processRouteId: undefined })
     }));
 
     const compatSendToolResult = jest.fn();
@@ -599,7 +600,8 @@ describe('modules/realtime: observability (per-turn traces)', () => {
     jest.unstable_mockModule('../../../modules/tools/index.js', () => ({
       ToolCoordinator: class {
         routeAndInvoke = routeAndInvoke;
-      }
+      },
+      resolveToolRoutingHints: () => ({ toolId: undefined, processRouteId: undefined })
     }));
 
     const compat: RealtimeCompatSession = {

@@ -64,18 +64,12 @@ export class RealtimeToolHandler {
     const coordinator = await this.ensureToolCoordinator();
     try {
       const toolDef = this.toolByName.get(event.name);
-      const toolId = typeof toolDef?.id === 'string' ? String(toolDef.id).trim() || undefined : undefined;
-      const toolProcessRouteId =
-        typeof toolDef?.processRouteId === 'string' ? String(toolDef.processRouteId).trim() || undefined : undefined;
-
-      const toolRouting = this.options.spec.toolRouting;
-      const routeFromName = toolRouting?.routesByName?.[event.name];
-      const routeFromId = toolId ? toolRouting?.routesById?.[toolId] : undefined;
-      const processRouteId = typeof routeFromName === 'string' && routeFromName.trim()
-        ? routeFromName.trim()
-        : typeof routeFromId === 'string' && routeFromId.trim()
-          ? routeFromId.trim()
-          : toolProcessRouteId;
+      const { resolveToolRoutingHints } = await import('../../../../tools/index.js');
+      const { toolId, processRouteId } = resolveToolRoutingHints({
+        toolName: event.name,
+        toolDef,
+        toolRouting: this.options.spec.toolRouting
+      });
 
       const result = await coordinator.routeAndInvoke(
         event.name,

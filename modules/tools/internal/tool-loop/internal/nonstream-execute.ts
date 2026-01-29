@@ -95,7 +95,7 @@ export async function executeNonStreamToolCallsRound(options: {
       ? createProgressFields(options.toolBudget)
       : undefined;
 
-    const logPayload = {
+    const logPayload: Record<string, any> = {
       toolName: targetToolName,
       callId: toolCall.id,
       ...(progressFields ?? {})
@@ -112,7 +112,7 @@ export async function executeNonStreamToolCallsRound(options: {
           model: options.model,
           metadata: options.metadata,
           logger: options.logger,
-          callProgress: progressFields
+          callProgress: logPayload
         }
       );
 
@@ -136,8 +136,7 @@ export async function executeNonStreamToolCallsRound(options: {
       };
     } catch (error: any) {
       options.logger.error?.('Tool execution failed', {
-        toolName: targetToolName,
-        callId: toolCall.id,
+        ...logPayload,
         error: error?.message ?? String(error)
       });
 
