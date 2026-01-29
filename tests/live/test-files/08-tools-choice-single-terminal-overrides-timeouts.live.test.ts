@@ -1,5 +1,6 @@
 import { mergeSettings, runLlmOnce } from '@tests/helpers/live.ts';
 import type { LLMResponse, Message } from '@tests/helpers/live-types.ts';
+import { getToolRoutingRouteIds } from '@tests/helpers/adapter-logs.ts';
 import { filteredTestRuns } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
@@ -66,6 +67,8 @@ function extractAssistantText(response: LLMResponse): string {
     const toolResults = Array.isArray((response as any)?.raw?.toolResults) ? (response as any).raw.toolResults : [];
     expect(toolResults.length).toBeGreaterThanOrEqual(1);
     expect(toolResults[0]?.tool).toBe('test.control');
+    const routeIds = getToolRoutingRouteIds(call.result.logs, 'test.control');
+    expect(routeIds).toContain('test-control-explicit');
   }, 180_000);
 
   test('terminal=false override forces follow-up + final prompt (tool is terminal by definition)', async () => {
@@ -80,6 +83,7 @@ function extractAssistantText(response: LLMResponse): string {
 
     const spec = {
       ...baseSpec,
+      toolRouting: { routesByName: { 'test.control': 'test-control' } },
       messages: [
         { role: 'system', content: [{ type: 'text', text: systemPrompt } as any] },
         userMessage(prompt)
@@ -96,6 +100,9 @@ function extractAssistantText(response: LLMResponse): string {
     expect(toolResults.length).toBeGreaterThanOrEqual(1);
     expect(toolResults[0]?.tool).toBe('test.control');
     expect(toolResults[0]?.result?.tool_type_response_override_terminal).toBe(false);
+    const routeIds = getToolRoutingRouteIds(call.result.logs, 'test.control');
+    expect(routeIds).toContain('test-control');
+    expect(routeIds).not.toContain('test-control-explicit');
   }, 180_000);
 
   test('Non-boolean terminal override values are ignored', async () => {

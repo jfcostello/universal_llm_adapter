@@ -258,6 +258,15 @@ functionToolNames: ['test.echo'],
 toolChoice: 'auto'
 ```
 
+Optional: route tool calls to specific process routes at runtime:
+
+```ts
+toolRouting: {
+  routesByName: { 'test.echo': 'test-echo' },
+  routesById: { 'echo-tool': 'test-echo' }
+}
+```
+
 Flow:
 
 1. Provider emits normalized tool call events (`tool_call.*`)

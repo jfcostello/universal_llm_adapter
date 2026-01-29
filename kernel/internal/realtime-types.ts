@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue, RealtimeProviderManifest, UnifiedTool, ToolChoice } from './types.js';
+import type { JsonObject, JsonValue, RealtimeProviderManifest, UnifiedTool, ToolChoice, ToolRoutingSpec } from './types.js';
 import type { ObservabilitySpec } from './observability-spec-types.js';
 
 // ============================================================
@@ -165,6 +165,8 @@ export interface RealtimeSessionSpec {
   // tools
   functionToolNames?: string[];
   toolChoice?: ToolChoice;
+  /** Optional adapter-side tool routing overrides for this session. */
+  toolRouting?: ToolRoutingSpec;
   toolCallTracking?: RealtimeToolCallTrackingConfig;
   eventBuffer?: RealtimeEventBufferConfig;
 

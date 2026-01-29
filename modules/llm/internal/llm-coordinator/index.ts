@@ -225,7 +225,7 @@ export class LLMCoordinator {
     this.activeToolSpec = spec;
 
     const { runToolLoop } = await import('../../../tools/index.js');
-
+    const toolBySanitizedName = new Map(tools.map(tool => [tool.name, tool]));
     return runToolLoop({
       mode: 'nonstream',
       llmManager: this.llmManager,
@@ -244,6 +244,19 @@ export class LLMCoordinator {
       metadata: spec.metadata,
       initialResponse: response,
       invokeTool: async (toolName, call, context) => {
+        const toolDef = toolBySanitizedName.get(call.name);
+        const toolId = typeof toolDef?.id === 'string' ? String(toolDef.id).trim() || undefined : undefined;
+        const toolProcessRouteId =
+          typeof toolDef?.processRouteId === 'string' ? String(toolDef.processRouteId).trim() || undefined : undefined;
+        const toolRouting = spec.toolRouting;
+        const routeFromName = toolRouting?.routesByName?.[toolName];
+        const routeFromId = toolId ? toolRouting?.routesById?.[toolId] : undefined;
+        const processRouteId = typeof routeFromName === 'string' && routeFromName.trim()
+          ? routeFromName.trim()
+          : typeof routeFromId === 'string' && routeFromId.trim()
+            ? routeFromId.trim()
+            : toolProcessRouteId;
+
         return this.toolCoordinator.routeAndInvoke(
           toolName,
           call.id,
@@ -253,7 +266,9 @@ export class LLMCoordinator {
             model: context.model,
             metadata: context.metadata,
             logger: context.logger,
-            callProgress: context.callProgress
+            callProgress: context.callProgress,
+            toolId,
+            processRouteId
           }
         );
       }

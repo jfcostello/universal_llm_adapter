@@ -24,3 +24,13 @@ Terminal can be set via:
 - Tool result override: `tool_type_response_override_terminal: true|false` (strict boolean; top-level overrides nested)
 
 When terminal, the response `finishReason` is set to `tool_stop`.
+
+## Tool Routing
+
+Tool routing is handled by `ToolCoordinator` via process routes (`plugins/processes/*.json`).
+
+Routing precedence (highest → lowest):
+
+1. Explicit `processRouteId` from runtime (`spec.toolRouting`) or tool definitions (`UnifiedTool.processRouteId`)
+2. `ProcessRouteManifest.matchToolId` (matches `UnifiedTool.id`)
+3. `ProcessRouteManifest.match` (matches tool name)

@@ -170,6 +170,8 @@ export interface ProcessInvokeConfig {
 export interface ProcessRouteManifest {
   id: string;
   match: ProcessMatchConfig;
+  /** Optional matcher for tool ids (UnifiedTool.id). */
+  matchToolId?: ProcessMatchConfig;
   invoke: ProcessInvokeConfig;
   timeoutMs?: number;
   metadata?: JsonObject;

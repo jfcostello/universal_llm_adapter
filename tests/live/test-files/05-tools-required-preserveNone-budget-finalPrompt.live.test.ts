@@ -1,5 +1,6 @@
 import { buildLogPathFor, mergeSettings, parseLogBodies, runLlmOnce } from '@tests/helpers/live.ts';
 import type { LLMResponse, Message } from '@tests/helpers/live-types.ts';
+import { getToolRoutingRouteIds } from '@tests/helpers/adapter-logs.ts';
 import { filteredTestRuns } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
@@ -116,6 +117,9 @@ function hasRedactedToolResultPart(messages: any[]): boolean {
     expect(toolResults.length).toBeGreaterThanOrEqual(1);
     expect(toolResults[0]?.tool).toBe('test.echo');
     expect(toolResults[0]?.result).toBe(`[R:${marker.length}]${marker.split('').reverse().join('')}`);
+
+    const routeIds = getToolRoutingRouteIds(call.result.logs, 'test.echo');
+    expect(routeIds).toContain('test-echo');
 
     const out = extractAssistantText(response).trim();
     expect(out).toContain(finalOk);

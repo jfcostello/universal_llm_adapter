@@ -84,9 +84,11 @@ export async function collectTools({
     toolNameMap[sanitizedName] = originalTool.name;
     sanitizedTools.push({
       name: sanitizedName,
+      id: originalTool.id,
       description: originalTool.description,
       parametersJsonSchema: originalTool.parametersJsonSchema,
-      terminal: originalTool.terminal
+      terminal: originalTool.terminal,
+      processRouteId: originalTool.processRouteId
     });
   }
 

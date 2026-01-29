@@ -8,7 +8,7 @@ import type {
   AdapterLogger,
   ObservabilityContext
 } from '../../../kernel/index.js';
-import { StreamEventType, ToolCallEventType, getDefaults, safeJsonParse } from '../../../kernel/index.js';
+import { StreamEventType, ToolCallEventType, getDefaults, safeJsonParse, sanitizeToolName } from '../../../kernel/index.js';
 import { monotonicNowNs, normalizeFlag } from '../../shared/index.js';
 import { partitionSettings } from '../../settings/index.js';
 import { usageStatsToJson } from '../../usage/index.js';
@@ -262,6 +262,7 @@ export class StreamCoordinator {
         });
 
         const toolNameMap = Object.fromEntries(context.toolNameMap.entries());
+        const toolBySchemaName = new Map(tools.map(tool => [tool.name, tool]));
 
         const { runToolLoop } = await import('../../tools/index.js');
         const streamGenerator = runToolLoop({
@@ -283,6 +284,27 @@ export class StreamCoordinator {
           initialToolCalls: preparedToolCalls,
           initialReasoning: reasoningAggregate,
           invokeTool: async (toolName, call) => {
+            const schemaName = typeof (call as any)?.name === 'string' && String((call as any).name).trim()
+              ? String((call as any).name).trim()
+              : '';
+            const lookupName = schemaName && toolBySchemaName.has(schemaName)
+              ? schemaName
+              : schemaName
+                ? sanitizeToolName(schemaName)
+                : '';
+            const toolDef = lookupName ? toolBySchemaName.get(lookupName) : undefined;
+            const toolId = typeof (toolDef as any)?.id === 'string' ? String((toolDef as any).id).trim() || undefined : undefined;
+            const toolProcessRouteId =
+              typeof (toolDef as any)?.processRouteId === 'string' ? String((toolDef as any).processRouteId).trim() || undefined : undefined;
+            const toolRouting = executionSpec.toolRouting;
+            const routeFromName = toolRouting?.routesByName?.[toolName];
+            const routeFromId = toolId ? toolRouting?.routesById?.[toolId] : undefined;
+            const processRouteId = typeof routeFromName === 'string' && routeFromName.trim()
+              ? routeFromName.trim()
+              : typeof routeFromId === 'string' && routeFromId.trim()
+                ? routeFromId.trim()
+                : toolProcessRouteId;
+
             return this.toolCoordinator.routeAndInvoke(
               toolName,
               call.id,
@@ -291,7 +313,9 @@ export class StreamCoordinator {
                 provider,
                 model,
                 metadata: executionSpec.metadata,
-                logger: context.logger
+                logger: context.logger,
+                toolId,
+                processRouteId
               }
             );
           }

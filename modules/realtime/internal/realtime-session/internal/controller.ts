@@ -66,6 +66,7 @@ export class RealtimeSessionController implements RealtimeSession {
     this.toolHandler = new RealtimeToolHandler({
       registry: options.registry,
       spec: options.spec,
+      tools: options.tools,
       compatSession: options.compatSession,
       pushEvent: event => this.pushEvent(event),
       closeOnError: async () => {

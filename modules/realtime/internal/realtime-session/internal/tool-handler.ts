@@ -1,6 +1,7 @@
 import type {
   JsonValue,
   ProcessRouteManifest,
+  UnifiedTool,
   RealtimeCompatSession,
   RealtimeEvent,
   RealtimeSessionSpec
@@ -11,17 +12,19 @@ type ToolCoordinatorLike = {
     toolName: string,
     callId: string,
     args: any,
-    context: { provider: string; model: string; metadata?: any; logger?: any; callProgress?: any }
+    context: { provider: string; model: string; metadata?: any; logger?: any; callProgress?: any; toolId?: string; processRouteId?: string }
   ) => Promise<any>;
 };
 
 export class RealtimeToolHandler {
   private enabledToolNames: Set<string> | undefined;
   private toolCoordinatorPromise: Promise<ToolCoordinatorLike> | undefined;
+  private toolByName = new Map<string, UnifiedTool>();
 
   constructor(private options: {
     registry: { getProcessRoutes: () => Promise<ProcessRouteManifest[]> };
     spec: RealtimeSessionSpec;
+    tools?: UnifiedTool[];
     compatSession: RealtimeCompatSession;
     pushEvent: (event: RealtimeEvent) => void;
     closeOnError: () => Promise<void>;
@@ -29,6 +32,13 @@ export class RealtimeToolHandler {
   }) {
     if (options.spec.functionToolNames && options.spec.functionToolNames.length > 0) {
       this.enabledToolNames = new Set(options.spec.functionToolNames);
+    }
+    if (Array.isArray(options.tools)) {
+      for (const tool of options.tools) {
+        if (tool && typeof tool.name === 'string') {
+          this.toolByName.set(tool.name, tool);
+        }
+      }
     }
   }
 
@@ -53,6 +63,20 @@ export class RealtimeToolHandler {
 
     const coordinator = await this.ensureToolCoordinator();
     try {
+      const toolDef = this.toolByName.get(event.name);
+      const toolId = typeof toolDef?.id === 'string' ? String(toolDef.id).trim() || undefined : undefined;
+      const toolProcessRouteId =
+        typeof toolDef?.processRouteId === 'string' ? String(toolDef.processRouteId).trim() || undefined : undefined;
+
+      const toolRouting = this.options.spec.toolRouting;
+      const routeFromName = toolRouting?.routesByName?.[event.name];
+      const routeFromId = toolId ? toolRouting?.routesById?.[toolId] : undefined;
+      const processRouteId = typeof routeFromName === 'string' && routeFromName.trim()
+        ? routeFromName.trim()
+        : typeof routeFromId === 'string' && routeFromId.trim()
+          ? routeFromId.trim()
+          : toolProcessRouteId;
+
       const result = await coordinator.routeAndInvoke(
         event.name,
         event.toolCallId,
@@ -60,7 +84,9 @@ export class RealtimeToolHandler {
         {
           provider: this.options.spec.provider,
           model: this.options.spec.model ?? this.options.spec.provider,
-          metadata: this.options.spec.metadata ?? {}
+          metadata: this.options.spec.metadata ?? {},
+          toolId,
+          processRouteId
         }
       );
       await this.options.compatSession.sendToolResult({

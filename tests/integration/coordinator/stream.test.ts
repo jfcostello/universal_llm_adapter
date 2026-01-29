@@ -169,6 +169,53 @@ describe('coordinator/runStream', () => {
     await coordinator.close();
   });
 
+  test('passes toolRouting route id to tool coordinator in streaming mode', async () => {
+    const pluginsDir = resolveFixture('plugins', 'basic');
+    const registry = new PluginRegistry(pluginsDir);
+    await registry.loadAll();
+    const coordinator = new LLMCoordinator(registry);
+
+    const routeSpy = jest.spyOn((coordinator as any).toolCoordinator, 'routeAndInvoke').mockResolvedValue({ result: { ok: true } });
+
+    let callCount = 0;
+    jest.spyOn(LLMManager.prototype, 'streamProvider').mockImplementation(async function* () {
+      callCount++;
+      if (callCount === 1) {
+        yield {
+          choices: [{
+            delta: {
+              tool_calls: [{ index: 0, id: 'call-1', function: { name: 'echo.text', arguments: '{"text":"hello"}' } }]
+            }
+          }]
+        };
+        yield { choices: [{ finish_reason: 'tool_calls' }] };
+        return;
+      }
+
+      yield { choices: [{ delta: { content: 'Done!' } }] };
+    });
+
+    const specWithTools = {
+      ...spec,
+      functionToolNames: ['echo.text'],
+      toolRouting: { routesByName: { 'echo.text': 'route-runtime-name' } },
+      settings: { ...spec.settings }
+    };
+
+    for await (const _event of coordinator.runStream(specWithTools as any)) {
+      // drain
+    }
+
+    expect(routeSpy).toHaveBeenCalledWith(
+      'echo.text',
+      'call-1',
+      { text: 'hello' },
+      expect.objectContaining({ processRouteId: 'route-runtime-name' })
+    );
+
+    await coordinator.close();
+  });
+
   test('handles tool execution error in streaming mode', async () => {
     const pluginsDir = resolveFixture('plugins', 'basic');
     const registry = new PluginRegistry(pluginsDir);

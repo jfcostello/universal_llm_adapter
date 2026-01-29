@@ -14,6 +14,8 @@ export interface ToolRouteAndInvokeContext {
   provider: string;
   model: string;
   metadata?: any;
+  toolId?: string;
+  processRouteId?: string;
   logger?: AdapterLogger;
   callProgress?: any;
 }

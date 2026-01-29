@@ -2,6 +2,11 @@ import type { JsonObject } from './json.js';
 
 export interface UnifiedTool {
   name: string;
+  /**
+   * Optional stable identifier for this tool.
+   * Not exposed to the model (used only for adapter-side routing).
+   */
+  id?: string;
   description?: string;
   parametersJsonSchema?: JsonObject;
   /**
@@ -9,6 +14,11 @@ export interface UnifiedTool {
    * the tool result is produced (no follow-up LLM call).
    */
   terminal?: boolean;
+  /**
+   * Optional explicit process route id to use when invoking this tool.
+   * This is adapter-side only; providers receive only the tool schema.
+   */
+  processRouteId?: string;
 }
 
 export interface ToolCall {
@@ -41,3 +51,10 @@ export interface ToolChoiceRequired {
 }
 
 export type ToolChoice = ToolChoiceAuto | ToolChoiceSingle | ToolChoiceRequired;
+
+export interface ToolRoutingSpec {
+  /** Explicit route selection by tool name (adapter tool name). */
+  routesByName?: Record<string, string>;
+  /** Explicit route selection by tool id (UnifiedTool.id). */
+  routesById?: Record<string, string>;
+}
