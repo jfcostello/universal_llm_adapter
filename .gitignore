@@ -82,8 +82,10 @@ plugins/processes/**
 !plugins/processes/
 !plugins/processes/test.echo.json
 !plugins/processes/test.random.json
+!plugins/processes/test.random.by-id.json
 !plugins/processes/test.control.json
 !plugins/processes/test.control.nonterminal.json
+!plugins/processes/test.control.explicit.json
 
 # tools
 plugins/tools/**

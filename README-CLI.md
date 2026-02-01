@@ -543,7 +543,7 @@ The specification for LLM calls (`run` and `stream` commands).
     {
       "provider": "example-llm",
       "model": "example-model",
-      "settings": {}  // Optional per-provider settings override
+      "settings": {}  // Optional per-entry overrides (including provider extras)
     },
     {
       "provider": "example-llm-2",

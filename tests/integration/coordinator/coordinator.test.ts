@@ -2,7 +2,7 @@ import path from 'path';
 import { jest } from '@jest/globals';
 import { PluginRegistry } from '@/kernel/index.ts';
 import { LLMCoordinator } from '@/modules/llm/index.ts';
-import { Role, LLMResponse, LLMCallSettings } from '@/kernel/index.ts';
+import { Role, LLMResponse, LLMCallSettings, ProviderExecutionError } from '@/kernel/index.ts';
 import { LLMManager } from '@/modules/llm/index.ts';
 import { normalizeFlag } from '@/modules/shared/index.ts';
 import { ROOT_DIR, resolveFixture } from '@tests/helpers/paths.ts';
@@ -452,6 +452,130 @@ describe('coordinator/coordinator integration', () => {
       expect(secondCallSettings.temperature).toBe(0.2);
       expect(firstCallSettings.maxTokens).toBe(500);
       expect(secondCallSettings.maxTokens).toBe(500);
+
+      await coordinator.close();
+    });
+
+    test('per-priority provider extras apply per fallback attempt', async () => {
+      const coordinator = await createCoordinator();
+
+      const callProviderMock = jest
+        .spyOn(LLMManager.prototype, 'callProvider')
+        .mockImplementationOnce(async () => {
+          throw new ProviderExecutionError('test-openai', 'rate limit', 429, true);
+        })
+        .mockResolvedValueOnce({
+          provider: 'test-openai',
+          model: 'ok-model',
+          role: Role.ASSISTANT,
+          finishReason: 'stop',
+          content: [{ type: 'text', text: 'ok' }]
+        } as LLMResponse);
+
+      const spec = {
+        messages: [
+          { role: Role.USER, content: [{ type: 'text', text: 'test' }] }
+        ],
+        llmPriority: [
+          {
+            provider: 'test-openai',
+            model: 'blocked-model',
+            settings: { sharedExtra: 'first', extraTag: 'one' }
+          },
+          {
+            provider: 'test-openai',
+            model: 'ok-model',
+            settings: { sharedExtra: 'second', extraTag: 'two' }
+          }
+        ],
+        rateLimitRetryDelays: [],
+        settings: {
+          temperature: 0,
+          sharedExtra: 'global'
+        }
+      };
+
+      await coordinator.run(spec as any);
+
+      expect(callProviderMock).toHaveBeenCalledTimes(2);
+
+      const firstCallExtras = callProviderMock.mock.calls[0][6] as Record<string, any>;
+      const secondCallExtras = callProviderMock.mock.calls[1][6] as Record<string, any>;
+
+      expect(firstCallExtras).toEqual({ sharedExtra: 'first', extraTag: 'one' });
+      expect(secondCallExtras).toEqual({ sharedExtra: 'second', extraTag: 'two' });
+
+      await coordinator.close();
+    });
+
+    test('per-priority provider extras propagate into tool loop follow-up calls', async () => {
+      const coordinator = await createCoordinator();
+      const responses: LLMResponse[] = [
+        {
+          provider: 'test-openai',
+          model: 'stub-model',
+          role: Role.ASSISTANT,
+          content: [],
+          toolCalls: [
+            { id: 'call-1', name: 'echo.text', arguments: { text: 'hello' } }
+          ]
+        },
+        {
+          provider: 'test-openai',
+          model: 'stub-model',
+          role: Role.ASSISTANT,
+          finishReason: 'stop',
+          content: [{ type: 'text', text: 'done' }]
+        }
+      ];
+
+      const callProviderMock = jest
+        .spyOn(LLMManager.prototype, 'callProvider')
+        .mockImplementation(async () => {
+          if (!responses.length) {
+            throw new Error('unexpected call');
+          }
+          return responses.shift()!;
+        });
+
+      const spec = {
+        messages: [
+          { role: Role.USER, content: [{ type: 'text', text: 'use tool' }] }
+        ],
+        llmPriority: [
+          {
+            provider: 'test-openai',
+            model: 'stub-model',
+            settings: {
+              extraTag: 'toolcase',
+              globalExtraObject: { b: 2 }
+            }
+          }
+        ],
+        settings: {
+          temperature: 0,
+          globalExtraObject: { a: 1 },
+          maxToolIterations: 2,
+          toolFinalPromptEnabled: false
+        },
+        functionToolNames: ['echo.text']
+      };
+
+      await coordinator.run(spec as any);
+
+      expect(callProviderMock).toHaveBeenCalledTimes(2);
+
+      const firstCallExtras = callProviderMock.mock.calls[0][6] as Record<string, any>;
+      const secondCallExtras = callProviderMock.mock.calls[1][6] as Record<string, any>;
+
+      expect(firstCallExtras).toEqual({
+        extraTag: 'toolcase',
+        globalExtraObject: { a: 1, b: 2 }
+      });
+      expect(secondCallExtras).toEqual({
+        extraTag: 'toolcase',
+        globalExtraObject: { a: 1, b: 2 }
+      });
 
       await coordinator.close();
     });
