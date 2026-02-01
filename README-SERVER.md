@@ -511,7 +511,7 @@ curl http://127.0.0.1:3000/embeddings/run \
     {
       "provider": "example-llm",
       "model": "example-model",
-      "settings": {}  // Optional per-provider override
+      "settings": {}  // Optional per-entry overrides (including provider extras)
     }
   ],
 

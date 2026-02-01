@@ -67,6 +67,6 @@ export const PROVIDER_SETTING_KEYS = [
 export interface LLMPriorityItem {
   provider: string;
   model: string;
-  /** Optional per-provider settings that override global settings via deep merge */
+  /** Optional per-entry overrides (including provider extras) that override global settings via deep merge */
   settings?: Partial<LLMCallSettings>;
 }

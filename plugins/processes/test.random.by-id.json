@@ -1,0 +1,13 @@
+{
+  "id": "test-random-by-id",
+  "match": {
+    "type": "exact",
+    "pattern": "test.random"
+  },
+  "invoke": {
+    "kind": "module",
+    "module": "../dist/plugins/modules/test-random/index.js",
+    "function": "handle"
+  },
+  "timeoutMs": 5000
+}

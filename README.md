@@ -411,6 +411,16 @@ interface LLMCallSpec {
 }
 ```
 
+### LLMPriorityItem
+
+```typescript
+interface LLMPriorityItem {
+  provider: string;
+  model: string;
+  settings?: Partial<LLMCallSettings>; // Optional per-entry overrides (including provider extras)
+}
+```
+
 ### UnifiedTool
 
 ```typescript

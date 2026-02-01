@@ -45,7 +45,7 @@ export async function runNonStream(options: {
     toolNameMap: Record<string, string>
   ) => Promise<LLMResponse>;
 }): Promise<LLMResponse> {
-  const { runtime, provider, providerExtras } = partitionSettings(options.spec.settings);
+  const { runtime, provider } = partitionSettings(options.spec.settings);
   await options.applyRuntimeEnvironment(runtime);
 
   const executionSpec: LLMCallSpec = {
@@ -110,6 +110,7 @@ export async function runNonStream(options: {
   const sequence = options.spec.llmPriority.map(item => {
     // Merge per-provider settings with global settings
     const mergedSettings = mergeProviderSettings(executionSpec.settings, item.settings);
+    const { providerExtras } = partitionSettings(mergedSettings);
 
     return {
       provider: item.provider,
