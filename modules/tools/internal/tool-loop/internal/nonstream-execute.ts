@@ -4,7 +4,7 @@ import { appendToolResult } from '../../../../messages/index.js';
 import { sanitizeToolName } from '../../tool-names.js';
 import type { ToolCallBudget } from '../../tool-budget.js';
 import { createProgressFields, resolveCountdownText } from './utils.js';
-import { isToolTerminalByDefinition, resolveTerminalOverride } from './helpers.js';
+import { isToolTerminalByDefinition, resolveCallArgTerminalOverride, resolveTerminalOverride, stripCallArgTerminalFlag } from './helpers.js';
 import type { InvokeToolFn } from './types.js';
 
 type ExecuteToolCallResult =
@@ -56,6 +56,7 @@ export async function executeNonStreamToolCallsRound(options: {
   const executeToolCall = async (toolCall: ToolCall): Promise<ExecuteToolCallResult> => {
     const targetToolName = options.toolNameMap[toolCall.name] || toolCall.name;
     const terminalByDefinition = isToolTerminalByDefinition(toolCall.name, options.toolByName);
+    const callArgTerminalOverride = resolveCallArgTerminalOverride(toolCall, options.toolByName);
 
     if (options.toolBudget.exhausted) {
       options.logger.info('Tool budget exhausted; skipping invocation', {
@@ -104,9 +105,10 @@ export async function executeNonStreamToolCallsRound(options: {
     options.logger.info('Invoking tool', logPayload);
 
     try {
+      const invocationToolCall = stripCallArgTerminalFlag(toolCall, options.toolByName);
       const invocationResult = await options.invokeTool(
         targetToolName,
-        toolCall,
+        invocationToolCall,
         {
           provider: options.providerManifest.id,
           model: options.model,
@@ -124,7 +126,9 @@ export async function executeNonStreamToolCallsRound(options: {
         : invocationResult;
       const isTerminal = overrideTerminal !== undefined
         ? overrideTerminal
-        : terminalByDefinition;
+        : callArgTerminalOverride !== undefined
+            ? callArgTerminalOverride
+            : terminalByDefinition;
 
       return {
         type: 'success',
@@ -149,7 +153,7 @@ export async function executeNonStreamToolCallsRound(options: {
           message: error?.message ?? String(error),
           tool: targetToolName
         },
-        terminal: terminalByDefinition
+        terminal: callArgTerminalOverride !== undefined ? callArgTerminalOverride : terminalByDefinition
       };
     }
   };

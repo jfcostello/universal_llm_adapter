@@ -198,7 +198,7 @@ async function readLogsForCorrelationId(options: {
   const logPath = options.logPath;
   if (!logPath) return [];
 
-  const timeoutMs = options.timeoutMs ?? 2000;
+  const timeoutMs = options.timeoutMs ?? 10000;
   const start = Date.now();
   const needle = `"correlationId":"${options.correlationId}"`;
 

@@ -563,6 +563,9 @@ Tools can be marked as **terminal** so the tool loop stops immediately after too
 
 - Tool definition: set `"terminal": true` on the tool definition (plugin tool JSON or inline `tools` entry).
 - Tool result override (per-call): include `tool_type_response_override_terminal: true|false` in the tool return payload (top-level or nested inside `result`; top-level wins). Only strict booleans are honored.
+- Tool call args override (per-call, model-controlled): configure `UnifiedTool.toolCallTerminalFlag` on the tool to expose a boolean arg (e.g. `"terminal"`) in the tool schema; when the model includes it as a strict boolean, it overrides terminal behavior for that call. The arg is stripped before invoking the tool but remains visible in `response.toolCalls`.
+
+Precedence: tool result override > tool call args override > tool definition.
 
 When terminal, the response `finishReason` is set to `tool_stop`.
 

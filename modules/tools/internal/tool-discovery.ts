@@ -20,6 +20,71 @@ export interface ToolDiscoveryResult {
   vectorSearchAliasMap?: Record<string, string>;
 }
 
+function normalizeToolCallTerminalFlag(
+  raw: UnifiedTool['toolCallTerminalFlag']
+): UnifiedTool['toolCallTerminalFlag'] | undefined {
+  if (!raw || typeof raw !== 'object') {
+    return undefined;
+  }
+
+  const field = typeof raw.field === 'string' ? raw.field.trim() : '';
+  if (!field) {
+    return undefined;
+  }
+
+  const normalized: any = { field };
+  if (raw.required === true) {
+    normalized.required = true;
+  }
+  if (typeof raw.description === 'string') {
+    const trimmed = raw.description.trim();
+    if (trimmed) {
+      normalized.description = trimmed;
+    }
+  }
+
+  return normalized;
+}
+
+function injectToolCallTerminalFlagIntoSchema(
+  schema: UnifiedTool['parametersJsonSchema'],
+  flag: UnifiedTool['toolCallTerminalFlag'] | undefined
+): UnifiedTool['parametersJsonSchema'] {
+  if (!flag) {
+    return schema;
+  }
+
+  const base = schema && typeof schema === 'object' ? (schema as Record<string, any>) : {};
+  const next: Record<string, any> = { ...base };
+
+  // Default to object type if unset; don't overwrite if explicitly set to something else.
+  if (next.type === undefined) {
+    next.type = 'object';
+  }
+
+  const baseProps = base.properties && typeof base.properties === 'object' && !Array.isArray(base.properties)
+    ? (base.properties as Record<string, any>)
+    : {};
+
+  next.properties = {
+    ...baseProps,
+    [flag.field]: {
+      type: 'boolean',
+      ...(flag.description ? { description: flag.description } : {})
+    }
+  };
+
+  if (flag.required === true) {
+    const required = Array.isArray(base.required) ? [...base.required] : [];
+    if (!required.includes(flag.field)) {
+      required.push(flag.field);
+    }
+    next.required = required;
+  }
+
+  return next as any;
+}
+
 export async function collectTools({
   spec,
   registry,
@@ -82,11 +147,13 @@ export async function collectTools({
   for (const originalTool of toolMap.values()) {
     const sanitizedName = sanitize(originalTool.name);
     toolNameMap[sanitizedName] = originalTool.name;
+    const terminalFlag = normalizeToolCallTerminalFlag(originalTool.toolCallTerminalFlag);
     sanitizedTools.push({
       name: sanitizedName,
       id: originalTool.id,
       description: originalTool.description,
-      parametersJsonSchema: originalTool.parametersJsonSchema,
+      parametersJsonSchema: injectToolCallTerminalFlagIntoSchema(originalTool.parametersJsonSchema, terminalFlag),
+      toolCallTerminalFlag: terminalFlag,
       terminal: originalTool.terminal,
       processRouteId: originalTool.processRouteId
     });

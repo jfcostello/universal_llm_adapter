@@ -2,6 +2,10 @@
   "name": "test.control.nonterminal",
   "description": "Live-test helper variant of test.control that is non-terminal by definition.",
   "terminal": false,
+  "toolCallTerminalFlag": {
+    "field": "terminal",
+    "description": "Optional strict-boolean override inside tool-call args that can mark this tool call as terminal (true) or non-terminal (false)."
+  },
   "parametersJsonSchema": {
     "type": "object",
     "properties": {

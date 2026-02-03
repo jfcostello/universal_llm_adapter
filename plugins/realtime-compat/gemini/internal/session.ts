@@ -1,12 +1,5 @@
 import { createRequire } from 'module';
-
-import type {
-  IRealtimeCompat,
-  JsonValue,
-  RealtimeCompatSession,
-  RealtimeEvent,
-  RealtimeSessionSpec
-} from '../../../../kernel/index.js';
+import type { IRealtimeCompat, JsonValue, RealtimeCompatSession, RealtimeEvent, RealtimeSessionSpec } from '../../../../kernel/index.js';
 import { AsyncQueue, LruMap, resolveRealtimeReadyFallbackMs, resolveRealtimeToolCallTrackingMaxEntries, sanitizeToolName } from '../../../../kernel/index.js';
 import { calculateBackoffDelay, setUnrefTimeout } from '../../../../modules/shared/index.js';
 import { buildGeminiActivityEndMessage, buildGeminiActivityStartMessage, buildGeminiCommitTextTurnMessage, buildGeminiInterruptMessage, buildGeminiRealtimeAudioMessage, buildGeminiRealtimeTextMessage, buildGeminiSendTextMessage, buildGeminiSetupMessage, buildGeminiToolResponseMessage } from './commands.js';
@@ -14,43 +7,34 @@ import { convertSessionAudioToProviderPcm16_16k } from './audio.js';
 import { mapGeminiLiveServerMessage, type GeminiRealtimeMapperState } from './event-mapper.js';
 import { ensureJsonObject, generateSessionId, resolveRealtimeUrl, send } from './session-helpers.js';
 import type { WsLike } from './session-helpers.js';
-
 export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeCompat['createSession']>[0]): RealtimeCompatSession {
   const provider = options.provider;
   const spec = options.spec as RealtimeSessionSpec;
-
   const endpoint = provider.endpoint;
   if (!endpoint?.urlTemplate) {
     throw new Error(`Provider '${provider.id}' missing realtime endpoint configuration`);
   }
-
   const model = spec.model ?? (provider.metadata as any)?.defaultModel;
   if (!model) {
     throw new Error(`Realtime session requires 'model' for provider '${provider.id}'`);
   }
-
   const url = resolveRealtimeUrl({
     urlTemplate: endpoint.urlTemplate,
     model,
     query: endpoint.query
   });
-
   const require = createRequire(import.meta.url);
   const wsLib = require('ws');
   const WS_OPEN: number = wsLib.WebSocket.OPEN;
   let ws!: WsLike;
-
   const queue = new AsyncQueue<RealtimeEvent>();
   const sessionId = generateSessionId();
-
   const toolCallTrackingMaxEntries = resolveRealtimeToolCallTrackingMaxEntries(spec);
-
   const { message: setupMessage, audio, settingsWarnings } = buildGeminiSetupMessage({
     model,
     spec,
     tools: options.tools
   });
-
   const turnMode = spec.turnDetection?.mode ?? 'manual_commit';
   const activityDriven = turnMode === 'manual_commit';
   let activityStarted = false;
@@ -73,9 +57,8 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
     userTranscript: '',
     pendingUserTranscriptFinal: false,
     assistantTranscriptRaw: '',
-    assistantTranscript: '',
+    assistantTranscript: ''
   };
-
   let closed = false;
   let readySent = false;
   const preReadyEvents: RealtimeEvent[] = [];
@@ -96,8 +79,10 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
   let setupComplete = false;
   const expectedHistory = Array.isArray(spec.history) ? spec.history : undefined;
   let startupHistoryCallAccepted = false;
+  let allowReconnectAfterSetup = true;
+  let recoveringAfterSetup = false;
   const pendingSends: any[] = [];
-
+  const inFlightSends: any[] = [];
   const MAX_RECONNECT_ATTEMPTS = 3;
   const setupCompleteTimeoutMs = resolveRealtimeReadyFallbackMs(spec);
   let reconnectAttempt = 0;
@@ -109,13 +94,11 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
     clearTimeout(reconnectTimer);
     reconnectTimer = undefined;
   };
-
   const clearSetupTimer = () => {
     if (!setupTimer) return;
     clearTimeout(setupTimer);
     setupTimer = undefined;
   };
-
   const emitReadyOnce = () => {
     if (readySent) return;
     readySent = true;
@@ -127,7 +110,6 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
     });
     while (preReadyEvents.length > 0) queue.push(preReadyEvents.shift()!);
   };
-
   const emitClosedOnce = (reason: Extract<RealtimeEvent, { type: 'closed' }>['reason']) => {
     closed = true;
     clearReconnectTimer();
@@ -136,20 +118,16 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
     queue.push({ type: 'closed', reason });
     queue.close();
   };
-
   const ensureOpen = () => {
     if (closed) throw new Error('Realtime session is closed');
   };
-
   const failSetup = (options: { code: string; message: string; reason: Extract<RealtimeEvent, { type: 'closed' }>['reason'] }) => {
     if (closed) return;
     clearReconnectTimer();
     clearSetupTimer();
     pendingSends.length = 0;
-
     emitReadyOnce();
     queue.push({ type: 'error', code: options.code, message: options.message });
-
     try {
       if (ws && ws.readyState === WS_OPEN) {
         ws.close(1000, 'setup_failed');
@@ -157,10 +135,8 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
         ws.terminate();
       }
     } catch {}
-
     emitClosedOnce(options.reason);
   };
-
   const scheduleSetupTimer = () => {
     clearSetupTimer();
     setupTimer = setUnrefTimeout(() => {
@@ -172,15 +148,17 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
       });
     }, setupCompleteTimeoutMs);
   };
-
+  const sendWithTracking = (socket: WsLike, msg: any) => {
+    send(socket, msg);
+    inFlightSends.push(msg);
+  };
   const sendOrBuffer = (msg: any) => {
     if (!setupComplete) {
       pendingSends.push(msg);
       return;
     }
-    send(ws, msg);
+    sendWithTracking(ws, msg);
   };
-
   const scheduleReconnect = (): boolean => {
     if (closed) return false;
     if (reconnectTimer) return true;
@@ -203,18 +181,15 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
 
     return true;
   };
-
   const connect = () => {
     if (closed) return;
     const socket: WsLike = new wsLib.WebSocket(url, { headers: endpoint.headers });
     ws = socket;
-
     socket.on('open', () => {
       emitReadyOnce();
       send(socket, setupMessage);
       scheduleSetupTimer();
     });
-
     socket.on('message', (data: any) => {
       let parsed: any;
       try {
@@ -228,20 +203,32 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
       if (parsed?.setupComplete && !setupComplete) {
         setupComplete = true;
         clearSetupTimer();
-        reconnectAttempt = 0;
+        if (!recoveringAfterSetup) reconnectAttempt = 0;
         emitReadyOnce();
-        for (const msg of pendingSends.splice(0)) send(socket, msg);
+        for (const msg of pendingSends.splice(0)) sendWithTracking(socket, msg);
         return;
       }
-
       try {
         const mapped = mapGeminiLiveServerMessage(parsed, state);
+        if (mapped.some(e => e?.type === 'usage')) {
+          inFlightSends.length = 0;
+          allowReconnectAfterSetup = false;
+          if (recoveringAfterSetup) {
+            recoveringAfterSetup = false;
+            reconnectAttempt = 0;
+          }
+        } else if (mapped.some(e => String((e as any).type).startsWith('tool_call.'))) {
+          allowReconnectAfterSetup = false;
+          if (recoveringAfterSetup) {
+            recoveringAfterSetup = false;
+            reconnectAttempt = 0;
+          }
+        }
         for (const evt of mapped) queue.push(evt);
       } catch (err: any) {
         queue.push({ type: 'error', message: String(err), code: 'event_mapping_failed' });
       }
     });
-
     socket.on('error', (err: any) => {
       emitReadyOnce();
       queue.push({ type: 'error', message: String(err), code: 'ws_error' });
@@ -256,7 +243,6 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
         }
       }
     });
-
     socket.on('close', (code: number, reason: any) => {
       if (closed) return;
 
@@ -282,19 +268,25 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
       }
       emitReadyOnce();
       const normalCloseCodes = new Set([1000, 1001, 1005]);
-      if (Number.isFinite(closeCode) && !normalCloseCodes.has(closeCode)) {
+      const isNormal = Number.isFinite(closeCode) && normalCloseCodes.has(closeCode);
+      if (!isNormal) {
         queue.push({
           type: 'error',
           code: 'ws_close',
           message: `Realtime websocket closed unexpectedly (code=${closeCode}${closeReason ? `, reason=${closeReason}` : ''})`
         });
       }
+      if (!isNormal && allowReconnectAfterSetup && inFlightSends.length > 0) {
+        const snapshot = inFlightSends.splice(0);
+        pendingSends.unshift(...snapshot);
+        setupComplete = false;
+        recoveringAfterSetup = true;
+        if (scheduleReconnect()) return;
+      }
       emitClosedOnce('provider_close');
     });
   };
-
   connect();
-
   return {
     async sendText({ text, role = 'user' }) {
       ensureOpen();
@@ -334,10 +326,7 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
         queue.push({ type: 'user_speech.started' });
       }
       sendOrBuffer(
-        buildGeminiRealtimeAudioMessage({
-          audioBase64: converted.audioBase64,
-          mimeType: converted.mimeType
-        })
+        buildGeminiRealtimeAudioMessage({ audioBase64: converted.audioBase64, mimeType: converted.mimeType })
       );
     },
     async commit() {

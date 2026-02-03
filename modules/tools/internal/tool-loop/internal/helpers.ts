@@ -1,4 +1,4 @@
-import type { ToolChoice, UnifiedTool } from '../../../../../kernel/index.js';
+import type { ToolCall, ToolChoice, UnifiedTool } from '../../../../../kernel/index.js';
 
 import { sanitizeToolName } from '../../tool-names.js';
 
@@ -74,4 +74,56 @@ export function isToolTerminalByDefinition(toolName: string, toolByName: Map<str
   const sanitized = sanitizeToolName(toolName);
   const sanitizedTool = toolByName.get(sanitized);
   return sanitizedTool?.terminal === true;
+}
+
+function resolveToolDefinition(toolName: string, toolByName: Map<string, UnifiedTool>): UnifiedTool | undefined {
+  const direct = toolByName.get(toolName);
+  if (direct) {
+    return direct;
+  }
+
+  const sanitized = sanitizeToolName(toolName);
+  return toolByName.get(sanitized);
+}
+
+export function resolveCallArgTerminalOverride(toolCall: ToolCall, toolByName: Map<string, UnifiedTool>): boolean | undefined {
+  const toolDef = resolveToolDefinition(toolCall.name, toolByName);
+  const field = typeof toolDef?.toolCallTerminalFlag?.field === 'string'
+    ? toolDef.toolCallTerminalFlag.field.trim()
+    : '';
+  if (!field) {
+    return undefined;
+  }
+
+  const args = toolCall.arguments as any;
+  const value = args ? args[field] : undefined;
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+export function stripCallArgTerminalFlag(toolCall: ToolCall, toolByName: Map<string, UnifiedTool>): ToolCall {
+  const toolDef = resolveToolDefinition(toolCall.name, toolByName);
+  const field = typeof toolDef?.toolCallTerminalFlag?.field === 'string'
+    ? toolDef.toolCallTerminalFlag.field.trim()
+    : '';
+  if (!field) {
+    return toolCall;
+  }
+
+  const args = toolCall.arguments as any;
+  if (!args || typeof args !== 'object') {
+    return toolCall;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(args, field)) {
+    return toolCall;
+  }
+
+  const stripped: any = { ...(args as Record<string, any>) };
+  delete stripped[field];
+
+  return {
+    ...toolCall,
+    arguments: stripped,
+    args: stripped
+  };
 }

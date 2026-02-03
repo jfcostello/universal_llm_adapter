@@ -249,10 +249,13 @@ Tool definitions live in `plugins/tools/*.json`:
 
 Tools can be marked as **terminal** so the tool loop stops immediately after the tool result is produced (no follow-up LLM call). This reduces latency/cost when the tool execution is the final action.
 
-There are two ways to mark terminal:
+There are three ways to mark terminal:
 
 1) **Tool definition:** set `"terminal": true` in the tool JSON.
 2) **Tool result override (per-call):** include `tool_type_response_override_terminal: true|false` in the tool return payload (either top-level or inside `result`; top-level wins). Only strict booleans are honored.
+3) **Tool call args override (per-call, model-controlled):** configure `UnifiedTool.toolCallTerminalFlag` on the tool to expose a boolean arg (e.g. `"terminal"`) in the tool schema; when the model includes that arg as a strict boolean, it overrides terminal behavior for that call. The arg is stripped before invoking the tool but remains visible in `response.toolCalls`.
+
+Precedence: tool result override > tool call args override > tool definition.
 
 When terminal, the adapter returns the tool result to the client and sets `finishReason: 'tool_stop'`.
 
