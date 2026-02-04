@@ -7,6 +7,46 @@ const __dirname = path.dirname(__filename);
 
 let cachedDefaultsObservabilityProvider: string | null | undefined;
 
+function listLiveTestFiles(): string[] {
+  const dir = path.join(__dirname, 'test-files');
+  try {
+    if (!fs.existsSync(dir)) return [];
+    return fs
+      .readdirSync(dir)
+      .filter((file) => String(file).endsWith('.live.test.ts'))
+      .map((file) => path.join('tests', 'live', 'test-files', file));
+  } catch {
+    return [];
+  }
+}
+
+function getIncludedLiveTestFiles(testPathPatterns: string[]): string[] {
+  const files = listLiveTestFiles();
+  if (files.length === 0) return [];
+
+  const patterns = (testPathPatterns || []).map(p => String(p || '').trim()).filter(Boolean);
+  if (patterns.length === 0) return files;
+
+  const regexes = patterns
+    .map((raw) => {
+      try {
+        return new RegExp(raw);
+      } catch {
+        return null;
+      }
+    })
+    .filter((re): re is RegExp => Boolean(re));
+
+  if (regexes.length === 0) return files;
+
+  return files.filter((filePath) => regexes.some((re) => re.test(filePath)));
+}
+
+function wantsSentrySignalsLiveTest(testPathPatterns: string[]): boolean {
+  const included = getIncludedLiveTestFiles(testPathPatterns);
+  return included.some((file) => /\bsentry\b/i.test(String(file)));
+}
+
 function readDefaultsObservabilityProvider(): string | null {
   if (cachedDefaultsObservabilityProvider !== undefined) {
     return cachedDefaultsObservabilityProvider;
@@ -118,6 +158,12 @@ export function getMissingRequiredEnv(options: {
   if (expectsLlmCalls && observabilityProvider === 'langfuse') {
     required.add('LANGFUSE_PUBLIC_KEY');
     required.add('LANGFUSE_SECRET_KEY');
+  }
+
+  if (wantsSentrySignalsLiveTest(options.testPathPatterns)) {
+    required.add('SENTRY_API_KEY');
+    required.add('SENTRY_ORG_SLUG');
+    required.add('SENTRY_PROJECT_SLUG');
   }
 
   return [...required].filter(key => !options.env?.[key] || String(options.env[key]).trim() === '');
