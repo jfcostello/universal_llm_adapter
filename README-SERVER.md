@@ -569,6 +569,35 @@ Precedence: tool result override > tool call args override > tool definition.
 
 When terminal, the response `finishReason` is set to `tool_stop`.
 
+Example: opt in to the model-controlled call-arg terminal flag:
+
+Tool definition (plugin JSON or inline `tools` entry):
+
+```json
+{
+  "name": "my.tool",
+  "description": "Does some work",
+  "toolCallTerminalFlag": {
+    "field": "terminal",
+    "description": "If true, stop the tool loop after this tool call."
+  },
+  "parametersJsonSchema": {
+    "type": "object",
+    "properties": {
+      "input": { "type": "string" }
+    },
+    "required": ["input"],
+    "additionalProperties": false
+  }
+}
+```
+
+Example tool-call arguments (what the model would send):
+
+```json
+{ "input": "hello", "terminal": true }
+```
+
 ### Usage Cost Calculation
 
 When a provider response omits cost, set `settings.usageCost` to opt into local cost calculation.

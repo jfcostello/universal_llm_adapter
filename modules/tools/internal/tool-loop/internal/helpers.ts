@@ -86,11 +86,15 @@ function resolveToolDefinition(toolName: string, toolByName: Map<string, Unified
   return toolByName.get(sanitized);
 }
 
-export function resolveCallArgTerminalOverride(toolCall: ToolCall, toolByName: Map<string, UnifiedTool>): boolean | undefined {
-  const toolDef = resolveToolDefinition(toolCall.name, toolByName);
-  const field = typeof toolDef?.toolCallTerminalFlag?.field === 'string'
+function resolveToolCallTerminalFlagField(toolName: string, toolByName: Map<string, UnifiedTool>): string {
+  const toolDef = resolveToolDefinition(toolName, toolByName);
+  return typeof toolDef?.toolCallTerminalFlag?.field === 'string'
     ? toolDef.toolCallTerminalFlag.field.trim()
     : '';
+}
+
+export function resolveCallArgTerminalOverride(toolCall: ToolCall, toolByName: Map<string, UnifiedTool>): boolean | undefined {
+  const field = resolveToolCallTerminalFlagField(toolCall.name, toolByName);
   if (!field) {
     return undefined;
   }
@@ -101,10 +105,7 @@ export function resolveCallArgTerminalOverride(toolCall: ToolCall, toolByName: M
 }
 
 export function stripCallArgTerminalFlag(toolCall: ToolCall, toolByName: Map<string, UnifiedTool>): ToolCall {
-  const toolDef = resolveToolDefinition(toolCall.name, toolByName);
-  const field = typeof toolDef?.toolCallTerminalFlag?.field === 'string'
-    ? toolDef.toolCallTerminalFlag.field.trim()
-    : '';
+  const field = resolveToolCallTerminalFlagField(toolCall.name, toolByName);
   if (!field) {
     return toolCall;
   }

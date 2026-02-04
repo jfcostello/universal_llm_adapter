@@ -210,14 +210,11 @@ export function createGeminiRealtimeCompatSession(options: Parameters<IRealtimeC
       }
       try {
         const mapped = mapGeminiLiveServerMessage(parsed, state);
-        if (mapped.some(e => e?.type === 'usage')) {
+        if (mapped.length > 0) {
+          // Once the server emits any post-setup content (usage/tool calls/transcripts/audio deltas/etc),
+          // consider in-flight sends accepted and disable reconnect+replay to avoid duplicating already
+          // processed input after an unexpected close.
           inFlightSends.length = 0;
-          allowReconnectAfterSetup = false;
-          if (recoveringAfterSetup) {
-            recoveringAfterSetup = false;
-            reconnectAttempt = 0;
-          }
-        } else if (mapped.some(e => String((e as any).type).startsWith('tool_call.'))) {
           allowReconnectAfterSetup = false;
           if (recoveringAfterSetup) {
             recoveringAfterSetup = false;

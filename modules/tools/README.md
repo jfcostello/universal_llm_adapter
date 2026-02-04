@@ -28,6 +28,31 @@ Precedence: tool result override > tool call args override > tool definition.
 
 When terminal, the response `finishReason` is set to `tool_stop`.
 
+Example: opt in to the model-controlled call-arg terminal flag:
+
+Tool definition (plugin JSON or inline `tools` entry):
+
+```json
+{
+  "name": "my.tool",
+  "toolCallTerminalFlag": { "field": "terminal" },
+  "parametersJsonSchema": {
+    "type": "object",
+    "properties": {
+      "input": { "type": "string" }
+    },
+    "required": ["input"],
+    "additionalProperties": false
+  }
+}
+```
+
+Example tool-call arguments:
+
+```json
+{ "input": "hello", "terminal": true }
+```
+
 ## Tool Routing
 
 Tool routing is handled by `ToolCoordinator` via process routes (`plugins/processes/*.json`).

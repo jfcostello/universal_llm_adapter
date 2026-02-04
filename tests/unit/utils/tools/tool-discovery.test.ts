@@ -120,6 +120,11 @@ describe('utils/tools/tool-discovery', () => {
           parametersJsonSchema: { type: 'object', properties: {}, additionalProperties: false }
         },
         {
+          name: 'unsafe.field.tool',
+          toolCallTerminalFlag: { field: '__proto__' },
+          parametersJsonSchema: { type: 'object', properties: {}, additionalProperties: false }
+        },
+        {
           name: 'schema.defaults.tool',
           toolCallTerminalFlag: { field: 'terminal', required: true, description: '  trimmed  ' },
           parametersJsonSchema: {
@@ -145,6 +150,7 @@ describe('utils/tools/tool-discovery', () => {
 
     expect(byName.invalid_flag_tool.toolCallTerminalFlag).toBeUndefined();
     expect(byName.nonstring_field_tool.toolCallTerminalFlag).toBeUndefined();
+    expect(byName.unsafe_field_tool.toolCallTerminalFlag).toBeUndefined();
 
     expect(byName.schema_defaults_tool.parametersJsonSchema).toMatchObject({
       type: 'object',
@@ -158,6 +164,130 @@ describe('utils/tools/tool-discovery', () => {
     expect(byName.missing_schema_tool.parametersJsonSchema).toMatchObject({
       type: 'object',
       properties: { terminal: { type: 'boolean' } }
+    });
+  });
+
+  test('collectTools disables toolCallTerminalFlag when schema already uses the field as non-boolean', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const spec = {
+      messages: [],
+      llmPriority: [],
+      settings: {},
+      tools: [
+        {
+          name: 'collision.tool',
+          toolCallTerminalFlag: { field: 'terminal' },
+          parametersJsonSchema: {
+            type: 'object',
+            properties: {
+              terminal: { type: 'string' },
+              foo: { type: 'string' }
+            },
+            required: ['terminal', 'foo'],
+            additionalProperties: false
+          }
+        }
+      ]
+    } as unknown as LLMCallSpec;
+
+    const registry = {
+      getTool: jest.fn()
+    } as unknown as PluginRegistry;
+
+    const result = await collectTools({ spec, registry });
+    const byName = Object.fromEntries(result.tools.map(tool => [tool.name, tool]));
+
+    expect(byName.collision_tool.toolCallTerminalFlag).toBeUndefined();
+    expect(byName.collision_tool.parametersJsonSchema).toMatchObject({
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        terminal: { type: 'string' },
+        foo: { type: 'string' }
+      },
+      required: ['terminal', 'foo']
+    });
+    expect(warnSpy).toHaveBeenCalledWith('tool_call_terminal_flag.schema_collision', { field: 'terminal' });
+
+    warnSpy.mockRestore();
+  });
+
+  test('collectTools disables toolCallTerminalFlag when schema uses boolean-form JSON schema for the field', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const spec = {
+      messages: [],
+      llmPriority: [],
+      settings: {},
+      tools: [
+        {
+          name: 'boolean.schema.collision.tool',
+          toolCallTerminalFlag: { field: 'terminal' },
+          parametersJsonSchema: {
+            type: 'object',
+            properties: {
+              terminal: true as any,
+              foo: { type: 'string' }
+            },
+            required: ['foo'],
+            additionalProperties: false
+          }
+        }
+      ]
+    } as unknown as LLMCallSpec;
+
+    const registry = {
+      getTool: jest.fn()
+    } as unknown as PluginRegistry;
+
+    const result = await collectTools({ spec, registry });
+    const byName = Object.fromEntries(result.tools.map(tool => [tool.name, tool]));
+
+    expect(byName.boolean_schema_collision_tool.toolCallTerminalFlag).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith('tool_call_terminal_flag.schema_collision', { field: 'terminal' });
+
+    warnSpy.mockRestore();
+  });
+
+  test('collectTools does not overwrite an existing boolean schema property for toolCallTerminalFlag', async () => {
+    const spec = {
+      messages: [],
+      llmPriority: [],
+      settings: {},
+      tools: [
+        {
+          name: 'predeclared.flag.tool',
+          toolCallTerminalFlag: { field: 'terminal', required: true },
+          parametersJsonSchema: {
+            type: 'object',
+            properties: {
+              terminal: { type: 'boolean' },
+              foo: { type: 'string' }
+            },
+            required: ['foo'],
+            additionalProperties: false
+          }
+        }
+      ]
+    } as unknown as LLMCallSpec;
+
+    const registry = {
+      getTool: jest.fn()
+    } as unknown as PluginRegistry;
+
+    const result = await collectTools({ spec, registry });
+    const byName = Object.fromEntries(result.tools.map(tool => [tool.name, tool]));
+
+    expect(byName.predeclared_flag_tool.toolCallTerminalFlag).toMatchObject({ field: 'terminal', required: true });
+    expect(byName.predeclared_flag_tool.parametersJsonSchema).toMatchObject({
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        terminal: { type: 'boolean' },
+        foo: { type: 'string' }
+      },
+      required: ['foo', 'terminal']
     });
   });
 
