@@ -10,6 +10,7 @@ import { createProgressFields, resolveCountdownText } from './utils.js';
 import { isToolTerminalByDefinition, resolveCallArgTerminalOverride, resolveTerminalOverride, stripCallArgTerminalFlag } from './helpers.js';
 import type { InvokeToolFn } from './types.js';
 import { recordToolExecutionObservability } from './observability.js';
+import type { ToolFailureSignalEvent } from './tool-failure-signals.js';
 
 export async function* executeStreamToolCallsRound(options: {
   toolCallsToExecute: ToolCall[];
@@ -31,6 +32,7 @@ export async function* executeStreamToolCallsRound(options: {
   preserveReasoning: number | 'all' | 'none';
   observability?: ObservabilityContext;
   generationId?: string;
+  reportToolFailureSignal?: (event: ToolFailureSignalEvent) => Promise<void>;
 }): AsyncGenerator<LLMStreamEvent, { terminalStopThisRound: boolean }> {
   if (options.toolCallsToExecute.length === 0) {
     return { terminalStopThisRound: false };
@@ -120,6 +122,25 @@ export async function* executeStreamToolCallsRound(options: {
         startTimeMs: now,
         endTimeMs: now
       });
+
+      if (options.reportToolFailureSignal) {
+        const metadata: Record<string, unknown> = {
+          ...(options.observability?.metadata ?? {}),
+          ...(options.observability?.sessionId ? { sessionId: options.observability.sessionId } : {}),
+          toolName: targetToolName,
+          toolCallId: toolCall.id
+        };
+
+        await options.reportToolFailureSignal({
+          traceId: options.observability?.traceId,
+          generationId: options.generationId,
+          timestampMs: now,
+          level: 'error',
+          message: `${targetToolName}: ${exhaustedPayload.message}`,
+          code: exhaustedPayload.error,
+          metadata
+        });
+      }
       continue;
     }
 
@@ -217,6 +238,7 @@ export async function* executeStreamToolCallsRound(options: {
       }
     );
 
+    const endTimeMs = Date.now();
     recordToolExecutionObservability({
       observability: options.observability,
       logger: options.logger,
@@ -231,8 +253,27 @@ export async function* executeStreamToolCallsRound(options: {
       resultText: truncatedText,
       ...(toolError ? { error: toolError } : {}),
       startTimeMs,
-      endTimeMs: Date.now()
+      endTimeMs
     });
+
+    if (toolError && options.reportToolFailureSignal) {
+      const metadata: Record<string, unknown> = {
+        ...(options.observability?.metadata ?? {}),
+        ...(options.observability?.sessionId ? { sessionId: options.observability.sessionId } : {}),
+        toolName: targetToolName,
+        toolCallId: toolCall.id
+      };
+
+      await options.reportToolFailureSignal({
+        traceId: options.observability?.traceId,
+        generationId: options.generationId,
+        timestampMs: endTimeMs,
+        level: 'error',
+        message: `${targetToolName}: ${toolError.message}`,
+        code: toolError.code,
+        metadata
+      });
+    }
 
     yield {
       type: StreamEventType.TOOL,

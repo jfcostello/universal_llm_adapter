@@ -8,6 +8,11 @@ This module is designed for:
 
 Signals are queued and exported in the background via a bounded, retryable batch exporter. Configuration supports **multi-target fanout** so multiple providers can be enabled simultaneously.
 
+## Built-in signals
+
+When signals export is enabled, the adapter will automatically emit signals for certain internal events. Currently:
+- Tool execution failures (including skipped tool calls due to tool-budget exhaustion) emit an `error` signal with a `code` such as `tool_execution_failed` / `tool_call_budget_exhausted`.
+
 ## Configuration
 
 Signals configuration comes from:
@@ -65,4 +70,3 @@ deps.getExporter().recordSignal({
 
 `metadata` is passed through adapter redaction (`redactJsonCredentials`) before export.
 Provider compats should still enforce their own truncation and size limits.
-

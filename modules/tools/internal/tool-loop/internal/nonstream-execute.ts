@@ -7,6 +7,7 @@ import { createProgressFields, resolveCountdownText } from './utils.js';
 import { isToolTerminalByDefinition, resolveCallArgTerminalOverride, resolveTerminalOverride, stripCallArgTerminalFlag } from './helpers.js';
 import type { InvokeToolFn } from './types.js';
 import { recordToolExecutionObservability } from './observability.js';
+import type { ToolFailureSignalEvent } from './tool-failure-signals.js';
 
 type ExecuteToolCallResult =
   | {
@@ -56,6 +57,7 @@ export async function executeNonStreamToolCallsRound(options: {
   invokeTool: InvokeToolFn;
   observability?: ObservabilityContext;
   generationId?: string;
+  reportToolFailureSignal?: (event: ToolFailureSignalEvent) => Promise<void>;
 }): Promise<{
   toolResultsThisRound: Array<{ tool: string; result: any }>;
   terminalStopThisRound: boolean;
@@ -185,7 +187,7 @@ export async function executeNonStreamToolCallsRound(options: {
     }
   };
 
-  const processResult = (result: ExecuteToolCallResult) => {
+  const processResult = async (result: ExecuteToolCallResult) => {
     const record = (payload: { resultText: string; error?: { message: string; code?: string } }) => {
       recordToolExecutionObservability({
         observability: options.observability,
@@ -265,6 +267,28 @@ export async function executeNonStreamToolCallsRound(options: {
       }
     });
 
+    if (options.reportToolFailureSignal) {
+      const failurePayload = result.payload as { error: string; message: string };
+      const message = `${result.toolName}: ${failurePayload.message}`;
+
+      const metadata: Record<string, unknown> = {
+        ...(options.observability?.metadata ?? {}),
+        ...(options.observability?.sessionId ? { sessionId: options.observability.sessionId } : {}),
+        toolName: result.toolName,
+        toolCallId: result.toolCall.id
+      };
+
+      await options.reportToolFailureSignal({
+        traceId: options.observability?.traceId,
+        generationId: options.generationId,
+        timestampMs: result.endTimeMs,
+        level: 'error',
+        message,
+        code: failurePayload.error,
+        metadata
+      });
+    }
+
     if (result.type === 'exhausted') {
       forceFinalize = true;
       return;
@@ -278,12 +302,12 @@ export async function executeNonStreamToolCallsRound(options: {
   if (options.parallelExecution) {
     const results = await Promise.all(options.toolCalls.map(executeToolCall));
     for (const callResult of results) {
-      processResult(callResult);
+      await processResult(callResult);
     }
   } else {
     for (const toolCall of options.toolCalls) {
       const callResult = await executeToolCall(toolCall);
-      processResult(callResult);
+      await processResult(callResult);
       if (forceFinalize) {
         break;
       }

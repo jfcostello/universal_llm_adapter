@@ -15,6 +15,7 @@ import { resolveFollowUpToolChoice } from './helpers.js';
 import { parseMaxToolIterations } from './utils.js';
 import type { StreamLoopResult, StreamToolLoopOptions } from './types.js';
 import { executeStreamToolCallsRound } from './stream-execute.js';
+import { createToolFailureSignalReporter } from './tool-failure-signals.js';
 
 export async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerator<LLMStreamEvent, StreamLoopResult | undefined> {
   const {
@@ -49,6 +50,7 @@ export async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncG
     ? Math.floor(runtime.toolResultMaxChars)
     : null;
   const toolByName = new Map<string, UnifiedTool>(tools.map(tool => [tool.name, tool]));
+  const reportToolFailureSignal = createToolFailureSignalReporter({ registry, spec: options.signals, logger });
 
   const emittedToolCalls: ToolCall[] = [];
   const calledToolNames = new Set<string>();
@@ -84,7 +86,8 @@ export async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncG
         preserveToolResults,
         preserveReasoning,
         observability: runContext?.observability,
-        generationId: options.observabilityGenerationId
+        generationId: options.observabilityGenerationId,
+        reportToolFailureSignal
       });
 
       if (terminalStopThisRound) {

@@ -281,6 +281,7 @@ export class StreamCoordinator {
           toolNameMap,
           runContext: { metadata: executionSpec.metadata, observability: context.observability },
           metadata: executionSpec.metadata,
+          signals: executionSpec.signals,
           initialToolCalls: preparedToolCalls,
           initialReasoning: reasoningAggregate,
           observabilityGenerationId: generationId,

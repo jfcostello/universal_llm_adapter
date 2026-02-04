@@ -243,6 +243,7 @@ export class LLMCoordinator {
       runContext,
       toolNameMap,
       metadata: spec.metadata,
+      signals: spec.signals,
       initialResponse: response,
       invokeTool: async (toolName, call, context) => {
         const callName = typeof (call as any)?.name === 'string' ? String((call as any).name) : '';

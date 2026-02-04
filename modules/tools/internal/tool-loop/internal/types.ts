@@ -1,4 +1,4 @@
-import type { PluginRegistry } from '../../../../../kernel/index.js';
+import type { PluginRegistry, SignalsSpec } from '../../../../../kernel/index.js';
 import type {
   LLMResponse,
   LLMStreamEvent,
@@ -29,6 +29,7 @@ export interface BaseToolLoopOptions {
   toolNameMap: Record<string, string>;
   runContext?: any;
   metadata?: Record<string, any>;
+  signals?: SignalsSpec;
 }
 
 export interface NonStreamToolLoopOptions extends BaseToolLoopOptions {

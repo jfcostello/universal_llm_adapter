@@ -23,10 +23,12 @@ import { executeNonStreamToolCallsRound } from './nonstream-execute.js';
 import { resolveFollowUpToolChoice } from './helpers.js';
 import { maybeAttachUsageCost, parseMaxToolIterations } from './utils.js';
 import type { NonStreamToolLoopOptions } from './types.js';
+import { createToolFailureSignalReporter } from './tool-failure-signals.js';
 
 export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<LLMResponse> {
   const {
     llmManager,
+    registry,
     messages,
     tools,
     toolChoice,
@@ -59,6 +61,7 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
   const allToolResults: Array<{ tool: string; result: any }> = [];
   const allToolCalls: ToolCall[] = [];
   const calledToolNames = new Set<string>();
+  const reportToolFailureSignal = createToolFailureSignalReporter({ registry, spec: options.signals, logger });
 
   let response = initialResponse;
   let forceFinalize = false;
@@ -182,7 +185,8 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
       messages,
       invokeTool,
       observability: runContext?.observability,
-      generationId: (response as any)?.generationId
+      generationId: (response as any)?.generationId,
+      reportToolFailureSignal
     });
 
     allToolResults.push(...round.toolResultsThisRound);
