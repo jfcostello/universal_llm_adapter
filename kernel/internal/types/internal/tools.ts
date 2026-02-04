@@ -10,6 +10,21 @@ export interface UnifiedTool {
   description?: string;
   parametersJsonSchema?: JsonObject;
   /**
+   * Optional per-tool config to expose a strict-boolean flag inside tool call arguments that can
+   * override terminal behavior for that specific call.
+   *
+   * This flag is injected into the tool's `parametersJsonSchema` during tool discovery and is
+   * stripped from invocation args before routing/executing the tool.
+   */
+  toolCallTerminalFlag?: {
+    /** Argument key to read from tool call arguments (e.g. "terminal"). */
+    field: string;
+    /** If true, add the field to JSON schema `required`. */
+    required?: boolean;
+    /** Optional description used for the injected schema property. */
+    description?: string;
+  };
+  /**
    * When true, executing this tool call should end the tool loop immediately after
    * the tool result is produced (no follow-up LLM call).
    */

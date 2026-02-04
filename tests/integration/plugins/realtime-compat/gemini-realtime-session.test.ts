@@ -354,6 +354,210 @@ describe('integration/realtime-compat/gemini session', () => {
     }
   });
 
+  test('reconnects when the websocket closes after setupComplete and replays in-flight messages', async () => {
+    const server = await startWsServer();
+    try {
+      const session = createGeminiRealtimeCompatSession({
+        provider: {
+          id: 'google',
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
+        } as any,
+        spec: { provider: 'google', model: 'm', turnDetection: { mode: 'manual_commit' } }
+      } as any);
+
+      await waitForMessage(server.messages, m => m?.setup?.model === 'models/m', 2000);
+      server.sendToClient({ setupComplete: {} });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      const first = await it.next();
+      expect(first.value.type).toBe('ready');
+
+      await session.sendText({ role: 'user', text: 'hi' } as any);
+      await session.commit();
+
+      await waitForMessage(server.messages, m => m?.clientContent?.turnComplete === false, 2000);
+      await waitForMessage(server.messages, m => m?.clientContent?.turnComplete === true, 2000);
+
+      const setupCountBefore = server.messages.filter(m => m?.setup?.model === 'models/m').length;
+      const clientContentCountBefore = server.messages.filter(m => m?.clientContent).length;
+
+      server.closeClientWithReason(1011, 'Internal error occurred.');
+
+      const waitForCount = async (label: string, getCount: () => number, target: number, timeoutMs: number) => {
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+          if (getCount() >= target) return;
+          await new Promise(res => setTimeout(res, 10));
+        }
+        throw new Error(`Timed out waiting for ${label} count=${target}`);
+      };
+
+      await waitForCount(
+        'setup',
+        () => server.messages.filter(m => m?.setup?.model === 'models/m').length,
+        setupCountBefore + 1,
+        5000
+      );
+      server.sendToClient({ setupComplete: {} });
+
+      await waitForCount(
+        'clientContent',
+        () => server.messages.filter(m => m?.clientContent).length,
+        clientContentCountBefore + 2,
+        5000
+      );
+
+      server.sendToClient({ serverContent: { outputTranscription: { text: 'ok' }, turnComplete: true } });
+      await waitForSessionEvent({
+        iterator: it,
+        predicate: (evt) => evt?.type === 'usage',
+        timeoutMs: 5000
+      });
+
+      await session.close();
+      await it.next();
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('does not reconnect after setupComplete once server content has been observed', async () => {
+    const server = await startWsServer();
+    try {
+      const session = createGeminiRealtimeCompatSession({
+        provider: {
+          id: 'google',
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
+        } as any,
+        spec: { provider: 'google', model: 'm', turnDetection: { mode: 'manual_commit' } }
+      } as any);
+
+      await waitForMessage(server.messages, m => m?.setup?.model === 'models/m', 2000);
+      server.sendToClient({ setupComplete: {} });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      const first = await it.next();
+      expect(first.value.type).toBe('ready');
+
+      await session.sendText({ role: 'user', text: 'hi' } as any);
+      await session.commit();
+
+      await waitForMessage(server.messages, m => m?.clientContent?.turnComplete === false, 2000);
+      await waitForMessage(server.messages, m => m?.clientContent?.turnComplete === true, 2000);
+
+      const setupCountBefore = server.messages.filter(m => m?.setup?.model === 'models/m').length;
+
+      // Any post-setup server content indicates processing has started; do not reconnect+replay after that.
+      server.sendToClient({
+        serverContent: {
+          outputTranscription: { text: 'partial' },
+          turnComplete: false
+        }
+      });
+      await waitForSessionEvent({
+        iterator: it,
+        predicate: (evt) => evt?.type === 'assistant_transcript.delta',
+        timeoutMs: 2000
+      });
+
+      server.closeClientWithReason(1011, 'Internal error occurred.');
+
+      await waitForSessionEvent({
+        iterator: it,
+        predicate: (evt) => evt?.type === 'closed',
+        timeoutMs: 5000
+      });
+
+      // Wait longer than the max reconnect backoff jitter (<= 2500ms).
+      await new Promise(res => setTimeout(res, 3000));
+      const setupCountAfter = server.messages.filter(m => m?.setup?.model === 'models/m').length;
+      expect(setupCountAfter).toBe(setupCountBefore);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('resets recovery flags when the first post-reconnect message is a tool call', async () => {
+    const server = await startWsServer();
+    try {
+      const session = createGeminiRealtimeCompatSession({
+        provider: {
+          id: 'google',
+          compat: 'gemini',
+          endpoint: { urlTemplate: server.urlTemplate, headers: {} }
+        } as any,
+        spec: { provider: 'google', model: 'm', turnDetection: { mode: 'manual_commit' } }
+      } as any);
+
+      await waitForMessage(server.messages, m => m?.setup?.model === 'models/m', 2000);
+      server.sendToClient({ setupComplete: {} });
+
+      const it = session.events()[Symbol.asyncIterator]();
+      const first = await it.next();
+      expect(first.value.type).toBe('ready');
+
+      await session.sendText({ role: 'user', text: 'hi' } as any);
+      await session.commit();
+
+      await waitForMessage(server.messages, m => m?.clientContent?.turnComplete === false, 2000);
+      await waitForMessage(server.messages, m => m?.clientContent?.turnComplete === true, 2000);
+
+      const setupCountBefore = server.messages.filter(m => m?.setup?.model === 'models/m').length;
+      const clientContentCountBefore = server.messages.filter(m => m?.clientContent).length;
+
+      server.closeClientWithReason(1011, 'Internal error occurred.');
+
+      const waitForCount = async (label: string, getCount: () => number, target: number, timeoutMs: number) => {
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+          if (getCount() >= target) return;
+          await new Promise(res => setTimeout(res, 10));
+        }
+        throw new Error(`Timed out waiting for ${label} count=${target}`);
+      };
+
+      await waitForCount(
+        'setup',
+        () => server.messages.filter(m => m?.setup?.model === 'models/m').length,
+        setupCountBefore + 1,
+        5000
+      );
+      server.sendToClient({ setupComplete: {} });
+
+      await waitForCount(
+        'clientContent',
+        () => server.messages.filter(m => m?.clientContent).length,
+        clientContentCountBefore + 2,
+        5000
+      );
+
+      server.sendToClient({
+        toolCall: {
+          functionCalls: [
+            {
+              id: 'call_1',
+              name: 'test.echo',
+              args: JSON.stringify({ message: 'hi' })
+            }
+          ]
+        }
+      });
+
+      await waitForSessionEvent({
+        iterator: it,
+        predicate: (evt) => evt?.type === 'tool_call.end',
+        timeoutMs: 5000
+      });
+
+      await session.close();
+      await it.next();
+    } finally {
+      await server.close();
+    }
+  });
+
   test('does not reconnect after close (covers connect closed guard)', async () => {
     const server = await startWsServer({ closeOnSetup: true });
     const originalSetTimeout = globalThis.setTimeout;

@@ -22,8 +22,36 @@ Owns tool discovery, tool loop orchestration, and tool routing (process routes +
 Terminal can be set via:
 - Tool definition: `UnifiedTool.terminal: true`
 - Tool result override: `tool_type_response_override_terminal: true|false` (strict boolean; top-level overrides nested)
+- Tool call args override (per-call, model-controlled): configure `UnifiedTool.toolCallTerminalFlag` to expose a boolean arg (e.g. `"terminal"`) in the tool schema; strict booleans override terminal behavior for that call (stripped before invocation, preserved in `response.toolCalls`)
+
+Precedence: tool result override > tool call args override > tool definition.
 
 When terminal, the response `finishReason` is set to `tool_stop`.
+
+Example: opt in to the model-controlled call-arg terminal flag:
+
+Tool definition (plugin JSON or inline `tools` entry):
+
+```json
+{
+  "name": "my.tool",
+  "toolCallTerminalFlag": { "field": "terminal" },
+  "parametersJsonSchema": {
+    "type": "object",
+    "properties": {
+      "input": { "type": "string" }
+    },
+    "required": ["input"],
+    "additionalProperties": false
+  }
+}
+```
+
+Example tool-call arguments:
+
+```json
+{ "input": "hello", "terminal": true }
+```
 
 ## Tool Routing
 

@@ -3,7 +3,6 @@ import { LLMCallSpec, UnifiedTool, VectorContextConfig, ToolSchemaParamOverride 
 import type { MCPManager } from '../../mcp/index.js';
 import type { VectorStoreManager } from '../../vector/index.js';
 import { sanitizeToolName } from './tool-names.js';
-
 export interface ToolDiscoveryOptions {
   spec: LLMCallSpec;
   registry: PluginRegistry;
@@ -11,13 +10,103 @@ export interface ToolDiscoveryOptions {
   vectorManager?: VectorStoreManager;
   sanitizeName?: (name: string) => string;
 }
-
 export interface ToolDiscoveryResult {
   tools: UnifiedTool[];
   mcpServers: string[];
   toolNameMap: Record<string, string>;
   /** Maps exposed vector search param names -> canonical names for arg translation */
   vectorSearchAliasMap?: Record<string, string>;
+}
+const DISALLOWED_TERMINAL_FLAG_FIELDS = new Set(['__proto__', 'prototype', 'constructor']);
+
+function normalizeToolCallTerminalFlag(
+  raw: UnifiedTool['toolCallTerminalFlag']
+): UnifiedTool['toolCallTerminalFlag'] | undefined {
+  if (!raw || typeof raw !== 'object') {
+    return undefined;
+  }
+
+  const field = typeof raw.field === 'string' ? raw.field.trim() : '';
+  if (!field) {
+    return undefined;
+  }
+  if (DISALLOWED_TERMINAL_FLAG_FIELDS.has(field)) {
+    return undefined;
+  }
+
+  const normalized: any = { field };
+  if (raw.required === true) {
+    normalized.required = true;
+  }
+  if (typeof raw.description === 'string') {
+    const trimmed = raw.description.trim();
+    if (trimmed) {
+      normalized.description = trimmed;
+    }
+  }
+
+  return normalized;
+}
+
+function isStrictBooleanSchema(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  return (value as any).type === 'boolean';
+}
+
+function applyToolCallTerminalFlagToSchema(
+  schema: UnifiedTool['parametersJsonSchema'],
+  flag: UnifiedTool['toolCallTerminalFlag'] | undefined
+): { schema: UnifiedTool['parametersJsonSchema']; flag: UnifiedTool['toolCallTerminalFlag'] | undefined } {
+  if (!flag) {
+    return { schema, flag };
+  }
+
+  const base = schema && typeof schema === 'object' ? (schema as Record<string, any>) : {};
+
+  const baseProps = base.properties && typeof base.properties === 'object' && !Array.isArray(base.properties)
+    ? (base.properties as Record<string, any>)
+    : {};
+
+  if (Object.prototype.hasOwnProperty.call(baseProps, flag.field) && !isStrictBooleanSchema(baseProps[flag.field])) {
+    // If the tool schema already uses this key for a non-boolean argument, treat the config as invalid.
+    // Otherwise we'd strip an argument the tool might rely on (and we'd be silently overriding schema).
+    // eslint-disable-next-line no-console
+    console.warn('tool_call_terminal_flag.schema_collision', {
+      field: flag.field
+    });
+    return { schema, flag: undefined };
+  }
+
+  const next: Record<string, any> = { ...base };
+
+  // Default to object type if unset; don't overwrite if explicitly set to something else.
+  if (next.type === undefined) {
+    next.type = 'object';
+  }
+
+  next.properties = {
+    ...baseProps,
+    ...(Object.prototype.hasOwnProperty.call(baseProps, flag.field)
+      ? {}
+      : {
+          [flag.field]: {
+            type: 'boolean',
+            ...(flag.description ? { description: flag.description } : {})
+          }
+        })
+  };
+
+  if (flag.required === true) {
+    const required = Array.isArray(base.required) ? [...base.required] : [];
+    if (!required.includes(flag.field)) {
+      required.push(flag.field);
+    }
+    next.required = required;
+  }
+
+  return { schema: next as any, flag };
 }
 
 export async function collectTools({
@@ -82,11 +171,14 @@ export async function collectTools({
   for (const originalTool of toolMap.values()) {
     const sanitizedName = sanitize(originalTool.name);
     toolNameMap[sanitizedName] = originalTool.name;
+    const terminalFlag = normalizeToolCallTerminalFlag(originalTool.toolCallTerminalFlag);
+    const appliedFlag = applyToolCallTerminalFlagToSchema(originalTool.parametersJsonSchema, terminalFlag);
     sanitizedTools.push({
       name: sanitizedName,
       id: originalTool.id,
       description: originalTool.description,
-      parametersJsonSchema: originalTool.parametersJsonSchema,
+      parametersJsonSchema: appliedFlag.schema,
+      toolCallTerminalFlag: appliedFlag.flag,
       terminal: originalTool.terminal,
       processRouteId: originalTool.processRouteId
     });

@@ -7,7 +7,7 @@ import { pruneReasoning, pruneToolResults } from '../../../../context/index.js';
 import { sanitizeToolName } from '../../tool-names.js';
 
 import { createProgressFields, resolveCountdownText } from './utils.js';
-import { isToolTerminalByDefinition, resolveTerminalOverride } from './helpers.js';
+import { isToolTerminalByDefinition, resolveCallArgTerminalOverride, resolveTerminalOverride, stripCallArgTerminalFlag } from './helpers.js';
 import type { InvokeToolFn } from './types.js';
 
 export async function* executeStreamToolCallsRound(options: {
@@ -70,6 +70,10 @@ export async function* executeStreamToolCallsRound(options: {
       ?? 'unknown_tool';
     const definitionName = toolCall.name ?? sanitizedName;
     const terminalByDefinition = isToolTerminalByDefinition(definitionName, options.toolByName);
+    const callArgTerminalOverride = resolveCallArgTerminalOverride(
+      { ...toolCall, name: definitionName } as any,
+      options.toolByName
+    );
 
     if (options.budget.exhausted) {
       const exhaustedPayload = {
@@ -119,9 +123,18 @@ export async function* executeStreamToolCallsRound(options: {
     let normalizedPayload: any;
     let overrideTerminal: boolean | undefined;
     try {
+      const stripped = stripCallArgTerminalFlag(
+        { ...toolCall, name: definitionName } as any,
+        options.toolByName
+      );
+      const invocationToolCall: any = {
+        ...toolCall,
+        arguments: stripped.arguments,
+        args: (stripped as any).args ?? stripped.arguments
+      };
       const invocationResult = await options.invokeTool(
         targetToolName,
-        toolCall,
+        invocationToolCall,
         {
           provider: options.providerManifest.id,
           model: options.model,
@@ -145,7 +158,9 @@ export async function* executeStreamToolCallsRound(options: {
 
     const isTerminal = overrideTerminal !== undefined
       ? overrideTerminal
-      : terminalByDefinition;
+      : callArgTerminalOverride !== undefined
+          ? callArgTerminalOverride
+          : terminalByDefinition;
     if (isTerminal) {
       terminalStopThisRound = true;
     }

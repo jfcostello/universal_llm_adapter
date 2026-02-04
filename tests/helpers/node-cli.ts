@@ -198,9 +198,13 @@ async function readLogsForCorrelationId(options: {
   const logPath = options.logPath;
   if (!logPath) return [];
 
-  const timeoutMs = options.timeoutMs ?? 2000;
+  const timeoutMs = options.timeoutMs ?? 10000;
+  const settleMs = 250;
   const start = Date.now();
   const needle = `"correlationId":"${options.correlationId}"`;
+
+  let lastMatches: string[] = [];
+  let lastChangeAt = 0;
 
   while (Date.now() - start < timeoutMs) {
     if (!fs.existsSync(logPath)) {
@@ -211,14 +215,29 @@ async function readLogsForCorrelationId(options: {
     const text = fs.readFileSync(logPath, 'utf-8');
     const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     const matches = lines.filter(l => l.includes(needle));
-    if (matches.length > 0) {
-      return matches;
+    if (matches.length === 0) {
+      await new Promise(res => setTimeout(res, 50));
+      continue;
+    }
+
+    const changed =
+      matches.length !== lastMatches.length || matches.some((line, idx) => line !== lastMatches[idx]);
+
+    if (changed) {
+      lastMatches = matches;
+      lastChangeAt = Date.now();
+      await new Promise(res => setTimeout(res, 50));
+      continue;
+    }
+
+    if (lastChangeAt && Date.now() - lastChangeAt >= settleMs) {
+      return lastMatches;
     }
 
     await new Promise(res => setTimeout(res, 50));
   }
 
-  return [];
+  return lastMatches;
 }
 
 async function runToolViaServer(target: ToolTarget, options: CliRunOptions): Promise<CliResult> {

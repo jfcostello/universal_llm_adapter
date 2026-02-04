@@ -71,6 +71,46 @@ function extractAssistantText(response: LLMResponse): string {
     expect(routeIds).toContain('test-control-explicit');
   }, 180_000);
 
+  test('Tool-call arg terminal flag stops the loop (tool is non-terminal by definition)', async () => {
+    expect(runCfg).toBeTruthy();
+
+    const prompt = [
+      'Call tool test.control.nonterminal with the EXACT JSON arguments:',
+      '{"override": null, "sleepMs": 0, "terminal": true}',
+      'Do not call any other tools.'
+    ].join('\n');
+
+    const spec = {
+      ...baseSpec,
+      functionToolNames: ['test.control.nonterminal'],
+      toolChoice: { type: 'single', name: 'test.control.nonterminal' },
+      messages: [
+        { role: 'system', content: [{ type: 'text', text: systemPrompt } as any] },
+        userMessage(prompt)
+      ]
+    };
+
+    const call = await runLlmOnce({ spec, testFileBase: TEST_FILE, testName: 'call-arg-terminal-true' });
+    expect(call.result.code).toBe(0);
+    expect(call.response).toBeTruthy();
+
+    const response = call.response as LLMResponse;
+    expect(response.finishReason).toBe('tool_stop');
+
+    const toolResults = Array.isArray((response as any)?.raw?.toolResults) ? (response as any).raw.toolResults : [];
+    expect(toolResults.length).toBeGreaterThanOrEqual(1);
+    expect(toolResults[0]?.tool).toBe('test.control.nonterminal');
+    expect(toolResults[0]?.result?.tool_type_response_override_terminal).toBe(null);
+
+    const toolCalls = Array.isArray(response.toolCalls) ? response.toolCalls : [];
+    const toolCall = toolCalls.find(call => call?.name === 'test.control.nonterminal');
+    expect(toolCall).toBeTruthy();
+    expect((toolCall as any)?.arguments?.terminal).toBe(true);
+
+    const routeIds = getToolRoutingRouteIds(call.result.logs, 'test.control.nonterminal');
+    expect(routeIds).toContain('test-control-nonterminal');
+  }, 180_000);
+
   test('terminal=false override forces follow-up + final prompt (tool is terminal by definition)', async () => {
     expect(runCfg).toBeTruthy();
 
