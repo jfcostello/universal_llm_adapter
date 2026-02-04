@@ -284,6 +284,31 @@ describe('lifecycle/internal/factories', () => {
       delete (globalThis as any)[runtimeSymbol];
     });
 
+    test('calls signals runtime shutdownAll when present', async () => {
+      const closeLoggerMock = jest.fn().mockResolvedValue(undefined);
+      const shutdownObsMock = jest.fn().mockResolvedValue(undefined);
+      const shutdownSignalsMock = jest.fn().mockResolvedValue(undefined);
+
+      const obsSymbol = Symbol.for('llm_adapter_observability_runtime');
+      const signalsSymbol = Symbol.for('llm_adapter_signals_runtime');
+      (globalThis as any)[obsSymbol] = { shutdownAll: shutdownObsMock };
+      (globalThis as any)[signalsSymbol] = { shutdownAll: shutdownSignalsMock };
+
+      (jest as any).unstable_mockModule('@/modules/logging/index.ts', () => ({
+        closeLogger: closeLoggerMock
+      }));
+
+      const { closeLogger } = await import('@/modules/lifecycle/internal/factories.ts');
+      await closeLogger();
+
+      expect(shutdownObsMock).toHaveBeenCalled();
+      expect(shutdownSignalsMock).toHaveBeenCalled();
+      expect(closeLoggerMock).toHaveBeenCalled();
+
+      delete (globalThis as any)[obsSymbol];
+      delete (globalThis as any)[signalsSymbol];
+    });
+
     test('swallows observability shutdown failures and still closes logging', async () => {
       const closeLoggerMock = jest.fn().mockResolvedValue(undefined);
       const shutdownAllMock = jest.fn().mockRejectedValue(undefined);

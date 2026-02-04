@@ -161,6 +161,19 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
     maxInputTextBytes: 4096,
     maxOutputTextBytes: 4096,
     maxJsonBytes: 8192
+  },
+  signals: {
+    enabled: false,
+    targets: [],
+    flushAt: 10,
+    flushIntervalMs: 5000,
+    maxQueueSize: 1000,
+    maxAttempts: 3,
+    baseDelayMs: 250,
+    maxDelayMs: 30000,
+    timeoutMs: 10000,
+    shutdownTimeoutMs: 5000,
+    maxAttributeValueBytes: 16384
   }
 };
 

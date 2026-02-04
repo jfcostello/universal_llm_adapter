@@ -77,6 +77,54 @@ describe('modules/observability/internal/runtime', () => {
     });
   });
 
+  test('treats non-finite sampleRate numbers as invalid (falls back to defaults)', async () => {
+    await jest.isolateModulesAsync(async () => {
+      const exporter = { flush: jest.fn(async () => {}) };
+      const createObservabilityDeps = jest.fn(() => ({
+        isEnabled: () => true,
+        getExporter: () => exporter
+      }));
+
+      jest.unstable_mockModule('../../../modules/observability/internal/observability.js', () => ({
+        createObservabilityDeps
+      }));
+
+      const { createObservabilityRuntime } = await import('@/modules/observability/internal/runtime.ts');
+
+      const runtime = await createObservabilityRuntime(
+        {} as any,
+        { enabled: true, sampleRate: Number.POSITIVE_INFINITY } as any
+      );
+
+      expect(runtime?.sampleRate).toBe(1);
+      expect(createObservabilityDeps).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test('treats non-numeric sampleRate strings as invalid (falls back to defaults)', async () => {
+    await jest.isolateModulesAsync(async () => {
+      const exporter = { flush: jest.fn(async () => {}) };
+      const createObservabilityDeps = jest.fn(() => ({
+        isEnabled: () => true,
+        getExporter: () => exporter
+      }));
+
+      jest.unstable_mockModule('../../../modules/observability/internal/observability.js', () => ({
+        createObservabilityDeps
+      }));
+
+      const { createObservabilityRuntime } = await import('@/modules/observability/internal/runtime.ts');
+
+      const runtime = await createObservabilityRuntime(
+        {} as any,
+        { enabled: true, sampleRate: 'nope' } as any
+      );
+
+      expect(runtime?.sampleRate).toBe(1);
+      expect(createObservabilityDeps).toHaveBeenCalledTimes(1);
+    });
+  });
+
   test('returns undefined when observability deps are disabled', async () => {
     await jest.isolateModulesAsync(async () => {
       const exporter = { flush: jest.fn(async () => {}) };
@@ -165,4 +213,3 @@ describe('modules/observability/internal/runtime', () => {
     });
   });
 });
-

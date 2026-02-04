@@ -1,26 +1,31 @@
-import type { AdapterLogger, IObservabilityCompat, ObservabilityCompatContext, ObservabilityProviderManifest } from '../../../../../kernel/index.js';
+import type {
+  AdapterLogger,
+  HttpCompatContext,
+  HttpExportProviderManifest,
+  IHttpBatchCompat
+} from '../../../kernel/index.js';
 
-import type { ObservabilityExporterConfig } from './config.js';
-import type { ObservabilityExporterMetrics, QueuedEvent } from './types.js';
+import type { BatchedHttpExporterConfig, BatchedHttpExporterMetrics, QueuedExportEvent } from './types.js';
 
-export async function sendWithSizeLimit(options: {
-  batchEvents: QueuedEvent[];
+export async function sendWithSizeLimit<M extends HttpExportProviderManifest>(options: {
+  label: string;
+  batchEvents: QueuedExportEvent[];
   attempt: number;
   maxBatchBytes: number | undefined;
-  compatContext: ObservabilityCompatContext;
+  compatContext: HttpCompatContext;
   signal: AbortSignal | undefined;
-  config: ObservabilityExporterConfig;
-  compat: IObservabilityCompat;
-  manifest: ObservabilityProviderManifest;
+  config: BatchedHttpExporterConfig;
+  compat: IHttpBatchCompat<M>;
+  manifest: M;
   logger: AdapterLogger;
-  metrics: ObservabilityExporterMetrics;
+  metrics: BatchedHttpExporterMetrics;
   getMetricsSnapshot: () => Record<string, number>;
-}): Promise<QueuedEvent[]> {
+}): Promise<QueuedExportEvent[]> {
   if (options.signal?.aborted) {
     return options.batchEvents;
   }
 
-  const compatContextForBatch: ObservabilityCompatContext = {
+  const compatContextForBatch: HttpCompatContext = {
     ...options.compatContext,
     eventIds: options.batchEvents.map(e => e.id)
   };
@@ -34,7 +39,7 @@ export async function sendWithSizeLimit(options: {
       compatContextForBatch
     ));
   } catch (error: any) {
-    options.logger.warning('Observability batch export failed', {
+    options.logger.warning(`${options.label} batch export failed`, {
       provider: options.config.provider,
       attempt: options.attempt + 1,
       maxAttempts: options.config.maxAttempts,
@@ -52,7 +57,7 @@ export async function sendWithSizeLimit(options: {
     if (bytes > options.maxBatchBytes) {
       if (options.batchEvents.length <= 1) {
         options.metrics.droppedTotal += 1;
-        options.logger.warning('Observability event exceeds maxBatchBytes; dropping event', {
+        options.logger.warning(`${options.label} event exceeds maxBatchBytes; dropping event`, {
           provider: options.config.provider,
           eventId: options.batchEvents[0].id,
           bytes,
@@ -76,12 +81,12 @@ export async function sendWithSizeLimit(options: {
   }
 
   options.metrics.sentCount += 1;
-  let result: Awaited<ReturnType<IObservabilityCompat['sendBatch']>>;
+  let result: Awaited<ReturnType<IHttpBatchCompat<M>['sendBatch']>>;
   try {
     result = await options.compat.sendBatch(payload, options.manifest, compatContextForBatch);
   } catch (error: any) {
     options.metrics.failedCount += 1;
-    options.logger.warning('Observability batch export failed', {
+    options.logger.warning(`${options.label} batch export failed`, {
       provider: options.config.provider,
       attempt: options.attempt + 1,
       maxAttempts: options.config.maxAttempts,
@@ -93,7 +98,7 @@ export async function sendWithSizeLimit(options: {
 
   if (result.success) {
     if (process.env.LLM_LIVE === '1') {
-      options.logger.info('Observability batch export succeeded', {
+      options.logger.info(`${options.label} batch export succeeded`, {
         provider: options.config.provider,
         events: options.batchEvents.length,
         envelopes: result.outcomes.length,
@@ -111,7 +116,7 @@ export async function sendWithSizeLimit(options: {
 
     const eventIndex = eventIndexByEnvelopeId.get(outcome.envelopeId);
     const event = eventIndex !== undefined ? options.batchEvents[eventIndex] : undefined;
-    options.logger.warning('Observability envelope export failed (non-retryable)', {
+    options.logger.warning(`${options.label} envelope export failed (non-retryable)`, {
       provider: options.config.provider,
       envelopeId: outcome.envelopeId,
       eventId: event?.id,
@@ -139,7 +144,7 @@ export async function sendWithSizeLimit(options: {
   }
 
   if (hasUnmappedRetryableOutcome) {
-    options.logger.warning('Observability retryable outcomes unmapped; retrying all events', {
+    options.logger.warning(`${options.label} retryable outcomes unmapped; retrying all events`, {
       provider: options.config.provider,
       metrics: options.getMetricsSnapshot()
     });

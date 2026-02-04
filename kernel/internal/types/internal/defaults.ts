@@ -354,6 +354,25 @@ export interface ObservabilityDefaults {
   maxJsonBytes: number;
 }
 
+export interface SignalsTargetDefaults {
+  provider: string;
+  providerConfig?: Record<string, unknown>;
+}
+
+export interface SignalsDefaults {
+  enabled: boolean;
+  targets: SignalsTargetDefaults[];
+  flushAt: number;
+  flushIntervalMs: number;
+  maxQueueSize: number;
+  maxAttempts: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+  timeoutMs: number;
+  shutdownTimeoutMs: number;
+  maxAttributeValueBytes: number;
+}
+
 /**
  * Root interface containing all default settings categories.
  * Loaded from plugins/configs/defaults.json
@@ -370,4 +389,5 @@ export interface DefaultSettings {
   server: ServerDefaults;
   paths: PathDefaults;
   observability: ObservabilityDefaults;
+  signals: SignalsDefaults;
 }

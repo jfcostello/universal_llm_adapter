@@ -1,4 +1,5 @@
 import type { ObservabilitySpec } from '../../observability-spec-types.js';
+import type { SignalsSpec } from '../../signals-spec-types.js';
 
 import type { ContentPart, Message, ReasoningData, Role } from './chat.js';
 import type { JsonObject, JsonValue } from './json.js';
@@ -26,6 +27,8 @@ export interface LLMCallSpec {
   metadata?: JsonObject;
   /** Optional observability configuration for this call */
   observability?: ObservabilitySpec;
+  /** Optional signals configuration for this call */
+  signals?: SignalsSpec;
 }
 
 export interface UsageStats {

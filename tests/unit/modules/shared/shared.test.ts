@@ -19,6 +19,7 @@ import {
   isPlainObject,
   emitManifestOverrideWarning,
   validateE164,
+  clampInt,
   type Deferred,
   type ValidateE164Result
 } from '@/modules/shared/index.ts';
@@ -115,6 +116,27 @@ describe('modules/shared', () => {
       expect(parseNonNegativeInt('7.9', 5)).toBe(7);
       expect(parseNonNegativeInt('-2', 5)).toBe(0);
       expect(parseNonNegativeInt('nope', 5)).toBe(5);
+    });
+  });
+
+  describe('clampInt', () => {
+    test('coerces numbers and clamps to the provided range', () => {
+      expect(clampInt(0, 5, 1, 10)).toBe(1);
+      expect(clampInt(3.9, 5, 1, 10)).toBe(3);
+      expect(clampInt(11, 5, 1, 10)).toBe(10);
+      expect(clampInt(-5, 5, 1, 10)).toBe(1);
+    });
+
+    test('accepts numeric strings and floors', () => {
+      expect(clampInt('7', 5, 1, 10)).toBe(7);
+      expect(clampInt('7.9', 5, 1, 10)).toBe(7);
+    });
+
+    test('falls back for non-finite values and invalid strings', () => {
+      expect(clampInt(Number.NaN, 5, 1, 10)).toBe(5);
+      expect(clampInt(Number.POSITIVE_INFINITY, 5, 1, 10)).toBe(5);
+      expect(clampInt(Number.NEGATIVE_INFINITY, 5, 1, 10)).toBe(5);
+      expect(clampInt('nope', 5, 1, 10)).toBe(5);
     });
   });
 

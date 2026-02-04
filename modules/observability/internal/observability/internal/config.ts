@@ -1,59 +1,13 @@
 import type { AdapterLogger, DefaultSettings, ObservabilitySpec } from '../../../../../kernel/index.js';
+import type { BatchedHttpExporterConfig } from '../../../../batched-http-exporter/index.js';
+import { clampInt } from '../../../../shared/index.js';
 
 /**
  * Configuration for the observability exporter.
+ *
+ * Re-exported as an alias to the shared batched HTTP exporter config.
  */
-export interface ObservabilityExporterConfig {
-  /** Observability provider ID */
-  provider: string;
-
-  /** Structured logger (no-op when omitted) */
-  logger?: AdapterLogger;
-
-  /** Provider-specific configuration overrides (opaque to core) */
-  providerConfig?: Record<string, unknown>;
-
-  /** Flush when queue reaches this size */
-  flushAt: number;
-
-  /** Flush interval in milliseconds */
-  flushIntervalMs: number;
-
-  /** Maximum queue size (events dropped if exceeded) */
-  maxQueueSize: number;
-
-  /** Maximum retry attempts per batch */
-  maxAttempts: number;
-
-  /** Base delay for exponential backoff */
-  baseDelayMs: number;
-
-  /** Maximum delay cap for backoff */
-  maxDelayMs: number;
-
-  /** HTTP timeout for export requests */
-  timeoutMs: number;
-
-  /** Maximum UTF-8 bytes for any exported attribute string value */
-  maxAttributeValueBytes?: number;
-}
-
-function normalizeNumber(value: unknown): number | null {
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? value : null;
-  }
-  if (typeof value === 'string') {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-export function clampInt(value: unknown, fallback: number, min: number, max: number): number {
-  const normalized = normalizeNumber(value);
-  const asInt = Number.isFinite(normalized as any) ? Math.floor(normalized as number) : Math.floor(fallback);
-  return Math.min(max, Math.max(min, asInt));
-}
+export type ObservabilityExporterConfig = BatchedHttpExporterConfig;
 
 /**
  * Resolve observability configuration from spec and defaults.
