@@ -5,8 +5,7 @@ import path from 'path';
 import { withLiveEnv } from '@tests/helpers/live.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
-const transport = String(process.env.LLM_LIVE_TRANSPORT || 'cli').trim().toLowerCase();
-const describeLive = runLive && transport !== 'server' ? describe : describe.skip;
+const describeLive = runLive ? describe : describe.skip;
 
 const TEST_FILE = '39-signals-sentry';
 const DIST_CLI = path.join(process.cwd(), 'dist', 'bin', 'cli.js');
