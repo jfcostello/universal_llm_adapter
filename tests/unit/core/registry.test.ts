@@ -1110,6 +1110,255 @@ describe('core/registry', () => {
     });
   });
 
+  describe('signals providers and compats', () => {
+    test('loads signals provider manifest from plugins/signals-providers', async () => {
+      await withTempCwd('registry-signals', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        // Create signals-providers directory and manifest
+        const providersDir = path.join(pluginsDir, 'signals-providers');
+        fs.mkdirSync(providersDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(providersDir, 'test-signals.json'),
+          JSON.stringify({
+            id: 'test-signals',
+            compat: 'test-signals-compat',
+            endpoint: {
+              urlTemplate: 'https://test.api/envelope',
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' }
+            },
+            auth: {
+              type: 'bearer',
+              secretKeyEnv: 'TEST_SIGNALS_SECRET'
+            }
+          }),
+          'utf-8'
+        );
+
+        // Create signals-compat directory and module
+        const compatDir = path.join(pluginsDir, 'signals-compat');
+        fs.mkdirSync(compatDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(compatDir, 'test-signals-compat.js'),
+          `module.exports = class TestSignalsCompat {
+            buildBatch() { return { payload: {}, eventIndexByEnvelopeId: new Map() }; }
+            async sendBatch() { return { success: true, outcomes: [] }; }
+          }`,
+          'utf-8'
+        );
+
+        const registry = new PluginRegistry(pluginsDir);
+        const manifest = await (registry as any).getSignalsProvider('test-signals');
+
+        expect(manifest.id).toBe('test-signals');
+        expect(manifest.compat).toBe('test-signals-compat');
+        expect(manifest.endpoint.urlTemplate).toBe('https://test.api/envelope');
+        expect(manifest.auth?.type).toBe('bearer');
+
+        // Call again to cover the early return when already loaded
+        const manifest2 = await (registry as any).getSignalsProvider('test-signals');
+        expect(manifest2.id).toBe('test-signals');
+
+        // Covers provider → compat lookup wiring
+        const compat = await (registry as any).getSignalsCompatForProvider('test-signals');
+        expect(typeof compat.buildBatch).toBe('function');
+        expect(typeof compat.sendBatch).toBe('function');
+      });
+    });
+
+    test('throws ManifestError for unknown signals provider', async () => {
+      await withTempCwd('registry-signals-missing', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect((registry as any).getSignalsProvider('nonexistent')).rejects.toThrow(ManifestError);
+        await expect((registry as any).getSignalsCompatForProvider('nonexistent')).rejects.toThrow(ManifestError);
+      });
+    });
+
+    test('loads signals compat module from plugins/signals-compat', async () => {
+      await withTempCwd('registry-signals-compat', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        // Create signals-compat directory and module
+        const compatDir = path.join(pluginsDir, 'signals-compat');
+        fs.mkdirSync(compatDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(compatDir, 'test-signals-compat.js'),
+          `module.exports = class TestSignalsCompat {
+            buildBatch() { return { payload: {}, eventIndexByEnvelopeId: new Map() }; }
+            async sendBatch() { return { success: true, outcomes: [] }; }
+          }`,
+          'utf-8'
+        );
+
+        const registry = new PluginRegistry(pluginsDir);
+        const compatA = await (registry as any).getSignalsCompat('test-signals-compat');
+        const compatB = await (registry as any).getSignalsCompat('test-signals-compat');
+
+        // Each call returns a fresh instance
+        expect(compatA).not.toBe(compatB);
+        expect(typeof compatA.buildBatch).toBe('function');
+        expect(typeof compatA.sendBatch).toBe('function');
+      });
+    });
+
+    test('throws ManifestError for unknown signals compat', async () => {
+      await withTempCwd('registry-signals-compat-missing', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect((registry as any).getSignalsCompat('nonexistent')).rejects.toThrow(ManifestError);
+      });
+    });
+
+    test('skips invalid signals provider manifests but continues loading', async () => {
+      await withTempCwd('registry-signals-invalid', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const providersDir = path.join(pluginsDir, 'signals-providers');
+        fs.mkdirSync(providersDir, { recursive: true });
+        fs.writeFileSync(path.join(providersDir, 'invalid.json'), '{"id":', 'utf-8');
+        fs.writeFileSync(
+          path.join(providersDir, 'valid.json'),
+          JSON.stringify({ id: 'valid-signals', compat: 'test', endpoint: { urlTemplate: 'http://test', method: 'POST' } }),
+          'utf-8'
+        );
+
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect((registry as any).getSignalsProvider('nonexistent')).rejects.toThrow(ManifestError);
+        expect(warnSpy).toHaveBeenCalled();
+        warnSpy.mockRestore();
+      });
+    });
+
+    test('validateAll validates signals providers and compats', async () => {
+      await withTempCwd('registry-signals-validate', async (dir) => {
+        process.env.TEST_LLM_ENDPOINT = 'http://localhost';
+
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const providersDir = path.join(pluginsDir, 'signals-providers');
+        fs.mkdirSync(providersDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(providersDir, 'test-signals.json'),
+          JSON.stringify({
+            id: 'test-signals',
+            compat: 'test-signals-compat',
+            endpoint: { urlTemplate: 'http://test', method: 'POST' }
+          }),
+          'utf-8'
+        );
+
+        const compatDir = path.join(pluginsDir, 'signals-compat');
+        fs.mkdirSync(compatDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(compatDir, 'test-signals-compat.js'),
+          `module.exports = class TestSignalsCompat {
+            buildBatch() { return { payload: {}, eventIndexByEnvelopeId: new Map() }; }
+            async sendBatch() { return { success: true, outcomes: [] }; }
+          }`,
+          'utf-8'
+        );
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.validateAll()).resolves.toBeUndefined();
+      });
+    });
+
+    test('validateAll fails when signals provider references missing compat', async () => {
+      await withTempCwd('registry-signals-validate-missing-compat', async (dir) => {
+        process.env.TEST_LLM_ENDPOINT = 'http://localhost';
+
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const providersDir = path.join(pluginsDir, 'signals-providers');
+        fs.mkdirSync(providersDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(providersDir, 'test-signals-missing.json'),
+          JSON.stringify({
+            id: 'test-signals-missing',
+            compat: 'definitely-missing-signals-compat',
+            endpoint: { urlTemplate: 'http://test', method: 'POST' }
+          }),
+          'utf-8'
+        );
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect(registry.validateAll()).rejects.toThrow(ManifestError);
+      });
+    });
+
+    test('rejects invalid signals compat module names (path traversal)', async () => {
+      await withTempCwd('registry-signals-compat-invalid-name', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect((registry as any).getSignalsCompat('.')).rejects.toThrow(ManifestError);
+        await expect((registry as any).getSignalsCompat('..')).rejects.toThrow(ManifestError);
+        await expect((registry as any).getSignalsCompat('a..b')).rejects.toThrow(ManifestError);
+        await expect((registry as any).getSignalsCompat('../evil')).rejects.toThrow(ManifestError);
+      });
+    });
+
+    test('handles signals compat module that throws on import', async () => {
+      await withTempCwd('registry-signals-compat-broken', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const compatDir = path.join(pluginsDir, 'signals-compat');
+        fs.mkdirSync(compatDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(compatDir, 'broken-signals.js'),
+          'throw new Error(\"broken signals compat module\");',
+          'utf-8'
+        );
+
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect((registry as any).getSignalsCompat('broken-signals')).rejects.toThrow(ManifestError);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('broken-signals'));
+
+        warnSpy.mockRestore();
+      });
+    });
+
+    test('handles signals compat module that exports non-constructor', async () => {
+      await withTempCwd('registry-signals-compat-not-constructor', async (dir) => {
+        const pluginsDir = path.join(dir, 'plugins');
+        copyFixturePlugins(pluginsDir);
+
+        const compatDir = path.join(pluginsDir, 'signals-compat');
+        fs.mkdirSync(compatDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(compatDir, 'object-signals.js'),
+          'module.exports = { kind: \"object\" };',
+          'utf-8'
+        );
+
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const registry = new PluginRegistry(pluginsDir);
+        await expect((registry as any).getSignalsCompat('object-signals')).rejects.toThrow(ManifestError);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('object-signals'));
+
+        warnSpy.mockRestore();
+      });
+    });
+  });
+
   describe('validation hardening', () => {
     test('rejects invalid plugin module names (path traversal)', async () => {
       await withTempCwd('registry-invalid-module-name', async (dir) => {

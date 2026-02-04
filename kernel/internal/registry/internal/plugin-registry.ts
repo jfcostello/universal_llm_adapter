@@ -6,12 +6,14 @@ import type {
   ICompatModule,
   IEmbeddingCompat,
   IObservabilityCompat,
+  ISignalsCompat,
   IVectorStoreCompat,
   MCPServerConfig,
   ObservabilityProviderManifest,
   ProcessRouteManifest,
   ProviderManifest,
   RealtimeProviderManifest,
+  SignalsProviderManifest,
   UnifiedTool,
   VectorStoreConfig
 } from '../../types.js';
@@ -21,10 +23,12 @@ import { ManifestError } from '../../errors.js';
 import type { ManifestSourceMeta, PluginRegistryOptions } from './public-types.js';
 import type { PluginRegistryState } from './state.js';
 import { normalizeLookupConfig, getLookupAreaConfig, getManifestSource, getPackRootsLowToHigh } from './lookup.js';
+import { createBasePluginRegistryState } from './base-state.js';
 import {
   ensureCompatModuleLoaded,
   ensureEmbeddingCompatLoaded,
   ensureObservabilityCompatLoaded,
+  ensureSignalsCompatLoaded,
   ensureRealtimeCompatLoaded,
   ensureVectorStoreCompatLoaded,
   resolvePluginCodeEntryMultiRoot
@@ -49,38 +53,7 @@ export class PluginRegistry {
   constructor(rootPath: string);
   constructor(options: PluginRegistryOptions);
   constructor(rootPathOrOptions: string | PluginRegistryOptions) {
-    const baseState: PluginRegistryState = {
-      rootPath: '',
-      mode: 'legacy',
-      lookup: null,
-      manifestSources: new Map(),
-      providers: new Map(),
-      realtimeProviders: new Map(),
-      tools: new Map(),
-      mcpServers: new Map(),
-      vectorStores: new Map(),
-      processRoutes: [],
-      compatModules: new Map(),
-      embeddingProviders: new Map(),
-      embeddingCompats: new Map(),
-      vectorStoreCompats: new Map(),
-      realtimeCompats: new Map(),
-      observabilityProviders: new Map(),
-      observabilityCompats: new Map(),
-      providersLoaded: false,
-      realtimeProvidersLoaded: false,
-      toolsLoaded: false,
-      mcpServersLoaded: false,
-      vectorStoresLoaded: false,
-      processRoutesLoaded: false,
-      compatModulesLoaded: false,
-      embeddingProvidersLoaded: false,
-      embeddingCompatsLoaded: false,
-      vectorStoreCompatsLoaded: false,
-      realtimeCompatsLoaded: false,
-      observabilityProvidersLoaded: false,
-      observabilityCompatsLoaded: false
-    };
+    const baseState = createBasePluginRegistryState();
 
     if (typeof rootPathOrOptions === 'string') {
       const resolvedRoot = path.isAbsolute(rootPathOrOptions)
@@ -113,21 +86,13 @@ export class PluginRegistry {
     };
   }
 
-  async loadAll(): Promise<void> {
-    // Deprecated: kept for backward compatibility but does nothing
-    // All loading is now lazy and on-demand
-  }
+  async loadAll(): Promise<void> {}
 
   getManifestSource(area: string, id: string): ManifestSourceMeta | undefined {
     return getManifestSource(this.state, area, id);
   }
 
-  /**
-   * Opt-in: validate and preload all manifests + referenced plugin code.
-   * Useful for fail-fast startup checks in long-lived processes.
-   *
-   * Default usage remains lazy; callers must invoke this explicitly.
-   */
+  /** Opt-in: validate and preload all manifests + referenced plugin code. */
   async validateAll(): Promise<void> {
     await validateAll(this.state);
   }
@@ -183,6 +148,11 @@ export class PluginRegistry {
     return loadObservabilityProvidersInternal(this.state);
   }
 
+  private async loadSignalsProviders(): Promise<void> {
+    const { loadSignalsProvidersInternal } = await import('./loaders/signals-providers.js');
+    return loadSignalsProvidersInternal(this.state);
+  }
+
   // --- Code-module loaders (lazy) ---
 
   private async ensureCompatModuleLoaded(moduleName: string, options?: { preferredPackRoot?: string }): Promise<string> {
@@ -205,9 +175,13 @@ export class PluginRegistry {
     return ensureObservabilityCompatLoaded(this.state, kind, options);
   }
 
+  private async ensureSignalsCompatLoaded(kind: string, options?: { preferredPackRoot?: string }): Promise<string> {
+    return ensureSignalsCompatLoaded(this.state, kind, options);
+  }
+
   // Exposed to unit tests via `(registry as any).resolvePluginCodeEntryMultiRoot`.
   private resolvePluginCodeEntryMultiRoot(
-    area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat' | 'observability-compat',
+    area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat' | 'observability-compat' | 'signals-compat',
     moduleName: string,
     preferredPackRoot?: string
   ): { modulePath: string; key: string } | undefined {
@@ -395,5 +369,31 @@ export class PluginRegistry {
   async getObservabilityCompat(compat: string): Promise<IObservabilityCompat> {
     const key = await this.ensureObservabilityCompatLoaded(compat);
     return this.state.observabilityCompats.get(key)!();
+  }
+
+  async getSignalsProvider(id: string): Promise<SignalsProviderManifest> {
+    await this.loadSignalsProviders();
+    const provider = this.state.signalsProviders.get(id);
+    if (!provider) {
+      throw new ManifestError(`Unknown signals provider '${id}'`);
+    }
+    return provider;
+  }
+
+  async getSignalsCompatForProvider(providerId: string): Promise<ISignalsCompat> {
+    await this.loadSignalsProviders();
+    const provider = this.state.signalsProviders.get(providerId);
+    if (!provider) {
+      throw new ManifestError(`Unknown signals provider '${providerId}'`);
+    }
+
+    const preferredPackRoot = getManifestSource(this.state, 'signals-providers', providerId)?.root;
+    const key = await this.ensureSignalsCompatLoaded(provider.compat, { preferredPackRoot });
+    return this.state.signalsCompats.get(key)!();
+  }
+
+  async getSignalsCompat(compat: string): Promise<ISignalsCompat> {
+    const key = await this.ensureSignalsCompatLoaded(compat);
+    return this.state.signalsCompats.get(key)!();
   }
 }

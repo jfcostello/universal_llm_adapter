@@ -5,6 +5,7 @@ import {
   ensureCompatModuleLoaded,
   ensureEmbeddingCompatLoaded,
   ensureObservabilityCompatLoaded,
+  ensureSignalsCompatLoaded,
   ensureRealtimeCompatLoaded,
   ensureVectorStoreCompatLoaded
 } from './code-modules.js';
@@ -24,6 +25,7 @@ export async function validateAll(state: PluginRegistryState): Promise<void> {
   const { loadProcessRoutesInternal } = await import('./loaders/processes.js');
   const { loadEmbeddingProvidersInternal } = await import('./loaders/embeddings.js');
   const { loadObservabilityProvidersInternal } = await import('./loaders/observability-providers.js');
+  const { loadSignalsProvidersInternal } = await import('./loaders/signals-providers.js');
 
   await loadProvidersInternal(state, { strict: true });
   await loadRealtimeProvidersInternal(state, { strict: true });
@@ -33,6 +35,7 @@ export async function validateAll(state: PluginRegistryState): Promise<void> {
   await loadProcessRoutesInternal(state, { strict: true });
   await loadEmbeddingProvidersInternal(state, { strict: true });
   await loadObservabilityProvidersInternal(state, { strict: true });
+  await loadSignalsProvidersInternal(state, { strict: true });
 
   // Validate that referenced plugin code modules exist and can be imported.
   for (const [id, provider] of state.providers.entries()) {
@@ -58,5 +61,10 @@ export async function validateAll(state: PluginRegistryState): Promise<void> {
   for (const [id, observability] of state.observabilityProviders.entries()) {
     const preferredPackRoot = getManifestSource(state, 'observability-providers', id)?.root;
     await ensureObservabilityCompatLoaded(state, observability.compat, { preferredPackRoot });
+  }
+
+  for (const [id, signals] of state.signalsProviders.entries()) {
+    const preferredPackRoot = getManifestSource(state, 'signals-providers', id)?.root;
+    await ensureSignalsCompatLoaded(state, signals.compat, { preferredPackRoot });
   }
 }

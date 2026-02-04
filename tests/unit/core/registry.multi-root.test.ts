@@ -80,6 +80,12 @@ describe('core/registry (multi-root)', () => {
       writeJson(path.join(rootA, 'observability-providers', 'invalid.json'), { compat: 'obs-compat', endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} } });
       fs.writeFileSync(path.join(rootA, 'observability-providers', 'malformed.json'), '{', 'utf-8');
 
+      // signals providers
+      writeJson(path.join(rootA, 'signals-providers', 'dup.json'), { id: 'sig', compat: 'sig-compat', marker: 'A', endpoint: { urlTemplate: 'http://a', method: 'POST', headers: {} } });
+      writeJson(path.join(rootB, 'signals-providers', 'dup.json'), { id: 'sig', compat: 'sig-compat', marker: 'B', endpoint: { urlTemplate: 'http://b', method: 'POST', headers: {} } });
+      writeJson(path.join(rootA, 'signals-providers', 'invalid.json'), { compat: 'sig-compat', endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} } });
+      fs.writeFileSync(path.join(rootA, 'signals-providers', 'malformed.json'), '{', 'utf-8');
+
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       try {
         const registry = new PluginRegistry({
@@ -115,6 +121,9 @@ describe('core/registry (multi-root)', () => {
 
         expect((await registry.getObservabilityProvider('obs') as any).marker).toBe('B');
         expect(registry.getManifestSource('observability-providers', 'obs')?.root).toBe(rootBReal);
+
+        expect((await registry.getSignalsProvider('sig') as any).marker).toBe('B');
+        expect(registry.getManifestSource('signals-providers', 'sig')?.root).toBe(rootBReal);
 
         const processRoutes = await registry.getProcessRoutes();
         expect((processRoutes.find(r => r.id === 'route') as any)?.marker).toBe('B');
@@ -160,6 +169,9 @@ describe('core/registry (multi-root)', () => {
       writeJson(path.join(rootA, 'observability-providers', 'o.json'), { id: 'obs', compat: 'obs-compat', endpoint: { urlTemplate: 'http://a', method: 'POST', headers: {} } });
       writeJson(path.join(rootB, 'observability-providers', 'o.json'), { id: 'obs', compat: 'obs-compat', endpoint: { urlTemplate: 'http://b', method: 'POST', headers: {} } });
 
+      writeJson(path.join(rootA, 'signals-providers', 's.json'), { id: 'sig', compat: 'sig-compat', endpoint: { urlTemplate: 'http://a', method: 'POST', headers: {} } });
+      writeJson(path.join(rootB, 'signals-providers', 's.json'), { id: 'sig', compat: 'sig-compat', endpoint: { urlTemplate: 'http://b', method: 'POST', headers: {} } });
+
       // Referenced plugin code (duplicates across roots produce deterministic override warnings).
       writeCjsClass(rootA, 'compat', 'foo', 'A');
       writeCjsClass(rootB, 'compat', 'foo', 'B');
@@ -171,6 +183,8 @@ describe('core/registry (multi-root)', () => {
       writeCjsClass(rootB, 'embedding-compat', 'e-compat', 'B');
       writeCjsClass(rootA, 'observability-compat', 'obs-compat', 'A');
       writeCjsClass(rootB, 'observability-compat', 'obs-compat', 'B');
+      writeCjsClass(rootA, 'signals-compat', 'sig-compat', 'A');
+      writeCjsClass(rootB, 'signals-compat', 'sig-compat', 'B');
 
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       try {
@@ -188,6 +202,12 @@ describe('core/registry (multi-root)', () => {
         await expect(registry.validateAll()).resolves.toBeUndefined();
         // Call a second time to ensure early-return paths for both manifests and plugin code caches are exercised.
         await expect(registry.validateAll()).resolves.toBeUndefined();
+
+        const signals = await registry.getSignalsProvider('sig');
+        expect(signals.id).toBe('sig');
+
+        const signalsCompat = await registry.getSignalsCompatForProvider('sig');
+        expect((signalsCompat as any).__marker).toBe('B');
 
         const compat = await registry.getCompatModuleForProvider('p');
         expect((compat as any).__marker).toBe('B');
@@ -527,7 +547,8 @@ describe('core/registry (multi-root)', () => {
       { name: 'vector', area: 'vector', filePath: 'vector/bad.json', data: { kind: 'memory', connection: {} } },
       { name: 'processes', area: 'processes', filePath: 'processes/bad.json', data: { match: { type: 'exact', pattern: 'x' }, invoke: { kind: 'module', module: './noop.mjs', function: 'handle' } } },
       { name: 'embeddings', area: 'embeddings', filePath: 'embeddings/bad.json', data: { kind: 'e-compat', endpoint: { urlTemplate: 'http://x', headers: {} }, model: 'm' } },
-      { name: 'observability-providers', area: 'observability-providers', filePath: 'observability-providers/bad.json', data: { compat: 'obs-compat', endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} } } }
+      { name: 'observability-providers', area: 'observability-providers', filePath: 'observability-providers/bad.json', data: { compat: 'obs-compat', endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} } } },
+      { name: 'signals-providers', area: 'signals-providers', filePath: 'signals-providers/bad.json', data: { compat: 'sig-compat', endpoint: { urlTemplate: 'http://x', method: 'POST', headers: {} } } }
     ];
 
     test.each(cases)('throws on missing id/name in strict mode (%s)', async ({ name, area, filePath, data }) => {

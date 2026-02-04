@@ -3,12 +3,14 @@ import type {
   ICompatModule,
   IEmbeddingCompat,
   IObservabilityCompat,
+  ISignalsCompat,
   IVectorStoreCompat,
   MCPServerConfig,
   ObservabilityProviderManifest,
   ProcessRouteManifest,
   ProviderManifest,
   RealtimeProviderManifest,
+  SignalsProviderManifest,
   UnifiedTool,
   VectorStoreConfig
 } from '../../types.js';
@@ -44,6 +46,8 @@ export interface PluginRegistryState {
   realtimeCompats: Map<string, () => IRealtimeCompat>;
   observabilityProviders: Map<string, ObservabilityProviderManifest>;
   observabilityCompats: Map<string, () => IObservabilityCompat>;
+  signalsProviders: Map<string, SignalsProviderManifest>;
+  signalsCompats: Map<string, () => ISignalsCompat>;
 
   // Lazy loading flags
   providersLoaded: boolean;
@@ -59,5 +63,6 @@ export interface PluginRegistryState {
   realtimeCompatsLoaded: boolean;
   observabilityProvidersLoaded: boolean;
   observabilityCompatsLoaded: boolean;
+  signalsProvidersLoaded: boolean;
+  signalsCompatsLoaded: boolean;
 }
-

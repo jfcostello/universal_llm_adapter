@@ -11,6 +11,7 @@ import type {
   ICompatModule,
   IEmbeddingCompat,
   IObservabilityCompat,
+  ISignalsCompat,
   IVectorStoreCompat
 } from '../../types.js';
 
@@ -23,7 +24,7 @@ const distRoot = PACKAGE_ROOT;
 
 export function getPluginCodeCandidates(
   state: PluginRegistryState,
-  area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat' | 'observability-compat'
+  area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat' | 'observability-compat' | 'signals-compat'
 ): string[] {
   return [
     path.resolve(distRoot, 'plugins', area),
@@ -34,7 +35,7 @@ export function getPluginCodeCandidates(
 
 export function resolvePluginCodeEntry(
   state: PluginRegistryState,
-  area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat' | 'observability-compat',
+  area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat' | 'observability-compat' | 'signals-compat',
   moduleName: string
 ): string | undefined {
   const candidates = getPluginCodeCandidates(state, area);
@@ -56,7 +57,7 @@ export function resolvePluginCodeEntry(
 
 export function resolvePluginCodeEntryMultiRoot(
   state: PluginRegistryState,
-  area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat' | 'observability-compat',
+  area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat' | 'observability-compat' | 'signals-compat',
   moduleName: string,
   preferredPackRoot?: string
 ): { modulePath: string; key: string } | undefined {
@@ -146,7 +147,7 @@ export function getDefaultOrFirstExport(imported: Record<string, any>): any {
 }
 
 export function assertSafePluginModuleName(
-  area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat' | 'observability-compat',
+  area: 'compat' | 'embedding-compat' | 'vector-compat' | 'realtime-compat' | 'observability-compat' | 'signals-compat',
   moduleName: string
 ): void {
   // Module names come from manifests; harden against path traversal and invalid paths.
@@ -334,3 +335,36 @@ export async function ensureObservabilityCompatLoaded(
   });
 }
 
+export async function ensureSignalsCompatLoaded(
+  state: PluginRegistryState,
+  kind: string,
+  options: { preferredPackRoot?: string } = {}
+): Promise<string> {
+  state.signalsCompatsLoaded = true;
+  assertSafePluginModuleName('signals-compat', kind);
+
+  const resolved = state.mode === 'multi-root'
+    ? resolvePluginCodeEntryMultiRoot(state, 'signals-compat', kind, options.preferredPackRoot)
+    : (() => {
+        const modulePath = resolvePluginCodeEntry(state, 'signals-compat', kind);
+        return modulePath ? { modulePath, key: kind } : undefined;
+      })();
+
+  if (!resolved) {
+    throw new ManifestError(`No signals compat module found for '${kind}'`);
+  }
+
+  return runCodeModuleLoadOnce(state, state.signalsCompats, resolved.key, async () => {
+    try {
+      const imported = await importPluginCodeModule(resolved.modulePath);
+      const CompatClass = getDefaultOrFirstExport(imported);
+      if (typeof CompatClass !== 'function') {
+        throw new Error('module did not export a constructor');
+      }
+      return () => new (CompatClass as any)() as ISignalsCompat;
+    } catch (error: any) {
+      console.warn(`Failed to load signals compat module ${kind}: ${error.message}`);
+      throw new ManifestError(`No signals compat module found for '${kind}'`);
+    }
+  });
+}

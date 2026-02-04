@@ -10,6 +10,7 @@ type ManifestLoadedFlagKey = keyof Pick<
   | 'processRoutesLoaded'
   | 'embeddingProvidersLoaded'
   | 'observabilityProvidersLoaded'
+  | 'signalsProvidersLoaded'
 >;
 
 const inflightByState = new WeakMap<PluginRegistryState, Map<string, Promise<void>>>();
@@ -92,4 +93,3 @@ export function runCodeModuleLoadOnce<T>(
   inflight.set(key, wrapped);
   return wrapped;
 }
-
