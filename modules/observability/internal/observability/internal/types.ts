@@ -1,9 +1,13 @@
-import type { ObservabilityLLMRequestEvent, ObservabilityLLMResponseEvent } from '../../../../../kernel/index.js';
+import type {
+  ObservabilityLLMRequestEvent,
+  ObservabilityLLMResponseEvent,
+  ObservabilityToolExecutionEvent
+} from '../../../../../kernel/index.js';
 
 export interface QueuedEvent {
   id: string;
-  type: 'llm_request' | 'llm_response';
-  data: ObservabilityLLMRequestEvent | ObservabilityLLMResponseEvent;
+  type: 'llm_request' | 'llm_response' | 'tool_execution';
+  data: ObservabilityLLMRequestEvent | ObservabilityLLMResponseEvent | ObservabilityToolExecutionEvent;
   timestamp: number;
   attempts: number;
 }
@@ -17,4 +21,3 @@ export interface ObservabilityExporterMetrics {
   sentCount: number;
   failedCount: number;
 }
-

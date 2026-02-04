@@ -7,12 +7,13 @@ The observability module provides optional export of LLM call telemetry to exter
 Observability supports:
 - Recording LLM request events (prompt, model, tools, settings)
 - Recording LLM response events (content, usage, duration, errors)
+- Recording tool execution events (args/results gated by capture settings)
 - Recording realtime session request/response events per turn (one trace per `commit()`)
 - Recording request/response payloads when enabled (`requestPayload` / `rawResponse`)
 - Trace and session correlation
 - Non-blocking async export with retry
 
-**Not yet supported:** Embedding calls, vector operations, tool execution telemetry.
+**Not yet supported:** Embedding calls, vector operations.
 
 ## How to Enable
 

@@ -82,7 +82,9 @@ export async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncG
         invokeTool,
         calledToolNames,
         preserveToolResults,
-        preserveReasoning
+        preserveReasoning,
+        observability: runContext?.observability,
+        generationId: options.observabilityGenerationId
       });
 
       if (terminalStopThisRound) {

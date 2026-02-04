@@ -2,6 +2,7 @@ import type {
   ObservabilityCompatContext,
   ObservabilityLLMRequestEvent,
   ObservabilityLLMResponseEvent,
+  ObservabilityToolExecutionEvent,
   ObservabilityProviderManifest
 } from '../../../../kernel/index.js';
 import { substituteEnv } from '../../../../kernel/index.js';
@@ -221,6 +222,15 @@ export function isResponseEvent(event: any): event is ObservabilityLLMResponseEv
   return !!event && typeof event === 'object' && Array.isArray((event as any).content);
 }
 
+export function isToolExecutionEvent(event: any): event is ObservabilityToolExecutionEvent {
+  return !!event &&
+    typeof event === 'object' &&
+    typeof (event as any).toolCallId === 'string' &&
+    typeof (event as any).toolName === 'string' &&
+    typeof (event as any).startTimeMs === 'number' &&
+    typeof (event as any).endTimeMs === 'number';
+}
+
 export function deriveStartTimeIso(response: ObservabilityLLMResponseEvent): string {
   const endMs = readTimestampMs(response);
   const durationMs = typeof response.durationMs === 'number' ? response.durationMs : NaN;
@@ -298,4 +308,3 @@ export function buildCachedRequestSummary(
     modelParameters: safeJsonStringify(request.settings ?? {}, { maxBytes })
   };
 }
-

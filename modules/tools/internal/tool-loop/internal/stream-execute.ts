@@ -1,5 +1,5 @@
 import { StreamEventType, ToolCallEventType } from '../../../../../kernel/index.js';
-import type { AdapterLogger, LLMStreamEvent, Message, ProviderManifest, ReasoningData, ToolCall, UnifiedTool } from '../../../../../kernel/index.js';
+import type { AdapterLogger, LLMStreamEvent, Message, ObservabilityContext, ProviderManifest, ReasoningData, ToolCall, UnifiedTool } from '../../../../../kernel/index.js';
 
 import { ToolCallBudget } from '../../tool-budget.js';
 import { appendAssistantToolCalls, appendToolResult } from '../../../../messages/index.js';
@@ -9,6 +9,7 @@ import { sanitizeToolName } from '../../tool-names.js';
 import { createProgressFields, resolveCountdownText } from './utils.js';
 import { isToolTerminalByDefinition, resolveCallArgTerminalOverride, resolveTerminalOverride, stripCallArgTerminalFlag } from './helpers.js';
 import type { InvokeToolFn } from './types.js';
+import { recordToolExecutionObservability } from './observability.js';
 
 export async function* executeStreamToolCallsRound(options: {
   toolCallsToExecute: ToolCall[];
@@ -28,6 +29,8 @@ export async function* executeStreamToolCallsRound(options: {
   calledToolNames: Set<string>;
   preserveToolResults: number | 'all' | 'none';
   preserveReasoning: number | 'all' | 'none';
+  observability?: ObservabilityContext;
+  generationId?: string;
 }): AsyncGenerator<LLMStreamEvent, { terminalStopThisRound: boolean }> {
   if (options.toolCallsToExecute.length === 0) {
     return { terminalStopThisRound: false };
@@ -76,11 +79,16 @@ export async function* executeStreamToolCallsRound(options: {
     );
 
     if (options.budget.exhausted) {
+      const now = Date.now();
       const exhaustedPayload = {
         error: 'tool_call_budget_exhausted',
         message: 'No remaining tool calls are available for this run.',
         tool: targetToolName
       };
+      const exhaustedText = JSON.stringify(exhaustedPayload);
+      const exhaustedTruncated = options.maxResultLength && exhaustedText.length > options.maxResultLength
+        ? `${exhaustedText.slice(0, options.maxResultLength)}…`
+        : exhaustedText;
 
       appendToolResult(
         options.messages,
@@ -88,13 +96,30 @@ export async function* executeStreamToolCallsRound(options: {
           toolName: targetToolName,
           callId: toolCall.id,
           result: exhaustedPayload,
-          resultText: JSON.stringify(exhaustedPayload)
+          resultText: exhaustedTruncated
         },
         {
           countdownText: resolveCountdownText(options.toolCountdownEnabled, options.budget),
           maxLength: options.maxResultLength
         }
       );
+
+      recordToolExecutionObservability({
+        observability: options.observability,
+        logger: options.logger,
+        metadata: options.metadata,
+        generationId: options.generationId,
+        provider: options.providerManifest.id,
+        model: options.model,
+        toolCallId: toolCall.id,
+        toolName: targetToolName,
+        args: toolCall.args ?? toolCall.arguments,
+        result: exhaustedPayload,
+        resultText: exhaustedTruncated,
+        error: { message: exhaustedPayload.message, code: exhaustedPayload.error },
+        startTimeMs: now,
+        endTimeMs: now
+      });
       continue;
     }
 
@@ -122,6 +147,9 @@ export async function* executeStreamToolCallsRound(options: {
 
     let normalizedPayload: any;
     let overrideTerminal: boolean | undefined;
+    const startTimeMs = Date.now();
+    let argsForEvent: unknown = toolCall.args ?? toolCall.arguments;
+    let toolError: { message: string; code?: string } | undefined;
     try {
       const stripped = stripCallArgTerminalFlag(
         { ...toolCall, name: definitionName } as any,
@@ -132,6 +160,7 @@ export async function* executeStreamToolCallsRound(options: {
         arguments: stripped.arguments,
         args: (stripped as any).args ?? stripped.arguments
       };
+      argsForEvent = invocationToolCall.args ?? invocationToolCall.arguments;
       const invocationResult = await options.invokeTool(
         targetToolName,
         invocationToolCall,
@@ -154,6 +183,7 @@ export async function* executeStreamToolCallsRound(options: {
         message: error?.message ?? String(error)
       };
       normalizedPayload = errorResult;
+      toolError = { message: errorResult.message, code: errorResult.error };
     }
 
     const isTerminal = overrideTerminal !== undefined
@@ -186,6 +216,23 @@ export async function* executeStreamToolCallsRound(options: {
         maxLength: options.maxResultLength
       }
     );
+
+    recordToolExecutionObservability({
+      observability: options.observability,
+      logger: options.logger,
+      metadata: options.metadata,
+      generationId: options.generationId,
+      provider: options.providerManifest.id,
+      model: options.model,
+      toolCallId: toolCall.id,
+      toolName: targetToolName,
+      args: argsForEvent,
+      result: normalizedPayload,
+      resultText: truncatedText,
+      ...(toolError ? { error: toolError } : {}),
+      startTimeMs,
+      endTimeMs: Date.now()
+    });
 
     yield {
       type: StreamEventType.TOOL,

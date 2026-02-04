@@ -85,6 +85,7 @@ describe('modules/observability', () => {
 
       expect(typeof exporter.recordLLMRequest).toBe('function');
       expect(typeof exporter.recordLLMResponse).toBe('function');
+      expect(typeof exporter.recordToolExecution).toBe('function');
       expect(typeof exporter.flush).toBe('function');
       expect(typeof exporter.shutdown).toBe('function');
     });
@@ -118,6 +119,25 @@ describe('modules/observability', () => {
           model: 'test',
           content: 'test response'
         });
+
+      expect(result.queued).toBe(false);
+      expect(result.reason).toBe('disabled');
+    });
+
+    test('noop exporter recordToolExecution returns disabled result', async () => {
+      const { getNoopObservabilityDeps } = await import('@/modules/observability/index.ts');
+      const deps = getNoopObservabilityDeps();
+      const exporter = deps.getExporter();
+
+      const result = exporter.recordToolExecution({
+        traceId: 'test',
+        startTimeMs: 1704067200000,
+        endTimeMs: 1704067201000,
+        provider: 'test',
+        model: 'test',
+        toolCallId: 'call-1',
+        toolName: 'test.tool'
+      });
 
       expect(result.queued).toBe(false);
       expect(result.reason).toBe('disabled');
@@ -225,6 +245,21 @@ describe('modules/observability', () => {
 
       expect(result.queued).toBe(true);
       expect(result.eventId).toBeDefined();
+
+      const toolResult = exporter.recordToolExecution({
+        traceId: 'trace-1',
+        startTimeMs: 1704067200000,
+        endTimeMs: 1704067200001,
+        provider: 'test',
+        model: 'test-model',
+        toolCallId: 'call-1',
+        toolName: 'test.tool',
+        resultText: 'ok',
+        result: { ok: true }
+      } as any);
+
+      expect(toolResult.queued).toBe(true);
+      expect(toolResult.eventId).toBeDefined();
 
       await exporter.shutdown();
     });

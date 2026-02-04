@@ -44,6 +44,11 @@ export interface UsageStats {
 export interface LLMResponse {
   provider: string;
   model: string;
+  /**
+   * Observability generation identifier for this provider attempt.
+   * Present when observability is enabled.
+   */
+  generationId?: string;
   role: Role;
   content: ContentPart[];
   toolCalls?: ToolCall[];

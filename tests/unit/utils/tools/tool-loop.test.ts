@@ -44,6 +44,91 @@ describe('utils/tools/runToolLoop', () => {
     expect(first.value).toEqual({ terminalStopThisRound: false });
   });
 
+  test('executeStreamToolCallsRound truncates exhausted tool result text when maxResultLength is set', async () => {
+    const messages: any[] = [];
+
+    const gen = executeStreamToolCallsRound({
+      toolCallsToExecute: [{ id: 'call-1', name: 'tool_a', arguments: { a: 1 } }] as any,
+      toolCallReasoning: undefined,
+      messages,
+      tools: [],
+      toolNameMap: {},
+      toolByName: new Map(),
+      budget: new ToolCallBudget(0), // exhausted immediately
+      toolCountdownEnabled: false,
+      maxResultLength: 5,
+      providerManifest,
+      model: 'model',
+      metadata: undefined,
+      logger: createLoggerStub(),
+      invokeTool: async () => ({ result: null }),
+      calledToolNames: new Set(),
+      preserveToolResults: 'all',
+      preserveReasoning: 'all'
+    } as any);
+
+    const first = await gen.next();
+    expect(first.done).toBe(true);
+    expect(messages.some(m => m.role === Role.TOOL)).toBe(true);
+    const toolMsg = messages.find(m => m.role === Role.TOOL);
+    const text = toolMsg?.content?.find((p: any) => p?.type === 'text')?.text;
+    expect(typeof text).toBe('string');
+    expect(String(text)).toContain('…');
+  });
+
+  test('executeStreamToolCallsRound records tool execution when tool call arguments are undefined', async () => {
+    const messages: any[] = [];
+    const recordToolExecution = jest.fn();
+    const observability: any = {
+      exporter: {
+        recordLLMRequest: jest.fn(),
+        recordLLMResponse: jest.fn(),
+        recordToolExecution,
+        flush: jest.fn().mockResolvedValue(undefined)
+      },
+      traceId: 'trace-123',
+      captureMessages: 'text',
+      captureToolArgs: true,
+      captureRequestPayload: true,
+      captureRawResponse: true,
+      sampleRate: 1,
+      maxInputTextBytes: 4096,
+      maxOutputTextBytes: 4096,
+      maxJsonBytes: 8192
+    };
+
+    const gen = executeStreamToolCallsRound({
+      toolCallsToExecute: [{ id: 'call-1', name: 'tool_a' }] as any,
+      toolCallReasoning: undefined,
+      messages,
+      tools: [],
+      toolNameMap: {},
+      toolByName: new Map(),
+      budget: new ToolCallBudget(1),
+      toolCountdownEnabled: false,
+      maxResultLength: null,
+      providerManifest,
+      model: 'model',
+      metadata: undefined,
+      logger: createLoggerStub(),
+      invokeTool: async () => ({ result: { ok: true } }),
+      calledToolNames: new Set(),
+      preserveToolResults: 'all',
+      preserveReasoning: 'all',
+      observability,
+      generationId: 'gen-1'
+    } as any);
+
+    // Drain generator
+    for await (const _event of gen) {
+      // no-op
+    }
+
+    expect(recordToolExecution).toHaveBeenCalledWith(
+      expect.not.objectContaining({ args: expect.anything() })
+    );
+  });
+
   test('non-stream loop handles string runtime flags and records tool results', async () => {
     const callProvider = jest.fn().mockResolvedValue({
       provider: 'provider',
@@ -111,6 +196,90 @@ describe('utils/tools/runToolLoop', () => {
     expect(callProvider).toHaveBeenCalledTimes(1);
     expect(result.toolCalls?.[0].name).toBe('example_tool');
     expect(result.raw?.toolResults?.[0].result).toEqual({ value: 42 });
+  });
+
+  test('non-stream loop records tool execution observability events when enabled', async () => {
+    const callProvider = jest.fn().mockResolvedValue({
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [{ type: 'text', text: 'follow-up' }]
+    });
+
+    const llmManager: any = {
+      callProvider,
+      streamProvider: jest.fn()
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({ result: { value: 42 } });
+
+    const messages = [{
+      role: Role.USER,
+      content: [{ type: 'text', text: 'hello' }]
+    }];
+
+    const initialResponse = {
+      provider: 'provider',
+      model: 'model',
+      role: Role.ASSISTANT,
+      content: [],
+      toolCalls: [
+        {
+          id: 'call-1',
+          name: 'example_tool',
+          arguments: { answer: true }
+        }
+      ]
+    } as any;
+
+    const recordToolExecution = jest.fn();
+    const observability: any = {
+      exporter: {
+        recordLLMRequest: jest.fn(),
+        recordLLMResponse: jest.fn(),
+        recordToolExecution,
+        flush: jest.fn().mockResolvedValue(undefined)
+      },
+      traceId: 'trace-123',
+      sessionId: 'session-456',
+      metadata: { correlationId: 'corr-789' },
+      captureMessages: 'text',
+      captureToolArgs: true,
+      captureRequestPayload: true,
+      captureRawResponse: true,
+      sampleRate: 1,
+      maxInputTextBytes: 4096,
+      maxOutputTextBytes: 4096,
+      maxJsonBytes: 8192
+    };
+
+    await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages,
+      tools: [{ name: 'example_tool' }],
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: { maxToolIterations: '2' } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: createLoggerStub(),
+      runContext: { observability } as any,
+      toolNameMap: { example_tool: 'example_tool' },
+      metadata: {},
+      initialResponse,
+      invokeTool
+    });
+
+    expect(recordToolExecution).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceId: 'trace-123',
+        toolCallId: 'call-1',
+        toolName: 'example_tool'
+      })
+    );
   });
 
   test('non-stream loop relaxes required toolChoice after tool execution', async () => {

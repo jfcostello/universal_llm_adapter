@@ -42,6 +42,11 @@ export interface StreamToolLoopOptions extends BaseToolLoopOptions {
   initialToolCalls: ToolCall[];
   initialReasoning?: ReasoningData;
   invokeTool: InvokeToolFn;
+  /**
+   * Observability generation id for the parent streaming attempt.
+   * When provided, tool execution events can be nested under the generation span.
+   */
+  observabilityGenerationId?: string;
 }
 
 export type InvokeToolFn = (

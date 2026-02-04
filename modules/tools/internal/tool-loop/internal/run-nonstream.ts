@@ -180,7 +180,9 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
       metadata,
       logger,
       messages,
-      invokeTool
+      invokeTool,
+      observability: runContext?.observability,
+      generationId: (response as any)?.generationId
     });
 
     allToolResults.push(...round.toolResultsThisRound);

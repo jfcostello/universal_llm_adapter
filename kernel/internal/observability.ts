@@ -144,6 +144,61 @@ export interface ObservabilityLLMResponseEvent {
 }
 
 /**
+ * Tool execution event data for observability.
+ * Provider-agnostic representation of a tool call execution within an LLM attempt.
+ */
+export interface ObservabilityToolExecutionEvent {
+  /** Trace ID for grouping related events */
+  traceId: string;
+
+  /**
+   * Generation ID for the LLM attempt that triggered this tool call.
+   * When present, tool spans can be nested under the generation span.
+   */
+  generationId?: string;
+
+  /** Optional session ID */
+  sessionId?: string;
+
+  /** Tool execution start timestamp (epoch milliseconds) */
+  startTimeMs: number;
+
+  /** Tool execution end timestamp (epoch milliseconds) */
+  endTimeMs: number;
+
+  /** Provider ID (the LLM provider for this attempt) */
+  provider: string;
+
+  /** Model ID (the model for this attempt) */
+  model: string;
+
+  /** Tool call ID */
+  toolCallId: string;
+
+  /** Tool name (mapped/display name) */
+  toolName: string;
+
+  /** Tool arguments (redacted) when captured */
+  args?: unknown;
+
+  /** Tool result payload (redacted) when captured */
+  result?: unknown;
+
+  /** Canonical tool result text when captured */
+  resultText?: string;
+
+  /** Error details when tool invocation failed */
+  error?: {
+    message: string;
+    code?: string;
+    retryable?: boolean;
+  };
+
+  /** Optional metadata */
+  metadata?: Record<string, unknown>;
+}
+
+/**
  * Observability exporter interface.
  * Used internally by the observability module to manage the queue and export.
  */
@@ -157,6 +212,11 @@ export interface IObservabilityExporter {
    * Record an LLM response event.
    */
   recordLLMResponse(event: ObservabilityLLMResponseEvent): ObservabilityRecordResult;
+
+  /**
+   * Record a tool execution event.
+   */
+  recordToolExecution(event: ObservabilityToolExecutionEvent): ObservabilityRecordResult;
 
   /**
    * Flush all pending events.
@@ -212,6 +272,7 @@ function createNoopExporter(): IObservabilityExporter {
   return {
     recordLLMRequest: () => noopResult,
     recordLLMResponse: () => noopResult,
+    recordToolExecution: () => noopResult,
     flush: async () => {},
     shutdown: async () => {}
   };

@@ -7,6 +7,7 @@ import type {
   ObservabilityCompatContext,
   ObservabilityLLMRequestEvent,
   ObservabilityLLMResponseEvent,
+  ObservabilityToolExecutionEvent,
   ObservabilityProviderManifest,
   ObservabilityRecordResult
 } from '../../../../../kernel/index.js';
@@ -207,6 +208,10 @@ export class ObservabilityExporter implements IObservabilityExporter {
     return this.enqueue('llm_response', event);
   }
 
+  recordToolExecution(event: ObservabilityToolExecutionEvent): ObservabilityRecordResult {
+    return this.enqueue('tool_execution', event);
+  }
+
   flush(): Promise<void> {
     if (this.flushPromise) return this.flushPromise;
     if (this.getQueueSize() === 0) return Promise.resolve();
@@ -304,4 +309,3 @@ export class ObservabilityExporter implements IObservabilityExporter {
     }
   }
 }
-

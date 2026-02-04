@@ -96,6 +96,9 @@ export async function callProviderViaSdk(options: {
     const response = await options.compat.callSDK(options.model, options.settings, options.normalizedMessages, options.tools, options.toolChoice, options.logger, options.provider.endpoint.headers);
     response.toolCalls = await normalizeToolCallsIfPresent(response.toolCalls);
     response.provider = options.provider.id;
+    if (options.generationId) {
+      (response as any).generationId = options.generationId;
+    }
 
     // Log SDK response using existing logging infrastructure
     if (options.logger) {

@@ -283,6 +283,7 @@ export class StreamCoordinator {
           metadata: executionSpec.metadata,
           initialToolCalls: preparedToolCalls,
           initialReasoning: reasoningAggregate,
+          observabilityGenerationId: generationId,
           invokeTool: async (toolName, call, invocationContext) => {
             const schemaName = typeof (call as any)?.name === 'string' ? String((call as any).name).trim() : '';
             const toolDef = schemaName

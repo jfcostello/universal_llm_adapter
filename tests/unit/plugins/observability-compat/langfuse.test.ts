@@ -4,6 +4,7 @@ import type {
   ObservabilityLLMRequestEvent,
   ObservabilityLLMResponseEvent
 } from '@/kernel/index.ts';
+import { deriveOtlpSpanIdHex } from '@/modules/observability/index.ts';
 import { LangfuseCompat } from '@/plugins/observability-compat/langfuse/internal/langfuse.ts';
 import defaultCompat from '@/plugins/observability-compat/langfuse/index.ts';
 
@@ -131,6 +132,144 @@ describe('LangfuseCompat (OTLP)', () => {
 
       const output = JSON.parse(String(attrs['langfuse.observation.output'] || '{}'));
       expect(output.rawResponse).toEqual(responseEvent.rawResponse);
+    });
+
+    it('builds a tool execution span (observation.type=span) nested under the generation span', () => {
+      compat.buildBatch([requestEvent], mockManifest, { eventIds: ['event-req'] } as any);
+
+      const toolEvent: any = {
+        traceId,
+        generationId,
+        sessionId: 'session-456',
+        startTimeMs: 1704067200400,
+        endTimeMs: 1704067200500,
+        provider: 'provider-a',
+        model: 'model-a',
+        toolCallId: 'call-1',
+        toolName: 'test.echo',
+        args: { message: 'abc' },
+        result: { value: 42 },
+        resultText: '{"value":42}',
+        metadata: { correlationId: 'corr-123', batchId: 'batch-xyz' }
+      };
+
+      const toolBatch = compat.buildBatch([toolEvent], mockManifest, { eventIds: ['event-tool'] } as any);
+      const spans = (toolBatch.payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+
+      const span = spans[0];
+      expect(span.parentSpanIdHex).toBe(deriveOtlpSpanIdHex(generationId));
+      expect(span.startTimeIso).toBe('2024-01-01T00:00:00.400Z');
+      expect(span.endTimeIso).toBe('2024-01-01T00:00:00.500Z');
+
+      const attrs = span?.attributes ?? {};
+      expect(attrs['langfuse.observation.type']).toBe('span');
+      expect(String(attrs['langfuse.observation.input'] || '')).toContain('abc');
+      expect(String(attrs['langfuse.observation.output'] || '')).toContain('42');
+      expect(attrs['langfuse.trace.name']).toBe('corr-123');
+    });
+
+    it('marks tool execution spans as ERROR when tool invocation fails', () => {
+      compat.buildBatch([requestEvent], mockManifest, { eventIds: ['event-req'] } as any);
+
+      const toolEvent: any = {
+        traceId,
+        generationId,
+        startTimeMs: 1704067200400,
+        endTimeMs: 1704067200500,
+        provider: 'provider-a',
+        model: 'model-a',
+        toolCallId: 'call-1',
+        toolName: 'test.echo',
+        args: { message: 'abc' },
+        error: { message: 'boom' },
+        metadata: { correlationId: 'corr-123' }
+      };
+
+      const toolBatch = compat.buildBatch([toolEvent], mockManifest, { eventIds: ['event-tool'] } as any);
+      const spans = (toolBatch.payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+
+      const span = spans[0];
+      expect(span.status).toEqual({ code: 'ERROR', message: 'boom' });
+      const attrs = span?.attributes ?? {};
+      expect(attrs['langfuse.observation.type']).toBe('span');
+    });
+
+    it('covers tool span fallbacks when request cache and optional fields are missing', () => {
+      const toolEvent: any = {
+        traceId: '',
+        startTimeMs: 1704067200400,
+        endTimeMs: 1704067200500,
+        provider: '',
+        model: 'model-a',
+        toolCallId: '',
+        toolName: '',
+        args: undefined,
+        error: { message: '' }
+      };
+
+      const batchNaN = compat.buildBatch([toolEvent], mockManifest, {
+        eventIds: ['event-tool'],
+        maxAttributeValueBytes: Number.NaN
+      } as any);
+      expect((batchNaN.payload as any)?.spans ?? []).toHaveLength(1);
+
+      const batchZero = compat.buildBatch([toolEvent], mockManifest, {
+        eventIds: ['event-tool'],
+        maxAttributeValueBytes: 0
+      } as any);
+      expect((batchZero.payload as any)?.spans ?? []).toHaveLength(1);
+
+      const batchPositive = compat.buildBatch([toolEvent], mockManifest, {
+        eventIds: ['event-tool'],
+        maxAttributeValueBytes: 50
+      } as any);
+      const spans = (batchPositive.payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+      expect(spans[0].name).toBe('tool.execution');
+      expect(spans[0].status).toEqual({ code: 'ERROR', message: 'error' });
+    });
+
+    it('uses toolEvent.sessionId + tags when no cached request exists', () => {
+      const toolEvent: any = {
+        traceId,
+        startTimeMs: 1704067200400,
+        endTimeMs: 1704067200500,
+        sessionId: 'session-from-tool',
+        provider: 'provider-a',
+        model: 'model-a',
+        toolCallId: 'call-1',
+        toolName: 'test.echo',
+        args: { message: 'abc' },
+        resultText: 'ok',
+        metadata: { tags: ['tag-a'] }
+      };
+
+      const batch = compat.buildBatch([toolEvent], mockManifest, { eventIds: ['event-tool'] } as any);
+      const span = ((batch.payload as any)?.spans ?? [])[0];
+      expect(span?.attributes?.['langfuse.session.id']).toBe('session-from-tool');
+      expect(span?.attributes?.['langfuse.trace.tags']).toEqual(['tag-a']);
+    });
+
+    it('falls back to cached request provider when toolEvent.provider is blank', () => {
+      compat.buildBatch([requestEvent], mockManifest, { eventIds: ['event-req'] } as any);
+
+      const toolEvent: any = {
+        traceId,
+        generationId,
+        startTimeMs: 1704067200400,
+        endTimeMs: 1704067200500,
+        provider: '',
+        model: 'model-a',
+        toolCallId: 'call-1',
+        toolName: 'test.echo',
+        resultText: 'ok'
+      };
+
+      const batch = compat.buildBatch([toolEvent], mockManifest, { eventIds: ['event-tool'] } as any);
+      const span = ((batch.payload as any)?.spans ?? [])[0];
+      expect(span?.attributes?.['llm.adapter.provider']).toBe('provider-a');
     });
 
     it('parses ISO timestamps when timestampMs is missing (back-compat)', () => {

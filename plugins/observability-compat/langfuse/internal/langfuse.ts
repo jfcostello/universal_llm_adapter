@@ -4,7 +4,8 @@ import type {
   ObservabilityBatchResult,
   ObservabilityCompatContext,
   ObservabilityLLMRequestEvent,
-  ObservabilityLLMResponseEvent
+  ObservabilityLLMResponseEvent,
+  ObservabilityToolExecutionEvent
 } from '../../../../kernel/index.js';
 import { LruMap } from '../../../../kernel/index.js';
 import { safeJsonStringify, flattenPrimitiveStrings, readTrimmedStringProperty } from '../../../../modules/shared/index.js';
@@ -26,11 +27,13 @@ import {
   getStringArrayMetadata,
   isRequestEvent,
   isResponseEvent,
+  isToolExecutionEvent,
   resolveIngestionUrl
 } from './langfuse-helpers.js';
 import type { CachedRequest } from './langfuse-helpers.js';
 
 const DEFAULT_SPAN_NAME = 'llm.generation';
+const DEFAULT_TOOL_SPAN_NAME = 'tool.execution';
 
 const REQUEST_CACHE_TTL_MS = 10 * 60_000;
 const REQUEST_CACHE_MAX_ENTRIES = 1000;
@@ -60,6 +63,77 @@ export class LangfuseCompat implements IObservabilityCompat {
       }
 
       if (!isResponseEvent(event)) {
+        if (!isToolExecutionEvent(event)) {
+          continue;
+        }
+
+        const toolEvent = event as ObservabilityToolExecutionEvent;
+        const key = cacheKey(toolEvent.traceId, toolEvent.generationId);
+        const cached = this.requestCache.get(key);
+        const cachedSummary = cached?.summary;
+
+        const maxBytes = typeof context?.maxAttributeValueBytes === 'number' && Number.isFinite(context.maxAttributeValueBytes) && context.maxAttributeValueBytes > 0
+          ? Math.floor(context.maxAttributeValueBytes)
+          : 16384;
+
+        const sessionId = cachedSummary?.sessionId
+          ? String(cachedSummary.sessionId)
+          : toolEvent.sessionId
+            ? String(toolEvent.sessionId)
+            : undefined;
+        const metadata = toolEvent.metadata;
+        const correlationId = cachedSummary?.correlationId ?? readTrimmedStringProperty(metadata, 'correlationId');
+        const batchId = cachedSummary?.batchId ?? (readTrimmedStringProperty(metadata, 'batchId') ?? sessionId);
+        const tags = cachedSummary?.tags ?? getStringArrayMetadata(metadata, 'tags');
+
+        const envelopeId = getEnvelopeId(
+          eventIds,
+          i,
+          toolEvent.toolCallId ? String(toolEvent.toolCallId) : `tool-${i}`
+        );
+
+        spans.push({
+          traceIdHex: deriveOtlpTraceIdHex(String(toolEvent.traceId)),
+          spanIdHex: deriveOtlpSpanIdHex(String(toolEvent.toolCallId || envelopeId)),
+          ...(toolEvent.generationId ? { parentSpanIdHex: deriveOtlpSpanIdHex(String(toolEvent.generationId)) } : {}),
+          name: toolEvent.toolName ? `tool.${toolEvent.toolName}` : DEFAULT_TOOL_SPAN_NAME,
+          startTimeIso: new Date(toolEvent.startTimeMs).toISOString(),
+          endTimeIso: new Date(toolEvent.endTimeMs).toISOString(),
+          status: toolEvent.error
+            ? { code: 'ERROR', message: String(toolEvent.error.message || 'error') }
+            : { code: 'OK' },
+          attributes: {
+            'llm.adapter.trace_id': String(toolEvent.traceId || ''),
+            ...(sessionId ? { 'langfuse.session.id': sessionId, 'llm.adapter.session_id': sessionId } : {}),
+            ...(correlationId ? { 'langfuse.trace.name': correlationId } : {}),
+            ...(tags ? { 'langfuse.trace.tags': tags } : {}),
+            ...(correlationId ? { 'llm.adapter.correlation_id': correlationId } : {}),
+            ...(batchId ? { 'llm.adapter.batch_id': batchId } : {}),
+            'llm.adapter.provider': String(toolEvent.provider || cachedSummary?.provider || ''),
+            'llm.adapter.tool_name': String(toolEvent.toolName || ''),
+            'llm.adapter.tool_call_id': String(toolEvent.toolCallId || ''),
+            'langfuse.observation.type': 'span',
+            'langfuse.observation.input': safeJsonStringify(
+              {
+                toolCallId: toolEvent.toolCallId,
+                toolName: toolEvent.toolName,
+                ...(toolEvent.args !== undefined ? { args: toolEvent.args } : {})
+              },
+              { maxBytes }
+            ),
+            'langfuse.observation.output': safeJsonStringify(
+              {
+                ...(toolEvent.result !== undefined ? { result: toolEvent.result } : {}),
+                ...(toolEvent.resultText !== undefined ? { resultText: toolEvent.resultText } : {}),
+                ...(toolEvent.error !== undefined ? { error: toolEvent.error } : {})
+              },
+              { maxBytes }
+            )
+          },
+          envelopeId
+        });
+
+        eventIndexByEnvelopeId.set(envelopeId, i);
         continue;
       }
 

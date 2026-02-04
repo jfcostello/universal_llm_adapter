@@ -316,6 +316,9 @@ export async function callProviderViaHttp(options: {
     const parsed = options.compat.parseResponse(response.data, options.model);
     parsed.toolCalls = await normalizeToolCallsIfPresent(parsed.toolCalls);
     parsed.provider = options.provider.id;
+    if (options.generationId) {
+      (parsed as any).generationId = options.generationId;
+    }
 
     const observabilityModel = deriveObservabilityModel({
       provider: options.provider.id,

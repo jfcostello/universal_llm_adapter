@@ -35,6 +35,8 @@ export interface ObservabilityContext {
       import('./observability.js').ObservabilityRecordResult;
     recordLLMResponse: (event: import('./observability.js').ObservabilityLLMResponseEvent) =>
       import('./observability.js').ObservabilityRecordResult;
+    recordToolExecution: (event: import('./observability.js').ObservabilityToolExecutionEvent) =>
+      import('./observability.js').ObservabilityRecordResult;
     flush: () => Promise<void>;
   };
 

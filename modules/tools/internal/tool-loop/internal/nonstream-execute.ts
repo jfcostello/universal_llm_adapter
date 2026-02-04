@@ -1,4 +1,4 @@
-import type { AdapterLogger, Message, ProviderManifest, ToolCall, UnifiedTool } from '../../../../../kernel/index.js';
+import type { AdapterLogger, Message, ObservabilityContext, ProviderManifest, ToolCall, UnifiedTool } from '../../../../../kernel/index.js';
 
 import { appendToolResult } from '../../../../messages/index.js';
 import { sanitizeToolName } from '../../tool-names.js';
@@ -6,6 +6,7 @@ import type { ToolCallBudget } from '../../tool-budget.js';
 import { createProgressFields, resolveCountdownText } from './utils.js';
 import { isToolTerminalByDefinition, resolveCallArgTerminalOverride, resolveTerminalOverride, stripCallArgTerminalFlag } from './helpers.js';
 import type { InvokeToolFn } from './types.js';
+import { recordToolExecutionObservability } from './observability.js';
 
 type ExecuteToolCallResult =
   | {
@@ -13,6 +14,9 @@ type ExecuteToolCallResult =
       toolName: string;
       toolCall: ToolCall;
       payload: any;
+      args: unknown;
+      startTimeMs: number;
+      endTimeMs: number;
     }
   | {
       type: 'success';
@@ -21,6 +25,9 @@ type ExecuteToolCallResult =
       payload: any;
       countdownText: string | undefined;
       terminal: boolean;
+      args: unknown;
+      startTimeMs: number;
+      endTimeMs: number;
     }
   | {
       type: 'error';
@@ -28,6 +35,9 @@ type ExecuteToolCallResult =
       toolCall: ToolCall;
       payload: any;
       terminal: boolean;
+      args: unknown;
+      startTimeMs: number;
+      endTimeMs: number;
     };
 
 export async function executeNonStreamToolCallsRound(options: {
@@ -44,6 +54,8 @@ export async function executeNonStreamToolCallsRound(options: {
   logger: AdapterLogger;
   messages: Message[];
   invokeTool: InvokeToolFn;
+  observability?: ObservabilityContext;
+  generationId?: string;
 }): Promise<{
   toolResultsThisRound: Array<{ tool: string; result: any }>;
   terminalStopThisRound: boolean;
@@ -63,6 +75,7 @@ export async function executeNonStreamToolCallsRound(options: {
         toolName: targetToolName,
         callId: toolCall.id
       });
+      const now = Date.now();
       return {
         type: 'exhausted',
         toolName: targetToolName,
@@ -71,7 +84,10 @@ export async function executeNonStreamToolCallsRound(options: {
           error: 'tool_call_budget_exhausted',
           message: 'No remaining tool calls are available for this run.',
           tool: targetToolName
-        }
+        },
+        args: toolCall.args ?? toolCall.arguments,
+        startTimeMs: now,
+        endTimeMs: now
       };
     }
 
@@ -80,6 +96,7 @@ export async function executeNonStreamToolCallsRound(options: {
         toolName: targetToolName,
         callId: toolCall.id
       });
+      const now = Date.now();
       return {
         type: 'exhausted',
         toolName: targetToolName,
@@ -88,7 +105,10 @@ export async function executeNonStreamToolCallsRound(options: {
           error: 'tool_call_budget_exhausted',
           message: 'No remaining tool calls are available for this run.',
           tool: targetToolName
-        }
+        },
+        args: toolCall.args ?? toolCall.arguments,
+        startTimeMs: now,
+        endTimeMs: now
       };
     }
 
@@ -104,6 +124,7 @@ export async function executeNonStreamToolCallsRound(options: {
 
     options.logger.info('Invoking tool', logPayload);
 
+    const startTimeMs = Date.now();
     try {
       const invocationToolCall = stripCallArgTerminalFlag(toolCall, options.toolByName);
       const invocationResult = await options.invokeTool(
@@ -136,7 +157,10 @@ export async function executeNonStreamToolCallsRound(options: {
         toolCall,
         payload: normalizedPayload,
         countdownText: resolveCountdownText(options.toolCountdownEnabled, options.toolBudget),
-        terminal: isTerminal
+        terminal: isTerminal,
+        args: (invocationToolCall as any).args ?? invocationToolCall.arguments,
+        startTimeMs,
+        endTimeMs: Date.now()
       };
     } catch (error: any) {
       options.logger.error?.('Tool execution failed', {
@@ -153,12 +177,34 @@ export async function executeNonStreamToolCallsRound(options: {
           message: error?.message ?? String(error),
           tool: targetToolName
         },
-        terminal: callArgTerminalOverride !== undefined ? callArgTerminalOverride : terminalByDefinition
+        terminal: callArgTerminalOverride !== undefined ? callArgTerminalOverride : terminalByDefinition,
+        args: toolCall.args ?? toolCall.arguments,
+        startTimeMs,
+        endTimeMs: Date.now()
       };
     }
   };
 
   const processResult = (result: ExecuteToolCallResult) => {
+    const record = (payload: { resultText: string; error?: { message: string; code?: string } }) => {
+      recordToolExecutionObservability({
+        observability: options.observability,
+        logger: options.logger,
+        metadata: options.metadata,
+        generationId: options.generationId,
+        provider: options.providerManifest.id,
+        model: options.model,
+        toolCallId: result.toolCall.id,
+        toolName: result.toolName,
+        args: result.args,
+        result: result.payload,
+        resultText: payload.resultText,
+        ...(payload.error ? { error: payload.error } : {}),
+        startTimeMs: result.startTimeMs,
+        endTimeMs: result.endTimeMs
+      });
+    };
+
     if (result.type === 'success') {
       toolResultsThisRound.push({ tool: result.toolName, result: result.payload });
 
@@ -184,6 +230,8 @@ export async function executeNonStreamToolCallsRound(options: {
         }
       );
 
+      record({ resultText: truncatedText });
+
       if (result.terminal) {
         terminalStopThisRound = true;
       }
@@ -193,19 +241,29 @@ export async function executeNonStreamToolCallsRound(options: {
 
     toolResultsThisRound.push({ tool: result.toolName, result: result.payload });
 
+    const resultText = JSON.stringify(result.payload);
     appendToolResult(
       options.messages,
       {
         toolName: result.toolName,
         callId: result.toolCall.id,
         result: result.payload,
-        resultText: JSON.stringify(result.payload)
+        resultText
       },
       {
         countdownText: resolveCountdownText(options.toolCountdownEnabled, options.toolBudget),
         maxLength: options.maxResultLength
       }
     );
+
+    const payload = result.payload as any;
+    record({
+      resultText,
+      error: {
+        message: String(payload?.message),
+        code: String(payload?.error)
+      }
+    });
 
     if (result.type === 'exhausted') {
       forceFinalize = true;
