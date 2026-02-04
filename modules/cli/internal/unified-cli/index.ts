@@ -7,6 +7,7 @@ import { registerExtensionCommands } from './internal/register-extensions.js';
 import { registerLlmCommands } from './internal/register-llm.js';
 import { registerRealtimeCommands } from './internal/register-realtime.js';
 import { registerServeCommand } from './internal/register-serve.js';
+import { registerSignalsCommands } from './internal/register-signals.js';
 import { registerVectorCommands } from './internal/register-vector.js';
 
 export { defaultDependencies } from './internal/deps.js';
@@ -39,6 +40,7 @@ export function createUnifiedProgram(partialDeps: Partial<UnifiedCliDependencies
   registerLlmCommands(program, ctx);
   registerVectorCommands(program, ctx);
   registerEmbeddingsCommands(program, ctx);
+  registerSignalsCommands(program, ctx);
   registerServeCommand(program, ctx);
   registerRealtimeCommands(program, ctx);
   registerExtensionCommands(program, ctx);

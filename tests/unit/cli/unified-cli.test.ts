@@ -120,6 +120,19 @@ describe('cli/internal/unified-cli', () => {
       expect(embeddingsCmd).toBeDefined();
     });
 
+    test('has signals subcommand', () => {
+      const program = createUnifiedProgram(mockDeps);
+      const signalsCmd = program.commands.find(c => c.name() === 'signals');
+      expect(signalsCmd).toBeDefined();
+    });
+
+    test('signals has report subcommand', () => {
+      const program = createUnifiedProgram(mockDeps);
+      const signalsCmd = program.commands.find(c => c.name() === 'signals');
+      const reportCmd = signalsCmd?.commands.find((c: Command) => c.name() === 'report');
+      expect(reportCmd).toBeDefined();
+    });
+
     test('has serve command', () => {
       const program = createUnifiedProgram(mockDeps);
       const serveCmd = program.commands.find(c => c.name() === 'serve');
@@ -1151,6 +1164,157 @@ describe('cli/internal/unified-cli', () => {
       await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', VALID_LLM_SPEC_JSON, '--batch-id', 'test-batch']);
 
       expect(capturedExitCodes).toEqual([0]);
+    });
+  });
+
+  describe('signals command', () => {
+    const mockStdout = () => {
+      const writtenData: string[] = [];
+      jest.spyOn(process.stdout, 'write').mockImplementation((chunk: any, encodingOrCb?: any, cb?: any) => {
+        writtenData.push(chunk.toString());
+        const callback = typeof encodingOrCb === 'function' ? encodingOrCb : cb;
+        if (callback) setImmediate(callback);
+        return true;
+      });
+      return writtenData;
+    };
+
+    afterEach(() => {
+      jest.spyOn(process.stdout, 'write').mockRestore();
+    });
+
+    test('executes signals report with minimal args', async () => {
+      const program = createUnifiedProgram(mockDeps);
+      mockStdout();
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'signals',
+        'report',
+        '--trace-id',
+        'trace-1',
+        '--generation-id',
+        'gen-1',
+        '--level',
+        'error',
+        '--message',
+        'boom'
+      ]);
+
+      expect(mockDeps.createRegistry).toHaveBeenCalledWith('./plugins');
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(0);
+    });
+
+    test('supports tags + metadata JSON options', async () => {
+      const program = createUnifiedProgram(mockDeps);
+      mockStdout();
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'signals',
+        'report',
+        '--trace-id',
+        'trace-1',
+        '--generation-id',
+        'gen-1',
+        '--level',
+        'warning',
+        '--message',
+        'boom',
+        '--code',
+        'E_TEST',
+        '--stack',
+        'stack',
+        '--tags',
+        '{"a":"1"}',
+        '--metadata',
+        '{"correlationId":"corr-1"}'
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(0);
+    });
+
+    test('rejects invalid JSON for tags', async () => {
+      const program = createUnifiedProgram(mockDeps);
+      mockStdout();
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'signals',
+        'report',
+        '--trace-id',
+        'trace-1',
+        '--generation-id',
+        'gen-1',
+        '--level',
+        'error',
+        '--message',
+        'boom',
+        '--tags',
+        '{'
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      const err = JSON.parse(capturedErrors[capturedErrors.length - 1]);
+      expect(err.error.code).toBe('validation_error');
+      expect(err.error.message).toContain('tags');
+    });
+
+    test('rejects non-object JSON for tags', async () => {
+      const program = createUnifiedProgram(mockDeps);
+      mockStdout();
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'signals',
+        'report',
+        '--trace-id',
+        'trace-1',
+        '--generation-id',
+        'gen-1',
+        '--level',
+        'error',
+        '--message',
+        'boom',
+        '--tags',
+        '[1,2,3]'
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      const err = JSON.parse(capturedErrors[capturedErrors.length - 1]);
+      expect(err.error.code).toBe('validation_error');
+      expect(err.error.message).toContain('JSON object');
+    });
+
+    test('rejects null JSON for tags', async () => {
+      const program = createUnifiedProgram(mockDeps);
+      mockStdout();
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'signals',
+        'report',
+        '--trace-id',
+        'trace-1',
+        '--generation-id',
+        'gen-1',
+        '--level',
+        'error',
+        '--message',
+        'boom',
+        '--tags',
+        'null'
+      ]);
+
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      const err = JSON.parse(capturedErrors[capturedErrors.length - 1]);
+      expect(err.error.code).toBe('validation_error');
+      expect(err.error.message).toContain('JSON object');
     });
   });
 

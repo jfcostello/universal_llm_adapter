@@ -309,4 +309,173 @@ describe('modules/signals', () => {
     expect(cfg2?.targets.length).toBe(2);
     expect(cfg2?.maxAttributeValueBytes).toBe(16384);
   });
+
+  describe('reportSignal', () => {
+    test('accepts a minimal valid payload (timestamp defaults)', async () => {
+      delete process.env.LLM_ADAPTER_SIGNALS_ENABLED;
+      delete process.env.LLM_ADAPTER_SIGNALS_TARGETS;
+
+      const { reportSignal } = await import('@/modules/signals/index.ts');
+
+      const registry = {};
+      const result = await reportSignal({
+        registry: registry as any,
+        event: { traceId: 't', generationId: 'g', level: 'error', message: 'boom' }
+      });
+
+      expect(result).toEqual({ queued: false, reason: 'disabled', results: [] });
+    });
+
+    test('accepts timestampMs as a numeric string', async () => {
+      delete process.env.LLM_ADAPTER_SIGNALS_ENABLED;
+      delete process.env.LLM_ADAPTER_SIGNALS_TARGETS;
+
+      const { reportSignal } = await import('@/modules/signals/index.ts');
+
+      const registry = {};
+      const result = await reportSignal({
+        registry: registry as any,
+        event: { traceId: 't', generationId: 'g', timestampMs: '123', level: 'info', message: 'ok' } as any
+      });
+
+      expect(result).toEqual({ queued: false, reason: 'disabled', results: [] });
+    });
+
+    test('accepts all levels and normalizes optional fields', async () => {
+      delete process.env.LLM_ADAPTER_SIGNALS_ENABLED;
+      delete process.env.LLM_ADAPTER_SIGNALS_TARGETS;
+
+      const { reportSignal } = await import('@/modules/signals/index.ts');
+
+      const registry = {};
+      for (const level of ['debug', 'info', 'warning', 'error'] as const) {
+        const tags = Object.create(null) as any;
+        tags[' '] = 'ignored';
+        tags.a = '1';
+        tags.b = '';
+        tags.c = null;
+
+        const metadata = Object.create(null) as any;
+        metadata.foo = 'bar';
+
+        const result = await reportSignal({
+          registry: registry as any,
+          event: {
+            traceId: 123 as any,
+            generationId: 'g',
+            level,
+            message: 'm',
+            code: ' ',
+            stack: 123 as any,
+            tags,
+            metadata
+          } as any
+        });
+        expect(result.reason).toBe('disabled');
+      }
+    });
+
+    test('tolerates empty tags/metadata objects (normalizes to undefined)', async () => {
+      delete process.env.LLM_ADAPTER_SIGNALS_ENABLED;
+      delete process.env.LLM_ADAPTER_SIGNALS_TARGETS;
+
+      const { reportSignal } = await import('@/modules/signals/index.ts');
+
+      const registry = {};
+      const result = await reportSignal({
+        registry: registry as any,
+        event: {
+          traceId: 't',
+          generationId: 'g',
+          timestampMs: '',
+          level: 'info',
+          message: 'ok',
+          tags: {},
+          metadata: {}
+        } as any
+      });
+
+      expect(result.reason).toBe('disabled');
+    });
+
+    test('rejects non-object payloads', async () => {
+      delete process.env.LLM_ADAPTER_SIGNALS_ENABLED;
+      delete process.env.LLM_ADAPTER_SIGNALS_TARGETS;
+
+      const { reportSignal } = await import('@/modules/signals/index.ts');
+      const registry = {};
+
+      await expect(reportSignal({ registry: registry as any, event: 'nope' as any })).rejects.toThrow(
+        'Event must be an object'
+      );
+    });
+
+    test('rejects missing required fields', async () => {
+      delete process.env.LLM_ADAPTER_SIGNALS_ENABLED;
+      delete process.env.LLM_ADAPTER_SIGNALS_TARGETS;
+
+      const { reportSignal } = await import('@/modules/signals/index.ts');
+      const registry = {};
+
+      await expect(
+        reportSignal({ registry: registry as any, event: { generationId: 'g', level: 'error', message: 'm' } as any })
+      ).rejects.toThrow('traceId is required');
+      await expect(
+        reportSignal({ registry: registry as any, event: { traceId: 't', level: 'error', message: 'm' } as any })
+      ).rejects.toThrow('generationId is required');
+      await expect(
+        reportSignal({ registry: registry as any, event: { traceId: 't', generationId: 'g', level: 'error' } as any })
+      ).rejects.toThrow('message is required');
+    });
+
+    test('rejects invalid timestamp, level, tags, and metadata shapes', async () => {
+      delete process.env.LLM_ADAPTER_SIGNALS_ENABLED;
+      delete process.env.LLM_ADAPTER_SIGNALS_TARGETS;
+
+      const { reportSignal } = await import('@/modules/signals/index.ts');
+      const registry = {};
+
+      await expect(
+        reportSignal({
+          registry: registry as any,
+          event: { traceId: 't', generationId: 'g', timestampMs: 'nope', level: 'error', message: 'm' } as any
+        })
+      ).rejects.toThrow('timestampMs must be a number');
+
+      await expect(
+        reportSignal({
+          registry: registry as any,
+          event: { traceId: 't', generationId: 'g', timestampMs: {}, level: 'error', message: 'm' } as any
+        })
+      ).rejects.toThrow('timestampMs must be a number');
+
+      await expect(
+        reportSignal({
+          registry: registry as any,
+          event: { traceId: 't', generationId: 'g', level: 'warn', message: 'm' } as any
+        })
+      ).rejects.toThrow('level must be one of');
+
+      await expect(
+        reportSignal({
+          registry: registry as any,
+          event: { traceId: 't', generationId: 'g', level: 123, message: 'm' } as any
+        })
+      ).rejects.toThrow('level must be one of');
+
+      await expect(
+        reportSignal({
+          registry: registry as any,
+          event: { traceId: 't', generationId: 'g', level: 'error', message: 'm', tags: [] } as any
+        })
+      ).rejects.toThrow('tags must be an object');
+
+      await expect(
+        reportSignal({
+          registry: registry as any,
+          event: { traceId: 't', generationId: 'g', level: 'error', message: 'm', metadata: 'x' } as any
+        })
+      ).rejects.toThrow('metadata must be an object');
+    });
+  });
 });
