@@ -85,6 +85,9 @@ describe('modules/observability', () => {
 
       expect(typeof exporter.recordLLMRequest).toBe('function');
       expect(typeof exporter.recordLLMResponse).toBe('function');
+      expect(typeof (exporter as any).recordToolExecution).toBe('function');
+      expect(typeof (exporter as any).recordSignal).toBe('function');
+      expect(typeof (exporter as any).recordTraceUpdate).toBe('function');
       expect(typeof exporter.flush).toBe('function');
       expect(typeof exporter.shutdown).toBe('function');
     });
@@ -118,6 +121,53 @@ describe('modules/observability', () => {
           model: 'test',
           content: 'test response'
         });
+
+      expect(result.queued).toBe(false);
+      expect(result.reason).toBe('disabled');
+    });
+
+    test('noop exporter recordToolExecution returns disabled result', async () => {
+      const { getNoopObservabilityDeps } = await import('@/modules/observability/index.ts');
+      const deps = getNoopObservabilityDeps();
+      const exporter = deps.getExporter() as any;
+
+      const result = exporter.recordToolExecution({
+        traceId: 'test',
+        timestampMs: 1704067202000,
+        toolCallId: 'call-1',
+        toolName: 'tool'
+      });
+
+      expect(result.queued).toBe(false);
+      expect(result.reason).toBe('disabled');
+    });
+
+    test('noop exporter recordSignal returns disabled result', async () => {
+      const { getNoopObservabilityDeps } = await import('@/modules/observability/index.ts');
+      const deps = getNoopObservabilityDeps();
+      const exporter = deps.getExporter() as any;
+
+      const result = exporter.recordSignal({
+        traceId: 'test',
+        timestampMs: 1704067203000,
+        level: 'error',
+        message: 'boom'
+      });
+
+      expect(result.queued).toBe(false);
+      expect(result.reason).toBe('disabled');
+    });
+
+    test('noop exporter recordTraceUpdate returns disabled result', async () => {
+      const { getNoopObservabilityDeps } = await import('@/modules/observability/index.ts');
+      const deps = getNoopObservabilityDeps();
+      const exporter = deps.getExporter() as any;
+
+      const result = exporter.recordTraceUpdate({
+        traceId: 'test',
+        timestampMs: 1704067204000,
+        name: 'new-name'
+      });
 
       expect(result.queued).toBe(false);
       expect(result.reason).toBe('disabled');
@@ -225,6 +275,52 @@ describe('modules/observability', () => {
 
       expect(result.queued).toBe(true);
       expect(result.eventId).toBeDefined();
+
+      await exporter.shutdown();
+    });
+
+    test('wraps queued events with type and forwards them to compat', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 9999,
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 1,
+          baseDelayMs: 0,
+          maxDelayMs: 0,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      exporter.recordLLMRequest({ traceId: 't1', timestampMs: 1, provider: 'p', model: 'm', messages: [] });
+      (exporter as any).recordToolExecution({ traceId: 't1', timestampMs: 2, toolCallId: 'call-1', toolName: 'tool' });
+      (exporter as any).recordSignal({ traceId: 't1', timestampMs: 3, level: 'info', message: 'ok' });
+      (exporter as any).recordTraceUpdate({ traceId: 't1', timestampMs: 4, name: 'new-name' });
+
+      await exporter.flush();
+
+      const events = (mockCompat.buildBatch as jest.Mock).mock.calls[0][0] as any[];
+      expect(events).toHaveLength(4);
+      expect(events[0]).toEqual(expect.objectContaining({ type: 'llm_request', traceId: 't1' }));
+      expect(events[1]).toEqual(expect.objectContaining({ type: 'tool_execution', toolCallId: 'call-1' }));
+      expect(events[2]).toEqual(expect.objectContaining({ type: 'signal', level: 'info' }));
+      expect(events[3]).toEqual(expect.objectContaining({ type: 'trace_update', name: 'new-name' }));
 
       await exporter.shutdown();
     });

@@ -30,13 +30,15 @@ export interface ObservabilityContext {
   /**
    * The observability exporter for recording events.
    */
-  exporter: {
-    recordLLMRequest: (event: import('./observability.js').ObservabilityLLMRequestEvent) =>
-      import('./observability.js').ObservabilityRecordResult;
-    recordLLMResponse: (event: import('./observability.js').ObservabilityLLMResponseEvent) =>
-      import('./observability.js').ObservabilityRecordResult;
-    flush: () => Promise<void>;
-  };
+  exporter: Pick<
+    import('./observability.js').IObservabilityExporter,
+    | 'recordLLMRequest'
+    | 'recordLLMResponse'
+    | 'recordToolExecution'
+    | 'recordSignal'
+    | 'recordTraceUpdate'
+    | 'flush'
+  >;
 
   /**
    * Trace ID for the current call.
@@ -142,6 +144,47 @@ export interface RunContext {
   observability?: ObservabilityContext;
 }
 
+export interface ObservabilityTargetExportSpec {
+  traces?: boolean;
+  tools?: boolean;
+  signals?: boolean;
+  traceUpdates?: boolean;
+}
+
+export interface ObservabilityTargetSpec {
+  /**
+   * Observability provider ID.
+   * Must match an ID from plugins/observability-providers/*.json.
+   */
+  provider: string;
+
+  /**
+   * Provider-specific configuration overrides.
+   * Passed through to the observability compat layer.
+   * Shape depends on the provider; opaque to core.
+   */
+  providerConfig?: Record<string, unknown>;
+
+  /**
+   * Per-target export routing configuration.
+   * When omitted, all event categories are exported.
+   */
+  export?: ObservabilityTargetExportSpec;
+
+  // ========================================
+  // Queue/export tuning (optional overrides)
+  // ========================================
+
+  flushAt?: number;
+  flushIntervalMs?: number;
+  maxQueueSize?: number;
+  maxAttempts?: number;
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+  timeoutMs?: number;
+  maxAttributeValueBytes?: number;
+}
+
 export interface ObservabilitySpec {
   /**
    * Whether observability export is enabled for this call.
@@ -174,6 +217,12 @@ export interface ObservabilitySpec {
    * Shape depends on the provider; opaque to core.
    */
   providerConfig?: Record<string, unknown>;
+
+  /**
+   * Multi-target observability configuration.
+   * When provided, overrides single-provider `provider` config.
+   */
+  targets?: ObservabilityTargetSpec[];
 
   // ========================================
   // Queue/export tuning (optional overrides)

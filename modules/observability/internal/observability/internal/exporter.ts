@@ -7,6 +7,9 @@ import type {
   ObservabilityCompatContext,
   ObservabilityLLMRequestEvent,
   ObservabilityLLMResponseEvent,
+  ObservabilitySignalEvent,
+  ObservabilityToolExecutionEvent,
+  ObservabilityTraceUpdateEvent,
   ObservabilityProviderManifest,
   ObservabilityRecordResult
 } from '../../../../../kernel/index.js';
@@ -166,8 +169,8 @@ export class ObservabilityExporter implements IObservabilityExporter {
     this.logger.info('Observability exporter shutdown summary', payload);
   }
 
-  private enqueue(type: QueuedEvent['type'], data: QueuedEvent['data']): ObservabilityRecordResult {
-    const eventId = this.generateEventId();
+	  private enqueue(type: QueuedEvent['type'], data: any): ObservabilityRecordResult {
+	    const eventId = this.generateEventId();
 
     if (this.shuttingDown) {
       return { eventId, queued: false, reason: 'shutdown' };
@@ -181,13 +184,13 @@ export class ObservabilityExporter implements IObservabilityExporter {
       }
     }
 
-    const event: QueuedEvent = {
-      id: eventId,
-      type,
-      data,
-      timestamp: Date.now(),
-      attempts: 0
-    };
+	    const event: QueuedEvent = {
+	      id: eventId,
+	      type,
+	      data: { ...(data as any), type },
+	      timestamp: Date.now(),
+	      attempts: 0
+	    };
 
     this.queue.push(event);
     this.metrics.enqueuedTotal += 1;
@@ -203,13 +206,25 @@ export class ObservabilityExporter implements IObservabilityExporter {
     return this.enqueue('llm_request', event);
   }
 
-  recordLLMResponse(event: ObservabilityLLMResponseEvent): ObservabilityRecordResult {
-    return this.enqueue('llm_response', event);
-  }
+	  recordLLMResponse(event: ObservabilityLLMResponseEvent): ObservabilityRecordResult {
+	    return this.enqueue('llm_response', event);
+	  }
 
-  flush(): Promise<void> {
-    if (this.flushPromise) return this.flushPromise;
-    if (this.getQueueSize() === 0) return Promise.resolve();
+	  recordToolExecution(event: ObservabilityToolExecutionEvent): ObservabilityRecordResult {
+	    return this.enqueue('tool_execution', event);
+	  }
+
+	  recordSignal(event: ObservabilitySignalEvent): ObservabilityRecordResult {
+	    return this.enqueue('signal', event);
+	  }
+
+	  recordTraceUpdate(event: ObservabilityTraceUpdateEvent): ObservabilityRecordResult {
+	    return this.enqueue('trace_update', event);
+	  }
+
+	  flush(): Promise<void> {
+	    if (this.flushPromise) return this.flushPromise;
+	    if (this.getQueueSize() === 0) return Promise.resolve();
 
     this.flushing = true;
     const loop = (async () => {
@@ -304,4 +319,3 @@ export class ObservabilityExporter implements IObservabilityExporter {
     }
   }
 }
-
