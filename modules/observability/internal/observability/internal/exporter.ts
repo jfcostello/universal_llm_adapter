@@ -26,7 +26,6 @@ export class ObservabilityExporter implements IObservabilityExporter {
   private queue: QueuedEvent[] = [];
   private queueHead = 0;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
-  private flushing = false;
   private shuttingDown = false;
   private flushPromise: Promise<void> | null = null;
   private logger: AdapterLogger;
@@ -188,8 +187,7 @@ export class ObservabilityExporter implements IObservabilityExporter {
 	      id: eventId,
 	      type,
 	      data: { ...(data as any), type },
-	      timestamp: Date.now(),
-	      attempts: 0
+	      timestamp: Date.now()
 	    };
 
     this.queue.push(event);
@@ -226,7 +224,6 @@ export class ObservabilityExporter implements IObservabilityExporter {
 	    if (this.flushPromise) return this.flushPromise;
 	    if (this.getQueueSize() === 0) return Promise.resolve();
 
-    this.flushing = true;
     const loop = (async () => {
       while (this.getQueueSize() > 0) {
         await this.doFlush();
@@ -234,7 +231,6 @@ export class ObservabilityExporter implements IObservabilityExporter {
     })();
 
     this.flushPromise = loop.finally(() => {
-      this.flushing = false;
       this.flushPromise = null;
     });
 

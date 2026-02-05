@@ -5,7 +5,6 @@ export interface QueuedEvent {
   type: ObservabilityEvent['type'];
   data: ObservabilityEvent;
   timestamp: number;
-  attempts: number;
 }
 
 export interface ObservabilityExporterMetrics {
