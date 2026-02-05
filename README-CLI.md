@@ -37,6 +37,7 @@ llm-adapter <command> [options]
 | `serve` | Start HTTP/SSE server |
 | `realtime` | Realtime session over stdin/stdout JSON protocol |
 | `realtime client-secret` | Mint a short-lived realtime WebRTC client secret |
+| `telemetry` | Submit telemetry (signal or trace_update) |
 | `extensions list` | List available extensions across pack roots |
 | `voice call` | Create an outbound voice call (server endpoint) |
 
@@ -516,6 +517,75 @@ Notes:
 ```
 
 ---
+
+## Telemetry Command
+
+### `llm-adapter telemetry`
+
+Submit telemetry to the observability exporter queue (either a `signal` or a `trace_update`).
+
+This is useful when you want to:
+- Emit an application-level warning/error event linked to a `traceId`
+- Update a trace name/tags out-of-band (after you learn a correlation id, tags, etc.)
+- Use the same behavior as the server endpoint `POST /telemetry`
+
+```bash
+llm-adapter telemetry --spec '<json>' [options]
+llm-adapter telemetry --file <path> [options]
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `-s, --spec <json>` | Telemetry payload as JSON string |
+| `-f, --file <path>` | Path to telemetry JSON payload file |
+| `-p, --plugins <path>` | Path to plugins directory (default: `./plugins`) |
+| `--batch-id <id>` | Optional batch identifier for grouped logging |
+| `--pretty` | Pretty print output |
+
+**Examples:**
+
+Signal:
+
+```bash
+llm-adapter telemetry --spec '{
+  "type": "signal",
+  "traceId": "trace-123",
+  "level": "error",
+  "message": "Something went wrong"
+}'
+```
+
+Trace update:
+
+```bash
+llm-adapter telemetry --spec '{
+  "type": "trace_update",
+  "traceId": "trace-123",
+  "name": "checkout-flow",
+  "tags": ["web", "prod"]
+}'
+```
+
+Per-submission observability override (optional):
+
+```bash
+llm-adapter telemetry --spec '{
+  "type": "signal",
+  "traceId": "trace-123",
+  "level": "warning",
+  "message": "Send this to a specific target",
+  "observability": {
+    "enabled": true,
+    "traceId": "trace-123",
+    "flushAt": 1,
+    "targets": [
+      { "provider": "sentry", "export": { "signals": true } }
+    ]
+  }
+}'
+```
 
 ## Spec Reference
 

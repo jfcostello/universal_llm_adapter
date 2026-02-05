@@ -107,6 +107,58 @@ Each target supports:
 - `export`: per-category routing flags (`traces`, `tools`, `signals`, `traceUpdates`)
 - Optional per-target queue tuning overrides (`flushAt`, `timeoutMs`, etc.)
 
+## Client Telemetry Submission
+
+In addition to automatic capture during LLM calls and realtime sessions, the adapter supports **client-submitted telemetry**:
+
+- CLI: `llm-adapter telemetry`
+- Server: `POST /telemetry`
+
+These submissions are validated and then recorded into the same observability exporter queue (with the same routing semantics).
+
+### Signal
+
+```json
+{
+  "type": "signal",
+  "traceId": "trace-123",
+  "level": "error",
+  "message": "Something went wrong"
+}
+```
+
+### Trace update
+
+```json
+{
+  "type": "trace_update",
+  "traceId": "trace-123",
+  "name": "checkout-flow",
+  "tags": ["web", "prod"]
+}
+```
+
+### Per-submission override (optional)
+
+Include an `observability` object to override routing/settings for this submission only (useful when observability is disabled globally):
+
+```json
+{
+  "type": "signal",
+  "traceId": "trace-123",
+  "level": "warning",
+  "message": "Send this to a specific target",
+  "observability": {
+    "enabled": true,
+    "traceId": "trace-123",
+    "flushAt": 1,
+    "targets": [
+      { "provider": "sentry", "export": { "signals": true } }
+    ]
+  }
+}
+```
+
 ## Realtime Sessions
 
 Realtime observability is implemented in the provider-agnostic realtime session controller (`modules/realtime`).
