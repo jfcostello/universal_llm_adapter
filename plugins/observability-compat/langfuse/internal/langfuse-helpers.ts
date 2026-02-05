@@ -10,6 +10,74 @@ import { safeJsonStringify, flattenPrimitiveStrings, readTrimmedStringProperty }
 const ALLOW_BASEURL_OVERRIDE_ENV = 'LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE';
 const BASEURL_OVERRIDE_ALLOWLIST_ENV = 'LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST';
 
+export function resolveMaxAttributeBytes(context?: ObservabilityCompatContext): number {
+  return typeof context?.maxAttributeValueBytes === 'number' &&
+    Number.isFinite(context.maxAttributeValueBytes) &&
+    context.maxAttributeValueBytes > 0
+    ? Math.floor(context.maxAttributeValueBytes)
+    : 16384;
+}
+
+export function normalizeLangfuseObservationLevel(level: unknown): 'DEBUG' | 'DEFAULT' | 'WARNING' | 'ERROR' {
+  const raw = typeof level === 'string' ? level.trim().toLowerCase() : '';
+  if (raw === 'debug') return 'DEBUG';
+  if (raw === 'warning' || raw === 'warn') return 'WARNING';
+  if (raw === 'error') return 'ERROR';
+  return 'DEFAULT';
+}
+
+export function deriveStartTimeIsoFromDuration(endTimeIso: string, durationMs: unknown): string {
+  const endMs = Date.parse(endTimeIso);
+  const dur = typeof durationMs === 'number' ? durationMs : Number(durationMs);
+  if (!Number.isFinite(endMs) || !Number.isFinite(dur) || dur < 0) {
+    return endTimeIso;
+  }
+  return new Date(endMs - dur).toISOString();
+}
+
+export function buildCommonTraceAttributes(options: {
+  traceId: string;
+  sessionId?: string;
+  traceName?: string;
+  tags?: string[];
+  batchId?: string;
+}): Record<string, unknown> {
+  const { traceId, sessionId, traceName, tags, batchId } = options;
+  return {
+    'llm.adapter.trace_id': String(traceId || ''),
+    ...(sessionId ? { 'langfuse.session.id': sessionId, 'llm.adapter.session_id': sessionId } : {}),
+    ...(traceName ? { 'langfuse.trace.name': traceName, 'llm.adapter.correlation_id': traceName } : {}),
+    ...(tags ? { 'langfuse.trace.tags': tags } : {}),
+    ...(batchId ? { 'llm.adapter.batch_id': batchId } : {})
+  };
+}
+
+export function resolveTraceContext(options: {
+  event: { sessionId?: unknown; metadata?: unknown };
+  cachedSummary?: { sessionId?: unknown; correlationId?: unknown; batchId?: unknown; tags?: unknown };
+}): { sessionId?: string; traceName?: string; batchId?: string; tags?: string[] } {
+  const { event, cachedSummary } = options;
+  const metadata = event.metadata;
+
+  const sessionId = cachedSummary?.sessionId
+    ? String(cachedSummary.sessionId)
+    : event.sessionId
+      ? String(event.sessionId)
+      : undefined;
+
+  const traceName =
+    (cachedSummary?.correlationId ? String(cachedSummary.correlationId) : undefined) ??
+    readTrimmedStringProperty(metadata, 'correlationId');
+
+  const batchId =
+    (cachedSummary?.batchId ? String(cachedSummary.batchId) : undefined) ??
+    (readTrimmedStringProperty(metadata, 'batchId') ?? sessionId);
+
+  const tags = (cachedSummary?.tags as any) ?? getStringArrayMetadata(metadata, 'tags');
+
+  return { sessionId, traceName, batchId, tags };
+}
+
 function readUsageNumber(value: unknown): number | undefined {
   if (typeof value !== 'number') return undefined;
   if (!Number.isFinite(value)) return undefined;
@@ -298,4 +366,3 @@ export function buildCachedRequestSummary(
     modelParameters: safeJsonStringify(request.settings ?? {}, { maxBytes })
   };
 }
-

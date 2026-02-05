@@ -2,8 +2,12 @@ import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals
 import type {
   ObservabilityProviderManifest,
   ObservabilityLLMRequestEvent,
-  ObservabilityLLMResponseEvent
+  ObservabilityLLMResponseEvent,
+  ObservabilitySignalEvent,
+  ObservabilityToolExecutionEvent,
+  ObservabilityTraceUpdateEvent
 } from '@/kernel/index.ts';
+import { deriveOtlpSpanIdHex } from '@/modules/observability/index.ts';
 import { LangfuseCompat } from '@/plugins/observability-compat/langfuse/internal/langfuse.ts';
 import defaultCompat from '@/plugins/observability-compat/langfuse/index.ts';
 
@@ -131,6 +135,387 @@ describe('LangfuseCompat (OTLP)', () => {
 
       const output = JSON.parse(String(attrs['langfuse.observation.output'] || '{}'));
       expect(output.rawResponse).toEqual(responseEvent.rawResponse);
+    });
+
+    it('maps tool_execution events as spans with input/output and parent span linkage', () => {
+      const ctxReq = { eventIds: ['event-req'] } as any;
+      compat.buildBatch([requestEvent], mockManifest, ctxReq);
+
+      const toolEvent: ObservabilityToolExecutionEvent = {
+        traceId,
+        generationId,
+        sessionId: 'session-456',
+        timestampMs: 1704067200500,
+        provider: 'provider-a',
+        model: 'model-a',
+        toolCallId: 'call-1',
+        toolName: 'test.echo',
+        durationMs: 50,
+        args: { text: 'hi' },
+        resultText: 'ok',
+        result: { ok: true },
+        metadata: { correlationId: 'corr-123', batchId: 'batch-xyz' }
+      };
+
+      const batch = compat.buildBatch([{ ...toolEvent, type: 'tool_execution' } as any], mockManifest, { eventIds: ['event-tool'] } as any);
+      const spans = (batch.payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+
+      const span = spans[0];
+      expect(span.parentSpanIdHex).toBe(deriveOtlpSpanIdHex(generationId));
+      expect(span.startTimeIso).toBe('2024-01-01T00:00:00.450Z');
+      expect(span.endTimeIso).toBe('2024-01-01T00:00:00.500Z');
+
+      const attrs = span.attributes ?? {};
+      expect(attrs['langfuse.observation.type']).toBe('span');
+      expect(attrs['langfuse.trace.name']).toBe('corr-123');
+      expect(attrs['llm.adapter.tool_name']).toBe('test.echo');
+      expect(attrs['llm.adapter.tool_call_id']).toBe('call-1');
+
+      const input = JSON.parse(String(attrs['langfuse.observation.input'] || '{}'));
+      expect(input.toolName).toBe('test.echo');
+      expect(input.args).toEqual({ text: 'hi' });
+
+      const output = JSON.parse(String(attrs['langfuse.observation.output'] || '{}'));
+      expect(output.resultText).toBe('ok');
+      expect(output.result).toEqual({ ok: true });
+    });
+
+    it('maps tool_execution error/skipped variants and covers missing optional branches', () => {
+      const toolError: any = {
+        type: 'tool_execution',
+        traceId: '' as any,
+        generationId: undefined,
+        timestampMs: 1704067200525,
+        durationMs: '25',
+        error: { message: 'boom' }
+      };
+
+      const errorBatch = compat.buildBatch([toolError], mockManifest, { eventIds: ['event-tool-error'] } as any);
+      const errorSpans = (errorBatch.payload as any)?.spans ?? [];
+      expect(errorSpans).toHaveLength(1);
+
+      const errorSpan = errorSpans[0];
+      expect(errorSpan.parentSpanIdHex).toBeUndefined();
+      expect(errorSpan.name).toBe('llm.tool:tool');
+      expect(errorSpan.spanIdHex).toBe(deriveOtlpSpanIdHex('event-tool-error'));
+      expect(errorSpan.startTimeIso).toBe('2024-01-01T00:00:00.500Z');
+      expect(errorSpan.endTimeIso).toBe('2024-01-01T00:00:00.525Z');
+      expect(errorSpan.status).toEqual({ code: 'ERROR', message: 'boom' });
+
+      const errorAttrs = errorSpan.attributes ?? {};
+      expect(errorAttrs['llm.adapter.provider']).toBe('');
+      expect(errorAttrs['llm.adapter.tool_name']).toBe('');
+      expect(errorAttrs['llm.adapter.tool_call_id']).toBe('');
+      expect(errorAttrs['llm.adapter.input_text']).toBe('');
+      expect(errorAttrs['llm.adapter.output_text']).toBe('boom');
+      expect(errorAttrs['langfuse.observation.level']).toBe('ERROR');
+      expect(errorAttrs['langfuse.observation.status_message']).toBe('boom');
+
+      const errorInput = JSON.parse(String(errorAttrs['langfuse.observation.input'] || '{}'));
+      expect(errorInput).toEqual({ toolName: null, toolCallId: null });
+
+      const errorOutput = JSON.parse(String(errorAttrs['langfuse.observation.output'] || '{}'));
+      expect(errorOutput).toEqual({ error: { message: 'boom' } });
+
+      const toolSkipped: any = {
+        type: 'tool_execution',
+        traceId,
+        generationId: undefined,
+        timestampMs: 1704067200600,
+        durationMs: -1,
+        skipped: true,
+        skipReason: 'policy'
+      };
+
+      const skippedBatch = compat.buildBatch([toolSkipped], mockManifest, { eventIds: ['event-tool-skipped'] } as any);
+      const skippedSpans = (skippedBatch.payload as any)?.spans ?? [];
+      expect(skippedSpans).toHaveLength(1);
+
+      const skippedSpan = skippedSpans[0];
+      expect(skippedSpan.startTimeIso).toBe('2024-01-01T00:00:00.600Z');
+      expect(skippedSpan.endTimeIso).toBe('2024-01-01T00:00:00.600Z');
+
+      const skippedAttrs = skippedSpan.attributes ?? {};
+      expect(skippedAttrs['llm.adapter.tool_skipped']).toBe(true);
+      expect(skippedAttrs['llm.adapter.tool_skip_reason']).toBe('policy');
+      expect(skippedAttrs['llm.adapter.output_text']).toBe('policy');
+      expect(skippedAttrs['langfuse.observation.level']).toBe('WARNING');
+      expect(skippedAttrs['langfuse.observation.status_message']).toBe('policy');
+
+      const skippedOutput = JSON.parse(String(skippedAttrs['langfuse.observation.output'] || '{}'));
+      expect(skippedOutput).toEqual({ skipped: true, skipReason: 'policy' });
+
+      const toolEmpty: any = {
+        type: 'tool_execution',
+        traceId,
+        generationId: undefined,
+        timestampMs: 1704067200650,
+        durationMs: 0
+      };
+
+      const emptyBatch = compat.buildBatch([toolEmpty], mockManifest, { eventIds: ['event-tool-empty'] } as any);
+      const emptySpans = (emptyBatch.payload as any)?.spans ?? [];
+      expect(emptySpans).toHaveLength(1);
+
+      const emptyAttrs = emptySpans[0]?.attributes ?? {};
+      expect(emptyAttrs['llm.adapter.output_text']).toBe('');
+      expect(emptyAttrs['langfuse.observation.status_message']).toBeUndefined();
+
+      const toolSkippedNoReason: any = {
+        ...toolEmpty,
+        skipped: true
+      };
+
+      const noReasonBatch = compat.buildBatch([toolSkippedNoReason], mockManifest, { eventIds: ['event-tool-no-reason'] } as any);
+      const noReasonSpans = (noReasonBatch.payload as any)?.spans ?? [];
+      expect(noReasonSpans).toHaveLength(1);
+
+      const noReasonAttrs = noReasonSpans[0]?.attributes ?? {};
+      expect(noReasonAttrs['llm.adapter.tool_skipped']).toBe(true);
+      expect(noReasonAttrs['llm.adapter.tool_skip_reason']).toBeUndefined();
+      expect(noReasonAttrs['llm.adapter.output_text']).toBe('');
+      expect(noReasonAttrs['langfuse.observation.status_message']).toBeUndefined();
+
+      const noReasonOutput = JSON.parse(String(noReasonAttrs['langfuse.observation.output'] || '{}'));
+      expect(noReasonOutput).toEqual({ skipped: true });
+
+      const toolErrorEmptyMessage: any = {
+        type: 'tool_execution',
+        traceId,
+        generationId: undefined,
+        timestampMs: 1704067200700,
+        durationMs: 0,
+        error: {}
+      };
+
+      const emptyMsgBatch = compat.buildBatch([toolErrorEmptyMessage], mockManifest, { eventIds: ['event-tool-error-empty'] } as any);
+      const emptyMsgSpans = (emptyMsgBatch.payload as any)?.spans ?? [];
+      expect(emptyMsgSpans).toHaveLength(1);
+      expect(emptyMsgSpans[0]?.status).toEqual({ code: 'ERROR', message: 'error' });
+    });
+
+    it('maps signal events as langfuse events with level + output payload', () => {
+      const ctxReq = { eventIds: ['event-req'] } as any;
+      compat.buildBatch([requestEvent], mockManifest, ctxReq);
+
+      const signalEvent: ObservabilitySignalEvent = {
+        traceId,
+        generationId,
+        sessionId: 'session-456',
+        timestampMs: 1704067200600,
+        level: 'warning',
+        message: 'warn msg',
+        source: 'tool_loop',
+        code: 'tool_call_budget_exhausted',
+        tags: ['t1'],
+        metadata: { correlationId: 'corr-123', batchId: 'batch-xyz' }
+      };
+
+      const batch = compat.buildBatch([{ ...signalEvent, type: 'signal' } as any], mockManifest, { eventIds: ['event-signal'] } as any);
+      const spans = (batch.payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+
+      const span = spans[0];
+      expect(span.parentSpanIdHex).toBe(deriveOtlpSpanIdHex(generationId));
+      const attrs = span.attributes ?? {};
+      expect(attrs['langfuse.observation.type']).toBe('event');
+      expect(attrs['langfuse.observation.level']).toBe('WARNING');
+      expect(attrs['langfuse.observation.status_message']).toBe('warn msg');
+
+      const output = JSON.parse(String(attrs['langfuse.observation.output'] || '{}'));
+      expect(output.message).toBe('warn msg');
+      expect(output.code).toBe('tool_call_budget_exhausted');
+      expect(output.source).toBe('tool_loop');
+    });
+
+    it('maps signal events with error status and covers level normalization variants', () => {
+      const signalErrorWithMessage: any = {
+        type: 'signal',
+        traceId,
+        generationId: undefined,
+        timestampMs: 1704067200700,
+        level: 'error',
+        message: 'boom'
+      };
+
+      const errorMsgBatch = compat.buildBatch([signalErrorWithMessage], mockManifest, { eventIds: ['event-signal-error-msg'] } as any);
+      const errorMsgSpans = (errorMsgBatch.payload as any)?.spans ?? [];
+      expect(errorMsgSpans).toHaveLength(1);
+
+      const errorMsgSpan = errorMsgSpans[0];
+      expect(errorMsgSpan.parentSpanIdHex).toBeUndefined();
+      expect(errorMsgSpan.status).toEqual({ code: 'ERROR', message: 'boom' });
+      expect(errorMsgSpan.attributes?.['langfuse.observation.level']).toBe('ERROR');
+      expect(errorMsgSpan.attributes?.['langfuse.observation.status_message']).toBe('boom');
+
+      const signalErrorNoMessage: any = {
+        type: 'signal',
+        traceId: '' as any,
+        generationId: undefined,
+        timestampMs: 1704067200701,
+        level: 'error',
+        message: '',
+        stack: 'stack'
+      };
+
+      const errorNoMsgBatch = compat.buildBatch([signalErrorNoMessage], mockManifest, { eventIds: ['event-signal-error-empty'] } as any);
+      const errorNoMsgSpans = (errorNoMsgBatch.payload as any)?.spans ?? [];
+      expect(errorNoMsgSpans).toHaveLength(1);
+
+      const errorNoMsgSpan = errorNoMsgSpans[0];
+      expect(errorNoMsgSpan.status).toEqual({ code: 'ERROR', message: 'error' });
+
+      const errorNoMsgAttrs = errorNoMsgSpan.attributes ?? {};
+      expect(errorNoMsgAttrs['llm.adapter.trace_id']).toBe('');
+      expect(errorNoMsgAttrs['langfuse.observation.status_message']).toBeUndefined();
+
+      const errorNoMsgOutput = JSON.parse(String(errorNoMsgAttrs['langfuse.observation.output'] || '{}'));
+      expect(errorNoMsgOutput).toEqual({ level: 'error', message: '', stack: 'stack' });
+
+      const signalDebug: any = {
+        type: 'signal',
+        traceId,
+        generationId,
+        timestampMs: 1704067200702,
+        level: 'debug',
+        message: 'dbg'
+      };
+
+      const debugBatch = compat.buildBatch([signalDebug], mockManifest, { eventIds: ['event-signal-debug'] } as any);
+      const debugAttrs = (debugBatch.payload as any)?.spans?.[0]?.attributes ?? {};
+      expect(debugAttrs['langfuse.observation.level']).toBe('DEBUG');
+
+      const signalWarn: any = {
+        type: 'signal',
+        traceId,
+        generationId,
+        timestampMs: 1704067200703,
+        level: 'warn',
+        message: 'warn'
+      };
+
+      const warnBatch = compat.buildBatch([signalWarn], mockManifest, { eventIds: ['event-signal-warn'] } as any);
+      const warnAttrs = (warnBatch.payload as any)?.spans?.[0]?.attributes ?? {};
+      expect(warnAttrs['langfuse.observation.level']).toBe('WARNING');
+
+      const signalNonString: any = {
+        type: 'signal',
+        traceId,
+        generationId,
+        timestampMs: 1704067200704,
+        level: 123,
+        message: 'x'
+      };
+
+      const nonStringBatch = compat.buildBatch([signalNonString], mockManifest, { eventIds: ['event-signal-non-string'] } as any);
+      const nonStringAttrs = (nonStringBatch.payload as any)?.spans?.[0]?.attributes ?? {};
+      expect(nonStringAttrs['langfuse.observation.level']).toBe('DEFAULT');
+    });
+
+    it('maps trace_update events and applies updates to subsequent spans', () => {
+      const ctxReq = { eventIds: ['event-req'] } as any;
+      const ctxResp = { eventIds: ['event-resp'] } as any;
+      compat.buildBatch([requestEvent], mockManifest, ctxReq);
+
+      const updateEvent: ObservabilityTraceUpdateEvent = {
+        traceId,
+        generationId,
+        sessionId: 'session-456',
+        timestampMs: 1704067200700,
+        name: 'corr-updated',
+        tags: ['t2', 't3'],
+        metadata: { foo: 'bar' }
+      };
+
+      const updateBatch = compat.buildBatch([{ ...updateEvent, type: 'trace_update' } as any], mockManifest, { eventIds: ['event-update'] } as any);
+      const updateSpans = (updateBatch.payload as any)?.spans ?? [];
+      expect(updateSpans).toHaveLength(1);
+      expect(updateSpans[0].attributes?.['langfuse.trace.name']).toBe('corr-updated');
+
+      const respBatch = compat.buildBatch([responseEvent], mockManifest, ctxResp);
+      const spans = (respBatch.payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+      const attrs = spans[0]?.attributes ?? {};
+      expect(attrs['langfuse.trace.name']).toBe('corr-updated');
+      expect(attrs['langfuse.trace.tags']).toEqual(['t2', 't3']);
+    });
+
+    it('applies trace_update updates to cached summaries and supports no-op/empty updates', () => {
+      const traceA = makeHexTraceId('aaaa');
+      const traceB = makeHexTraceId('bbbb');
+
+      const reqNoSession: any = {
+        traceId: traceA,
+        generationId: 'gen-a',
+        timestampMs: 1704067200000,
+        provider: 'provider-a',
+        model: 'model-a',
+        messages: []
+      };
+
+      const reqOther: any = {
+        traceId: traceB,
+        generationId: 'gen-b',
+        sessionId: 'sess-b',
+        timestampMs: 1704067200000,
+        provider: 'provider-a',
+        model: 'model-a',
+        messages: []
+      };
+
+      compat.buildBatch([reqNoSession, reqOther], mockManifest, { eventIds: ['req-a', 'req-b'] } as any);
+
+      const sessionOnlyUpdate: any = {
+        type: 'trace_update',
+        traceId: traceA,
+        generationId: 'gen-a',
+        sessionId: 'sess-new',
+        timestampMs: 1704067200100
+      };
+
+      compat.buildBatch([sessionOnlyUpdate], mockManifest, { eventIds: ['update-session-only'] } as any);
+
+      const cachedA = (compat as any).requestCache.get(`${traceA}:gen-a`);
+      expect(cachedA.summary.sessionId).toBe('sess-new');
+
+      const cachedB = (compat as any).requestCache.get(`${traceB}:gen-b`);
+      expect(cachedB.summary.sessionId).toBe('sess-b');
+
+      const tagsOnlyUpdate: any = {
+        type: 'trace_update',
+        traceId: traceA,
+        generationId: 'gen-a',
+        tags: [' t1 ', ''],
+        timestampMs: 1704067200200
+      };
+
+      compat.buildBatch([tagsOnlyUpdate], mockManifest, { eventIds: ['update-tags-only'] } as any);
+      expect((compat as any).requestCache.get(`${traceA}:gen-a`)?.summary?.tags).toEqual(['t1']);
+
+      const noOpUpdate: any = {
+        type: 'trace_update',
+        traceId: traceA,
+        generationId: 'gen-a',
+        timestampMs: 1704067200300
+      };
+
+      compat.buildBatch([noOpUpdate], mockManifest, { eventIds: ['update-no-op'] } as any);
+
+      const uncachedEmptyUpdate: any = {
+        type: 'trace_update',
+        traceId: '' as any,
+        generationId: undefined,
+        timestampMs: 1704067200400
+      };
+
+      const uncachedBatch = compat.buildBatch([uncachedEmptyUpdate], mockManifest, { eventIds: ['update-empty'] } as any);
+      const uncachedSpans = (uncachedBatch.payload as any)?.spans ?? [];
+      expect(uncachedSpans).toHaveLength(1);
+
+      const uncachedAttrs = uncachedSpans[0]?.attributes ?? {};
+      expect(uncachedAttrs['langfuse.trace.metadata.payload']).toBeUndefined();
+      expect(uncachedAttrs['langfuse.trace.name']).toBeUndefined();
     });
 
     it('parses ISO timestamps when timestampMs is missing (back-compat)', () => {
