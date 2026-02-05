@@ -83,6 +83,18 @@ Notes:
 - This only applies when `providerConfig.enableOtlp` is **not** enabled.
 - Only successful tool executions are exported this way (tool failures are already emitted as signals by core tool-loop handling).
 
+## Optional Provider Config
+
+These settings live under `observability.targets[].providerConfig` for the Sentry target.
+
+### Envelope send tuning (signals/errors)
+
+- `envelopeConcurrency` (number|string, default `2`, min `1`, max `10`) — send multiple envelopes concurrently to reduce flush wall time under bursts.
+- `includeResponseBodyOnError` (boolean, default `false`) — when true, non-2xx envelope outcomes include a truncated response body excerpt to aid debugging.
+  - If the response body is JSON, the excerpt is redacted for common credential key names.
+  - Use with care: response bodies may contain sensitive data depending on upstream behavior.
+- `errorResponseBodyMaxBytes` (number|string, default `1024`, min `0`, max `65536`) — maximum UTF-8 bytes included when `includeResponseBodyOnError` is enabled (`0` disables body capture).
+
 ## Module Structure
 
 ```

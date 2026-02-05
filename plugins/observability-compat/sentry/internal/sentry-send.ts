@@ -5,6 +5,8 @@ import type {
 } from '../../../../kernel/index.js';
 
 import type { OtlpSpanSpec } from '../../../../modules/observability/index.js';
+import { truncateUtf8Bytes, safeJsonStringify } from '../../../../modules/shared/index.js';
+import { redactJsonCredentials } from '../../../../modules/security/index.js';
 
 import {
   buildSentryOtlpAuthHeader,
@@ -12,6 +14,12 @@ import {
   parseSentryDsn,
   resolveSentryDsn
 } from './sentry-helpers.js';
+
+const DEFAULT_ENVELOPE_CONCURRENCY = 2;
+const MAX_ENVELOPE_CONCURRENCY = 10;
+
+const DEFAULT_ERROR_BODY_MAX_BYTES = 1024;
+const MAX_ERROR_BODY_MAX_BYTES = 64 * 1024;
 
 function isRetryableStatus(status: number): boolean {
   return status === 429 || (status >= 500 && status < 600);
@@ -25,6 +33,76 @@ function createAbortError(message = 'Aborted'): Error {
   const error = new Error(message);
   (error as any).name = 'AbortError';
   return error;
+}
+
+function normalizePositiveInt(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? Math.floor(value) : null;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.floor(parsed) : null;
+  }
+  return null;
+}
+
+function resolveEnvelopeConcurrency(context?: ObservabilityCompatContext): number {
+  const providerConfig = context?.providerConfig;
+  const raw =
+    providerConfig && typeof providerConfig === 'object'
+      ? (providerConfig as any).envelopeConcurrency
+      : undefined;
+  const normalized = normalizePositiveInt(raw);
+  const asInt = normalized === null ? DEFAULT_ENVELOPE_CONCURRENCY : normalized;
+  return Math.min(MAX_ENVELOPE_CONCURRENCY, Math.max(1, asInt));
+}
+
+function resolveIncludeResponseBodyOnError(context?: ObservabilityCompatContext): boolean {
+  const providerConfig = context?.providerConfig;
+  return !!(providerConfig && typeof providerConfig === 'object' && (providerConfig as any).includeResponseBodyOnError === true);
+}
+
+function resolveErrorBodyMaxBytes(context?: ObservabilityCompatContext): number {
+  const providerConfig = context?.providerConfig;
+  const raw =
+    providerConfig && typeof providerConfig === 'object'
+      ? (providerConfig as any).errorResponseBodyMaxBytes
+      : undefined;
+  const normalized = normalizePositiveInt(raw);
+  const asInt = normalized === null ? DEFAULT_ERROR_BODY_MAX_BYTES : normalized;
+  return Math.min(MAX_ERROR_BODY_MAX_BYTES, Math.max(0, asInt));
+}
+
+async function tryReadSafeErrorBody(options: {
+  response: any;
+  maxBytes: number;
+}): Promise<string | null> {
+  if (options.maxBytes <= 0) return null;
+  if (!options.response || typeof options.response.text !== 'function') return null;
+
+  let text: string;
+  try {
+    text = await options.response.text();
+  } catch {
+    return null;
+  }
+
+  if (typeof text !== 'string') return null;
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const redacted = redactJsonCredentials(parsed);
+      const json = safeJsonStringify(redacted);
+      return truncateUtf8Bytes(json, options.maxBytes);
+    } catch {
+      // fall through
+    }
+  }
+
+  return truncateUtf8Bytes(trimmed, options.maxBytes);
 }
 
 export async function sendSentryBatch(
@@ -48,71 +126,101 @@ export async function sendSentryBatch(
   let overallSuccess = true;
 
   // Envelopes (signals/errors)
-  for (const envelope of envelopes) {
-    if (context?.signal?.aborted) {
-      throw createAbortError();
-    }
+  if (envelopes.length > 0) {
+    const includeResponseBodyOnError = resolveIncludeResponseBodyOnError(context);
+    const errorBodyMaxBytes = resolveErrorBodyMaxBytes(context);
 
-    const controller = new AbortController();
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    let cleanupSignal: (() => void) | undefined;
-
-    const timeoutMs =
-      typeof context?.timeoutMs === 'number' && Number.isFinite(context.timeoutMs) && context.timeoutMs > 0
-        ? Math.floor(context.timeoutMs)
-        : undefined;
-
-    if (timeoutMs !== undefined) {
-      timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    }
-
-    try {
-      if (context?.signal) {
-        const onAbort = () => controller.abort();
-        cleanupSignal = () => context.signal!.removeEventListener('abort', onAbort);
-        context.signal.addEventListener('abort', onAbort, { once: true });
-      }
-
-      const res = await fetch(parsed.envelopeUrl, {
-        method: 'POST',
-        headers: {
-          ...(manifest.endpoint.headers ?? {}),
-          'Content-Type': 'application/x-sentry-envelope'
-        },
-        body: envelope.body,
-        signal: controller.signal
-      });
-
-      if (res.ok) {
-        outcomes.push({ envelopeId: envelope.envelopeId, success: true, status: res.status });
-        continue;
-      }
-
-      overallSuccess = false;
-      outcomes.push({
-        envelopeId: envelope.envelopeId,
-        success: false,
-        status: res.status,
-        error: typeof (res as any)?.statusText === 'string' && (res as any).statusText
-          ? `HTTP ${res.status}: ${(res as any).statusText}`
-          : `HTTP ${res.status}`,
-        retryable: isRetryableStatus(res.status)
-      });
-    } catch (error: any) {
-      if (context?.signal?.aborted || isAbortError(error)) {
+    const sendEnvelope = async (envelope: { envelopeId: string; body: string }): Promise<void> => {
+      if (context?.signal?.aborted) {
         throw createAbortError();
       }
-      overallSuccess = false;
-      outcomes.push({
-        envelopeId: envelope.envelopeId,
-        success: false,
-        error: (error as Error)?.message ?? String(error),
-        retryable: true
-      });
-    } finally {
-      if (timeoutId !== undefined) clearTimeout(timeoutId);
-      cleanupSignal?.();
-    }
+
+      const controller = new AbortController();
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      let cleanupSignal: (() => void) | undefined;
+
+      const timeoutMs =
+        typeof context?.timeoutMs === 'number' && Number.isFinite(context.timeoutMs) && context.timeoutMs > 0
+          ? Math.floor(context.timeoutMs)
+          : undefined;
+
+      if (timeoutMs !== undefined) {
+        timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      }
+
+      try {
+        if (context?.signal) {
+          const onAbort = () => controller.abort();
+          cleanupSignal = () => context.signal!.removeEventListener('abort', onAbort);
+          context.signal.addEventListener('abort', onAbort, { once: true });
+        }
+
+        const res = await fetch(parsed.envelopeUrl, {
+          method: 'POST',
+          headers: {
+            ...(manifest.endpoint.headers ?? {}),
+            'Content-Type': 'application/x-sentry-envelope'
+          },
+          body: envelope.body,
+          signal: controller.signal
+        });
+
+        if (res.ok) {
+          outcomes.push({ envelopeId: envelope.envelopeId, success: true, status: res.status });
+          return;
+        }
+
+        overallSuccess = false;
+
+        let errorMessage =
+          typeof (res as any)?.statusText === 'string' && (res as any).statusText
+            ? `HTTP ${res.status}: ${(res as any).statusText}`
+            : `HTTP ${res.status}`;
+
+        if (includeResponseBodyOnError) {
+          const body = await tryReadSafeErrorBody({ response: res as any, maxBytes: errorBodyMaxBytes });
+          if (body) {
+            errorMessage = `${errorMessage}; body: ${body}`;
+          }
+        }
+
+        outcomes.push({
+          envelopeId: envelope.envelopeId,
+          success: false,
+          status: res.status,
+          error: errorMessage,
+          retryable: isRetryableStatus(res.status)
+        });
+      } catch (error: any) {
+        if (context?.signal?.aborted || isAbortError(error)) {
+          throw createAbortError();
+        }
+        overallSuccess = false;
+        outcomes.push({
+          envelopeId: envelope.envelopeId,
+          success: false,
+          error: (error as Error)?.message ?? String(error),
+          retryable: true
+        });
+      } finally {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        cleanupSignal?.();
+      }
+    };
+
+    const concurrency = resolveEnvelopeConcurrency(context);
+    const workerCount = Math.min(concurrency, envelopes.length);
+    let nextIndex = 0;
+
+    const workers = Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const index = nextIndex++;
+        if (index >= envelopes.length) return;
+        await sendEnvelope(envelopes[index]);
+      }
+    });
+
+    await Promise.all(workers);
   }
 
   // OTLP traces/tools
@@ -140,4 +248,3 @@ export async function sendSentryBatch(
     outcomes
   };
 }
-

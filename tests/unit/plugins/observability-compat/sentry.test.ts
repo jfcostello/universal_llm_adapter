@@ -662,6 +662,189 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       expect(typeof init.body).toBe('string');
     });
 
+    it('sends envelopes with bounded concurrency when envelopeConcurrency is set', async () => {
+      const envelopeCount = 5;
+      const eventIds = Array.from({ length: envelopeCount }, (_v, i) => `sig-${i}`);
+
+      const { payload } = compat.buildBatch(
+        eventIds.map((envelopeId) => ({
+          type: 'signal',
+          traceId,
+          generationId,
+          timestampMs: 1704067200600,
+          level: 'error',
+          message: envelopeId
+        } as any)),
+        mockManifest,
+        { eventIds } as any
+      );
+
+      let inFlight = 0;
+      let maxInFlight = 0;
+      const releases: Array<() => void> = [];
+
+      mockFetch.mockImplementation((_url: any, _init: any) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        return new Promise((resolve) => {
+          releases.push(() => {
+            inFlight -= 1;
+            resolve({
+              ok: true,
+              status: 200,
+              statusText: 'OK',
+              headers: { get: () => null }
+            } as any);
+          });
+        });
+      });
+
+      const promise = compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds,
+        providerConfig: { envelopeConcurrency: 2 }
+      } as any);
+
+      // With concurrency=2, two envelope exports should be in-flight immediately.
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      // Drain the queue.
+      while (releases.length > 0) {
+        releases.shift()!();
+        // Allow workers to schedule the next request.
+        await Promise.resolve();
+      }
+
+      const result = await promise;
+      expect(result.success).toBe(true);
+      expect(maxInFlight).toBe(2);
+      mockFetch.mockReset();
+    });
+
+    it('supports numeric string envelopeConcurrency values', async () => {
+      const envelopeCount = 5;
+      const eventIds = Array.from({ length: envelopeCount }, (_v, i) => `sig-${i}`);
+
+      const { payload } = compat.buildBatch(
+        eventIds.map((envelopeId) => ({
+          type: 'signal',
+          traceId,
+          generationId,
+          timestampMs: 1704067200600,
+          level: 'error',
+          message: envelopeId
+        } as any)),
+        mockManifest,
+        { eventIds } as any
+      );
+
+      const releases: Array<() => void> = [];
+      mockFetch.mockImplementation((_url: any, _init: any) => {
+        return new Promise((resolve) => {
+          releases.push(() => resolve({ ok: true, status: 200, statusText: 'OK', headers: { get: () => null } } as any));
+        });
+      });
+
+      const promise = compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds,
+        providerConfig: { envelopeConcurrency: '2' }
+      } as any);
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      while (releases.length > 0) {
+        releases.shift()!();
+        await Promise.resolve();
+      }
+
+      await expect(promise).resolves.toEqual(expect.objectContaining({ success: true }));
+      mockFetch.mockReset();
+    });
+
+    it('falls back to default envelopeConcurrency for invalid values', async () => {
+      const envelopeCount = 5;
+      const eventIds = Array.from({ length: envelopeCount }, (_v, i) => `sig-${i}`);
+
+      const { payload } = compat.buildBatch(
+        eventIds.map((envelopeId) => ({
+          type: 'signal',
+          traceId,
+          generationId,
+          timestampMs: 1704067200600,
+          level: 'error',
+          message: envelopeId
+        } as any)),
+        mockManifest,
+        { eventIds } as any
+      );
+
+      const releases: Array<() => void> = [];
+      mockFetch.mockImplementation((_url: any, _init: any) => {
+        return new Promise((resolve) => {
+          releases.push(() => resolve({ ok: true, status: 200, statusText: 'OK', headers: { get: () => null } } as any));
+        });
+      });
+
+      const promise = compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds,
+        providerConfig: { envelopeConcurrency: Number.POSITIVE_INFINITY }
+      } as any);
+
+      // Infinity is treated as invalid -> default concurrency applies (2).
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      while (releases.length > 0) {
+        releases.shift()!();
+        await Promise.resolve();
+      }
+
+      await expect(promise).resolves.toEqual(expect.objectContaining({ success: true }));
+      mockFetch.mockReset();
+    });
+
+    it('falls back to default envelopeConcurrency for invalid numeric strings', async () => {
+      const envelopeCount = 5;
+      const eventIds = Array.from({ length: envelopeCount }, (_v, i) => `sig-${i}`);
+
+      const { payload } = compat.buildBatch(
+        eventIds.map((envelopeId) => ({
+          type: 'signal',
+          traceId,
+          generationId,
+          timestampMs: 1704067200600,
+          level: 'error',
+          message: envelopeId
+        } as any)),
+        mockManifest,
+        { eventIds } as any
+      );
+
+      const releases: Array<() => void> = [];
+      mockFetch.mockImplementation((_url: any, _init: any) => {
+        return new Promise((resolve) => {
+          releases.push(() => resolve({ ok: true, status: 200, statusText: 'OK', headers: { get: () => null } } as any));
+        });
+      });
+
+      const promise = compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds,
+        providerConfig: { envelopeConcurrency: 'nope' }
+      } as any);
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      while (releases.length > 0) {
+        releases.shift()!();
+        await Promise.resolve();
+      }
+
+      await expect(promise).resolves.toEqual(expect.objectContaining({ success: true }));
+      mockFetch.mockReset();
+    });
+
     it('sends OTLP spans to the derived Sentry OTLP endpoint when enableOtlp is set', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -768,6 +951,160 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       const result = await compat.sendBatch(payload, mockManifest, { timeoutMs: 1000, eventIds: ['sig'] } as any);
       expect(result.success).toBe(false);
       expect(result.outcomes[0]).toEqual(expect.objectContaining({ envelopeId: 'sig', status: 500, error: 'HTTP 500' }));
+    });
+
+    it('includes a truncated response body on non-2xx envelope responses when enabled', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => 'application/json' },
+        text: jest.fn(async () => JSON.stringify({ message: 'nope', api_key: 'abcd1234' }))
+      } as any);
+
+      const { payload } = compat.buildBatch(
+        [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+        mockManifest,
+        { eventIds: ['sig'] } as any
+      );
+
+      const result = await compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds: ['sig'],
+        providerConfig: { includeResponseBodyOnError: true }
+      } as any);
+
+      expect(result.success).toBe(false);
+      expect(result.outcomes[0]?.success).toBe(false);
+      expect(result.outcomes[0]?.status).toBe(400);
+      expect(result.outcomes[0]?.error).toContain('HTTP 400');
+      expect(result.outcomes[0]?.error).toContain('body:');
+      expect(result.outcomes[0]?.error).toContain('***1234');
+      expect(result.outcomes[0]?.error).not.toContain('abcd1234');
+    });
+
+    it('omits response bodies when includeResponseBodyOnError is enabled but the body cannot be safely read', async () => {
+      const { payload } = compat.buildBatch(
+        [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+        mockManifest,
+        { eventIds: ['sig'] } as any
+      );
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => null }
+      } as any);
+
+      const missingText = await compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds: ['sig'],
+        providerConfig: { includeResponseBodyOnError: true }
+      } as any);
+      expect(missingText.outcomes[0]?.error).not.toContain('body:');
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => null },
+        text: jest.fn(async () => {
+          throw new Error('boom');
+        })
+      } as any);
+
+      const throwingText = await compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds: ['sig'],
+        providerConfig: { includeResponseBodyOnError: true }
+      } as any);
+      expect(throwingText.outcomes[0]?.error).not.toContain('body:');
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => null },
+        text: jest.fn(async () => 123)
+      } as any);
+
+      const nonStringText = await compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds: ['sig'],
+        providerConfig: { includeResponseBodyOnError: true }
+      } as any);
+      expect(nonStringText.outcomes[0]?.error).not.toContain('body:');
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => null },
+        text: jest.fn(async () => '   ')
+      } as any);
+
+      const emptyText = await compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds: ['sig'],
+        providerConfig: { includeResponseBodyOnError: true }
+      } as any);
+      expect(emptyText.outcomes[0]?.error).not.toContain('body:');
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => null },
+        text: jest.fn(async () => JSON.stringify([{ api_key: 'abcd1234' }]))
+      } as any);
+
+      const jsonArray = await compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds: ['sig'],
+        providerConfig: { includeResponseBodyOnError: true }
+      } as any);
+      expect(jsonArray.outcomes[0]?.error).toContain('body:');
+      expect(jsonArray.outcomes[0]?.error).toContain('***1234');
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => null },
+        text: jest.fn(async () => 'not-json')
+      } as any);
+
+      const notJson = await compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds: ['sig'],
+        providerConfig: { includeResponseBodyOnError: true }
+      } as any);
+      expect(notJson.outcomes[0]?.error).toContain('body: not-json');
+    });
+
+    it('respects errorResponseBodyMaxBytes=0 by omitting response bodies even when enabled', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => null },
+        text: jest.fn(async () => JSON.stringify({ message: 'nope', api_key: 'abcd1234' }))
+      } as any);
+
+      const { payload } = compat.buildBatch(
+        [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+        mockManifest,
+        { eventIds: ['sig'] } as any
+      );
+
+      const result = await compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds: ['sig'],
+        providerConfig: { includeResponseBodyOnError: true, errorResponseBodyMaxBytes: 0 }
+      } as any);
+
+      expect(result.outcomes[0]?.error).not.toContain('body:');
     });
 
     it('marks envelope fetch rejections retryable and supports string error fallbacks', async () => {
