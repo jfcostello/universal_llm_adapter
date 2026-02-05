@@ -2,6 +2,6 @@ export {
   resolveAjvConstructor,
   assertValidSpec,
   assertValidVectorSpec,
-  assertValidEmbeddingSpec
+  assertValidEmbeddingSpec,
+  assertValidTelemetrySubmission
 } from '../../../transport/index.js';
-

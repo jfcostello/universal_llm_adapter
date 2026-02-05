@@ -7,6 +7,7 @@ import { registerExtensionCommands } from './internal/register-extensions.js';
 import { registerLlmCommands } from './internal/register-llm.js';
 import { registerRealtimeCommands } from './internal/register-realtime.js';
 import { registerServeCommand } from './internal/register-serve.js';
+import { registerTelemetryCommands } from './internal/register-telemetry.js';
 import { registerVectorCommands } from './internal/register-vector.js';
 
 export { defaultDependencies } from './internal/deps.js';
@@ -42,6 +43,7 @@ export function createUnifiedProgram(partialDeps: Partial<UnifiedCliDependencies
   registerServeCommand(program, ctx);
   registerRealtimeCommands(program, ctx);
   registerExtensionCommands(program, ctx);
+  registerTelemetryCommands(program, ctx);
 
   return program;
 }

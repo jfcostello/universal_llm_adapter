@@ -217,6 +217,48 @@ const embeddingSpecSchema: any = {
 
 const validateEmbedding = ajv.compile(embeddingSpecSchema);
 
+const telemetrySignalSchema: any = {
+  type: 'object',
+  required: ['type', 'traceId', 'level', 'message'],
+  properties: {
+    type: { type: 'string', enum: ['signal'] },
+    traceId: { type: 'string', minLength: 1, pattern: '\\S' },
+    generationId: { type: 'string', nullable: true, pattern: '\\S' },
+    timestampMs: { type: 'number', nullable: true },
+    level: { type: 'string', enum: ['debug', 'info', 'warning', 'error'] },
+    message: { type: 'string', minLength: 1, pattern: '\\S' },
+    source: { type: 'string', nullable: true },
+    code: { type: 'string', nullable: true },
+    stack: { type: 'string', nullable: true },
+    tags: { type: 'array', nullable: true, items: { type: 'string' } },
+    metadata: { type: 'object', nullable: true, additionalProperties: true },
+    observability: { type: 'object', nullable: true, additionalProperties: true }
+  },
+  additionalProperties: true
+};
+
+const telemetryTraceUpdateSchema: any = {
+  type: 'object',
+  required: ['type', 'traceId'],
+  properties: {
+    type: { type: 'string', enum: ['trace_update'] },
+    traceId: { type: 'string', minLength: 1, pattern: '\\S' },
+    generationId: { type: 'string', nullable: true, pattern: '\\S' },
+    timestampMs: { type: 'number', nullable: true },
+    name: { type: 'string', nullable: true },
+    tags: { type: 'array', nullable: true, items: { type: 'string' } },
+    metadata: { type: 'object', nullable: true, additionalProperties: true },
+    observability: { type: 'object', nullable: true, additionalProperties: true }
+  },
+  additionalProperties: true
+};
+
+const telemetrySubmissionSchema: any = {
+  anyOf: [telemetrySignalSchema, telemetryTraceUpdateSchema]
+};
+
+const validateTelemetrySubmission = ajv.compile(telemetrySubmissionSchema);
+
 export function assertValidSpec(spec: unknown): void {
   const ok = validateLlm(spec);
   if (ok) return;
@@ -247,5 +289,16 @@ export function assertValidEmbeddingSpec(spec: unknown): void {
   (error as any).statusCode = 400;
   (error as any).code = 'validation_error';
   (error as any).details = validateEmbedding.errors;
+  throw error;
+}
+
+export function assertValidTelemetrySubmission(payload: unknown): void {
+  const ok = validateTelemetrySubmission(payload);
+  if (ok) return;
+
+  const error = new Error('Telemetry validation failed');
+  (error as any).statusCode = 400;
+  (error as any).code = 'validation_error';
+  (error as any).details = validateTelemetrySubmission.errors;
   throw error;
 }

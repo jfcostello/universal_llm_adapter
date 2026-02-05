@@ -2,7 +2,8 @@ export { mapErrorToHttp } from './internal/transport/error-mapper.js';
 export {
   assertValidSpec,
   assertValidVectorSpec,
-  assertValidEmbeddingSpec
+  assertValidEmbeddingSpec,
+  assertValidTelemetrySubmission
 } from './internal/transport/spec-validator.js';
 
 // Public server helpers intended for use by extensions.

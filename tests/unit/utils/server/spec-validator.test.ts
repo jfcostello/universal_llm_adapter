@@ -2,6 +2,7 @@ import {
   assertValidSpec,
   assertValidVectorSpec,
   assertValidEmbeddingSpec,
+  assertValidTelemetrySubmission,
   resolveAjvConstructor
 } from '@/modules/server/internal/transport/spec-validator.ts';
 
@@ -57,6 +58,46 @@ describe('utils/server assertValidSpec', () => {
 
   test('assertValidEmbeddingSpec rejects missing required fields', () => {
     expect(() => assertValidEmbeddingSpec({} as any)).toThrow(/validation/i);
+  });
+
+  test('assertValidTelemetrySubmission accepts minimal signal payload', () => {
+    expect(() =>
+      assertValidTelemetrySubmission({
+        type: 'signal',
+        traceId: 'trace_1',
+        level: 'error',
+        message: 'boom'
+      } as any)
+    ).not.toThrow();
+  });
+
+  test('assertValidTelemetrySubmission rejects whitespace-only traceId', () => {
+    expect(() =>
+      assertValidTelemetrySubmission({
+        type: 'signal',
+        traceId: '   ',
+        level: 'error',
+        message: 'boom'
+      } as any)
+    ).toThrow(/telemetry/i);
+  });
+
+  test('assertValidTelemetrySubmission accepts minimal trace_update payload', () => {
+    expect(() =>
+      assertValidTelemetrySubmission({
+        type: 'trace_update',
+        traceId: 'trace_2'
+      } as any)
+    ).not.toThrow();
+  });
+
+  test('assertValidTelemetrySubmission rejects unknown telemetry type', () => {
+    expect(() =>
+      assertValidTelemetrySubmission({
+        type: 'unknown',
+        traceId: 'trace_3'
+      } as any)
+    ).toThrow(/telemetry/i);
   });
 
   test('resolveAjvConstructor uses default when present', () => {
