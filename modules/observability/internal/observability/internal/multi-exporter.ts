@@ -17,13 +17,37 @@ type TargetRuntime = {
   export: ObservabilityTargetExportConfig;
 };
 
+function mergeExportConfig(
+  a: ObservabilityTargetExportConfig,
+  b: ObservabilityTargetExportConfig
+): ObservabilityTargetExportConfig {
+  return {
+    traces: a.traces || b.traces,
+    tools: a.tools || b.tools,
+    signals: a.signals || b.signals,
+    traceUpdates: a.traceUpdates || b.traceUpdates
+  };
+}
+
 function mergeRecordResults(results: ObservabilityRecordResult[]): ObservabilityRecordResult {
-  const queued = results.some(r => r?.queued === true);
+  if (results.length === 0) {
+    return { eventId: '', queued: false, reason: 'disabled' };
+  }
+
   const firstQueued = results.find(r => r?.queued === true);
-  if (queued && firstQueued) {
+  if (firstQueued) {
     return { eventId: String(firstQueued.eventId || ''), queued: true };
   }
-  return { eventId: '', queued: false, reason: 'disabled' };
+
+  const meaningful = results.find(r => typeof r?.reason === 'string' && r.reason && r.reason !== 'disabled');
+  const withReason = results.find(r => typeof r?.reason === 'string' && r.reason);
+  const chosen = meaningful ?? withReason ?? results[0];
+
+  return {
+    eventId: String(chosen?.eventId || ''),
+    queued: false,
+    reason: typeof chosen?.reason === 'string' && chosen.reason ? chosen.reason : 'disabled'
+  };
 }
 
 export class MultiObservabilityExporter implements IObservabilityExporter {
@@ -36,11 +60,23 @@ export class MultiObservabilityExporter implements IObservabilityExporter {
       export?: Partial<ObservabilityTargetExportConfig>;
     }>
   ) {
-    this.targets = targets.map(t => ({
+    const normalized = targets.map(t => ({
       provider: String(t.provider || '').trim(),
       exporter: t.exporter,
       export: normalizeExportConfig(t.export)
     })).filter(t => Boolean(t.provider) && Boolean(t.exporter));
+
+    const merged = new Map<IObservabilityExporter, TargetRuntime>();
+    for (const target of normalized) {
+      const existing = merged.get(target.exporter);
+      if (!existing) {
+        merged.set(target.exporter, target);
+        continue;
+      }
+      existing.export = mergeExportConfig(existing.export, target.export);
+    }
+
+    this.targets = Array.from(merged.values());
   }
 
   recordLLMRequest(event: ObservabilityLLMRequestEvent): ObservabilityRecordResult {

@@ -182,6 +182,190 @@ describe('modules/observability multi-target exporter', () => {
     expect(exporterImpl.recordTraceUpdate).toHaveBeenCalledTimes(1);
   });
 
+  test('preserves non-disabled record reasons when nothing is queued', async () => {
+    const { MultiObservabilityExporter } = await import(
+      '@/modules/observability/internal/observability/internal/multi-exporter.ts'
+    );
+
+    const shuttingDown: any = {
+      recordLLMRequest: jest.fn(() => ({ eventId: 'sd-1', queued: false, reason: 'shutdown' })),
+      recordLLMResponse: jest.fn(() => ({ eventId: 'sd-2', queued: false, reason: 'shutdown' })),
+      recordToolExecution: jest.fn(() => ({ eventId: 'sd-3', queued: false, reason: 'shutdown' })),
+      recordSignal: jest.fn(() => ({ eventId: 'sd-4', queued: false, reason: 'shutdown' })),
+      recordTraceUpdate: jest.fn(() => ({ eventId: 'sd-5', queued: false, reason: 'shutdown' })),
+      flush: jest.fn(async () => {}),
+      shutdown: jest.fn(async () => {})
+    };
+
+    const disabled: any = {
+      recordLLMRequest: jest.fn(() => ({ eventId: 'd-1', queued: false, reason: 'disabled' })),
+      recordLLMResponse: jest.fn(() => ({ eventId: 'd-2', queued: false, reason: 'disabled' })),
+      recordToolExecution: jest.fn(() => ({ eventId: 'd-3', queued: false, reason: 'disabled' })),
+      recordSignal: jest.fn(() => ({ eventId: 'd-4', queued: false, reason: 'disabled' })),
+      recordTraceUpdate: jest.fn(() => ({ eventId: 'd-5', queued: false, reason: 'disabled' })),
+      flush: jest.fn(async () => {}),
+      shutdown: jest.fn(async () => {})
+    };
+
+    const exporter = new MultiObservabilityExporter([
+      { provider: 'a', exporter: disabled, export: { traces: true } as any },
+      { provider: 'b', exporter: shuttingDown, export: { traces: true } as any }
+    ]);
+
+    const result = exporter.recordLLMRequest({
+      type: 'llm_request',
+      traceId: 'trace-1',
+      timestampMs: 1704067200000,
+      provider: 'test',
+      model: 'test',
+      messages: []
+    } as any);
+
+    expect(result).toEqual({ eventId: 'sd-1', queued: false, reason: 'shutdown' });
+  });
+
+  test('dedupes record calls when multiple targets share the same exporter instance', async () => {
+    const { MultiObservabilityExporter } = await import(
+      '@/modules/observability/internal/observability/internal/multi-exporter.ts'
+    );
+
+    const impl: any = {
+      recordLLMRequest: jest.fn(() => ({ eventId: 'x', queued: true })),
+      recordLLMResponse: jest.fn(() => ({ eventId: 'x', queued: true })),
+      recordToolExecution: jest.fn(() => ({ eventId: 'x', queued: true })),
+      recordSignal: jest.fn(() => ({ eventId: 'x', queued: true })),
+      recordTraceUpdate: jest.fn(() => ({ eventId: 'x', queued: true })),
+      flush: jest.fn(async () => {}),
+      shutdown: jest.fn(async () => {})
+    };
+
+    const exporter = new MultiObservabilityExporter([
+      { provider: 'a', exporter: impl, export: { traces: true } as any },
+      { provider: 'b', exporter: impl, export: { traces: true } as any }
+    ]);
+
+    const result = exporter.recordLLMRequest({
+      type: 'llm_request',
+      traceId: 'trace-1',
+      timestampMs: 1704067200000,
+      provider: 'test',
+      model: 'test',
+      messages: []
+    } as any);
+
+    expect(result).toEqual({ eventId: 'x', queued: true });
+    expect(impl.recordLLMRequest).toHaveBeenCalledTimes(1);
+  });
+
+  test('merges export config when de-duping shared exporter instances', async () => {
+    const { MultiObservabilityExporter } = await import(
+      '@/modules/observability/internal/observability/internal/multi-exporter.ts'
+    );
+
+    const impl: any = {
+      recordLLMRequest: jest.fn(() => ({ eventId: 'x', queued: true })),
+      recordLLMResponse: jest.fn(() => ({ eventId: 'x', queued: true })),
+      recordToolExecution: jest.fn(() => ({ eventId: 'x', queued: true })),
+      recordSignal: jest.fn(() => ({ eventId: 'x', queued: true })),
+      recordTraceUpdate: jest.fn(() => ({ eventId: 'x', queued: true })),
+      flush: jest.fn(async () => {}),
+      shutdown: jest.fn(async () => {})
+    };
+
+    const exporter = new MultiObservabilityExporter([
+      {
+        provider: 'a',
+        exporter: impl,
+        export: { traces: false, tools: false, signals: false, traceUpdates: false } as any
+      },
+      {
+        provider: 'b',
+        exporter: impl,
+        export: { traces: true, tools: true, signals: true, traceUpdates: true } as any
+      }
+    ]);
+
+    exporter.recordLLMRequest({
+      type: 'llm_request',
+      traceId: 'trace-1',
+      timestampMs: 1704067200000,
+      provider: 'test',
+      model: 'test',
+      messages: []
+    } as any);
+
+    exporter.recordSignal({
+      type: 'signal',
+      traceId: 'trace-1',
+      timestampMs: 1704067201000,
+      level: 'error',
+      message: 'boom',
+      source: 'adapter'
+    } as any);
+
+    expect(impl.recordLLMRequest).toHaveBeenCalledTimes(1);
+    expect(impl.recordSignal).toHaveBeenCalledTimes(1);
+  });
+
+  test('returns the exporter result when nothing is queued (including disabled reasons)', async () => {
+    const { MultiObservabilityExporter } = await import(
+      '@/modules/observability/internal/observability/internal/multi-exporter.ts'
+    );
+
+    const impl: any = {
+      recordLLMRequest: jest.fn(() => ({ eventId: '', queued: false, reason: 'disabled' })),
+      recordLLMResponse: jest.fn(() => ({ eventId: '', queued: false, reason: 'disabled' })),
+      recordToolExecution: jest.fn(() => ({ eventId: '', queued: false, reason: 'disabled' })),
+      recordSignal: jest.fn(() => ({ eventId: '', queued: false, reason: 'disabled' })),
+      recordTraceUpdate: jest.fn(() => ({ eventId: '', queued: false, reason: 'disabled' })),
+      flush: jest.fn(async () => {}),
+      shutdown: jest.fn(async () => {})
+    };
+
+    const exporter = new MultiObservabilityExporter([{ provider: 'p', exporter: impl }]);
+
+    const result = exporter.recordLLMRequest({
+      type: 'llm_request',
+      traceId: 'trace-1',
+      timestampMs: 1704067200000,
+      provider: 'test',
+      model: 'test',
+      messages: []
+    } as any);
+
+    expect(result).toEqual({ eventId: '', queued: false, reason: 'disabled' });
+    expect(impl.recordLLMRequest).toHaveBeenCalledTimes(1);
+  });
+
+  test('falls back to disabled when results omit a reason', async () => {
+    const { MultiObservabilityExporter } = await import(
+      '@/modules/observability/internal/observability/internal/multi-exporter.ts'
+    );
+
+    const impl: any = {
+      recordLLMRequest: jest.fn(() => ({ eventId: '', queued: false })),
+      recordLLMResponse: jest.fn(() => ({ eventId: '', queued: false })),
+      recordToolExecution: jest.fn(() => ({ eventId: '', queued: false })),
+      recordSignal: jest.fn(() => ({ eventId: '', queued: false })),
+      recordTraceUpdate: jest.fn(() => ({ eventId: '', queued: false })),
+      flush: jest.fn(async () => {}),
+      shutdown: jest.fn(async () => {})
+    };
+
+    const exporter = new MultiObservabilityExporter([{ provider: 'p', exporter: impl }]);
+
+    const result = exporter.recordLLMRequest({
+      type: 'llm_request',
+      traceId: 'trace-1',
+      timestampMs: 1704067200000,
+      provider: 'test',
+      model: 'test',
+      messages: []
+    } as any);
+
+    expect(result).toEqual({ eventId: '', queued: false, reason: 'disabled' });
+  });
+
   test('uses empty eventId when a queued result omits eventId', async () => {
     const { MultiObservabilityExporter } = await import(
       '@/modules/observability/internal/observability/internal/multi-exporter.ts'
