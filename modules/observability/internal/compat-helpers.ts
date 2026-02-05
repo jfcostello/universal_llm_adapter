@@ -5,8 +5,7 @@ import type {
   ObservabilityTraceUpdateEvent
 } from '../../../kernel/index.js';
 
-import { safeJsonStringify, flattenPrimitiveStrings } from './serialization.js';
-import { readTrimmedStringProperty } from './read-trimmed-string-property.js';
+import { flattenPrimitiveStrings, readTrimmedStringProperty, safeJsonStringify } from '../../shared/index.js';
 
 export function resolveMaxAttributeBytes(context?: ObservabilityCompatContext): number {
   return typeof context?.maxAttributeValueBytes === 'number' &&

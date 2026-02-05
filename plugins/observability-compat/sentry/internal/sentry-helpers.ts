@@ -2,7 +2,8 @@ import type { ObservabilityCompatContext, ObservabilityProviderManifest, Observa
 import { substituteEnv } from '../../../../kernel/index.js';
 
 import { deriveOtlpSpanIdHex, deriveOtlpTraceIdHex } from '../../../../modules/observability/index.js';
-import { eventTimestampToIso, resolveMaxAttributeBytes, safeJsonStringify, truncateUtf8Bytes } from '../../../../modules/shared/index.js';
+import { eventTimestampToIso, resolveMaxAttributeBytes } from '../../../../modules/observability/index.js';
+import { safeJsonStringify, truncateUtf8Bytes } from '../../../../modules/shared/index.js';
 
 export type ParsedSentryDsn = {
   dsn: string;

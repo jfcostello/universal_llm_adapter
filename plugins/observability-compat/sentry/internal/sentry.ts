@@ -10,7 +10,7 @@ import type {
 import { LruMap } from '../../../../kernel/index.js';
 
 import { flattenPrimitiveStrings } from '../../../../modules/shared/index.js';
-import type { CachedRequestSummary } from '../../../../modules/shared/index.js';
+import type { CachedRequestSummary } from '../../../../modules/observability/index.js';
 import {
   applyTraceUpdateToCachedRequests,
   buildCachedRequestSummary,
@@ -24,7 +24,7 @@ import {
   isResponseEvent,
   resolveMaxAttributeBytes,
   resolveTraceContext
-} from '../../../../modules/shared/index.js';
+} from '../../../../modules/observability/index.js';
 
 import type { OtlpSpanSpec } from '../../../../modules/observability/index.js';
 import { deriveOtlpSpanIdHex, deriveOtlpTraceIdHex } from '../../../../modules/observability/index.js';

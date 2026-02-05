@@ -3,7 +3,7 @@ import type {
   ObservabilityProviderManifest
 } from '../../../../kernel/index.js';
 import { substituteEnv } from '../../../../kernel/index.js';
-import type { CachedRequestSummary } from '../../../../modules/shared/index.js';
+import type { CachedRequestSummary } from '../../../../modules/observability/index.js';
 export {
   resolveMaxAttributeBytes,
   eventTimestampToIso,
@@ -20,7 +20,7 @@ export {
   buildOutputJson,
   buildCachedRequestSummary,
   applyTraceUpdateToCachedRequests
-} from '../../../../modules/shared/index.js';
+} from '../../../../modules/observability/index.js';
 
 const ALLOW_BASEURL_OVERRIDE_ENV = 'LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE';
 const BASEURL_OVERRIDE_ALLOWLIST_ENV = 'LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST';
