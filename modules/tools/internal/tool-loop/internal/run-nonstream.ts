@@ -61,8 +61,7 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
   const allToolCalls: ToolCall[] = [];
   const calledToolNames = new Set<string>();
 
-  const observability = runContext?.observability;
-  const generationId = readRunContextGenerationId(runContext);
+  let currentRunContext = runContext;
 
   let response = initialResponse;
   let forceFinalize = false;
@@ -151,7 +150,7 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
       toolChoice,
       providerExtras,
       logger,
-      runContext
+      currentRunContext
     );
 
     await maybeAttachUsageCost(response, providerManifest, model, providerSettings);
@@ -189,6 +188,9 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
       }
     );
 
+    const observability = currentRunContext?.observability;
+    const generationId = readRunContextGenerationId(currentRunContext);
+
     const round = await executeNonStreamToolCallsRound({
       toolCalls: response.toolCalls,
       toolNameMap,
@@ -222,9 +224,10 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
     pruneToolResults(messages, preserveToolResults);
     pruneReasoning(messages, preserveReasoning);
 
-    const followUpRunContext = runContext
-      ? { ...runContext, toolCallsSoFar: allToolCalls }
+    const followUpRunContext = currentRunContext
+      ? { ...currentRunContext, toolCallsSoFar: allToolCalls }
       : { toolCallsSoFar: allToolCalls };
+    currentRunContext = followUpRunContext;
 
     const followUpToolChoice = resolveFollowUpToolChoice(toolChoice, calledToolNames);
     const requireFollowUpToolCalls = tools.length > 0 &&
@@ -320,8 +323,8 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
       'none',
       providerExtras,
       logger,
-      runContext
-        ? { ...runContext, tools: [], mcpServers: [], toolNameMap: {}, toolCallsSoFar: allToolCalls }
+      currentRunContext
+        ? { ...currentRunContext, tools: [], mcpServers: [], toolNameMap: {}, toolCallsSoFar: allToolCalls }
         : { tools: [], mcpServers: [], toolNameMap: {}, toolCallsSoFar: allToolCalls }
     );
 

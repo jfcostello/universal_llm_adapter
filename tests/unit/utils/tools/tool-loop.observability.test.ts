@@ -268,6 +268,80 @@ describe('utils/tools/runToolLoop observability', () => {
     expect(signal).toEqual(expect.objectContaining({ level: 'warning', code: 'tool_call_budget_exhausted' }));
   });
 
+  test('nonstream loop re-reads runContext.generationId per round for tool telemetry', async () => {
+    const observability = createObservabilityContext();
+    const runContext: any = { observability, generationId: 'gen-1' };
+
+    const callProvider = jest.fn()
+      .mockImplementationOnce(async (...args: any[]) => {
+        const ctx = args[8];
+        ctx.generationId = 'gen-2';
+        return {
+          provider: 'provider',
+          model: 'model',
+          role: Role.ASSISTANT,
+          content: [],
+          toolCalls: [{ id: 'call-2', name: 'example_tool', arguments: { y: 2 } }]
+        };
+      })
+      .mockImplementationOnce(async (...args: any[]) => {
+        const ctx = args[8];
+        ctx.generationId = 'gen-3';
+        return {
+          provider: 'provider',
+          model: 'model',
+          role: Role.ASSISTANT,
+          content: [{ type: 'text', text: 'done' }]
+        };
+      });
+
+    const llmManager: any = {
+      callProvider,
+      streamProvider: jest.fn()
+    };
+
+    const invokeTool = jest.fn()
+      .mockResolvedValueOnce({ result: 'ok1' })
+      .mockResolvedValueOnce({ result: 'ok2' });
+
+    await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'example_tool' }],
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: {
+        toolCountdownEnabled: 'false',
+        toolFinalPromptEnabled: 'false',
+        maxToolIterations: 2
+      } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: { info: jest.fn(), warning: jest.fn(), error: jest.fn(), debug: jest.fn() } as any,
+      runContext,
+      toolNameMap: { example_tool: 'example_tool' },
+      metadata: {},
+      initialResponse: {
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: [],
+        toolCalls: [{ id: 'call-1', name: 'example_tool', arguments: { x: 1 } }]
+      } as any,
+      invokeTool
+    });
+
+    expect(observability.exporter.recordToolExecution).toHaveBeenCalledTimes(2);
+    const first = (observability.exporter.recordToolExecution as any).mock.calls[0][0];
+    const second = (observability.exporter.recordToolExecution as any).mock.calls[1][0];
+
+    expect(first).toEqual(expect.objectContaining({ toolCallId: 'call-1', generationId: 'gen-1' }));
+    expect(second).toEqual(expect.objectContaining({ toolCallId: 'call-2', generationId: 'gen-2' }));
+  });
+
   test('stream loop includes runContext.generationId on tool execution events when provided', async () => {
     const llmManager: any = {
       streamProvider: jest.fn(async function* () {

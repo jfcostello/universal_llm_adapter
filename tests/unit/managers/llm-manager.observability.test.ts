@@ -134,6 +134,42 @@ describe('LLMManager observability', () => {
     expect(requestArg.requestPayload.providerExtras.api_key).toBe('***1234');
   });
 
+  test('callProvider stores generationId on runContext for downstream correlation', async () => {
+    const mockSDKResponse = {
+      content: [{ type: 'text', text: 'SDK response' }],
+      role: Role.ASSISTANT,
+      toolCalls: []
+    };
+
+    const mockCompat = {
+      callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = createMockObservabilityContext();
+    const context: RunContext = { observability };
+
+    const manager = new LLMManager(registry);
+    await manager.callProvider(
+      mockProvider,
+      'test-model',
+      { temperature: 0.7 },
+      mockMessages,
+      [],
+      undefined,
+      {},
+      undefined,
+      context
+    );
+
+    const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
+    expect(typeof requestArg.generationId).toBe('string');
+    expect(String((context as any).generationId)).toBe(String(requestArg.generationId));
+  });
+
   test('callProvider uses numeric timestampMs (and does not allocate ISO timestamps) for observability events', async () => {
     const mockSDKResponse = {
       content: [{ type: 'text', text: 'SDK response' }],

@@ -38,6 +38,9 @@ export async function callProvider(options: {
   const startTimeMs = Date.now();
   const startTimeMonoNs = monotonicNowNs();
   const generationId = options.context.observability ? randomUUID() : undefined;
+  if (generationId) {
+    (options.context as any).generationId = generationId;
+  }
   const requestTimestampMs = startTimeMs;
   const normalizedMessages = aggregateSystemMessages(options.messages);
   const shouldLogLive = process.env.LLM_LIVE === '1';
