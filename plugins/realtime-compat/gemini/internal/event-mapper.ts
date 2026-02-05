@@ -114,6 +114,8 @@ export function mapGeminiLiveServerMessage(message: any, state: GeminiRealtimeMa
     const sc = message.serverContent;
     if (sc.usageMetadata) captureUsage(sc.usageMetadata);
 
+    let sawOutputTranscriptionText = false;
+
     if (sc.interrupted === true) {
       events.push({ type: 'playback.clear_requested', reason: 'barge_in', atMs: Date.now() });
       // Reset output buffers so subsequent deltas are sane.
@@ -133,6 +135,9 @@ export function mapGeminiLiveServerMessage(message: any, state: GeminiRealtimeMa
 
     if (sc.outputTranscription && typeof sc.outputTranscription === 'object') {
       const next = safeString(sc.outputTranscription.text ?? sc.outputTranscription.transcript ?? sc.outputTranscription.value);
+      if (next) {
+        sawOutputTranscriptionText = true;
+      }
       const delta = diffAsDelta(state.assistantTranscriptRaw, next);
       state.assistantTranscriptRaw = next;
       if (delta) {
@@ -145,6 +150,15 @@ export function mapGeminiLiveServerMessage(message: any, state: GeminiRealtimeMa
     if (modelTurn && typeof modelTurn === 'object' && Array.isArray(modelTurn.parts)) {
       for (const part of modelTurn.parts) {
         if (!part || typeof part !== 'object') continue;
+        if (!sawOutputTranscriptionText) {
+          const next = safeString((part as any).text);
+          const delta = diffAsDelta(state.assistantTranscriptRaw, next);
+          state.assistantTranscriptRaw = next || state.assistantTranscriptRaw;
+          if (delta) {
+            state.assistantTranscript += delta;
+            events.push({ type: 'assistant_transcript.delta', textDelta: delta });
+          }
+        }
         if (part.functionCall && typeof part.functionCall === 'object') {
           const rawId = (part.functionCall as any)?.id;
           if (rawId === undefined || rawId === null || typeof rawId === 'string') {
