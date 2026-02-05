@@ -70,6 +70,56 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
   const maxIgnoredToolChoiceRetries = 3;
   let ignoredToolChoiceRetries = 0;
 
+  const buildToolChoiceReminderLines = (choice: ToolChoice | undefined): string[] => {
+    const reminderLines: string[] = [
+      'You MUST call the required tool now.',
+      'Do NOT answer with any text.',
+      'Return ONLY a tool call.'
+    ];
+
+    if (!choice || typeof choice !== 'object') {
+      return reminderLines;
+    }
+
+    if (choice.type === 'single') {
+      const apiName = choice.name;
+      const displayName = toolNameMap[apiName] || apiName;
+      reminderLines.splice(
+        1,
+        0,
+        displayName === apiName
+          ? `Call tool: ${displayName}`
+          : `Call tool: ${displayName} (tool name: ${apiName})`
+      );
+      return reminderLines;
+    }
+
+    if (choice.type === 'required') {
+      const allowed = Array.isArray(choice.allowed) ? choice.allowed : [];
+      if (allowed.length === 0) {
+        return reminderLines;
+      }
+
+      if (allowed.length === 1) {
+        const apiName = allowed[0];
+        const displayName = toolNameMap[apiName] || apiName;
+        reminderLines.splice(
+          1,
+          0,
+          displayName === apiName
+            ? `Call tool: ${displayName}`
+            : `Call tool: ${displayName} (tool name: ${apiName})`
+        );
+        return reminderLines;
+      }
+
+      const display = allowed.map(name => toolNameMap[name] || name);
+      reminderLines.splice(1, 0, `Allowed tools: ${display.join(', ')}`);
+    }
+
+    return reminderLines;
+  };
+
   const requireToolCalls = tools.length > 0 &&
     toolChoice !== undefined &&
     toolChoice !== 'auto' &&
@@ -80,42 +130,6 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
     ignoredToolChoiceRetries < maxIgnoredToolChoiceRetries) {
     ignoredToolChoiceRetries += 1;
 
-    const reminderLines: string[] = [
-      'You MUST call the required tool now.',
-      'Do NOT answer with any text.',
-      'Return ONLY a tool call.'
-    ];
-
-    if (toolChoice && typeof toolChoice === 'object') {
-      if (toolChoice.type === 'single') {
-        const apiName = toolChoice.name;
-        const displayName = toolNameMap[apiName] || apiName;
-        reminderLines.splice(
-          1,
-          0,
-          displayName === apiName
-            ? `Call tool: ${displayName}`
-            : `Call tool: ${displayName} (tool name: ${apiName})`
-        );
-      } else if (toolChoice.type === 'required') {
-        const allowed = Array.isArray(toolChoice.allowed) ? toolChoice.allowed : [];
-        if (allowed.length === 1) {
-          const apiName = allowed[0];
-          const displayName = toolNameMap[apiName] || apiName;
-          reminderLines.splice(
-            1,
-            0,
-            displayName === apiName
-              ? `Call tool: ${displayName}`
-              : `Call tool: ${displayName} (tool name: ${apiName})`
-          );
-        } else if (allowed.length > 0) {
-          const display = allowed.map(name => toolNameMap[name] || name);
-          reminderLines.splice(1, 0, `Allowed tools: ${display.join(', ')}`);
-        }
-      }
-    }
-
     logger.warning?.('Tool choice was ignored; retrying tool call request', {
       provider: providerManifest.id,
       model,
@@ -125,7 +139,7 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
 
     messages.push({
       role: Role.USER,
-      content: [{ type: 'text', text: reminderLines.join('\n') } as any]
+      content: [{ type: 'text', text: buildToolChoiceReminderLines(toolChoice).join('\n') } as any]
     });
 
     response = await llmManager.callProvider(
@@ -141,6 +155,10 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
     );
 
     await maybeAttachUsageCost(response, providerManifest, model, providerSettings);
+  }
+
+  if (response.toolCalls && response.toolCalls.length > 0) {
+    ignoredToolChoiceRetries = 0;
   }
 
   while (response.toolCalls && response.toolCalls.length > 0 && !forceFinalize) {
@@ -208,19 +226,62 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
       ? { ...runContext, toolCallsSoFar: allToolCalls }
       : { toolCallsSoFar: allToolCalls };
 
+    const followUpToolChoice = resolveFollowUpToolChoice(toolChoice, calledToolNames);
+    const requireFollowUpToolCalls = tools.length > 0 &&
+      followUpToolChoice !== undefined &&
+      followUpToolChoice !== 'auto' &&
+      followUpToolChoice !== 'none';
+
     response = await llmManager.callProvider(
       providerManifest,
       model,
       providerSettings,
       messages,
       tools,
-      resolveFollowUpToolChoice(toolChoice, calledToolNames),
+      followUpToolChoice,
       providerExtras,
       logger,
       followUpRunContext
     );
 
     await maybeAttachUsageCost(response, providerManifest, model, providerSettings);
+
+    while (requireFollowUpToolCalls &&
+      (!response.toolCalls || response.toolCalls.length === 0) &&
+      ignoredToolChoiceRetries < maxIgnoredToolChoiceRetries) {
+      ignoredToolChoiceRetries += 1;
+
+      logger.warning?.('Tool choice was ignored; retrying tool call request', {
+        provider: providerManifest.id,
+        model,
+        toolChoice: followUpToolChoice,
+        retry: ignoredToolChoiceRetries
+      });
+
+      messages.push({
+        role: Role.USER,
+        content: [{ type: 'text', text: buildToolChoiceReminderLines(followUpToolChoice).join('\n') } as any]
+      });
+
+      response = await llmManager.callProvider(
+        providerManifest,
+        model,
+        providerSettings,
+        messages,
+        tools,
+        followUpToolChoice,
+        providerExtras,
+        logger,
+        followUpRunContext
+      );
+
+      await maybeAttachUsageCost(response, providerManifest, model, providerSettings);
+    }
+
+    if (response.toolCalls && response.toolCalls.length > 0) {
+      ignoredToolChoiceRetries = 0;
+    }
+
     logger.info('Follow-up provider response processed', {
       provider: providerManifest.id,
       model,
