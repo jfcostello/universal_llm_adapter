@@ -60,6 +60,29 @@ OTLP export is disabled by default. To enable traces/tools export, set:
 }
 ```
 
+### Optional tool result envelopes (OTLP disabled)
+
+If you want successful tool results to be queryable as Sentry events **without** OTLP enabled, set:
+
+```json
+{
+  "observability": {
+    "enabled": true,
+    "targets": [
+      {
+        "provider": "sentry",
+        "providerConfig": { "exportToolResultsAsSignals": true },
+        "export": { "signals": true, "tools": true }
+      }
+    ]
+  }
+}
+```
+
+Notes:
+- This only applies when `providerConfig.enableOtlp` is **not** enabled.
+- Only successful tool executions are exported this way (tool failures are already emitted as signals by core tool-loop handling).
+
 ## Module Structure
 
 ```
@@ -68,6 +91,6 @@ plugins/observability-compat/sentry/
 ├── README.md
 └── internal/
     ├── sentry.ts
+    ├── sentry-send.ts
     └── sentry-helpers.ts
 ```
-

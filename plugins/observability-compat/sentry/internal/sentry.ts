@@ -30,12 +30,12 @@ import type { OtlpSpanSpec } from '../../../../modules/observability/index.js';
 import { deriveOtlpSpanIdHex, deriveOtlpTraceIdHex } from '../../../../modules/observability/index.js';
 
 import {
-  buildSentryOtlpAuthHeader,
   buildSentrySignalEnvelope,
   isOtlpEnabled,
-  parseSentryDsn,
+  isToolResultSignalExportEnabled,
   resolveSentryDsn
 } from './sentry-helpers.js';
+import { sendSentryBatch } from './sentry-send.js';
 
 const DEFAULT_GENERATION_SPAN_NAME = 'llm.generation';
 const DEFAULT_TOOL_SPAN_NAME = 'llm.tool';
@@ -47,20 +47,6 @@ type CachedRequest = {
   summary: CachedRequestSummary;
   createdAtMs: number;
 };
-
-function isRetryableStatus(status: number): boolean {
-  return status === 429 || (status >= 500 && status < 600);
-}
-
-function isAbortError(error: unknown): boolean {
-  return !!error && typeof error === 'object' && String((error as any).name) === 'AbortError';
-}
-
-function createAbortError(message = 'Aborted'): Error {
-  const error = new Error(message);
-  (error as any).name = 'AbortError';
-  return error;
-}
 
 function buildCommonTraceAttributes(options: {
   traceId: string;
@@ -91,6 +77,7 @@ export class SentryCompat implements IObservabilityCompat {
     this.pruneRequestCache(now);
 
     const enableOtlp = isOtlpEnabled(context);
+    const exportToolResultsAsSignals = isToolResultSignalExportEnabled(context);
     const eventIds = getEventIds(context);
     const maxBytes = resolveMaxAttributeBytes(context);
 
@@ -159,18 +146,70 @@ export class SentryCompat implements IObservabilityCompat {
       const type = typeof event.type === 'string' ? event.type : '';
 
       if (type === 'tool_execution') {
-        if (!enableOtlp) continue;
         const toolEvent = event as ObservabilityToolExecutionEvent;
         const key = cacheKey(toolEvent.traceId, toolEvent.generationId);
         const cachedSummary = (this.requestCache.get(key)?.summary as any) ?? undefined;
 
-        const { sessionId, traceName, batchId, tags } = resolveTraceContext({ event: toolEvent, cachedSummary });
+        const traceContext = resolveTraceContext({ event: toolEvent, cachedSummary });
+        const { sessionId, traceName, batchId, tags } = traceContext;
 
         const envelopeId = getEnvelopeId(
           eventIds,
           i,
           toolEvent.toolCallId ? `tool-${toolEvent.toolCallId}` : `tool-${i}`
         );
+
+        if (!enableOtlp) {
+          if (!exportToolResultsAsSignals) continue;
+          if (toolEvent.error || toolEvent.skipped) continue;
+
+          if (resolvedDsn === null) {
+            resolvedDsn = resolveSentryDsn(manifest);
+          }
+
+          const argsText = toolEvent.args !== undefined ? flattenPrimitiveStrings(toolEvent.args, { maxBytes }) : '';
+          const resultText =
+            typeof toolEvent.resultText === 'string'
+              ? toolEvent.resultText
+              : toolEvent.result !== undefined
+                ? flattenPrimitiveStrings(toolEvent.result, { maxBytes })
+                : '';
+
+          const baseMetadata =
+            toolEvent.metadata && typeof toolEvent.metadata === 'object' && !Array.isArray(toolEvent.metadata)
+              ? (toolEvent.metadata as Record<string, unknown>)
+              : {};
+
+          const envelope = buildSentrySignalEnvelope({
+            dsn: resolvedDsn,
+            envelopeId,
+            event: {
+              traceId: String(toolEvent.traceId || ''),
+              generationId: toolEvent.generationId,
+              sessionId: toolEvent.sessionId,
+              timestampMs: toolEvent.timestampMs,
+              level: 'info',
+              message: `tool_result:${String(toolEvent.toolName || 'tool')}`,
+              source: 'tool_execution',
+              code: 'tool_execution_result',
+              metadata: {
+                ...baseMetadata,
+                toolExecution: {
+                  name: String(toolEvent.toolName || ''),
+                  callId: String(toolEvent.toolCallId || ''),
+                  ...(argsText ? { argsText } : {}),
+                  ...(resultText ? { resultText } : {})
+                }
+              }
+            },
+            traceContext,
+            context
+          });
+
+          envelopes.push(envelope);
+          eventIndexByEnvelopeId.set(envelopeId, i);
+          continue;
+        }
 
         const endTimeIso = eventTimestampToIso(toolEvent as any);
         const startTimeIso = deriveStartTimeIsoFromDuration(endTimeIso, toolEvent.durationMs);
@@ -264,115 +303,8 @@ export class SentryCompat implements IObservabilityCompat {
     manifest: ObservabilityProviderManifest,
     context?: ObservabilityCompatContext
   ): Promise<ObservabilityBatchResult> {
-    const spans = Array.isArray((payload as any)?.spans) ? ((payload as any).spans as OtlpSpanSpec[]) : [];
-    const envelopes = Array.isArray((payload as any)?.envelopes)
-      ? ((payload as any).envelopes as Array<{ envelopeId: string; body: string }>)
-      : [];
-
-    if (spans.length === 0 && envelopes.length === 0) {
-      return { success: true, outcomes: [] };
-    }
-
-    const dsn = resolveSentryDsn(manifest);
-    const parsed = parseSentryDsn(dsn);
-
-    const outcomes: ObservabilityBatchResult['outcomes'] = [];
-    let overallSuccess = true;
-
-    // Envelopes (signals/errors)
-    for (const envelope of envelopes) {
-      if (context?.signal?.aborted) {
-        throw createAbortError();
-      }
-
-      const controller = new AbortController();
-      let timeoutId: ReturnType<typeof setTimeout> | undefined;
-      let cleanupSignal: (() => void) | undefined;
-
-      const timeoutMs =
-        typeof context?.timeoutMs === 'number' && Number.isFinite(context.timeoutMs) && context.timeoutMs > 0
-          ? Math.floor(context.timeoutMs)
-          : undefined;
-
-      if (timeoutMs !== undefined) {
-        timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-      }
-
-      try {
-        if (context?.signal) {
-          const onAbort = () => controller.abort();
-          cleanupSignal = () => context.signal!.removeEventListener('abort', onAbort);
-          context.signal.addEventListener('abort', onAbort, { once: true });
-        }
-
-        const res = await fetch(parsed.envelopeUrl, {
-          method: 'POST',
-          headers: {
-            ...(manifest.endpoint.headers ?? {}),
-            'Content-Type': 'application/x-sentry-envelope'
-          },
-          body: envelope.body,
-          signal: controller.signal
-        });
-
-        if (res.ok) {
-          outcomes.push({ envelopeId: envelope.envelopeId, success: true, status: res.status });
-          continue;
-        }
-
-        overallSuccess = false;
-        outcomes.push({
-          envelopeId: envelope.envelopeId,
-          success: false,
-          status: res.status,
-          error: typeof (res as any)?.statusText === 'string' && (res as any).statusText
-            ? `HTTP ${res.status}: ${(res as any).statusText}`
-            : `HTTP ${res.status}`,
-          retryable: isRetryableStatus(res.status)
-        });
-      } catch (error: any) {
-        if (context?.signal?.aborted || isAbortError(error)) {
-          throw createAbortError();
-        }
-        overallSuccess = false;
-        outcomes.push({
-          envelopeId: envelope.envelopeId,
-          success: false,
-          error: (error as Error)?.message ?? String(error),
-          retryable: true
-        });
-      } finally {
-        if (timeoutId !== undefined) clearTimeout(timeoutId);
-        cleanupSignal?.();
-      }
-    }
-
-    // OTLP traces/tools
-    if (isOtlpEnabled(context) && spans.length > 0) {
-      const { sendOtlpTraceSpans } = await import('../../../../modules/observability/index.js');
-      const otlp = await sendOtlpTraceSpans({
-        spans,
-        url: parsed.otlpTracesUrl,
-        headers: {
-          ...(manifest.endpoint.headers ?? {}),
-          'Content-Type': 'application/x-protobuf',
-          'x-sentry-auth': buildSentryOtlpAuthHeader(parsed.publicKey)
-        },
-        timeoutMs: context?.timeoutMs,
-        maxBatchBytes: manifest.limits?.maxBatchBytes,
-        signal: context?.signal
-      });
-
-      outcomes.push(...otlp.outcomes);
-      if (!otlp.success) overallSuccess = false;
-    }
-
-    return {
-      success: overallSuccess && outcomes.every(o => o.success),
-      outcomes
-    };
+    return await sendSentryBatch(payload, manifest, context);
   }
 }
 
 export default SentryCompat;
-

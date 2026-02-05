@@ -50,6 +50,10 @@ function getTargetEndpoint(target: ToolTarget, command: string): string | null {
     if (target === 'embedding') return '/embeddings/run';
   }
 
+  if (command === 'telemetry') {
+    if (target === 'llm') return '/telemetry';
+  }
+
   if (command === 'stream') {
     if (target === 'llm') return '/stream';
     if (target === 'vector') return '/vector/stream';
@@ -294,7 +298,7 @@ async function runToolViaServer(target: ToolTarget, options: CliRunOptions): Pro
     : {};
 
   try {
-    if (command === 'run') {
+    if (command === 'run' || command === 'telemetry') {
       const res = await fetch(new URL(endpointPath, serverUrl), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
@@ -313,10 +317,12 @@ async function runToolViaServer(target: ToolTarget, options: CliRunOptions): Pro
       const parsed = JSON.parse(text);
       const unwrapped = parsed?.type === 'response' ? parsed.data : parsed;
 
-      const logs = await readLogsForCorrelationId({
-        logPath: env.LLM_TEST_SERVER_PROCESS_LOG_PATH,
-        correlationId
-      });
+      const logs = command === 'telemetry'
+        ? []
+        : await readLogsForCorrelationId({
+            logPath: env.LLM_TEST_SERVER_PROCESS_LOG_PATH,
+            correlationId
+          });
 
       return { stdout: JSON.stringify(unwrapped), stderr: '', code: 0, logs };
     }

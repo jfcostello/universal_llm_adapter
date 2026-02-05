@@ -79,6 +79,10 @@ export function isOtlpEnabled(context?: ObservabilityCompatContext): boolean {
   return (context?.providerConfig as any)?.enableOtlp === true;
 }
 
+export function isToolResultSignalExportEnabled(context?: ObservabilityCompatContext): boolean {
+  return (context?.providerConfig as any)?.exportToolResultsAsSignals === true;
+}
+
 export function normalizeSentryLevel(level: unknown): 'error' | 'warning' | 'info' | 'debug' {
   const raw = typeof level === 'string' ? level.trim().toLowerCase() : '';
   if (raw === 'error') return 'error';

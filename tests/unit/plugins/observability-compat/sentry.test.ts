@@ -373,6 +373,191 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       expect((batch.payload as any).envelopes).toHaveLength(0);
     });
 
+    it('exports successful tool_execution results as envelopes when exportToolResultsAsSignals is enabled (OTLP disabled)', () => {
+      const toolEvent: ObservabilityToolExecutionEvent = {
+        traceId,
+        generationId,
+        sessionId: 'session-456',
+        timestampMs: 1704067200500,
+        provider: 'provider-a',
+        model: 'model-a',
+        toolCallId: 'call-1',
+        toolName: 'test.echo',
+        durationMs: 50,
+        args: { text: 'hi' },
+        resultText: 'ok',
+        result: { ok: true },
+        metadata: { correlationId: 'corr-123', batchId: 'batch-xyz', tags: ['t1'] }
+      };
+
+      const { payload, eventIndexByEnvelopeId } = compat.buildBatch(
+        [requestEvent, { ...toolEvent, type: 'tool_execution' } as any],
+        mockManifest,
+        { eventIds: ['req', 'tool'], providerConfig: { exportToolResultsAsSignals: true }, maxAttributeValueBytes: 2048 } as any
+      );
+
+      expect((payload as any).spans).toHaveLength(0);
+      expect((payload as any).envelopes).toHaveLength(1);
+      expect(eventIndexByEnvelopeId.get('tool')).toBe(1);
+
+      const { payload: event } = parseEnvelope((payload as any).envelopes[0].body);
+      expect(event.message).toBe('tool_result:test.echo');
+      expect(event.contexts?.trace?.trace_id).toBe(deriveOtlpTraceIdHex(traceId));
+      expect(typeof event.extra?.metadata).toBe('string');
+
+      const metadata = JSON.parse(event.extra.metadata);
+      expect(metadata.toolExecution?.name).toBe('test.echo');
+      expect(metadata.toolExecution?.callId).toBe('call-1');
+      expect(metadata.toolExecution?.resultText).toBe('ok');
+    });
+
+    it('exports tool_execution envelopes with result fallbacks and omits empty optional fields', () => {
+      const toolEvent: any = {
+        traceId,
+        generationId,
+        sessionId: 'session-456',
+        timestampMs: 1704067200500,
+        provider: 'provider-a',
+        model: 'model-a',
+        toolCallId: 'call-1',
+        toolName: 'test.echo',
+        durationMs: 50,
+        args: undefined,
+        resultText: undefined,
+        result: { message: 'from-result' },
+        metadata: 'not-an-object'
+      };
+
+      const { payload } = compat.buildBatch(
+        [requestEvent, { ...toolEvent, type: 'tool_execution' } as any],
+        mockManifest,
+        { eventIds: ['req', 'tool'], providerConfig: { exportToolResultsAsSignals: true }, maxAttributeValueBytes: 2048 } as any
+      );
+
+      const { payload: event } = parseEnvelope((payload as any).envelopes[0].body);
+      const metadata = JSON.parse(event.extra.metadata);
+      expect(metadata.toolExecution?.argsText).toBeUndefined();
+      expect(metadata.toolExecution?.resultText).toBe('from-result');
+    });
+
+    it('exports tool_execution envelopes even when results are missing (and omits resultText)', () => {
+      const toolEvent: any = {
+        traceId,
+        generationId,
+        sessionId: 'session-456',
+        timestampMs: 1704067200500,
+        provider: 'provider-a',
+        model: 'model-a',
+        toolCallId: 'call-1',
+        toolName: 'test.echo',
+        durationMs: 50,
+        args: undefined,
+        resultText: undefined,
+        result: undefined
+      };
+
+      const { payload } = compat.buildBatch(
+        [requestEvent, { ...toolEvent, type: 'tool_execution' } as any],
+        mockManifest,
+        { eventIds: ['req', 'tool'], providerConfig: { exportToolResultsAsSignals: true }, maxAttributeValueBytes: 2048 } as any
+      );
+
+      const { payload: event } = parseEnvelope((payload as any).envelopes[0].body);
+      const metadata = JSON.parse(event.extra.metadata);
+      expect(metadata.toolExecution?.resultText).toBeUndefined();
+    });
+
+    it('skips tool_execution envelope exports for errors and skipped tools', () => {
+      const events: any[] = [
+        {
+          ...requestEvent
+        },
+        {
+          type: 'tool_execution',
+          traceId,
+          generationId,
+          sessionId: 'session-456',
+          timestampMs: 1704067200500,
+          toolCallId: 'call-1',
+          toolName: 'test.echo',
+          error: { message: 'boom' }
+        },
+        {
+          type: 'tool_execution',
+          traceId,
+          generationId,
+          sessionId: 'session-456',
+          timestampMs: 1704067200500,
+          toolCallId: 'call-2',
+          toolName: 'test.echo',
+          skipped: true,
+          skipReason: 'policy'
+        }
+      ];
+
+      const { payload } = compat.buildBatch(
+        events,
+        mockManifest,
+        { eventIds: ['req', 'tool-err', 'tool-skip'], providerConfig: { exportToolResultsAsSignals: true } } as any
+      );
+
+      expect((payload as any).envelopes).toHaveLength(0);
+      expect((payload as any).spans).toHaveLength(0);
+    });
+
+    it('covers tool_execution envelope fallbacks for empty trace/tool identifiers', () => {
+      const toolEvent: any = {
+        traceId: '',
+        generationId: undefined,
+        sessionId: 'session-456',
+        timestampMs: 1704067200500,
+        toolCallId: '',
+        toolName: '',
+        resultText: 'ok'
+      };
+
+      const { payload } = compat.buildBatch(
+        [{ ...toolEvent, type: 'tool_execution' } as any],
+        mockManifest,
+        { eventIds: ['tool'], providerConfig: { exportToolResultsAsSignals: true }, maxAttributeValueBytes: 2048 } as any
+      );
+
+      expect((payload as any).envelopes).toHaveLength(1);
+      const { payload: event } = parseEnvelope((payload as any).envelopes[0].body);
+      expect(event.message).toBe('tool_result:tool');
+      expect(event.contexts?.trace?.trace_id).toBe(deriveOtlpTraceIdHex(''));
+
+      const metadata = JSON.parse(event.extra.metadata);
+      expect(metadata.toolExecution?.name).toBe('');
+      expect(metadata.toolExecution?.callId).toBe('');
+    });
+
+    it('does not export tool_execution envelopes when OTLP is enabled (avoids duplication)', () => {
+      const toolEvent: ObservabilityToolExecutionEvent = {
+        traceId,
+        generationId,
+        sessionId: 'session-456',
+        timestampMs: 1704067200500,
+        provider: 'provider-a',
+        model: 'model-a',
+        toolCallId: 'call-1',
+        toolName: 'test.echo',
+        durationMs: 50,
+        args: { text: 'hi' },
+        resultText: 'ok',
+        result: { ok: true }
+      };
+
+      const { payload } = compat.buildBatch(
+        [requestEvent, { ...toolEvent, type: 'tool_execution' } as any],
+        mockManifest,
+        { eventIds: ['req', 'tool'], providerConfig: { enableOtlp: true, exportToolResultsAsSignals: true } } as any
+      );
+
+      expect((payload as any).spans).toHaveLength(1);
+      expect((payload as any).envelopes).toHaveLength(0);
+    });
+
     it('prunes expired request cache entries', () => {
       const key = `${traceId}:${generationId}`;
       (compat as any).requestCache.set(key, {
