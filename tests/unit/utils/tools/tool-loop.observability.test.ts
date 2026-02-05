@@ -2,6 +2,7 @@ import { describe, expect, jest, test } from '@jest/globals';
 import { runToolLoop } from '@/modules/tools/index.ts';
 import { Role } from '@/kernel/index.ts';
 import { recordToolExecutionObservability, recordToolFailureSignal } from '@/modules/tools/internal/tool-loop/internal/observability.ts';
+import { executeStreamToolCallsRound } from '@/modules/tools/internal/tool-loop/internal/stream-execute.ts';
 
 const providerManifest: any = {
   id: 'provider',
@@ -149,6 +150,31 @@ describe('utils/tools/runToolLoop observability', () => {
     expect(event.result).toBeUndefined();
     expect(event.resultText).toBeUndefined();
     expect(event.args).toEqual({ answer: true });
+  });
+
+  test('captureMessages="full" preserves bounded structured tool result payloads under tight maxJsonBytes', () => {
+    const observability = createObservabilityContext({
+      captureMessages: 'full',
+      maxJsonBytes: 18
+    });
+
+    recordToolExecutionObservability({
+      observability,
+      logger: { info: jest.fn(), warning: jest.fn(), error: jest.fn(), debug: jest.fn() } as any,
+      generationId: 'gen-1',
+      provider: 'provider',
+      model: 'model',
+      toolCallId: 'call-1',
+      toolName: 'example_tool',
+      timestampMs: Date.now(),
+      result: { output: 'x'.repeat(200) },
+      maxResultLength: null
+    });
+
+    const event = (observability.exporter.recordToolExecution as any).mock.calls[0][0];
+    expect(event.result).toBeDefined();
+    expect(typeof event.resultText).toBe('string');
+    expect(event.resultText.length).toBeGreaterThan(0);
   });
 
   test('records a tool error signal and tool execution error details when invocation throws', async () => {
@@ -398,6 +424,214 @@ describe('utils/tools/runToolLoop observability', () => {
         resultText: 'ok'
       })
     );
+  });
+
+  test('stream loop records stripped invocation arguments in telemetry (not raw tool_call args)', async () => {
+    const llmManager: any = {
+      streamProvider: jest.fn(async function* () {
+        yield { text: 'done' };
+      })
+    };
+
+    const registry: any = {
+      getCompatModule: jest.fn().mockResolvedValue({ parseStreamChunk: (chunk: any) => chunk })
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({ result: 'ok' });
+    const observability = createObservabilityContext();
+
+    const iterator = runToolLoop({
+      mode: 'stream',
+      llmManager,
+      registry,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{
+        name: 'example_tool',
+        toolCallTerminalFlag: { field: 'tool_type_response_override_terminal' }
+      }],
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: {
+        maxToolIterations: 1,
+        toolCountdownEnabled: 'false',
+        preserveToolResults: 'all',
+        preserveReasoning: 'all'
+      } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: { info: jest.fn(), warning: jest.fn(), error: jest.fn(), debug: jest.fn() } as any,
+      runContext: { observability, generationId: 'gen-1' },
+      toolNameMap: { example_tool: 'example_tool' },
+      metadata: {},
+      initialToolCalls: [{
+        id: 'call-1',
+        name: 'example_tool',
+        arguments: {
+          q: 'hello',
+          tool_type_response_override_terminal: true
+        }
+      }] as any,
+      invokeTool
+    });
+
+    for await (const _event of iterator) {
+      // Drain
+    }
+
+    const event = (observability.exporter.recordToolExecution as any).mock.calls[0][0];
+    expect(event.args).toEqual({ q: 'hello' });
+    expect((event.args as any).tool_type_response_override_terminal).toBeUndefined();
+  });
+
+  test('stream loop records args fallback when tool_call provides args without arguments', async () => {
+    const llmManager: any = {
+      streamProvider: jest.fn(async function* () {
+        yield { text: 'done' };
+      })
+    };
+
+    const registry: any = {
+      getCompatModule: jest.fn().mockResolvedValue({ parseStreamChunk: (chunk: any) => chunk })
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({ result: 'ok' });
+    const observability = createObservabilityContext();
+
+    const iterator = runToolLoop({
+      mode: 'stream',
+      llmManager,
+      registry,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'example_tool' }],
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: {
+        maxToolIterations: 1,
+        toolCountdownEnabled: 'false',
+        preserveToolResults: 'all',
+        preserveReasoning: 'all'
+      } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: { info: jest.fn(), warning: jest.fn(), error: jest.fn(), debug: jest.fn() } as any,
+      runContext: { observability, generationId: 'gen-1' },
+      toolNameMap: { example_tool: 'example_tool' },
+      metadata: {},
+      initialToolCalls: [{
+        id: 'call-1',
+        name: 'example_tool',
+        args: { via: 'args' }
+      }] as any,
+      invokeTool
+    });
+
+    for await (const _event of iterator) {
+      // Drain
+    }
+
+    const event = (observability.exporter.recordToolExecution as any).mock.calls[0][0];
+    expect(event.args).toEqual({ via: 'args' });
+  });
+
+  test('stream loop preserves undefined telemetry args when tool_call has neither arguments nor args', async () => {
+    const llmManager: any = {
+      streamProvider: jest.fn(async function* () {
+        yield { text: 'done' };
+      })
+    };
+
+    const registry: any = {
+      getCompatModule: jest.fn().mockResolvedValue({ parseStreamChunk: (chunk: any) => chunk })
+    };
+
+    const invokeTool = jest.fn().mockResolvedValue({ result: 'ok' });
+    const observability = createObservabilityContext();
+
+    const iterator = runToolLoop({
+      mode: 'stream',
+      llmManager,
+      registry,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'example_tool' }],
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: {
+        maxToolIterations: 1,
+        toolCountdownEnabled: 'false',
+        preserveToolResults: 'all',
+        preserveReasoning: 'all'
+      } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: { info: jest.fn(), warning: jest.fn(), error: jest.fn(), debug: jest.fn() } as any,
+      runContext: { observability, generationId: 'gen-1' },
+      toolNameMap: { example_tool: 'example_tool' },
+      metadata: {},
+      initialToolCalls: [{
+        id: 'call-1',
+        name: 'example_tool'
+      }] as any,
+      invokeTool
+    });
+
+    for await (const _event of iterator) {
+      // Drain
+    }
+
+    const event = (observability.exporter.recordToolExecution as any).mock.calls[0][0];
+    expect(event.args).toBeUndefined();
+  });
+
+  test('stream budget consume failure includes exhausted payload in telemetry', async () => {
+    const observability = createObservabilityContext();
+    const logger = { info: jest.fn(), warning: jest.fn(), error: jest.fn(), debug: jest.fn() } as any;
+    const messages: any[] = [];
+    const budget: any = {
+      exhausted: false,
+      maxCalls: 1,
+      consume: jest.fn().mockReturnValue(false),
+      remaining: 0,
+      usedCalls: 1
+    };
+
+    const iterator = executeStreamToolCallsRound({
+      toolCallsToExecute: [{ id: 'call-1', name: 'example_tool', arguments: { answer: true } }] as any,
+      toolCallReasoning: undefined,
+      messages,
+      tools: [{ name: 'example_tool' }] as any,
+      toolNameMap: { example_tool: 'example_tool' },
+      toolByName: new Map([['example_tool', { name: 'example_tool' } as any]]),
+      budget,
+      toolCountdownEnabled: false,
+      maxResultLength: null,
+      providerManifest,
+      model: 'model',
+      metadata: {},
+      observability,
+      generationId: 'gen-1',
+      logger,
+      invokeTool: jest.fn(),
+      calledToolNames: new Set<string>(),
+      preserveToolResults: 'all',
+      preserveReasoning: 'all'
+    });
+
+    for await (const _event of iterator) {
+      // Drain
+    }
+
+    const event = (observability.exporter.recordToolExecution as any).mock.calls[0][0];
+    expect(event.skipped).toBe(true);
+    expect(event.skipReason).toBe('tool_call_budget_exhausted');
+    expect(event.result).toEqual(
+      expect.objectContaining({
+        error: 'tool_call_budget_exhausted'
+      })
+    );
+    expect(String(event.resultText)).toContain('tool_call_budget_exhausted');
   });
 
   test('respects maxJsonBytes<=0 and maxOutputTextBytes non-finite by omitting structured fields and emptying resultText', async () => {

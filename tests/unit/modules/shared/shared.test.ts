@@ -129,6 +129,11 @@ describe('modules/shared', () => {
       expect(clampInt(Number.POSITIVE_INFINITY, 6, 0, 100)).toBe(6);
     });
 
+    test('treats empty and whitespace strings as invalid and uses fallback', () => {
+      expect(clampInt('', 9, 0, 100)).toBe(9);
+      expect(clampInt('   ', 8, 0, 100)).toBe(8);
+    });
+
     test('clamps to min/max bounds', () => {
       expect(clampInt(-5, 0, 0, 10)).toBe(0);
       expect(clampInt(999, 0, 0, 10)).toBe(10);

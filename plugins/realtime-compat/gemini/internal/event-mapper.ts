@@ -134,15 +134,16 @@ export function mapGeminiLiveServerMessage(message: any, state: GeminiRealtimeMa
     }
 
     if (sc.outputTranscription && typeof sc.outputTranscription === 'object') {
-      const next = safeString(sc.outputTranscription.text ?? sc.outputTranscription.transcript ?? sc.outputTranscription.value);
-      if (next) {
+      const nextRaw = safeString(sc.outputTranscription.text ?? sc.outputTranscription.transcript ?? sc.outputTranscription.value);
+      const hasOutputTranscriptionText = nextRaw.trim().length > 0;
+      if (hasOutputTranscriptionText) {
         sawOutputTranscriptionText = true;
-      }
-      const delta = diffAsDelta(state.assistantTranscriptRaw, next);
-      state.assistantTranscriptRaw = next;
-      if (delta) {
-        state.assistantTranscript += delta;
-        events.push({ type: 'assistant_transcript.delta', textDelta: delta });
+        const delta = diffAsDelta(state.assistantTranscriptRaw, nextRaw);
+        state.assistantTranscriptRaw = nextRaw;
+        if (delta) {
+          state.assistantTranscript += delta;
+          events.push({ type: 'assistant_transcript.delta', textDelta: delta });
+        }
       }
     }
 

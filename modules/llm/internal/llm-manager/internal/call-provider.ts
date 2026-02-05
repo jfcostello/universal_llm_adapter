@@ -21,6 +21,12 @@ import { callProviderViaSdk } from './call-provider-sdk.js';
 import { callProviderViaHttp } from './call-provider-http.js';
 import { isHttpUrlTemplate } from './http-utils.js';
 
+function readTrimmedString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 export async function callProvider(options: {
   httpClient: AxiosInstance;
   reasoningUnsupportedByProviderModel: Set<string>;
@@ -37,10 +43,9 @@ export async function callProvider(options: {
 }): Promise<LLMResponse> {
   const startTimeMs = Date.now();
   const startTimeMonoNs = monotonicNowNs();
-  const generationId = options.context.observability ? randomUUID() : undefined;
-  if (generationId) {
-    (options.context as any).generationId = generationId;
-  }
+  const generationId = options.context.observability
+    ? readTrimmedString((options.context as any)?.generationId) ?? randomUUID()
+    : undefined;
   const requestTimestampMs = startTimeMs;
   const normalizedMessages = aggregateSystemMessages(options.messages);
   const shouldLogLive = process.env.LLM_LIVE === '1';

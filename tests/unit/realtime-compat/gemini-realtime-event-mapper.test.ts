@@ -230,6 +230,25 @@ describe('realtime-compat/gemini — event mapper', () => {
     });
   });
 
+  test('falls back to modelTurn.parts.text when outputTranscription text is whitespace-only', () => {
+    const state = makeState();
+
+    const events = mapGeminiLiveServerMessage(
+      {
+        serverContent: {
+          outputTranscription: { text: '   ' },
+          modelTurn: { parts: [{ text: 'fallback text' }] }
+        }
+      },
+      state
+    );
+
+    expect(events.find(e => e.type === 'assistant_transcript.delta')).toEqual({
+      type: 'assistant_transcript.delta',
+      textDelta: 'fallback text'
+    });
+  });
+
   test('emits user_transcript.final at turn completion when pending', () => {
     const state = makeState();
     state.pendingUserTranscriptFinal = true;

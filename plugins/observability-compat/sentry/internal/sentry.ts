@@ -279,6 +279,8 @@ export class SentryCompat implements IObservabilityCompat {
       }
 
       if (type === 'trace_update') {
+        // Sentry does not emit standalone payloads for trace updates; we keep them as
+        // in-memory context mutations so subsequent spans/envelopes inherit latest name/tags.
         const updateEvent = event as ObservabilityTraceUpdateEvent;
         applyTraceUpdateToCachedRequests(updateEvent, this.requestCache.entries());
         continue;

@@ -3,10 +3,9 @@ import type {
   ObservabilityContext,
   ObservabilitySignalLevel
 } from '../../../../../kernel/index.js';
-import { safeJsonParse } from '../../../../../kernel/index.js';
 
 import { redactJsonCredentials } from '../../../../security/index.js';
-import { safeJsonStringify, truncateUtf8Bytes } from '../../../../shared/index.js';
+import { safeJsonStringify, safeJsonValue, truncateUtf8Bytes } from '../../../../shared/index.js';
 
 function readTrimmedString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
@@ -21,8 +20,7 @@ export function readRunContextGenerationId(runContext: unknown): string | undefi
 
 function boundJsonValue(value: unknown, maxJsonBytes: number): unknown {
   if (!Number.isFinite(maxJsonBytes) || maxJsonBytes <= 0) return undefined;
-  const json = safeJsonStringify(value, { maxBytes: Math.floor(maxJsonBytes) });
-  return safeJsonParse(json, undefined);
+  return safeJsonValue(value, { maxBytes: Math.floor(maxJsonBytes) });
 }
 
 function buildResultText(value: unknown, options: { maxChars: number | null; maxBytes: number }): string | undefined {
@@ -161,4 +159,3 @@ export function recordToolFailureSignal(options: {
     });
   }
 }
-

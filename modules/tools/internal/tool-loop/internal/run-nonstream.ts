@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto';
+
 import type { PluginRegistry } from '../../../../../kernel/index.js';
 import { Role, getDefaults } from '../../../../../kernel/index.js';
 import type {
@@ -68,6 +70,11 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
   let terminalStop = false;
   const maxIgnoredToolChoiceRetries = 3;
   let ignoredToolChoiceRetries = 0;
+
+  const withNextGenerationId = <T extends Record<string, any> | undefined>(ctx: T): T => {
+    if (!ctx?.observability) return ctx;
+    return { ...ctx, generationId: randomUUID() } as T;
+  };
 
   const buildToolChoiceReminderLines = (choice: ToolChoice | undefined): string[] => {
     const reminderLines: string[] = [
@@ -141,6 +148,9 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
       content: [{ type: 'text', text: buildToolChoiceReminderLines(toolChoice).join('\n') } as any]
     });
 
+    const retryRunContext = withNextGenerationId(currentRunContext);
+    currentRunContext = retryRunContext;
+
     response = await llmManager.callProvider(
       providerManifest,
       model,
@@ -150,7 +160,7 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
       toolChoice,
       providerExtras,
       logger,
-      currentRunContext
+      retryRunContext
     );
 
     await maybeAttachUsageCost(response, providerManifest, model, providerSettings);
@@ -227,7 +237,8 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
     const followUpRunContext = currentRunContext
       ? { ...currentRunContext, toolCallsSoFar: allToolCalls }
       : { toolCallsSoFar: allToolCalls };
-    currentRunContext = followUpRunContext;
+    const followUpCallContext = withNextGenerationId(followUpRunContext);
+    currentRunContext = followUpCallContext;
 
     const followUpToolChoice = resolveFollowUpToolChoice(toolChoice, calledToolNames);
     const requireFollowUpToolCalls = tools.length > 0 &&
@@ -244,7 +255,7 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
       followUpToolChoice,
       providerExtras,
       logger,
-      followUpRunContext
+      followUpCallContext
     );
 
     await maybeAttachUsageCost(response, providerManifest, model, providerSettings);
@@ -266,6 +277,9 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
         content: [{ type: 'text', text: buildToolChoiceReminderLines(followUpToolChoice).join('\n') } as any]
       });
 
+      const retryFollowUpContext = withNextGenerationId(followUpRunContext);
+      currentRunContext = retryFollowUpContext;
+
       response = await llmManager.callProvider(
         providerManifest,
         model,
@@ -275,7 +289,7 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
         followUpToolChoice,
         providerExtras,
         logger,
-        followUpRunContext
+        retryFollowUpContext
       );
 
       await maybeAttachUsageCost(response, providerManifest, model, providerSettings);
@@ -314,6 +328,12 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
     pruneToolResults(messages, preserveToolResults);
     pruneReasoning(messages, preserveReasoning);
 
+    const finalRunContextBase = currentRunContext
+      ? { ...currentRunContext, tools: [], mcpServers: [], toolNameMap: {}, toolCallsSoFar: allToolCalls }
+      : { tools: [], mcpServers: [], toolNameMap: {}, toolCallsSoFar: allToolCalls };
+    const finalRunContext = withNextGenerationId(finalRunContextBase);
+    currentRunContext = finalRunContext;
+
     response = await llmManager.callProvider(
       providerManifest,
       model,
@@ -323,9 +343,7 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
       'none',
       providerExtras,
       logger,
-      currentRunContext
-        ? { ...currentRunContext, tools: [], mcpServers: [], toolNameMap: {}, toolCallsSoFar: allToolCalls }
-        : { tools: [], mcpServers: [], toolNameMap: {}, toolCallsSoFar: allToolCalls }
+      finalRunContext
     );
 
     await maybeAttachUsageCost(response, providerManifest, model, providerSettings);

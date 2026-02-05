@@ -339,6 +339,44 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       expect(updatedAttrs['llm.adapter.tags']).toEqual(['updated']);
     });
 
+    it('treats trace_update as cache mutation only (no direct envelope/span export)', () => {
+      const ctxReq = { eventIds: ['req'], providerConfig: { enableOtlp: true } } as any;
+      compat.buildBatch([requestEvent], mockManifest, ctxReq);
+
+      const update: ObservabilityTraceUpdateEvent = {
+        traceId,
+        generationId,
+        timestampMs: 1704067200601,
+        name: 'corr-updated',
+        tags: [' updated ']
+      };
+
+      const updateBatch = compat.buildBatch(
+        [{ ...update, type: 'trace_update' } as any],
+        mockManifest,
+        { eventIds: ['update'], providerConfig: { enableOtlp: true } } as any
+      );
+      expect((updateBatch.payload as any).spans).toHaveLength(0);
+      expect((updateBatch.payload as any).envelopes).toHaveLength(0);
+      expect(updateBatch.eventIndexByEnvelopeId.size).toBe(0);
+
+      const signalBatch = compat.buildBatch(
+        [{
+          type: 'signal',
+          traceId,
+          generationId,
+          timestampMs: 1704067200700,
+          level: 'warning',
+          message: 'warn'
+        } as any],
+        mockManifest,
+        { eventIds: ['sig'] } as any
+      );
+      const { payload: signalEvent } = parseEnvelope((signalBatch.payload as any).envelopes[0].body);
+      expect(signalEvent.tags['llm.adapter.correlation_id']).toBe('corr-updated');
+      expect(signalEvent.tags['llm.adapter.tags']).toBe('updated');
+    });
+
     it('covers response fallbacks when request cache is missing and error variants are present', () => {
       const respNoCache: any = {
         traceId: '',
@@ -844,6 +882,47 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       mockFetch.mockReset();
     });
 
+    it('treats whitespace envelopeConcurrency values as invalid and falls back to default', async () => {
+      const envelopeCount = 5;
+      const eventIds = Array.from({ length: envelopeCount }, (_v, i) => `sig-${i}`);
+
+      const { payload } = compat.buildBatch(
+        eventIds.map((envelopeId) => ({
+          type: 'signal',
+          traceId,
+          generationId,
+          timestampMs: 1704067200600,
+          level: 'error',
+          message: envelopeId
+        } as any)),
+        mockManifest,
+        { eventIds } as any
+      );
+
+      const releases: Array<() => void> = [];
+      mockFetch.mockImplementation((_url: any, _init: any) => {
+        return new Promise((resolve) => {
+          releases.push(() => resolve({ ok: true, status: 200, statusText: 'OK', headers: { get: () => null } } as any));
+        });
+      });
+
+      const promise = compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds,
+        providerConfig: { envelopeConcurrency: '   ' }
+      } as any);
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      while (releases.length > 0) {
+        releases.shift()!();
+        await Promise.resolve();
+      }
+
+      await expect(promise).resolves.toEqual(expect.objectContaining({ success: true }));
+      mockFetch.mockReset();
+    });
+
     it('sends OTLP spans to the derived Sentry OTLP endpoint when enableOtlp is set', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -1104,6 +1183,31 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       } as any);
 
       expect(result.outcomes[0]?.error).not.toContain('body:');
+    });
+
+    it('treats whitespace errorResponseBodyMaxBytes as invalid and falls back to default body capture limit', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => null },
+        text: jest.fn(async () => JSON.stringify({ message: 'nope', api_key: 'abcd1234' }))
+      } as any);
+
+      const { payload } = compat.buildBatch(
+        [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+        mockManifest,
+        { eventIds: ['sig'] } as any
+      );
+
+      const result = await compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds: ['sig'],
+        providerConfig: { includeResponseBodyOnError: true, errorResponseBodyMaxBytes: '   ' }
+      } as any);
+
+      expect(result.outcomes[0]?.error).toContain('body:');
+      expect(result.outcomes[0]?.error).toContain('***1234');
     });
 
     it('marks envelope fetch rejections retryable and supports string error fallbacks', async () => {

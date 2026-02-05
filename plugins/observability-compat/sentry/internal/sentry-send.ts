@@ -5,7 +5,7 @@ import type {
 } from '../../../../kernel/index.js';
 
 import type { OtlpSpanSpec } from '../../../../modules/observability/index.js';
-import { setUnrefTimeout, truncateUtf8Bytes, safeJsonStringify } from '../../../../modules/shared/index.js';
+import { clampInt, setUnrefTimeout, truncateUtf8Bytes, safeJsonStringify } from '../../../../modules/shared/index.js';
 import { redactJsonCredentials } from '../../../../modules/security/index.js';
 
 import {
@@ -35,26 +35,13 @@ function createAbortError(message = 'Aborted'): Error {
   return error;
 }
 
-function normalizePositiveInt(value: unknown): number | null {
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? Math.floor(value) : null;
-  }
-  if (typeof value === 'string') {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? Math.floor(parsed) : null;
-  }
-  return null;
-}
-
 function resolveEnvelopeConcurrency(context?: ObservabilityCompatContext): number {
   const providerConfig = context?.providerConfig;
   const raw =
     providerConfig && typeof providerConfig === 'object'
       ? (providerConfig as any).envelopeConcurrency
       : undefined;
-  const normalized = normalizePositiveInt(raw);
-  const asInt = normalized === null ? DEFAULT_ENVELOPE_CONCURRENCY : normalized;
-  return Math.min(MAX_ENVELOPE_CONCURRENCY, Math.max(1, asInt));
+  return clampInt(raw, DEFAULT_ENVELOPE_CONCURRENCY, 1, MAX_ENVELOPE_CONCURRENCY);
 }
 
 function resolveIncludeResponseBodyOnError(context?: ObservabilityCompatContext): boolean {
@@ -68,9 +55,7 @@ function resolveErrorBodyMaxBytes(context?: ObservabilityCompatContext): number 
     providerConfig && typeof providerConfig === 'object'
       ? (providerConfig as any).errorResponseBodyMaxBytes
       : undefined;
-  const normalized = normalizePositiveInt(raw);
-  const asInt = normalized === null ? DEFAULT_ERROR_BODY_MAX_BYTES : normalized;
-  return Math.min(MAX_ERROR_BODY_MAX_BYTES, Math.max(0, asInt));
+  return clampInt(raw, DEFAULT_ERROR_BODY_MAX_BYTES, 0, MAX_ERROR_BODY_MAX_BYTES);
 }
 
 async function tryReadSafeErrorBody(options: {

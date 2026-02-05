@@ -926,6 +926,87 @@ describe('modules/observability', () => {
       expect(mockCompat.sendBatch).toHaveBeenCalledTimes(2);
     });
 
+    test('uses raw UTF-8 byte length for string payload maxBatchBytes preflight', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      const body = 'x'.repeat(50);
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({
+          payload: body,
+          eventIndexByEnvelopeId: new Map([['env-1', 0]])
+        })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' },
+        limits: { maxBatchBytes: Buffer.byteLength(body, 'utf8') }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 100,
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 1,
+          baseDelayMs: 250,
+          maxDelayMs: 30000,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+      await exporter.shutdown();
+
+      expect(mockCompat.sendBatch).toHaveBeenCalledTimes(1);
+    });
+
+    test('guards maxBatchBytes preflight serialization for non-JSON payloads', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      const circular: any = { ok: true, nested: { value: 1n } };
+      circular.self = circular;
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({
+          payload: circular,
+          eventIndexByEnvelopeId: new Map([['env-1', 0]])
+        })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' },
+        limits: { maxBatchBytes: 2048 }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 100,
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 1,
+          baseDelayMs: 250,
+          maxDelayMs: 30000,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+      await expect(exporter.shutdown()).resolves.toBeUndefined();
+      expect(mockCompat.sendBatch).toHaveBeenCalledTimes(1);
+    });
+
     test('drops a single event when it cannot fit provider maxBatchBytes', async () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
       const mockLogger = createMockLogger();

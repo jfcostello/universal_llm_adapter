@@ -83,6 +83,11 @@ Notes:
 - This only applies when `providerConfig.enableOtlp` is **not** enabled.
 - Only successful tool executions are exported this way (tool failures are already emitted as signals by core tool-loop handling).
 
+### Trace update behavior
+
+`trace_update` events are treated as trace-context mutations (name/tags/session fields) and do **not** emit standalone Sentry envelopes or spans by themselves.
+The updated context is applied to subsequent Sentry exports that share the same trace/generation keys.
+
 ## Optional Provider Config
 
 These settings live under `observability.targets[].providerConfig` for the Sentry target.

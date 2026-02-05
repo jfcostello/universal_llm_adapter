@@ -58,5 +58,26 @@ describe('utils/server (integration) telemetry submit', () => {
       await server.close();
     }
   });
-});
 
+  test('POST /telemetry accepts a trace_update payload', async () => {
+    if (!networkAvailable) return;
+
+    const { server } = await startServer({} as any, createOkCoordinator);
+    try {
+      const res = await postJson(server.url, '/telemetry', {
+        type: 'trace_update',
+        traceId: 'trace_3',
+        name: 'checkout-flow',
+        tags: ['web', 'prod']
+      });
+
+      expect(res.status).toBe(200);
+      const parsed = JSON.parse(res.body);
+      expect(parsed.type).toBe('response');
+      expect(parsed.data.traceId).toBe('trace_3');
+      expect(parsed.data.queued).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+});

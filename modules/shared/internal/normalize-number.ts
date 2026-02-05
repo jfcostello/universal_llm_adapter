@@ -3,7 +3,9 @@ function normalizeNumber(value: unknown): number | null {
     return Number.isFinite(value) ? value : null;
   }
   if (typeof value === 'string') {
-    const parsed = Number(value);
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = Number(trimmed);
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
@@ -20,4 +22,3 @@ export function clampRate(value: unknown, fallback: number): number {
   const asNum = Number.isFinite(normalized as any) ? (normalized as number) : fallback;
   return Math.min(1, Math.max(0, asNum));
 }
-

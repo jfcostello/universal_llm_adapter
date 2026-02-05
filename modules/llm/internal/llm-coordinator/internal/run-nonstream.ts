@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto';
+
 import type {
   LLMCallSpec,
   LLMResponse,
@@ -129,6 +131,10 @@ export async function runNonStream(options: {
           hasPerProviderSettings: !!item.settings
         });
 
+        const callRunContext = runContext.observability
+          ? { ...runContext, generationId: randomUUID() }
+          : runContext;
+
         let response = await options.llmManager.callProvider(
           providerManifest,
           item.model,
@@ -138,7 +144,7 @@ export async function runNonStream(options: {
           executionSpec.toolChoice,
           providerExtras,
           runLogger,
-          runContext
+          callRunContext
         );
 
         await options.attachUsageCostIfNeeded(response, mergedSettings, providerManifest.id, item.model);
@@ -175,7 +181,7 @@ export async function runNonStream(options: {
           tools,
           response,
           runLogger,
-          runContext,
+          callRunContext,
           toolNameMap
         );
 

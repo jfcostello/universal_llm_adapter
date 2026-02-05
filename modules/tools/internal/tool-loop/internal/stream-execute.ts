@@ -79,14 +79,13 @@ export async function* executeStreamToolCallsRound(options: {
       options.toolByName
     );
     const toolArgs = (toolCall as any)?.arguments ?? (toolCall as any)?.args;
+    const exhaustedPayload = {
+      error: 'tool_call_budget_exhausted',
+      message: 'No remaining tool calls are available for this run.',
+      tool: targetToolName
+    };
 
     if (options.budget.exhausted) {
-      const exhaustedPayload = {
-        error: 'tool_call_budget_exhausted',
-        message: 'No remaining tool calls are available for this run.',
-        tool: targetToolName
-      };
-
       const timestampMs = Date.now();
       recordToolExecutionObservability({
         observability: options.observability,
@@ -151,6 +150,7 @@ export async function* executeStreamToolCallsRound(options: {
         toolName: targetToolName,
         timestampMs,
         args: toolArgs,
+        result: exhaustedPayload,
         skipped: true,
         skipReason: 'tool_call_budget_exhausted',
         maxResultLength: options.maxResultLength
@@ -169,6 +169,20 @@ export async function* executeStreamToolCallsRound(options: {
         model: options.model,
         skipReason: 'tool_call_budget_exhausted'
       });
+
+      appendToolResult(
+        options.messages,
+        {
+          toolName: targetToolName,
+          callId: toolCall.id,
+          result: exhaustedPayload,
+          resultText: JSON.stringify(exhaustedPayload)
+        },
+        {
+          countdownText: resolveCountdownText(options.toolCountdownEnabled, options.budget),
+          maxLength: options.maxResultLength
+        }
+      );
       break;
     }
 
@@ -189,12 +203,13 @@ export async function* executeStreamToolCallsRound(options: {
     let normalizedPayload: any;
     let overrideTerminal: boolean | undefined;
     let executionError: any;
+    let invocationToolCall: any;
     try {
       const stripped = stripCallArgTerminalFlag(
         { ...toolCall, name: definitionName } as any,
         options.toolByName
       );
-      const invocationToolCall: any = {
+      invocationToolCall = {
         ...toolCall,
         arguments: stripped.arguments,
         args: (stripped as any).args ?? stripped.arguments
@@ -248,7 +263,7 @@ export async function* executeStreamToolCallsRound(options: {
       toolName: targetToolName,
       timestampMs,
       durationMs: monotonicElapsedMs(startTimeMonoNs),
-      args: toolArgs,
+      args: (invocationToolCall as any)?.arguments ?? (invocationToolCall as any)?.args ?? toolArgs,
       result: normalizedPayload,
       ...(executionError
         ? {
