@@ -15,6 +15,7 @@ import type { OtlpSpanSpec } from '../../../../modules/observability/index.js';
 import { deriveOtlpSpanIdHex, deriveOtlpTraceIdHex } from '../../../../modules/observability/index.js';
 
 import {
+  applyTraceUpdateToCachedRequests,
   buildBasicAuthHeader,
   buildCachedRequestSummary,
   buildCommonTraceAttributes,
@@ -265,7 +266,7 @@ export class LangfuseCompat implements IObservabilityCompat {
 
       if (type === 'trace_update') {
         const updateEvent = event as ObservabilityTraceUpdateEvent;
-        this.applyTraceUpdate(updateEvent);
+        applyTraceUpdateToCachedRequests(updateEvent, this.requestCache.entries());
 
         const key = cacheKey(updateEvent.traceId, updateEvent.generationId);
         const cachedSummary = (this.requestCache.get(key)?.summary as any) ?? undefined;
@@ -328,26 +329,6 @@ export class LangfuseCompat implements IObservabilityCompat {
       if (nowMs - entry.createdAtMs > REQUEST_CACHE_TTL_MS) {
         this.requestCache.delete(key);
       }
-    }
-  }
-
-  private applyTraceUpdate(update: ObservabilityTraceUpdateEvent): void {
-    const traceId = String(update.traceId || '').trim();
-    if (!traceId) return;
-
-    const nextTraceName = update.name ? String(update.name) : undefined;
-    const nextTags = Array.isArray(update.tags) ? update.tags.map(t => String(t).trim()).filter(Boolean) : undefined;
-    const nextSessionId = update.sessionId ? String(update.sessionId) : undefined;
-
-    if (!nextTraceName && !nextTags && !nextSessionId) return;
-
-    for (const [key, entry] of this.requestCache.entries()) {
-      if (key !== traceId && !key.startsWith(`${traceId}:`)) continue;
-
-      const summary = entry.summary as any;
-      if (nextTraceName) summary.correlationId = nextTraceName;
-      if (nextTags) summary.tags = nextTags;
-      if (nextSessionId && !summary.sessionId) summary.sessionId = nextSessionId;
     }
   }
 

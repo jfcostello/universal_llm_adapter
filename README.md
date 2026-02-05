@@ -356,7 +356,7 @@ MCP server configurations live in `plugins/mcp/*.json`:
 
 ### Observability (Optional)
 
-Observability enables export of LLM call **and realtime session** telemetry to platforms like Langfuse. It is disabled by default, and capture is intentionally minimal unless you opt in.
+Observability enables export of LLM call **and realtime session** telemetry to platforms like Langfuse or Sentry. It is disabled by default, and capture is intentionally minimal unless you opt in.
 
 **Global Configuration** (`plugins/configs/defaults.json`):
 
@@ -364,7 +364,10 @@ Observability enables export of LLM call **and realtime session** telemetry to p
 {
   "observability": {
     "enabled": true,
-    "provider": "langfuse",
+    "targets": [
+      { "provider": "langfuse", "export": { "signals": false } },
+      { "provider": "sentry", "export": { "traces": false, "tools": false, "traceUpdates": false } }
+    ],
     "captureMessages": "text"
   }
 }
@@ -376,7 +379,7 @@ Observability enables export of LLM call **and realtime session** telemetry to p
 {
   observability: {
     enabled: true,
-    provider: 'langfuse',
+    provider: 'langfuse',          // or: 'sentry'
     traceId: 'custom-trace-id',    // Optional
     sessionId: 'session-abc',       // Optional
     // Capture controls (defaults are safe/lightweight)
@@ -389,12 +392,15 @@ Observability enables export of LLM call **and realtime session** telemetry to p
 ```
 
 **Tip:** For stable naming/grouping, set:
-- `spec.metadata.correlationId` (used as the Langfuse trace name when using the Langfuse provider)
-- `spec.metadata.tags` (forwarded as Langfuse tags when present)
+- `spec.metadata.correlationId` (trace display/name in providers that support it)
+- `spec.metadata.tags` (forwarded as provider tags when present)
 
-**Required Environment Variables** (for Langfuse):
-- `LANGFUSE_SECRET_KEY` - Langfuse secret key
-- `LANGFUSE_PUBLIC_KEY` - Langfuse public key
+**Required Environment Variables**:
+- Langfuse:
+  - `LANGFUSE_SECRET_KEY`
+  - `LANGFUSE_PUBLIC_KEY`
+- Sentry:
+  - `SENTRY_DSN`
 
 Observability is non-blocking: if export fails, LLM calls still succeed. See `modules/observability/README.md` for full documentation.
 

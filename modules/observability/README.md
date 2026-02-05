@@ -7,12 +7,15 @@ The observability module provides optional export of LLM call telemetry to exter
 Observability supports:
 - Recording LLM request events (prompt, model, tools, settings)
 - Recording LLM response events (content, usage, duration, errors)
+- Recording tool execution events (duration, skipped/errors)
+- Recording signals (warnings/errors) and trace updates when enabled
 - Recording realtime session request/response events per turn (one trace per `commit()`)
 - Recording request/response payloads when enabled (`requestPayload` / `rawResponse`)
 - Trace and session correlation
+- Multi-target export routing (per provider + per event category)
 - Non-blocking async export with retry
 
-**Not yet supported:** Embedding calls, vector operations, tool execution telemetry.
+**Not yet supported:** Embedding calls, vector operations.
 
 ## How to Enable
 
@@ -81,6 +84,28 @@ const spec = {
   }
 };
 ```
+
+### Multi-Target Configuration (`targets`)
+
+To export to multiple providers, use `observability.targets` (either globally in defaults or per-call):
+
+```json
+{
+  "observability": {
+    "enabled": true,
+    "targets": [
+      { "provider": "langfuse", "export": { "signals": false } },
+      { "provider": "sentry", "export": { "traces": false, "tools": false, "traceUpdates": false } }
+    ]
+  }
+}
+```
+
+Each target supports:
+- `provider`: observability provider id (`plugins/observability-providers/*.json`)
+- `providerConfig`: provider-specific settings passed through to the compat
+- `export`: per-category routing flags (`traces`, `tools`, `signals`, `traceUpdates`)
+- Optional per-target queue tuning overrides (`flushAt`, `timeoutMs`, etc.)
 
 ## Realtime Sessions
 

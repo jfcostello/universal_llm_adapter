@@ -7,6 +7,25 @@ export { deriveObservabilityModel } from './internal/derive-observability-model.
 export type { ObservabilityCaptureMessagesMode } from './internal/observability-capture.js';
 export { filterMessagesForObservability, filterContentForObservability } from './internal/observability-capture.js';
 
+export type { CachedRequestSummary } from './internal/observability-compat.js';
+export {
+  resolveMaxAttributeBytes,
+  eventTimestampToIso,
+  deriveStartTimeIsoFromDuration,
+  getStringArrayMetadata,
+  resolveTraceContext,
+  getEventIds,
+  getEnvelopeId,
+  isRequestEvent,
+  isResponseEvent,
+  deriveStartTimeIso,
+  cacheKey,
+  buildInputJson,
+  buildOutputJson,
+  buildCachedRequestSummary,
+  applyTraceUpdateToCachedRequests
+} from './internal/observability-compat.js';
+
 export type { Deferred } from './internal/deferred.js';
 export { createDeferred } from './internal/deferred.js';
 

@@ -1131,6 +1131,7 @@ for line in response.iter_lines():
 | `VECTOR_STORE_API_KEY` | Vector store API key |
 | `LANGFUSE_SECRET_KEY` | Langfuse secret key (for observability) |
 | `LANGFUSE_PUBLIC_KEY` | Langfuse public key (for observability) |
+| `SENTRY_DSN` | Sentry DSN (for observability) |
 
 ### Observability (Optional)
 
@@ -1141,6 +1142,23 @@ Enable LLM call and realtime session telemetry export in your request body/spec:
   "observability": {
     "enabled": true,
     "provider": "langfuse",
+    "captureMessages": "text"
+  },
+  "messages": [...],
+  "llmPriority": [...]
+}
+```
+
+Or configure multi-target export via `targets`:
+
+```json
+{
+  "observability": {
+    "enabled": true,
+    "targets": [
+      { "provider": "langfuse", "export": { "signals": false } },
+      { "provider": "sentry", "export": { "traces": false, "tools": false, "traceUpdates": false } }
+    ],
     "captureMessages": "text"
   },
   "messages": [...],

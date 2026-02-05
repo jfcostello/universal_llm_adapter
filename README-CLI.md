@@ -1121,11 +1121,12 @@ export VECTOR_STORE_API_KEY=...
 
 ### Observability (Optional)
 
-For LLM call and realtime session telemetry export to Langfuse (capture is minimal unless you opt in):
+For LLM call and realtime session telemetry export (capture is minimal unless you opt in):
 
 ```bash
 export LANGFUSE_SECRET_KEY=sk-lf-...
 export LANGFUSE_PUBLIC_KEY=pk-lf-...
+export SENTRY_DSN="https://<public_key>@<host>/<project_id>"
 ```
 
 Enable observability in your spec:
@@ -1139,6 +1140,23 @@ Enable observability in your spec:
   }
 }
 ```
+
+Or export to multiple providers via `targets`:
+
+```json
+{
+  "observability": {
+    "enabled": true,
+    "targets": [
+      { "provider": "langfuse", "export": { "signals": false } },
+      { "provider": "sentry", "export": { "traces": false, "tools": false, "traceUpdates": false } }
+    ],
+    "captureMessages": "text"
+  }
+}
+```
+
+Note: Sentry OTLP traces/tools export is disabled by default; enable it by setting `providerConfig.enableOtlp=true` on the Sentry target.
 
 Tip: set `metadata.correlationId` (trace name) and `metadata.tags` (tags) for stable naming/grouping.
 
