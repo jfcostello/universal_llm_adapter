@@ -1,11 +1,12 @@
-import type { AdapterLogger, Message, ProviderManifest, ToolCall, UnifiedTool } from '../../../../../kernel/index.js';
+import type { AdapterLogger, Message, ProviderManifest, ToolCall, UnifiedTool, ObservabilityContext } from '../../../../../kernel/index.js';
 
 import { appendToolResult } from '../../../../messages/index.js';
-import { sanitizeToolName } from '../../tool-names.js';
 import type { ToolCallBudget } from '../../tool-budget.js';
+import { monotonicElapsedMs, monotonicNowNs } from '../../../../shared/index.js';
 import { createProgressFields, resolveCountdownText } from './utils.js';
 import { isToolTerminalByDefinition, resolveCallArgTerminalOverride, resolveTerminalOverride, stripCallArgTerminalFlag } from './helpers.js';
 import type { InvokeToolFn } from './types.js';
+import { recordToolExecutionObservability, recordToolFailureSignal } from './observability.js';
 
 type ExecuteToolCallResult =
   | {
@@ -41,6 +42,8 @@ export async function executeNonStreamToolCallsRound(options: {
   providerManifest: ProviderManifest;
   model: string;
   metadata: Record<string, any> | undefined;
+  observability?: ObservabilityContext;
+  generationId?: string;
   logger: AdapterLogger;
   messages: Message[];
   invokeTool: InvokeToolFn;
@@ -57,11 +60,46 @@ export async function executeNonStreamToolCallsRound(options: {
     const targetToolName = options.toolNameMap[toolCall.name] || toolCall.name;
     const terminalByDefinition = isToolTerminalByDefinition(toolCall.name, options.toolByName);
     const callArgTerminalOverride = resolveCallArgTerminalOverride(toolCall, options.toolByName);
+    const toolArgs = (toolCall as any)?.arguments ?? (toolCall as any)?.args;
 
     if (options.toolBudget.exhausted) {
       options.logger.info('Tool budget exhausted; skipping invocation', {
         toolName: targetToolName,
         callId: toolCall.id
+      });
+      const timestampMs = Date.now();
+      recordToolExecutionObservability({
+        observability: options.observability,
+        logger: options.logger,
+        generationId: options.generationId,
+        provider: options.providerManifest.id,
+        model: options.model,
+        toolCallId: toolCall.id,
+        toolName: targetToolName,
+        timestampMs,
+        args: toolArgs,
+        result: {
+          error: 'tool_call_budget_exhausted',
+          message: 'No remaining tool calls are available for this run.',
+          tool: targetToolName
+        },
+        skipped: true,
+        skipReason: 'tool_call_budget_exhausted',
+        maxResultLength: options.maxResultLength
+      });
+      recordToolFailureSignal({
+        observability: options.observability,
+        logger: options.logger,
+        generationId: options.generationId,
+        timestampMs,
+        level: 'warning',
+        code: 'tool_call_budget_exhausted',
+        message: `Tool skipped due to budget exhaustion: ${targetToolName}`,
+        toolCallId: toolCall.id,
+        toolName: targetToolName,
+        provider: options.providerManifest.id,
+        model: options.model,
+        skipReason: 'tool_call_budget_exhausted'
       });
       return {
         type: 'exhausted',
@@ -79,6 +117,40 @@ export async function executeNonStreamToolCallsRound(options: {
       options.logger.info('Tool budget consumption blocked invocation', {
         toolName: targetToolName,
         callId: toolCall.id
+      });
+      const timestampMs = Date.now();
+      recordToolExecutionObservability({
+        observability: options.observability,
+        logger: options.logger,
+        generationId: options.generationId,
+        provider: options.providerManifest.id,
+        model: options.model,
+        toolCallId: toolCall.id,
+        toolName: targetToolName,
+        timestampMs,
+        args: toolArgs,
+        result: {
+          error: 'tool_call_budget_exhausted',
+          message: 'No remaining tool calls are available for this run.',
+          tool: targetToolName
+        },
+        skipped: true,
+        skipReason: 'tool_call_budget_exhausted',
+        maxResultLength: options.maxResultLength
+      });
+      recordToolFailureSignal({
+        observability: options.observability,
+        logger: options.logger,
+        generationId: options.generationId,
+        timestampMs,
+        level: 'warning',
+        code: 'tool_call_budget_exhausted',
+        message: `Tool skipped due to budget exhaustion: ${targetToolName}`,
+        toolCallId: toolCall.id,
+        toolName: targetToolName,
+        provider: options.providerManifest.id,
+        model: options.model,
+        skipReason: 'tool_call_budget_exhausted'
       });
       return {
         type: 'exhausted',
@@ -103,6 +175,7 @@ export async function executeNonStreamToolCallsRound(options: {
     };
 
     options.logger.info('Invoking tool', logPayload);
+    const startTimeMonoNs = monotonicNowNs();
 
     try {
       const invocationToolCall = stripCallArgTerminalFlag(toolCall, options.toolByName);
@@ -124,6 +197,21 @@ export async function executeNonStreamToolCallsRound(options: {
       const normalizedPayload = invocationResult?.result !== undefined
         ? invocationResult.result
         : invocationResult;
+      const timestampMs = Date.now();
+      recordToolExecutionObservability({
+        observability: options.observability,
+        logger: options.logger,
+        generationId: options.generationId,
+        provider: options.providerManifest.id,
+        model: options.model,
+        toolCallId: toolCall.id,
+        toolName: targetToolName,
+        timestampMs,
+        durationMs: monotonicElapsedMs(startTimeMonoNs),
+        args: (invocationToolCall as any)?.arguments ?? (invocationToolCall as any)?.args,
+        result: normalizedPayload,
+        maxResultLength: options.maxResultLength
+      });
       const isTerminal = overrideTerminal !== undefined
         ? overrideTerminal
         : callArgTerminalOverride !== undefined
@@ -142,6 +230,44 @@ export async function executeNonStreamToolCallsRound(options: {
       options.logger.error?.('Tool execution failed', {
         ...logPayload,
         error: error?.message ?? String(error)
+      });
+      const timestampMs = Date.now();
+      recordToolExecutionObservability({
+        observability: options.observability,
+        logger: options.logger,
+        generationId: options.generationId,
+        provider: options.providerManifest.id,
+        model: options.model,
+        toolCallId: toolCall.id,
+        toolName: targetToolName,
+        timestampMs,
+        durationMs: monotonicElapsedMs(startTimeMonoNs),
+        args: (toolCall as any)?.arguments ?? (toolCall as any)?.args,
+        result: {
+          error: 'tool_execution_failed',
+          message: error?.message ?? String(error),
+          tool: targetToolName
+        },
+        error: {
+          message: error?.message ?? String(error),
+          code: 'tool_execution_failed',
+          ...(error && typeof error === 'object' && typeof error.stack === 'string' ? { stack: error.stack } : {})
+        },
+        maxResultLength: options.maxResultLength
+      });
+      recordToolFailureSignal({
+        observability: options.observability,
+        logger: options.logger,
+        generationId: options.generationId,
+        timestampMs,
+        level: 'error',
+        code: 'tool_execution_failed',
+        message: `Tool execution failed: ${targetToolName}`,
+        ...(error && typeof error === 'object' && typeof error.stack === 'string' ? { stack: error.stack } : {}),
+        toolCallId: toolCall.id,
+        toolName: targetToolName,
+        provider: options.providerManifest.id,
+        model: options.model
       });
 
       return {

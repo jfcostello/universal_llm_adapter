@@ -23,6 +23,7 @@ import { executeNonStreamToolCallsRound } from './nonstream-execute.js';
 import { resolveFollowUpToolChoice } from './helpers.js';
 import { maybeAttachUsageCost, parseMaxToolIterations } from './utils.js';
 import type { NonStreamToolLoopOptions } from './types.js';
+import { readRunContextGenerationId } from './observability.js';
 
 export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<LLMResponse> {
   const {
@@ -59,6 +60,9 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
   const allToolResults: Array<{ tool: string; result: any }> = [];
   const allToolCalls: ToolCall[] = [];
   const calledToolNames = new Set<string>();
+
+  const observability = runContext?.observability;
+  const generationId = readRunContextGenerationId(runContext);
 
   let response = initialResponse;
   let forceFinalize = false;
@@ -178,6 +182,8 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
       providerManifest,
       model,
       metadata,
+      observability,
+      generationId,
       logger,
       messages,
       invokeTool
