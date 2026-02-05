@@ -18,10 +18,12 @@ export { monotonicNowNs, monotonicElapsedMs } from './internal/monotonic.js';
 
 export { calculateBackoffDelay } from './internal/calculate-backoff-delay.js';
 
+export { clampInt, clampRate } from './internal/normalize-number.js';
+
 export { truncateUtf8Bytes } from './internal/serialization.js';
 
-export type { SafeJsonStringifyOptions, FlattenPrimitiveStringsOptions } from './internal/serialization.js';
-export { safeJsonStringify, flattenPrimitiveStrings } from './internal/serialization.js';
+export type { SafeJsonStringifyOptions, SafeJsonValueOptions, FlattenPrimitiveStringsOptions } from './internal/serialization.js';
+export { safeJsonStringify, safeJsonValue, flattenPrimitiveStrings } from './internal/serialization.js';
 
 export type { LiveTestLogContext } from './internal/live-test-logger.js';
 export { logRequest, logResponse, logObservabilityEvent } from './internal/live-test-logger.js';

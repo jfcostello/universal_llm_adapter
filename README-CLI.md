@@ -1191,7 +1191,7 @@ export VECTOR_STORE_API_KEY=...
 
 ### Observability (Optional)
 
-For LLM call and realtime session telemetry export (capture is minimal unless you opt in):
+For LLM call and realtime session telemetry export (disabled by default; capture defaults come from `plugins/configs/defaults.json`):
 
 ```bash
 export LANGFUSE_SECRET_KEY=sk-lf-...

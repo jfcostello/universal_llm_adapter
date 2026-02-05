@@ -3,7 +3,7 @@ import { jest } from '@jest/globals';
 describe('modules/observability multi-target exporter', () => {
   test('routes events by target export configuration', async () => {
     const { MultiObservabilityExporter } = await import(
-      '@/modules/observability/internal/observability/internal/multi-exporter.ts'
+      '@/modules/observability/internal/exporter/internal/multi-exporter.ts'
     );
 
     const tracesOnly: any = {
@@ -110,7 +110,7 @@ describe('modules/observability multi-target exporter', () => {
 
   test('filters invalid targets and defaults export config to all enabled', async () => {
     const { MultiObservabilityExporter } = await import(
-      '@/modules/observability/internal/observability/internal/multi-exporter.ts'
+      '@/modules/observability/internal/exporter/internal/multi-exporter.ts'
     );
 
     const exporterImpl: any = {
@@ -184,7 +184,7 @@ describe('modules/observability multi-target exporter', () => {
 
   test('preserves non-disabled record reasons when nothing is queued', async () => {
     const { MultiObservabilityExporter } = await import(
-      '@/modules/observability/internal/observability/internal/multi-exporter.ts'
+      '@/modules/observability/internal/exporter/internal/multi-exporter.ts'
     );
 
     const shuttingDown: any = {
@@ -226,7 +226,7 @@ describe('modules/observability multi-target exporter', () => {
 
   test('dedupes record calls when multiple targets share the same exporter instance', async () => {
     const { MultiObservabilityExporter } = await import(
-      '@/modules/observability/internal/observability/internal/multi-exporter.ts'
+      '@/modules/observability/internal/exporter/internal/multi-exporter.ts'
     );
 
     const impl: any = {
@@ -259,7 +259,7 @@ describe('modules/observability multi-target exporter', () => {
 
   test('merges export config when de-duping shared exporter instances', async () => {
     const { MultiObservabilityExporter } = await import(
-      '@/modules/observability/internal/observability/internal/multi-exporter.ts'
+      '@/modules/observability/internal/exporter/internal/multi-exporter.ts'
     );
 
     const impl: any = {
@@ -309,7 +309,7 @@ describe('modules/observability multi-target exporter', () => {
 
   test('returns the exporter result when nothing is queued (including disabled reasons)', async () => {
     const { MultiObservabilityExporter } = await import(
-      '@/modules/observability/internal/observability/internal/multi-exporter.ts'
+      '@/modules/observability/internal/exporter/internal/multi-exporter.ts'
     );
 
     const impl: any = {
@@ -339,7 +339,7 @@ describe('modules/observability multi-target exporter', () => {
 
   test('falls back to disabled when results omit a reason', async () => {
     const { MultiObservabilityExporter } = await import(
-      '@/modules/observability/internal/observability/internal/multi-exporter.ts'
+      '@/modules/observability/internal/exporter/internal/multi-exporter.ts'
     );
 
     const impl: any = {
@@ -368,7 +368,7 @@ describe('modules/observability multi-target exporter', () => {
 
   test('uses empty eventId when a queued result omits eventId', async () => {
     const { MultiObservabilityExporter } = await import(
-      '@/modules/observability/internal/observability/internal/multi-exporter.ts'
+      '@/modules/observability/internal/exporter/internal/multi-exporter.ts'
     );
 
     const impl: any = {
@@ -398,7 +398,7 @@ describe('modules/observability multi-target exporter', () => {
 
   test('returns disabled when no targets accept the event category', async () => {
     const { MultiObservabilityExporter } = await import(
-      '@/modules/observability/internal/observability/internal/multi-exporter.ts'
+      '@/modules/observability/internal/exporter/internal/multi-exporter.ts'
     );
 
     const impl: any = {
@@ -435,7 +435,7 @@ describe('modules/observability multi-target exporter', () => {
 
   test('dedupes flush/shutdown and swallows exporter failures', async () => {
     const { MultiObservabilityExporter } = await import(
-      '@/modules/observability/internal/observability/internal/multi-exporter.ts'
+      '@/modules/observability/internal/exporter/internal/multi-exporter.ts'
     );
 
     const impl: any = {

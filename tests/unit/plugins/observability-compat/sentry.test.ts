@@ -193,7 +193,7 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
           timestampMs: 1704067200000,
           level: 'warn',
           stack: 'stack',
-          metadata: { deep: { ok: true } },
+          metadata: { deep: { ok: true, apiKey: 'sk-123456' } },
           source: 'src',
           tags: ['t1']
         } as any,
@@ -205,7 +205,7 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       expect(payload.message).toBe('signal');
       expect(payload.tags['llm.adapter.tags']).toBe('a,b');
       expect(payload.extra?.stack).toBe('stack');
-      expect(typeof payload.extra?.metadata).toBe('string');
+      expect(payload.extra?.metadata).toEqual({ deep: { ok: true, apiKey: '***3456' } });
       expect(payload.contexts?.trace?.span_id).toBe(deriveOtlpSpanIdHex('gen-abc'));
     });
 
@@ -403,9 +403,8 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       const { payload: event } = parseEnvelope((payload as any).envelopes[0].body);
       expect(event.message).toBe('tool_result:test.echo');
       expect(event.contexts?.trace?.trace_id).toBe(deriveOtlpTraceIdHex(traceId));
-      expect(typeof event.extra?.metadata).toBe('string');
 
-      const metadata = JSON.parse(event.extra.metadata);
+      const metadata = event.extra?.metadata as any;
       expect(metadata.toolExecution?.name).toBe('test.echo');
       expect(metadata.toolExecution?.callId).toBe('call-1');
       expect(metadata.toolExecution?.resultText).toBe('ok');
@@ -435,7 +434,7 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       );
 
       const { payload: event } = parseEnvelope((payload as any).envelopes[0].body);
-      const metadata = JSON.parse(event.extra.metadata);
+      const metadata = event.extra?.metadata as any;
       expect(metadata.toolExecution?.argsText).toBeUndefined();
       expect(metadata.toolExecution?.resultText).toBe('from-result');
     });
@@ -463,7 +462,7 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       );
 
       const { payload: event } = parseEnvelope((payload as any).envelopes[0].body);
-      const metadata = JSON.parse(event.extra.metadata);
+      const metadata = event.extra?.metadata as any;
       expect(metadata.toolExecution?.resultText).toBeUndefined();
     });
 
@@ -527,7 +526,7 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       expect(event.message).toBe('tool_result:tool');
       expect(event.contexts?.trace?.trace_id).toBe(deriveOtlpTraceIdHex(''));
 
-      const metadata = JSON.parse(event.extra.metadata);
+      const metadata = event.extra?.metadata as any;
       expect(metadata.toolExecution?.name).toBe('');
       expect(metadata.toolExecution?.callId).toBe('');
     });

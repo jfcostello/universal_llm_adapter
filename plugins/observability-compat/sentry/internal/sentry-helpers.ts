@@ -3,7 +3,8 @@ import { substituteEnv } from '../../../../kernel/index.js';
 
 import { deriveOtlpSpanIdHex, deriveOtlpTraceIdHex } from '../../../../modules/observability/index.js';
 import { eventTimestampToIso, resolveMaxAttributeBytes } from '../../../../modules/observability/index.js';
-import { safeJsonStringify, truncateUtf8Bytes } from '../../../../modules/shared/index.js';
+import { safeJsonValue, truncateUtf8Bytes } from '../../../../modules/shared/index.js';
+import { redactJsonCredentials } from '../../../../modules/security/index.js';
 
 export type ParsedSentryDsn = {
   dsn: string;
@@ -123,7 +124,10 @@ export function buildSentrySignalEnvelope(options: {
   if (options.event.code) extra.code = options.event.code;
   if (options.event.stack) extra.stack = truncateUtf8Bytes(String(options.event.stack), maxBytes);
   if (options.event.tags) extra.tags = options.event.tags;
-  if (options.event.metadata) extra.metadata = safeJsonStringify(options.event.metadata, { maxBytes });
+  if (options.event.metadata) {
+    const redacted = redactJsonCredentials(options.event.metadata);
+    extra.metadata = safeJsonValue(redacted, { maxBytes });
+  }
 
   const tags: Record<string, string> = {};
   if (options.traceContext.traceName) tags['llm.adapter.correlation_id'] = options.traceContext.traceName;

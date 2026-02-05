@@ -2,6 +2,8 @@ import { jest } from '@jest/globals';
 import {
   normalizeFlag,
   parseNonNegativeInt,
+  clampInt,
+  clampRate,
   assertValidExtensionName,
   readTrimmedStringProperty,
   makeHttpError,
@@ -15,6 +17,7 @@ import {
   deriveObservabilityModel,
   truncateUtf8Bytes,
   safeJsonStringify,
+  safeJsonValue,
   flattenPrimitiveStrings,
   isPlainObject,
   emitManifestOverrideWarning,
@@ -115,6 +118,30 @@ describe('modules/shared', () => {
       expect(parseNonNegativeInt('7.9', 5)).toBe(7);
       expect(parseNonNegativeInt('-2', 5)).toBe(0);
       expect(parseNonNegativeInt('nope', 5)).toBe(5);
+    });
+  });
+
+  describe('clampInt', () => {
+    test('normalizes number and string inputs', () => {
+      expect(clampInt(12.9, 1, 0, 100)).toBe(12);
+      expect(clampInt('7', 1, 0, 100)).toBe(7);
+      expect(clampInt('nope', 5, 0, 100)).toBe(5);
+      expect(clampInt(Number.POSITIVE_INFINITY, 6, 0, 100)).toBe(6);
+    });
+
+    test('clamps to min/max bounds', () => {
+      expect(clampInt(-5, 0, 0, 10)).toBe(0);
+      expect(clampInt(999, 0, 0, 10)).toBe(10);
+    });
+  });
+
+  describe('clampRate', () => {
+    test('clamps to 0..1 and parses strings', () => {
+      expect(clampRate(0.5, 1)).toBe(0.5);
+      expect(clampRate('0.2', 1)).toBe(0.2);
+      expect(clampRate(-1, 1)).toBe(0);
+      expect(clampRate(2, 0)).toBe(1);
+      expect(clampRate('nope', 0.25)).toBe(0.25);
     });
   });
 
@@ -585,6 +612,41 @@ describe('modules/shared', () => {
     test('returns empty string for non-positive maxBytes', () => {
       expect(safeJsonStringify({ a: 1 }, { maxBytes: 0 })).toBe('');
       expect(safeJsonStringify({ a: 1 }, { maxBytes: -1 })).toBe('');
+    });
+  });
+
+  describe('safeJsonValue', () => {
+    test('bounds objects safely (cycles) without emitting invalid JSON', () => {
+      const obj: any = { a: 1 };
+      obj.self = obj;
+
+      const value = safeJsonValue(obj) as any;
+      const json = JSON.stringify(value);
+      expect(JSON.parse(json).a).toBe(1);
+      expect(json).toContain('Circular');
+    });
+
+    test('fits within maxBytes by reducing structure bounds', () => {
+      const value = safeJsonValue({ a: 'x'.repeat(1000) }, { maxBytes: 50 }) as any;
+      const json = JSON.stringify(value);
+      expect(Buffer.byteLength(json, 'utf8')).toBeLessThanOrEqual(50);
+      expect(JSON.parse(json).a).toBeTruthy();
+    });
+
+    test('returns null for non-positive maxBytes', () => {
+      expect(safeJsonValue({ a: 1 }, { maxBytes: 0 })).toBeNull();
+      expect(safeJsonValue({ a: 1 }, { maxBytes: -1 })).toBeNull();
+    });
+
+    test('returns a fallback marker when bounds cannot be reduced enough', () => {
+      const value = safeJsonValue({ a: 'x'.repeat(1000) }, { maxBytes: 5, maxDepth: 0, maxArrayLength: 0, maxObjectKeys: 0 });
+      expect(value).toBe('[Truncated]');
+    });
+
+    test('can shrink strings further when JSON overhead exceeds maxBytes', () => {
+      const value = safeJsonValue('x'.repeat(1000), { maxBytes: 20, maxDepth: 0, maxArrayLength: 0, maxObjectKeys: 0 });
+      const json = JSON.stringify(value);
+      expect(Buffer.byteLength(json, 'utf8')).toBeLessThanOrEqual(20);
     });
   });
 

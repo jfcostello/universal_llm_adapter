@@ -5,7 +5,7 @@ import type {
 } from '../../../../kernel/index.js';
 
 import type { OtlpSpanSpec } from '../../../../modules/observability/index.js';
-import { truncateUtf8Bytes, safeJsonStringify } from '../../../../modules/shared/index.js';
+import { setUnrefTimeout, truncateUtf8Bytes, safeJsonStringify } from '../../../../modules/shared/index.js';
 import { redactJsonCredentials } from '../../../../modules/security/index.js';
 
 import {
@@ -145,7 +145,7 @@ export async function sendSentryBatch(
           : undefined;
 
       if (timeoutMs !== undefined) {
-        timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        timeoutId = setUnrefTimeout(() => controller.abort(), timeoutMs);
       }
 
       try {

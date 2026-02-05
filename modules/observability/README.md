@@ -27,24 +27,22 @@ Enable observability globally by adding to your `plugins/configs/defaults.json`:
 {
   "observability": {
     "enabled": true,
+    "provider": "your-observability-provider-id"
+  }
+}
+```
+
+To reduce capture from the shipped defaults:
+
+```json
+{
+  "observability": {
+    "enabled": true,
     "provider": "your-observability-provider-id",
-    "flushAt": 10,
-    "flushIntervalMs": 5000,
-    "maxQueueSize": 1000,
-    "maxAttempts": 3,
-    "baseDelayMs": 250,
-    "maxDelayMs": 30000,
-    "timeoutMs": 10000,
-    "shutdownTimeoutMs": 5000,
-    "maxAttributeValueBytes": 16384,
-    "captureMessages": "none",
+    "captureMessages": "text",
     "captureToolArgs": false,
     "captureRequestPayload": false,
-    "captureRawResponse": false,
-    "sampleRate": 1,
-    "maxInputTextBytes": 4096,
-    "maxOutputTextBytes": 4096,
-    "maxJsonBytes": 8192
+    "captureRawResponse": false
   }
 }
 ```
@@ -71,7 +69,7 @@ const spec = {
     maxAttempts: 5,
     // Optional: truncation budget for exported attribute strings (UTF-8 bytes)
     maxAttributeValueBytes: 8192,
-    // Optional: capture controls (safety/performance)
+    // Optional: capture controls (override defaults)
     captureMessages: 'text',
     captureToolArgs: false,
     captureRequestPayload: false,
@@ -189,15 +187,15 @@ The adapter also forwards token breakdown details (e.g., input/output/total, cac
 
 ## Capture Controls (Safety + Performance)
 
-Observability export is enabled explicitly, but **payload capture is disabled by default** to reduce latency, CPU, memory, and the risk of exporting sensitive content.
+Observability export is disabled by default. When enabled, **shipped defaults capture full messages and payloads** for maximum debuggability, and can be dialed down to reduce latency/CPU/memory and the risk of exporting sensitive content.
 
 - `captureMessages`:
-  - `none` (default): do not export prompt/response bodies
+  - `none`: do not export prompt/response bodies
   - `text`: export only text content parts (excludes documents, images, tool result payloads)
-  - `full`: export full structured message/content payloads
-- `captureToolArgs` (default `false`): export tool-call arguments/metadata
-- `captureRequestPayload` (default `false`): export final provider request payload
-- `captureRawResponse` (default `false`): export raw provider response payloads (when available)
+  - `full` (default in shipped defaults): export full structured message/content payloads
+- `captureToolArgs` (default `true` in shipped defaults): export tool-call arguments/metadata
+- `captureRequestPayload` (default `true` in shipped defaults): export final provider request payload
+- `captureRawResponse` (default `true` in shipped defaults): export raw provider response payloads (when available)
 - `sampleRate` (default `1`): sampling rate (0..1). When < 1, calls may be skipped entirely.
 
 Budgets:
@@ -285,7 +283,7 @@ Env var:
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `enabled` | boolean | `false` | Enable observability export |
-| `provider` | string | `undefined` | Provider ID |
+| `provider` | string | `'langfuse'` | Provider ID |
 | `traceId` | string | auto | Trace ID (falls back to correlationId or UUID) |
 | `sessionId` | string | undefined | Session ID for grouping traces |
 | `providerConfig` | object | undefined | Provider-specific configuration |
@@ -298,10 +296,10 @@ Env var:
 | `timeoutMs` | number | `10000` | HTTP timeout for export requests |
 | `shutdownTimeoutMs` | number | `5000` | Max time to wait for exporter shutdown during process exit (set `0` to disable cap) |
 | `maxAttributeValueBytes` | number | `16384` | Max UTF-8 bytes for any exported attribute string value |
-| `captureMessages` | `'none' \| 'text' \| 'full'` | `'none'` | Capture prompt/response content bodies |
-| `captureToolArgs` | boolean | `false` | Capture tool-call args/metadata |
-| `captureRequestPayload` | boolean | `false` | Capture final provider request payload |
-| `captureRawResponse` | boolean | `false` | Capture raw provider response payloads |
+| `captureMessages` | `'none' \| 'text' \| 'full'` | `'full'` | Capture prompt/response content bodies |
+| `captureToolArgs` | boolean | `true` | Capture tool-call args/metadata |
+| `captureRequestPayload` | boolean | `true` | Capture final provider request payload |
+| `captureRawResponse` | boolean | `true` | Capture raw provider response payloads |
 | `sampleRate` | number | `1` | Sampling rate (0..1). When < 1, calls may be skipped |
 | `maxInputTextBytes` | number | `4096` | Max UTF-8 bytes for aggregated input text fields |
 | `maxOutputTextBytes` | number | `4096` | Max UTF-8 bytes for aggregated output text fields |
@@ -330,12 +328,28 @@ modules/observability/
 ├── index.ts              # Public exports
 ├── README.md             # This file
 └── internal/
-    ├── observability.ts  # Core queue + exporter + runtime
-    └── otlp/             # OTLP HTTP/protobuf encoding + client helpers
-        ├── client.ts
-        ├── encode.ts
-        ├── ids.ts
-        ├── spans.ts
-        ├── time.ts
-        └── types.ts
+    ├── compat-helpers.ts
+    ├── exporter/         # Core queue + exporter + runtime cache
+    │   ├── README.md
+    │   ├── index.ts
+    │   └── internal/
+    │       ├── config.ts
+    │       ├── create-deps.ts
+    │       ├── exporter.ts
+    │       ├── multi-exporter.ts
+    │       ├── runtime.ts
+    │       ├── send-with-size-limit.ts
+    │       └── types.ts
+    ├── observability.ts  # Re-export: exporter public surface
+    ├── otlp/             # OTLP HTTP/protobuf encoding + client helpers
+    │   ├── chunk-and-encode.ts
+    │   ├── client.ts
+    │   ├── encode-worker.ts
+    │   ├── encode.ts
+    │   ├── ids.ts
+    │   ├── spans.ts
+    │   ├── time.ts
+    │   └── types.ts
+    ├── runtime.ts
+    └── telemetry-submit.ts
 ```

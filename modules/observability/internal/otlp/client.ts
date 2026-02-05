@@ -1,6 +1,6 @@
 import type { ObservabilityEnvelopeOutcome } from '../../../../kernel/index.js';
 import type { OtlpSpanSpec } from './types.js';
-import { sleepWithSignal } from '../../../shared/index.js';
+import { setUnrefTimeout, sleepWithSignal } from '../../../shared/index.js';
 import { chunkAndEncodeOtlpTraceSpans, type EncodedOtlpChunk } from './chunk-and-encode.js';
 
 function isRetryableStatus(status: number): boolean {
@@ -315,7 +315,7 @@ export async function sendOtlpTraceSpans(options: {
     let cleanupSignal: (() => void) | undefined;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     if (timeoutMs !== undefined) {
-      timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      timeoutId = setUnrefTimeout(() => controller.abort(), timeoutMs);
     }
 
     try {

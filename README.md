@@ -356,7 +356,7 @@ MCP server configurations live in `plugins/mcp/*.json`:
 
 ### Observability (Optional)
 
-Observability enables export of LLM call **and realtime session** telemetry to platforms like Langfuse or Sentry. It is disabled by default, and capture is intentionally minimal unless you opt in.
+Observability enables export of LLM call **and realtime session** telemetry. It is disabled by default. When enabled, capture defaults come from `plugins/configs/defaults.json` (shipped defaults currently enable full message + payload capture), and can be dialed down via the capture controls.
 
 **Global Configuration** (`plugins/configs/defaults.json`):
 
@@ -382,7 +382,7 @@ Observability enables export of LLM call **and realtime session** telemetry to p
     provider: 'langfuse',          // or: 'sentry'
     traceId: 'custom-trace-id',    // Optional
     sessionId: 'session-abc',       // Optional
-    // Capture controls (defaults are safe/lightweight)
+    // Capture controls (override the shipped defaults)
     captureMessages: 'text',        // 'none' | 'text' | 'full'
     captureToolArgs: false,
     captureRequestPayload: false,

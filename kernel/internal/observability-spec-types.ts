@@ -65,19 +65,19 @@ export interface ObservabilityContext {
 
   /**
    * Whether to export tool-call arguments/metadata.
-   * Defaults to false for safety/performance.
+   * Defaults to `DefaultSettings.observability.captureToolArgs`.
    */
   captureToolArgs: boolean;
 
   /**
    * Whether to export the final provider request payload (`requestPayload`).
-   * Defaults to false for safety/performance.
+   * Defaults to `DefaultSettings.observability.captureRequestPayload`.
    */
   captureRequestPayload: boolean;
 
   /**
    * Whether to export raw provider response payloads when available (`rawResponse`).
-   * Defaults to false for safety/performance.
+   * Defaults to `DefaultSettings.observability.captureRawResponse`.
    */
   captureRawResponse: boolean;
 
