@@ -152,6 +152,27 @@ describe('utils/tools/runToolLoop observability', () => {
     expect(event.args).toEqual({ answer: true });
   });
 
+  test('captureToolArgs missing falls back to false and omits args', () => {
+    const observability = createObservabilityContext({ captureToolArgs: undefined });
+
+    recordToolExecutionObservability({
+      observability,
+      logger: { info: jest.fn(), warning: jest.fn(), error: jest.fn(), debug: jest.fn() } as any,
+      generationId: undefined,
+      provider: 'provider',
+      model: 'model',
+      toolCallId: 'call-1',
+      toolName: 'example_tool',
+      timestampMs: Date.now(),
+      args: { api_key: 'supersecret' },
+      result: { ok: true },
+      maxResultLength: null
+    });
+
+    const event = (observability.exporter.recordToolExecution as any).mock.calls[0][0];
+    expect(event.args).toBeUndefined();
+  });
+
   test('captureMessages="full" preserves bounded structured tool result payloads under tight maxJsonBytes', () => {
     const observability = createObservabilityContext({
       captureMessages: 'full',

@@ -61,7 +61,7 @@ export function recordToolExecutionObservability(options: {
 
   try {
     const captureMessages = obs.captureMessages ?? 'full';
-    const captureToolArgs = obs.captureToolArgs ?? true;
+    const captureToolArgs = obs.captureToolArgs ?? false;
 
     const maxJsonBytes = typeof obs.maxJsonBytes === 'number' ? obs.maxJsonBytes : 8192;
     const maxOutputTextBytes = typeof obs.maxOutputTextBytes === 'number' ? obs.maxOutputTextBytes : 4096;
