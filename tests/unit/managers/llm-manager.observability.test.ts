@@ -88,6 +88,53 @@ describe('LLMManager observability', () => {
     expect(responseArg.toolCalls).toEqual([{ id: 'tc-1', name: 'test_tool' }]);
   });
 
+  test('callProvider falls back to restrictive shipped defaults when capture fields are missing', async () => {
+    const mockSDKResponse = {
+      content: [{ type: 'text', text: 'SDK response' }],
+      role: Role.ASSISTANT,
+      toolCalls: [{ id: 'tc-1', name: 'test_tool', arguments: { secret: 'abcd1234' } }],
+      raw: { token: 'abcd1234', ok: true }
+    };
+
+    const mockCompat = {
+      callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = createMockObservabilityContext({
+      captureMessages: undefined,
+      captureToolArgs: undefined,
+      captureRequestPayload: undefined,
+      captureRawResponse: undefined
+    });
+    const context: RunContext = { observability };
+
+    const manager = new LLMManager(registry);
+    await manager.callProvider(
+      mockProvider,
+      'test-model',
+      { temperature: 0.7 },
+      mockMessages,
+      [],
+      undefined,
+      { api_key: 'sk-abcdef1234' },
+      undefined,
+      context
+    );
+
+    const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
+    expect(requestArg.messages).toEqual([]);
+    expect(requestArg.requestPayload).toBeUndefined();
+
+    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+    expect(responseArg.content).toEqual([]);
+    expect(responseArg.rawResponse).toBeUndefined();
+    expect(responseArg.toolCalls).toEqual([{ id: 'tc-1', name: 'test_tool' }]);
+  });
+
   test('callProvider omits tool args when captureToolArgs is missing (falls back to shipped default)', async () => {
     const mockSDKResponse = {
       content: [{ type: 'text', text: 'SDK response' }],

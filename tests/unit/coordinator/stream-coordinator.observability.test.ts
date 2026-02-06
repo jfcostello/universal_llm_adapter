@@ -188,7 +188,7 @@ describe('StreamCoordinator observability', () => {
     expect(responseArg.model).toBe('upstream-a/stub-model');
   });
 
-  test('falls back to compatibility defaults when capture fields are missing on the observability context', async () => {
+  test('falls back to restrictive shipped defaults when capture fields are missing on the observability context', async () => {
     const parseStreamChunk = () => ({
       toolEvents: [
         { type: ToolCallEventType.TOOL_CALL_START, callId: 'tool-1', name: 'echo.text' },
@@ -251,9 +251,10 @@ describe('StreamCoordinator observability', () => {
     }
 
     const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
-    expect(requestArg.messages[0].content).toHaveLength(2);
+    expect(requestArg.messages).toEqual([]);
 
     const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+    expect(responseArg.content).toEqual([]);
     expect(responseArg.toolCalls).toEqual([{ id: 'tool-1', name: 'echo.text' }]);
   });
 

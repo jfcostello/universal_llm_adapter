@@ -22,6 +22,7 @@ import {
   flattenPrimitiveStrings,
   isPlainObject,
   emitManifestOverrideWarning,
+  resolveObservabilityCaptureSettings,
   validateE164,
   type Deferred,
   type ValidateE164Result
@@ -93,6 +94,61 @@ describe('modules/shared', () => {
       expect(normalizeFlag({}, false)).toBe(true);
       expect(normalizeFlag([], false)).toBe(true);
       expect(normalizeFlag(() => {}, false)).toBe(true);
+    });
+  });
+
+  describe('resolveObservabilityCaptureSettings', () => {
+    test('returns restrictive shipped defaults when fields are missing', () => {
+      expect(resolveObservabilityCaptureSettings(undefined as any)).toEqual({
+        captureMessages: 'none',
+        captureToolArgs: false,
+        captureRequestPayload: false,
+        captureRawResponse: false
+      });
+      expect(resolveObservabilityCaptureSettings({} as any)).toEqual({
+        captureMessages: 'none',
+        captureToolArgs: false,
+        captureRequestPayload: false,
+        captureRawResponse: false
+      });
+    });
+
+    test('normalizes valid capture modes and flags', () => {
+      expect(
+        resolveObservabilityCaptureSettings({
+          captureMessages: ' text ',
+          captureToolArgs: '1' as any,
+          captureRequestPayload: 'yes' as any,
+          captureRawResponse: true as any
+        } as any)
+      ).toEqual({
+        captureMessages: 'text',
+        captureToolArgs: true,
+        captureRequestPayload: true,
+        captureRawResponse: true
+      });
+
+      expect(
+        resolveObservabilityCaptureSettings({
+          captureMessages: ' FULL '
+        } as any).captureMessages
+      ).toBe('full');
+    });
+
+    test('falls back to restrictive defaults for invalid capture values', () => {
+      expect(
+        resolveObservabilityCaptureSettings({
+          captureMessages: 'everything',
+          captureToolArgs: 'maybe' as any,
+          captureRequestPayload: '',
+          captureRawResponse: null
+        } as any)
+      ).toEqual({
+        captureMessages: 'none',
+        captureToolArgs: false,
+        captureRequestPayload: false,
+        captureRawResponse: false
+      });
     });
   });
 

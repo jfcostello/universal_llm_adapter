@@ -6,6 +6,8 @@ export { deriveObservabilityModel } from './internal/derive-observability-model.
 
 export type { ObservabilityCaptureMessagesMode } from './internal/observability-capture.js';
 export { filterMessagesForObservability, filterContentForObservability } from './internal/observability-capture.js';
+export type { ResolvedObservabilityCaptureSettings } from './internal/observability-compat.js';
+export { resolveObservabilityCaptureSettings } from './internal/observability-compat.js';
 
 export type { Deferred } from './internal/deferred.js';
 export { createDeferred } from './internal/deferred.js';

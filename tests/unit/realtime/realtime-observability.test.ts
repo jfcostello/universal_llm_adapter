@@ -491,6 +491,7 @@ describe('modules/realtime: observability (per-turn traces)', () => {
         exporter,
         baseTraceId: 'trace',
         sessionId: 'session-abc',
+        captureMessages: 'text',
         captureToolArgs: false,
         captureRequestPayload: false,
         captureRawResponse: false,

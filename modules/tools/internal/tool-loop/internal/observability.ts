@@ -6,7 +6,12 @@ import type {
 } from '../../../../../kernel/index.js';
 
 import { redactJsonCredentials } from '../../../../security/index.js';
-import { safeJsonStringify, safeJsonValue, truncateUtf8Bytes } from '../../../../shared/index.js';
+import {
+  resolveObservabilityCaptureSettings,
+  safeJsonStringify,
+  safeJsonValue,
+  truncateUtf8Bytes
+} from '../../../../shared/index.js';
 
 function readTrimmedString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
@@ -60,8 +65,7 @@ export function recordToolExecutionObservability(options: {
   if (!obs) return;
 
   try {
-    const captureMessages = obs.captureMessages ?? 'full';
-    const captureToolArgs = obs.captureToolArgs ?? false;
+    const { captureMessages, captureToolArgs } = resolveObservabilityCaptureSettings(obs);
 
     const maxJsonBytes = typeof obs.maxJsonBytes === 'number' ? obs.maxJsonBytes : 8192;
     const maxOutputTextBytes = typeof obs.maxOutputTextBytes === 'number' ? obs.maxOutputTextBytes : 4096;

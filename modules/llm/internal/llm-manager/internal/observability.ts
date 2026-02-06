@@ -13,7 +13,8 @@ import {
   filterContentForObservability,
   filterMessagesForObservability,
   logObservabilityEvent,
-  monotonicElapsedMs
+  monotonicElapsedMs,
+  resolveObservabilityCaptureSettings
 } from '../../../../shared/index.js';
 
 /**
@@ -35,8 +36,7 @@ export function recordObservabilityRequest(
   if (!context.observability) return null;
 
   try {
-    const captureMessages = context.observability.captureMessages ?? 'full';
-    const captureRequestPayload = context.observability.captureRequestPayload ?? true;
+    const { captureMessages, captureRequestPayload } = resolveObservabilityCaptureSettings(context.observability);
 
     const event = {
       traceId: context.observability.traceId,
@@ -79,9 +79,7 @@ export function recordObservabilityResponse(
   if (!context.observability) return null;
 
   try {
-    const captureMessages = context.observability.captureMessages ?? 'full';
-    const captureToolArgs = context.observability.captureToolArgs ?? false;
-    const captureRawResponse = context.observability.captureRawResponse ?? true;
+    const { captureMessages, captureToolArgs, captureRawResponse } = resolveObservabilityCaptureSettings(context.observability);
 
     const endTimeMs = Date.now();
     const durationMs = monotonicElapsedMs(startTimeMonoNs);

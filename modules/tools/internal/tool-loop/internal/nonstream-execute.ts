@@ -176,9 +176,9 @@ export async function executeNonStreamToolCallsRound(options: {
 
     options.logger.info('Invoking tool', logPayload);
     const startTimeMonoNs = monotonicNowNs();
+    const invocationToolCall = stripCallArgTerminalFlag(toolCall, options.toolByName);
 
     try {
-      const invocationToolCall = stripCallArgTerminalFlag(toolCall, options.toolByName);
       const invocationResult = await options.invokeTool(
         targetToolName,
         invocationToolCall,
@@ -242,7 +242,7 @@ export async function executeNonStreamToolCallsRound(options: {
         toolName: targetToolName,
         timestampMs,
         durationMs: monotonicElapsedMs(startTimeMonoNs),
-        args: (toolCall as any)?.arguments ?? (toolCall as any)?.args,
+        args: (invocationToolCall as any)?.arguments ?? (invocationToolCall as any)?.args,
         result: {
           error: 'tool_execution_failed',
           message: error?.message ?? String(error),

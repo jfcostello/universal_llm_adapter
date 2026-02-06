@@ -152,8 +152,11 @@ describe('utils/tools/runToolLoop observability', () => {
     expect(event.args).toEqual({ answer: true });
   });
 
-  test('captureToolArgs missing falls back to false and omits args', () => {
-    const observability = createObservabilityContext({ captureToolArgs: undefined });
+  test('missing capture fields fall back to restrictive shipped defaults', () => {
+    const observability = createObservabilityContext({
+      captureMessages: undefined,
+      captureToolArgs: undefined
+    });
 
     recordToolExecutionObservability({
       observability,
@@ -171,6 +174,8 @@ describe('utils/tools/runToolLoop observability', () => {
 
     const event = (observability.exporter.recordToolExecution as any).mock.calls[0][0];
     expect(event.args).toBeUndefined();
+    expect(event.result).toBeUndefined();
+    expect(event.resultText).toBeUndefined();
   });
 
   test('captureMessages="full" preserves bounded structured tool result payloads under tight maxJsonBytes', () => {
@@ -217,7 +222,7 @@ describe('utils/tools/runToolLoop observability', () => {
       llmManager,
       registry: {} as any,
       messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
-      tools: [{ name: 'example_tool' }],
+      tools: [{ name: 'example_tool', toolCallTerminalFlag: { field: 'terminal' } }],
       toolChoice: 'auto',
       providerManifest,
       model: 'model',
@@ -237,15 +242,22 @@ describe('utils/tools/runToolLoop observability', () => {
         model: 'model',
         role: Role.ASSISTANT,
         content: [],
-        toolCalls: [{ id: 'call-1', name: 'example_tool', args: { answer: true } }]
+        toolCalls: [{ id: 'call-1', name: 'example_tool', arguments: { answer: true, terminal: true } }]
       } as any,
       invokeTool
     });
+
+    expect(invokeTool).toHaveBeenCalledWith(
+      'example_tool',
+      expect.objectContaining({ arguments: { answer: true }, args: { answer: true } }),
+      expect.any(Object)
+    );
 
     expect(observability.exporter.recordToolExecution).toHaveBeenCalledTimes(1);
     const event = (observability.exporter.recordToolExecution as any).mock.calls[0][0];
     expect(event.error).toEqual(expect.objectContaining({ message: 'boom', code: 'tool_execution_failed' }));
     expect(event.resultText).toContain('boom');
+    expect(event.args).toEqual({ answer: true });
 
     expect(observability.exporter.recordSignal).toHaveBeenCalledTimes(1);
     const signal = (observability.exporter.recordSignal as any).mock.calls[0][0];
@@ -313,6 +325,54 @@ describe('utils/tools/runToolLoop observability', () => {
     expect(observability.exporter.recordSignal).toHaveBeenCalledTimes(1);
     const signal = (observability.exporter.recordSignal as any).mock.calls[0][0];
     expect(signal).toEqual(expect.objectContaining({ level: 'warning', code: 'tool_call_budget_exhausted' }));
+  });
+
+  test('error-path tool telemetry falls back to toolCall.args when arguments is absent', async () => {
+    const llmManager: any = {
+      callProvider: jest.fn().mockResolvedValue({
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: []
+      }),
+      streamProvider: jest.fn()
+    };
+
+    const invokeTool = jest.fn().mockRejectedValue(new Error('boom'));
+    const observability = createObservabilityContext();
+
+    await runToolLoop({
+      mode: 'nonstream',
+      llmManager,
+      registry: {} as any,
+      messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hello' }] }],
+      tools: [{ name: 'example_tool' }],
+      toolChoice: 'auto',
+      providerManifest,
+      model: 'model',
+      runtime: {
+        toolCountdownEnabled: 'false',
+        toolFinalPromptEnabled: 'false',
+        maxToolIterations: 1
+      } as any,
+      providerSettings: {},
+      providerExtras: {},
+      logger: { info: jest.fn(), warning: jest.fn(), error: jest.fn(), debug: jest.fn() } as any,
+      runContext: { observability },
+      toolNameMap: { example_tool: 'example_tool' },
+      metadata: {},
+      initialResponse: {
+        provider: 'provider',
+        model: 'model',
+        role: Role.ASSISTANT,
+        content: [],
+        toolCalls: [{ id: 'call-1', name: 'example_tool', args: { answer: true } }]
+      } as any,
+      invokeTool
+    });
+
+    const event = (observability.exporter.recordToolExecution as any).mock.calls[0][0];
+    expect(event.args).toEqual({ answer: true });
   });
 
   test('nonstream loop re-reads runContext.generationId per round for tool telemetry', async () => {

@@ -6,7 +6,11 @@ import type {
 } from '../../../kernel/index.js';
 
 import { deriveObservabilityModel, logObservabilityEvent, monotonicElapsedMs } from '../../shared/index.js';
-import { filterContentForObservability, filterMessagesForObservability } from '../../shared/index.js';
+import {
+  filterContentForObservability,
+  filterMessagesForObservability,
+  resolveObservabilityCaptureSettings
+} from '../../shared/index.js';
 import { redactJsonCredentials } from '../../security/index.js';
 
 export function recordStreamLlmRequestObservability(options: {
@@ -22,7 +26,7 @@ export function recordStreamLlmRequestObservability(options: {
   settings: any;
 }): void {
   try {
-    const captureMessages = options.observability.captureMessages ?? 'full';
+    const { captureMessages } = resolveObservabilityCaptureSettings(options.observability);
 
     const event = {
       traceId: options.observability.traceId,
@@ -74,8 +78,7 @@ export function recordStreamLlmResponseObservability(options: {
   usage?: UsageStats;
 }): void {
   try {
-    const captureMessages = options.observability.captureMessages ?? 'full';
-    const captureToolArgs = options.observability.captureToolArgs ?? false;
+    const { captureMessages, captureToolArgs } = resolveObservabilityCaptureSettings(options.observability);
     const observabilityModel = deriveObservabilityModel({
       provider: options.provider,
       model: options.model,

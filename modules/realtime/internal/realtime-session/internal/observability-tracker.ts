@@ -13,7 +13,8 @@ import {
   filterMessagesForObservability,
   logObservabilityEvent,
   monotonicElapsedMs,
-  monotonicNowNs
+  monotonicNowNs,
+  resolveObservabilityCaptureSettings
 } from '../../../../shared/index.js';
 
 export class RealtimeObservabilityTracker {
@@ -69,7 +70,7 @@ export class RealtimeObservabilityTracker {
     const generationId = randomUUID();
     const timestampMs = Date.now();
     const startTimeMonoNs = monotonicNowNs();
-    const captureMessages = (obs.captureMessages ?? 'full') as any;
+    const { captureMessages } = resolveObservabilityCaptureSettings(obs);
 
     const requestEvent = {
       traceId,
@@ -113,8 +114,7 @@ export class RealtimeObservabilityTracker {
 
     const timestampMs = Date.now();
     const durationMs = monotonicElapsedMs(pending.startTimeMonoNs);
-    const captureMessages = (obs.captureMessages ?? 'full') as any;
-    const captureToolArgs = Boolean(obs.captureToolArgs);
+    const { captureMessages, captureToolArgs } = resolveObservabilityCaptureSettings(obs);
 
     const responseEvent: any = {
       traceId: pending.traceId,
