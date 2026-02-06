@@ -29,7 +29,7 @@ const DEFAULT_ERROR_BODY_MAX_BYTES = 1024;
 const MAX_ERROR_BODY_MAX_BYTES = 64 * 1024;
 
 function isRetryableStatus(status: number): boolean {
-  return status === 429 || (status >= 500 && status < 600);
+  return status >= 500 && status < 600;
 }
 
 function isAbortError(error: unknown): boolean {
@@ -233,9 +233,16 @@ export async function sendSentryBatch(
           body: envelope.body,
           signal: controller.signal
         });
+        const retryDelayMs = resolveRetryDelayMs(res as any);
 
         if (res.ok) {
           setOutcome(index, { envelopeId: envelope.envelopeId, success: true, status: res.status });
+          if (retryDelayMs && retryDelayMs > 0) {
+            const slept = await applySharedRetryDelay(retryDelayMs);
+            if (!slept) {
+              aborted = true;
+            }
+          }
           return;
         }
 
@@ -260,13 +267,10 @@ export async function sendSentryBatch(
           retryable
         });
 
-        if (retryable) {
-          const retryDelayMs = resolveRetryDelayMs(res as any);
-          if (retryDelayMs && retryDelayMs > 0) {
-            const slept = await applySharedRetryDelay(retryDelayMs);
-            if (!slept) {
-              aborted = true;
-            }
+        if (retryDelayMs && retryDelayMs > 0) {
+          const slept = await applySharedRetryDelay(retryDelayMs);
+          if (!slept) {
+            aborted = true;
           }
         }
       } catch (error: any) {

@@ -95,7 +95,8 @@ These settings live under `observability.targets[].providerConfig` for the Sentr
 ### Envelope send tuning (signals/errors)
 
 - `envelopeConcurrency` (number|string, default `2`, min `1`, max `10`) — send multiple envelopes concurrently to reduce flush wall time under bursts.
-- Retryable envelope failures honor `Retry-After` and `X-Sentry-Rate-Limits` response headers before returning outcomes to the exporter retry loop.
+- `Retry-After` and `X-Sentry-Rate-Limits` pacing is honored whenever headers are present (including `200` responses).
+- `429` envelope outcomes are reported as non-retryable and are not requeued by exporter retry loops.
 - `includeResponseBodyOnError` (boolean, default `false`) — when true, non-2xx envelope outcomes include a truncated response body excerpt to aid debugging.
   - If the response body is JSON, the excerpt is redacted for common credential key names.
   - Use with care: response bodies may contain sensitive data depending on upstream behavior.

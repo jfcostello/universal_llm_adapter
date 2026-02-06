@@ -1030,7 +1030,7 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       expect(headers['x-sentry-auth']).toBe('sentry sentry_key=public123');
     });
 
-    it('marks envelope failures retryable for 429/5xx and non-retryable for 4xx', async () => {
+    it('marks envelope failures retryable for 5xx and non-retryable for 429/4xx', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 503,
@@ -1055,6 +1055,18 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
 
       mockFetch.mockResolvedValueOnce({
         ok: false,
+        status: 429,
+        statusText: 'Too Many Requests',
+        headers: { get: () => null }
+      } as any);
+
+      const result429 = await compat.sendBatch(payload, mockManifest, { timeoutMs: 1000, eventIds: ['sig'] } as any);
+      expect(result429.outcomes[0]).toEqual(
+        expect.objectContaining({ envelopeId: 'sig', success: false, status: 429, retryable: false })
+      );
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
         status: 400,
         statusText: 'Bad Request',
         headers: { get: () => null }
@@ -1066,7 +1078,7 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       );
     });
 
-    it('waits for Retry-After before returning retryable envelope failures', async () => {
+    it('waits for Retry-After before returning 429 envelope failures', async () => {
       jest.useFakeTimers();
       try {
         mockFetch.mockResolvedValueOnce({
@@ -1097,7 +1109,86 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
         const result = await promise;
         expect(result.success).toBe(false);
         expect(result.outcomes[0]).toEqual(
-          expect.objectContaining({ envelopeId: 'sig', success: false, status: 429, retryable: true })
+          expect.objectContaining({ envelopeId: 'sig', success: false, status: 429, retryable: false })
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('waits for X-Sentry-Rate-Limits on successful envelope responses', async () => {
+      jest.useFakeTimers();
+      try {
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: {
+            get: (name: string) => (String(name).toLowerCase() === 'x-sentry-rate-limits' ? '2:error:key' : null)
+          }
+        } as any);
+
+        const { payload } = compat.buildBatch(
+          [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+          mockManifest,
+          { eventIds: ['sig'] } as any
+        );
+
+        const promise = compat.sendBatch(payload, mockManifest, { eventIds: ['sig'] } as any);
+
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(jest.getTimerCount()).toBe(1);
+
+        const early = Promise.race([promise.then(() => 'resolved'), Promise.resolve('pending')]);
+        await expect(early).resolves.toBe('pending');
+
+        jest.advanceTimersByTime(2000);
+        const result = await promise;
+        expect(result).toEqual(
+          expect.objectContaining({
+            success: true,
+            outcomes: [expect.objectContaining({ envelopeId: 'sig', success: true, status: 200 })]
+          })
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('stops shared success delay wait when external signal aborts', async () => {
+      jest.useFakeTimers();
+      try {
+        const controller = new AbortController();
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: {
+            get: (name: string) => (String(name).toLowerCase() === 'x-sentry-rate-limits' ? '2:error:key' : null)
+          }
+        } as any);
+
+        const { payload } = compat.buildBatch(
+          [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+          mockManifest,
+          { eventIds: ['sig'] } as any
+        );
+
+        const promise = compat.sendBatch(payload, mockManifest, { eventIds: ['sig'], signal: controller.signal } as any);
+
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(jest.getTimerCount()).toBe(1);
+
+        controller.abort();
+
+        const result = await promise;
+        expect(result).toEqual(
+          expect.objectContaining({
+            success: true,
+            outcomes: [expect.objectContaining({ envelopeId: 'sig', success: true, status: 200 })]
+          })
         );
       } finally {
         jest.useRealTimers();
@@ -1252,7 +1343,7 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
         await expect(promise).resolves.toEqual(
           expect.objectContaining({
             success: false,
-            outcomes: [expect.objectContaining({ envelopeId: 'sig', success: false, status: 429, retryable: true })]
+            outcomes: [expect.objectContaining({ envelopeId: 'sig', success: false, status: 429, retryable: false })]
           })
         );
       } finally {
