@@ -182,7 +182,7 @@ In addition to `spec.observability.*`, the adapter uses `spec.metadata` for corr
 - `spec.metadata.batchId`: optional per-request batch identifier; when `spec.observability.sessionId` is not set, this is used as the default session/grouping ID for observability.
 - `spec.observability.sessionId`: stable per-session identifier to group related traces (overrides `spec.metadata.batchId`).
 - `spec.metadata.tags`: optional array of strings forwarded to observability providers that support tagging.
-- Signal and trace-update metadata fields are passed through credential redaction before export.
+- Signal, tool execution, and trace-update metadata fields are passed through credential redaction before export.
 
 The adapter also forwards token breakdown details (e.g., input/output/total, cached/reasoning/audio tokens) when they are provided by the underlying provider or can be derived from the response.
 

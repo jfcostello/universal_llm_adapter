@@ -325,7 +325,7 @@ describe('modules/observability', () => {
       await exporter.shutdown();
     });
 
-    test('redacts sensitive metadata on signal and trace_update events before export', async () => {
+    test('redacts sensitive metadata on signal, trace_update, and tool_execution events before export', async () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
 
       const mockCompat = {
@@ -374,11 +374,24 @@ describe('modules/observability', () => {
         }
       } as any);
 
+      exporter.recordToolExecution({
+        traceId: 'trace-1',
+        timestampMs: 3,
+        toolCallId: 'call-1',
+        toolName: 'tool',
+        metadata: {
+          apiKey: 'secret-value-1234',
+          nested: { password: 'hunter2' },
+          safe: 'ok'
+        }
+      } as any);
+
       await exporter.flush();
 
       const events = (mockCompat.buildBatch as jest.Mock).mock.calls[0][0] as any[];
       const signal = events.find((evt: any) => evt.type === 'signal');
       const traceUpdate = events.find((evt: any) => evt.type === 'trace_update');
+      const toolExecution = events.find((evt: any) => evt.type === 'tool_execution');
 
       expect(signal.metadata.apiKey).toMatch(/^\*\*\*/);
       expect(signal.metadata.apiKey).not.toBe('secret-value-1234');
@@ -387,6 +400,11 @@ describe('modules/observability', () => {
 
       expect(traceUpdate.metadata.authorization).toMatch(/^Bearer \*\*\*/);
       expect(traceUpdate.metadata.note).toBe('ok');
+
+      expect(toolExecution.metadata.apiKey).toMatch(/^\*\*\*/);
+      expect(toolExecution.metadata.apiKey).not.toBe('secret-value-1234');
+      expect(toolExecution.metadata.nested.password).toMatch(/^\*\*\*/);
+      expect(toolExecution.metadata.safe).toBe('ok');
 
       await exporter.shutdown();
     });

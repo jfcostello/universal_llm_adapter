@@ -221,7 +221,7 @@ export class ObservabilityExporter implements IObservabilityExporter {
   }
 
   recordToolExecution(event: ObservabilityToolExecutionEvent): ObservabilityRecordResult {
-    return this.enqueue('tool_execution', event);
+    return this.enqueue('tool_execution', redactEventMetadata(event));
   }
 
   recordSignal(event: ObservabilitySignalEvent): ObservabilityRecordResult {
