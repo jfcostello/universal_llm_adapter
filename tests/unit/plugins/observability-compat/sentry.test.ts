@@ -1006,6 +1006,187 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       );
     });
 
+    it('waits for Retry-After before returning retryable envelope failures', async () => {
+      jest.useFakeTimers();
+      try {
+        mockFetch.mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          statusText: 'Too Many Requests',
+          headers: {
+            get: (name: string) => (String(name).toLowerCase() === 'retry-after' ? '2' : null)
+          }
+        } as any);
+
+        const { payload } = compat.buildBatch(
+          [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+          mockManifest,
+          { eventIds: ['sig'] } as any
+        );
+
+        const promise = compat.sendBatch(payload, mockManifest, { eventIds: ['sig'] } as any);
+
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(jest.getTimerCount()).toBe(1);
+
+        const early = Promise.race([promise.then(() => 'resolved'), Promise.resolve('pending')]);
+        await expect(early).resolves.toBe('pending');
+
+        jest.advanceTimersByTime(2000);
+        const result = await promise;
+        expect(result.success).toBe(false);
+        expect(result.outcomes[0]).toEqual(
+          expect.objectContaining({ envelopeId: 'sig', success: false, status: 429, retryable: true })
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('waits for X-Sentry-Rate-Limits when Retry-After is missing', async () => {
+      jest.useFakeTimers();
+      try {
+        mockFetch.mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: {
+            get: (name: string) => (String(name).toLowerCase() === 'x-sentry-rate-limits' ? '1.5:error:key' : null)
+          }
+        } as any);
+
+        const { payload } = compat.buildBatch(
+          [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+          mockManifest,
+          { eventIds: ['sig'] } as any
+        );
+
+        const promise = compat.sendBatch(payload, mockManifest, { eventIds: ['sig'] } as any);
+
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(jest.getTimerCount()).toBe(1);
+
+        const early = Promise.race([promise.then(() => 'resolved'), Promise.resolve('pending')]);
+        await expect(early).resolves.toBe('pending');
+
+        jest.advanceTimersByTime(1500);
+        const result = await promise;
+        expect(result.success).toBe(false);
+        expect(result.outcomes[0]).toEqual(
+          expect.objectContaining({ envelopeId: 'sig', success: false, status: 503, retryable: true })
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('aborts when the signal fires during retry-after sleep', async () => {
+      jest.useFakeTimers();
+      try {
+        const controller = new AbortController();
+
+        mockFetch.mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          statusText: 'Too Many Requests',
+          headers: {
+            get: (name: string) => (String(name).toLowerCase() === 'retry-after' ? '5' : null)
+          }
+        } as any);
+
+        const { payload } = compat.buildBatch(
+          [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+          mockManifest,
+          { eventIds: ['sig'] } as any
+        );
+
+        const promise = compat.sendBatch(payload, mockManifest, { eventIds: ['sig'], signal: controller.signal } as any);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(jest.getTimerCount()).toBe(1);
+
+        controller.abort();
+        await expect(promise).rejects.toThrow('Aborted');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('ignores blank or malformed X-Sentry-Rate-Limits headers (no retry-delay sleep)', async () => {
+      jest.useFakeTimers();
+      try {
+        const { payload } = compat.buildBatch(
+          [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+          mockManifest,
+          { eventIds: ['sig'] } as any
+        );
+
+        mockFetch.mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: {
+            get: (name: string) => (String(name).toLowerCase() === 'x-sentry-rate-limits' ? '   ' : null)
+          }
+        } as any);
+
+        const blankHeaderPromise = compat.sendBatch(payload, mockManifest, { eventIds: ['sig'] } as any);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(jest.getTimerCount()).toBe(0);
+        await expect(blankHeaderPromise).resolves.toEqual(
+          expect.objectContaining({
+            success: false,
+            outcomes: [expect.objectContaining({ envelopeId: 'sig', status: 503, retryable: true })]
+          })
+        );
+
+        mockFetch.mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: {
+            get: (name: string) => (String(name).toLowerCase() === 'x-sentry-rate-limits' ? ' , , bad:error:key' : null)
+          }
+        } as any);
+
+        const malformedHeaderPromise = compat.sendBatch(payload, mockManifest, { eventIds: ['sig'] } as any);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(jest.getTimerCount()).toBe(0);
+        await expect(malformedHeaderPromise).resolves.toEqual(
+          expect.objectContaining({
+            success: false,
+            outcomes: [expect.objectContaining({ envelopeId: 'sig', status: 503, retryable: true })]
+          })
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('handles retryable envelope failures when response headers are missing', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable'
+      } as any);
+
+      const { payload } = compat.buildBatch(
+        [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+        mockManifest,
+        { eventIds: ['sig'] } as any
+      );
+
+      const result = await compat.sendBatch(payload, mockManifest, { eventIds: ['sig'] } as any);
+      expect(result.success).toBe(false);
+      expect(result.outcomes[0]).toEqual(
+        expect.objectContaining({ envelopeId: 'sig', success: false, status: 503, retryable: true })
+      );
+    });
+
     it('treats invalid payload shapes as empty', async () => {
       const result = await compat.sendBatch({ spans: 'nope', envelopes: {} } as any, mockManifest, { timeoutMs: 1 } as any);
       expect(result).toEqual({ success: true, outcomes: [] });

@@ -153,4 +153,49 @@ describe('modules/observability exporter runtime registry tracking', () => {
       Promise.resolve().then(() => deadAfterPruneExporter.shutdown()).catch(() => {})
     ]);
   });
+
+  test('re-tracks registries after shutdown so subsequent shutdowns include recreated exporters', async () => {
+    jest.resetModules();
+
+    const { getOrCreateSharedExporter, shutdownAllExporters } = await import(
+      '@/modules/observability/internal/exporter/internal/runtime.ts'
+    );
+
+    const compat: any = {
+      buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+      sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+    };
+
+    const manifest: any = {
+      id: 'test-observability',
+      compat: 'test-observability',
+      endpoint: { urlTemplate: 'http://test', method: 'POST', headers: {} }
+    };
+
+    const registry: any = {
+      getObservabilityProvider: jest.fn(async () => manifest),
+      getObservabilityCompat: jest.fn(async () => compat)
+    };
+
+    const config: any = {
+      provider: 'test-observability',
+      flushAt: 10,
+      flushIntervalMs: 60_000,
+      maxQueueSize: 10,
+      maxAttempts: 1,
+      baseDelayMs: 0,
+      maxDelayMs: 0,
+      timeoutMs: 1000,
+      maxAttributeValueBytes: 1024
+    };
+
+    await getOrCreateSharedExporter(registry, config);
+    await shutdownAllExporters();
+
+    const recreated = await getOrCreateSharedExporter(registry, config);
+    const shutdownSpy = jest.spyOn(recreated, 'shutdown');
+
+    await shutdownAllExporters();
+    expect(shutdownSpy).toHaveBeenCalledTimes(1);
+  });
 });

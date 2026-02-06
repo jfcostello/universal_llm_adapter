@@ -2,6 +2,7 @@ import { jest } from '@jest/globals';
 import {
   normalizeFlag,
   parseNonNegativeInt,
+  parseRetryAfterMs,
   clampInt,
   clampRate,
   assertValidExtensionName,
@@ -120,6 +121,29 @@ describe('modules/shared', () => {
       expect(parseNonNegativeInt('7.9', 5)).toBe(7);
       expect(parseNonNegativeInt('-2', 5)).toBe(0);
       expect(parseNonNegativeInt('nope', 5)).toBe(5);
+    });
+  });
+
+  describe('parseRetryAfterMs', () => {
+    test('parses numeric second values', () => {
+      expect(parseRetryAfterMs('0')).toBe(0);
+      expect(parseRetryAfterMs('1')).toBe(1000);
+      expect(parseRetryAfterMs('1.5')).toBe(1500);
+      expect(parseRetryAfterMs(' 2 ')).toBe(2000);
+    });
+
+    test('parses HTTP-date values relative to nowMs', () => {
+      expect(parseRetryAfterMs('Thu, 01 Jan 1970 00:00:02 GMT', 0)).toBe(2000);
+      expect(parseRetryAfterMs('Thu, 01 Jan 1970 00:00:01 GMT', 1500)).toBeNull();
+    });
+
+    test('returns null for invalid values', () => {
+      expect(parseRetryAfterMs(null)).toBeNull();
+      expect(parseRetryAfterMs(undefined)).toBeNull();
+      expect(parseRetryAfterMs('')).toBeNull();
+      expect(parseRetryAfterMs('   ')).toBeNull();
+      expect(parseRetryAfterMs('nope')).toBeNull();
+      expect(parseRetryAfterMs('-1')).toBeNull();
     });
   });
 

@@ -5,7 +5,14 @@ import type {
 } from '../../../../kernel/index.js';
 
 import type { OtlpSpanSpec } from '../../../../modules/observability/index.js';
-import { clampInt, setUnrefTimeout, truncateUtf8Bytes, safeJsonStringify } from '../../../../modules/shared/index.js';
+import {
+  clampInt,
+  parseRetryAfterMs,
+  safeJsonStringify,
+  setUnrefTimeout,
+  sleepWithSignal,
+  truncateUtf8Bytes
+} from '../../../../modules/shared/index.js';
 import { redactJsonCredentials } from '../../../../modules/security/index.js';
 
 import {
@@ -56,6 +63,41 @@ function resolveErrorBodyMaxBytes(context?: ObservabilityCompatContext): number 
       ? (providerConfig as any).errorResponseBodyMaxBytes
       : undefined;
   return clampInt(raw, DEFAULT_ERROR_BODY_MAX_BYTES, 0, MAX_ERROR_BODY_MAX_BYTES);
+}
+
+function parseSentryRateLimitsDelayMs(headerValue: unknown): number | null {
+  if (typeof headerValue !== 'string') return null;
+  const trimmed = headerValue.trim();
+  if (!trimmed) return null;
+
+  let maxDelayMs = 0;
+  for (const quota of trimmed.split(',')) {
+    const candidate = quota.trim();
+    if (!candidate) continue;
+    const retryAfter = candidate.split(':', 1)[0]?.trim();
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      maxDelayMs = Math.max(maxDelayMs, Math.floor(seconds * 1000));
+    }
+  }
+
+  return maxDelayMs > 0 ? maxDelayMs : null;
+}
+
+function readHeader(headers: any, name: string): string | null {
+  if (!headers || typeof headers.get !== 'function') return null;
+  const value = headers.get(name) ?? headers.get(name.toLowerCase());
+  return typeof value === 'string' ? value : null;
+}
+
+function resolveRetryDelayMs(response: any): number | null {
+  const retryAfterMs = parseRetryAfterMs(readHeader(response?.headers, 'Retry-After'));
+  const sentryRateLimitMs = parseSentryRateLimitsDelayMs(readHeader(response?.headers, 'X-Sentry-Rate-Limits'));
+
+  let maxDelayMs = 0;
+  if (retryAfterMs && retryAfterMs > 0) maxDelayMs = Math.max(maxDelayMs, retryAfterMs);
+  if (sentryRateLimitMs && sentryRateLimitMs > 0) maxDelayMs = Math.max(maxDelayMs, sentryRateLimitMs);
+  return maxDelayMs > 0 ? maxDelayMs : null;
 }
 
 async function tryReadSafeErrorBody(options: {
@@ -169,13 +211,24 @@ export async function sendSentryBatch(
           }
         }
 
+        const retryable = isRetryableStatus(res.status);
         outcomes.push({
           envelopeId: envelope.envelopeId,
           success: false,
           status: res.status,
           error: errorMessage,
-          retryable: isRetryableStatus(res.status)
+          retryable
         });
+
+        if (retryable) {
+          const retryDelayMs = resolveRetryDelayMs(res as any);
+          if (retryDelayMs && retryDelayMs > 0) {
+            const slept = await sleepWithSignal(retryDelayMs, context?.signal);
+            if (!slept) {
+              throw createAbortError();
+            }
+          }
+        }
       } catch (error: any) {
         if (context?.signal?.aborted || isAbortError(error)) {
           throw createAbortError();

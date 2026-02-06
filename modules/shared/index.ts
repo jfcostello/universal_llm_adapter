@@ -36,5 +36,6 @@ export type { ValidateE164Result } from './internal/validate-e164.js';
 export { validateE164 } from './internal/validate-e164.js';
 
 export { parseNonNegativeInt } from './internal/parse-non-negative-int.js';
+export { parseRetryAfterMs } from './internal/parse-retry-after-ms.js';
 
 export { resolveObservabilityEnabled, resolveObservabilityTargetsOverride } from './internal/observability-env.js';

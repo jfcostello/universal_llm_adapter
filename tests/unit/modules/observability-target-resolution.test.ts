@@ -365,4 +365,154 @@ describe('modules/observability target resolution', () => {
       }
     }
   });
+
+  test('resolveTargets warns and falls back when LLM_ADAPTER_OBSERVABILITY_TARGETS is invalid', async () => {
+    const { resolveTargets } = await import('@/modules/observability/internal/exporter/internal/config.ts');
+    const logger = createMockLogger();
+    const previousEnabled = process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED;
+    const previousTargets = process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS;
+
+    try {
+      process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED = 'true';
+      process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS = '[invalid-json';
+
+      const defaults: any = {
+        enabled: true,
+        provider: 'default-provider',
+        targets: [{ provider: 'fallback-provider' }],
+        flushAt: 10,
+        flushIntervalMs: 5000,
+        maxQueueSize: 1000,
+        maxAttempts: 3,
+        baseDelayMs: 250,
+        maxDelayMs: 30000,
+        timeoutMs: 10000,
+        maxAttributeValueBytes: 16384
+      };
+
+      const targets = resolveTargets(undefined, defaults, logger);
+      expect(targets?.map(target => target.provider)).toEqual(['fallback-provider']);
+      expect(logger.warning).toHaveBeenCalledWith(
+        'Observability ignored invalid LLM_ADAPTER_OBSERVABILITY_TARGETS override',
+        expect.objectContaining({
+          source: 'LLM_ADAPTER_OBSERVABILITY_TARGETS',
+          format: 'json',
+          length: '[invalid-json'.length
+        })
+      );
+
+      const warningPayload = (logger.warning as jest.Mock).mock.calls.find(
+        (entry: unknown[]) => entry[0] === 'Observability ignored invalid LLM_ADAPTER_OBSERVABILITY_TARGETS override'
+      )?.[1] as Record<string, unknown> | undefined;
+
+      expect(warningPayload).toBeDefined();
+      expect(warningPayload).not.toHaveProperty('value');
+      expect(warningPayload).not.toHaveProperty('raw');
+    } finally {
+      if (previousEnabled === undefined) {
+        delete process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED;
+      } else {
+        process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED = previousEnabled;
+      }
+      if (previousTargets === undefined) {
+        delete process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS;
+      } else {
+        process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS = previousTargets;
+      }
+    }
+  });
+
+  test('resolveTargets classifies invalid targets override format as json for object payloads', async () => {
+    const { resolveTargets } = await import('@/modules/observability/internal/exporter/internal/config.ts');
+    const logger = createMockLogger();
+    const previousEnabled = process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED;
+    const previousTargets = process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS;
+
+    try {
+      process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED = 'true';
+      process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS = '{invalid-json';
+
+      const defaults: any = {
+        enabled: true,
+        provider: 'default-provider',
+        targets: [{ provider: 'fallback-provider' }],
+        flushAt: 10,
+        flushIntervalMs: 5000,
+        maxQueueSize: 1000,
+        maxAttempts: 3,
+        baseDelayMs: 250,
+        maxDelayMs: 30000,
+        timeoutMs: 10000,
+        maxAttributeValueBytes: 16384
+      };
+
+      const targets = resolveTargets(undefined, defaults, logger);
+      expect(targets?.map(target => target.provider)).toEqual(['fallback-provider']);
+      expect(logger.warning).toHaveBeenCalledWith(
+        'Observability ignored invalid LLM_ADAPTER_OBSERVABILITY_TARGETS override',
+        expect.objectContaining({
+          source: 'LLM_ADAPTER_OBSERVABILITY_TARGETS',
+          format: 'json'
+        })
+      );
+    } finally {
+      if (previousEnabled === undefined) {
+        delete process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED;
+      } else {
+        process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED = previousEnabled;
+      }
+      if (previousTargets === undefined) {
+        delete process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS;
+      } else {
+        process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS = previousTargets;
+      }
+    }
+  });
+
+  test('resolveTargets classifies invalid targets override format as csv for invalid csv payloads', async () => {
+    const { resolveTargets } = await import('@/modules/observability/internal/exporter/internal/config.ts');
+    const logger = createMockLogger();
+    const previousEnabled = process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED;
+    const previousTargets = process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS;
+
+    try {
+      process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED = 'true';
+      process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS = ', ,';
+
+      const defaults: any = {
+        enabled: true,
+        provider: 'default-provider',
+        targets: [{ provider: 'fallback-provider' }],
+        flushAt: 10,
+        flushIntervalMs: 5000,
+        maxQueueSize: 1000,
+        maxAttempts: 3,
+        baseDelayMs: 250,
+        maxDelayMs: 30000,
+        timeoutMs: 10000,
+        maxAttributeValueBytes: 16384
+      };
+
+      const targets = resolveTargets(undefined, defaults, logger);
+      expect(targets?.map(target => target.provider)).toEqual(['fallback-provider']);
+      expect(logger.warning).toHaveBeenCalledWith(
+        'Observability ignored invalid LLM_ADAPTER_OBSERVABILITY_TARGETS override',
+        expect.objectContaining({
+          source: 'LLM_ADAPTER_OBSERVABILITY_TARGETS',
+          format: 'csv'
+        })
+      );
+    } finally {
+      if (previousEnabled === undefined) {
+        delete process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED;
+      } else {
+        process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED = previousEnabled;
+      }
+      if (previousTargets === undefined) {
+        delete process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS;
+      } else {
+        process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS = previousTargets;
+      }
+    }
+  });
 });

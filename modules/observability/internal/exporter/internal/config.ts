@@ -1,5 +1,5 @@
 import type { AdapterLogger, DefaultSettings, ObservabilitySpec } from '../../../../../kernel/index.js';
-import { clampInt } from '../../../../shared/index.js';
+import { clampInt, readTrimmedStringProperty } from '../../../../shared/index.js';
 import { resolveObservabilityEnabled, resolveObservabilityTargetsOverride } from '../../env-overrides.js';
 
 export type ObservabilityTargetExportConfig = {
@@ -134,9 +134,21 @@ export function resolveTargets(
   const specTargetsRaw = spec?.targets;
   const specTargets = Array.isArray(specTargetsRaw) ? specTargetsRaw : null;
 
-  const envTargets = (!specTargets && !specProvider)
+  const envTargetsOverrideActive = !specTargets && !specProvider;
+  const envTargetsRaw = envTargetsOverrideActive
+    ? readTrimmedStringProperty(process.env, 'LLM_ADAPTER_OBSERVABILITY_TARGETS')
+    : undefined;
+  const envTargets = envTargetsOverrideActive
     ? resolveObservabilityTargetsOverride()
     : undefined;
+
+  if (envTargetsOverrideActive && envTargetsRaw && !envTargets) {
+    logger.warning('Observability ignored invalid LLM_ADAPTER_OBSERVABILITY_TARGETS override', {
+      source: 'LLM_ADAPTER_OBSERVABILITY_TARGETS',
+      format: envTargetsRaw.startsWith('[') || envTargetsRaw.startsWith('{') ? 'json' : 'csv',
+      length: envTargetsRaw.length
+    });
+  }
 
   const defaultsTargetsRaw = (defaults as any).targets;
   const defaultsTargets =

@@ -49,7 +49,12 @@ function getOrCreateRegistryRuntime(registry: object): RegistryRuntime {
 
 function trackRegistry(registry: object): void {
   const existing = registryRefByRegistry.get(registry);
-  if (existing) return;
+  if (existing) {
+    // shutdownAllExporters() clears the ref set but keeps weak-map entries;
+    // re-add tracked refs so subsequent shutdown calls still see this registry.
+    runtimeRegistryRefs.add(existing);
+    return;
+  }
 
   if (runtimeRegistryRefs.size > 1000) {
     for (const ref of runtimeRegistryRefs) {

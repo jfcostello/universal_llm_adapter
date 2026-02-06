@@ -15,17 +15,11 @@ import { ProviderExecutionError } from '../../../../../kernel/index.js';
 import type { AxiosInstance } from 'axios';
 
 import { aggregateSystemMessages } from '../../../../messages/index.js';
-import { monotonicNowNs } from '../../../../shared/index.js';
+import { monotonicNowNs, readTrimmedStringProperty } from '../../../../shared/index.js';
 
 import { callProviderViaSdk } from './call-provider-sdk.js';
 import { callProviderViaHttp } from './call-provider-http.js';
 import { isHttpUrlTemplate } from './http-utils.js';
-
-function readTrimmedString(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : undefined;
-}
 
 export async function callProvider(options: {
   httpClient: AxiosInstance;
@@ -44,7 +38,7 @@ export async function callProvider(options: {
   const startTimeMs = Date.now();
   const startTimeMonoNs = monotonicNowNs();
   const generationId = options.context.observability
-    ? readTrimmedString(options.context.generationId) ?? randomUUID()
+    ? readTrimmedStringProperty(options.context, 'generationId') ?? randomUUID()
     : undefined;
   const requestTimestampMs = startTimeMs;
   const normalizedMessages = aggregateSystemMessages(options.messages);

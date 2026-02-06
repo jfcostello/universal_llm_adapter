@@ -284,6 +284,7 @@ Global observability overrides (applied when the per-call spec omits those field
 - `LLM_ADAPTER_OBSERVABILITY_TARGETS=<value>` override default targets
   - CSV provider list: `provider-a,provider-b`
   - JSON array: `["provider-a", {"provider":"provider-b","export":{"signals":false}}]`
+  - Invalid values are ignored and emit a warning with format/length metadata (raw value is not logged)
 
 ## Configuration Reference
 

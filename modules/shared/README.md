@@ -102,6 +102,18 @@ const completed = await sleepWithSignal(5000, abortController.signal);
 // completed === false if aborted before 5s elapses
 ```
 
+### `parseRetryAfterMs(headerValue, nowMs?)`
+
+Parses an HTTP `Retry-After` header into milliseconds.
+Supports both delta-seconds and HTTP-date formats.
+
+```typescript
+import { parseRetryAfterMs } from '../shared/index.js';
+
+parseRetryAfterMs('1.5'); // 1500
+parseRetryAfterMs('Thu, 01 Jan 1970 00:00:02 GMT', 0); // 2000
+```
+
 ### `isPlainObject(value)`
 
 Checks whether a value is a "plain" object (prototype is `Object.prototype` or `null`), suitable for JSON-style payload validation.
