@@ -1,5 +1,5 @@
 import type { AdapterLogger, DefaultSettings, ObservabilitySpec } from '../../../../../kernel/index.js';
-import { clampInt, readTrimmedStringProperty } from '../../../../shared/index.js';
+import { clampInt, normalizeFlag, readTrimmedStringProperty } from '../../../../shared/index.js';
 import { resolveObservabilityEnabled, resolveObservabilityTargetsOverride } from '../../env-overrides.js';
 
 export type ObservabilityTargetExportConfig = {
@@ -53,17 +53,13 @@ export interface ObservabilityExporterConfig {
   maxAttributeValueBytes?: number;
 }
 
-function normalizeBool(value: unknown, fallback: boolean): boolean {
-  return typeof value === 'boolean' ? value : fallback;
-}
-
 export function normalizeExportConfig(value: unknown): ObservabilityTargetExportConfig {
   const raw = (value && typeof value === 'object') ? (value as any) : {};
   return {
-    traces: normalizeBool(raw.traces, true),
-    tools: normalizeBool(raw.tools, true),
-    signals: normalizeBool(raw.signals, true),
-    traceUpdates: normalizeBool(raw.traceUpdates, true)
+    traces: normalizeFlag(raw.traces, true),
+    tools: normalizeFlag(raw.tools, true),
+    signals: normalizeFlag(raw.signals, true),
+    traceUpdates: normalizeFlag(raw.traceUpdates, true)
   };
 }
 

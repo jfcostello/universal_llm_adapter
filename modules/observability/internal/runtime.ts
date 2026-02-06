@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 
 import type { AdapterLogger, ObservabilityContext, ObservabilitySpec, PluginRegistry } from '../../../kernel/index.js';
 import { getDefaults } from '../../../kernel/index.js';
-import { clampInt, clampRate, readTrimmedStringProperty } from '../../shared/index.js';
+import { clampInt, clampRate, normalizeFlag, readTrimmedStringProperty } from '../../shared/index.js';
 import { createObservabilityDeps } from './observability.js';
 import { resolveObservabilityEnabled } from './env-overrides.js';
 
@@ -25,10 +25,6 @@ function normalizeCaptureMessages(
   return fallback;
 }
 
-function normalizeBool(value: unknown, fallback: boolean): boolean {
-  return typeof value === 'boolean' ? value : fallback;
-}
-
 export async function createObservabilityRuntime(
   registry: PluginRegistry,
   spec?: ObservabilitySpec,
@@ -45,9 +41,9 @@ export async function createObservabilityRuntime(
   if (!enabled) return undefined;
 
   const captureMessages = normalizeCaptureMessages(spec?.captureMessages, defaults.captureMessages);
-  const captureToolArgs = normalizeBool(spec?.captureToolArgs, defaults.captureToolArgs);
-  const captureRequestPayload = normalizeBool(spec?.captureRequestPayload, defaults.captureRequestPayload);
-  const captureRawResponse = normalizeBool(spec?.captureRawResponse, defaults.captureRawResponse);
+  const captureToolArgs = normalizeFlag(spec?.captureToolArgs, defaults.captureToolArgs);
+  const captureRequestPayload = normalizeFlag(spec?.captureRequestPayload, defaults.captureRequestPayload);
+  const captureRawResponse = normalizeFlag(spec?.captureRawResponse, defaults.captureRawResponse);
   const sampleRate = clampRate(spec?.sampleRate, defaults.sampleRate);
   const maxInputTextBytes = clampInt(spec?.maxInputTextBytes, defaults.maxInputTextBytes, 0, 1_000_000);
   const maxOutputTextBytes = clampInt(spec?.maxOutputTextBytes, defaults.maxOutputTextBytes, 0, 1_000_000);
