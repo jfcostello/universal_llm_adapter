@@ -32,7 +32,7 @@ Enable observability globally by adding to your `plugins/configs/defaults.json`:
 }
 ```
 
-To reduce capture from the shipped defaults:
+To increase capture from the shipped defaults:
 
 ```json
 {
@@ -188,15 +188,15 @@ The adapter also forwards token breakdown details (e.g., input/output/total, cac
 
 ## Capture Controls (Safety + Performance)
 
-Observability export is disabled by default. When enabled, **shipped defaults capture full messages and payloads** for maximum debuggability, and can be dialed down to reduce latency/CPU/memory and the risk of exporting sensitive content.
+Observability export is disabled by default. When enabled, **shipped defaults use minimal capture** for safer internet-facing deployments, and can be raised when you need deeper debugging visibility.
 
 - `captureMessages`:
   - `none`: do not export prompt/response bodies
   - `text`: export only text content parts (excludes documents, images, tool result payloads)
-  - `full` (default in shipped defaults): export full structured message/content payloads
-- `captureToolArgs` (default `true` in shipped defaults): export tool-call arguments/metadata
-- `captureRequestPayload` (default `true` in shipped defaults): export final provider request payload
-- `captureRawResponse` (default `true` in shipped defaults): export raw provider response payloads (when available)
+  - `full`: export full structured message/content payloads
+- `captureToolArgs` (default `false` in shipped defaults): export tool-call arguments/metadata
+- `captureRequestPayload` (default `false` in shipped defaults): export final provider request payload
+- `captureRawResponse` (default `false` in shipped defaults): export raw provider response payloads (when available)
 - `sampleRate` (default `1`): sampling rate (0..1). When < 1, calls may be skipped entirely.
 
 Budgets:
@@ -304,10 +304,10 @@ Global observability overrides (applied when the per-call spec omits those field
 | `timeoutMs` | number | `10000` | HTTP timeout for export requests |
 | `shutdownTimeoutMs` | number | `5000` | Max time to wait for exporter shutdown during process exit (set `0` to disable cap) |
 | `maxAttributeValueBytes` | number | `16384` | Max UTF-8 bytes for any exported attribute string value |
-| `captureMessages` | `'none' \| 'text' \| 'full'` | `'full'` | Capture prompt/response content bodies |
-| `captureToolArgs` | boolean | `true` | Capture tool-call args/metadata |
-| `captureRequestPayload` | boolean | `true` | Capture final provider request payload |
-| `captureRawResponse` | boolean | `true` | Capture raw provider response payloads |
+| `captureMessages` | `'none' \| 'text' \| 'full'` | `'none'` | Capture prompt/response content bodies |
+| `captureToolArgs` | boolean | `false` | Capture tool-call args/metadata |
+| `captureRequestPayload` | boolean | `false` | Capture final provider request payload |
+| `captureRawResponse` | boolean | `false` | Capture raw provider response payloads |
 | `sampleRate` | number | `1` | Sampling rate (0..1). When < 1, calls may be skipped |
 | `maxInputTextBytes` | number | `4096` | Max UTF-8 bytes for aggregated input text fields |
 | `maxOutputTextBytes` | number | `4096` | Max UTF-8 bytes for aggregated output text fields |

@@ -80,4 +80,54 @@ describe('utils/server (integration) telemetry submit', () => {
       await server.close();
     }
   });
+
+  test('POST /telemetry enforces observability override allowlist when policy is enabled', async () => {
+    if (!networkAvailable) return;
+
+    const { server } = await startServer(
+      {
+        policy: {
+          telemetry: {
+            observabilityOverride: {
+              enabled: true,
+              allowlist: ['enabled', 'traceId']
+            }
+          }
+        }
+      } as any,
+      createOkCoordinator
+    );
+
+    try {
+      const allowed = await postJson(server.url, '/telemetry', {
+        type: 'signal',
+        traceId: 'trace_4',
+        level: 'error',
+        message: 'boom',
+        observability: {
+          enabled: true,
+          traceId: 'override-trace'
+        }
+      });
+      expect(allowed.status).toBe(200);
+
+      const blocked = await postJson(server.url, '/telemetry', {
+        type: 'signal',
+        traceId: 'trace_5',
+        level: 'error',
+        message: 'boom',
+        observability: {
+          enabled: true,
+          providerConfig: { token: 'x' }
+        }
+      });
+
+      expect(blocked.status).toBe(400);
+      const parsed = JSON.parse(blocked.body);
+      expect(parsed.type).toBe('error');
+      expect(parsed.error.code).toBe('validation_error');
+    } finally {
+      await server.close();
+    }
+  });
 });

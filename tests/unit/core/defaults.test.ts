@@ -147,10 +147,10 @@ describe('core/defaults', () => {
       expect(observability.shutdownTimeoutMs).toBe(5000);
       expect(observability.maxAttributeValueBytes).toBe(16384);
       // Capture defaults come from plugins/configs/defaults.json
-      expect((observability as any).captureMessages).toBe('full');
-      expect((observability as any).captureToolArgs).toBe(true);
-      expect((observability as any).captureRequestPayload).toBe(true);
-      expect((observability as any).captureRawResponse).toBe(true);
+      expect((observability as any).captureMessages).toBe('none');
+      expect((observability as any).captureToolArgs).toBe(false);
+      expect((observability as any).captureRequestPayload).toBe(false);
+      expect((observability as any).captureRawResponse).toBe(false);
       expect((observability as any).sampleRate).toBe(1);
       expect((observability as any).maxInputTextBytes).toBe(4096);
       expect((observability as any).maxOutputTextBytes).toBe(4096);

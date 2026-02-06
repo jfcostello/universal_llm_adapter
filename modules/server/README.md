@@ -71,6 +71,8 @@ Options:
 - `policy` (object, optional) — server-side safety gates for dangerous inputs.
   - `documents.filepath.enabled` (boolean, default `false`) — allow `document.source.type="filepath"` in server requests.
   - `documents.filepath.allowedRoots` (string[], default `[]`) — optional allowlist roots; empty defaults to server cwd (symlink-safe via `realpath`).
+  - `telemetry.observabilityOverride.enabled` (boolean, default `false`) — enforce allowlist restrictions for `POST /telemetry` `payload.observability` overrides.
+  - `telemetry.observabilityOverride.allowlist` (string[], default `[]`) — allowed top-level `observability` keys when telemetry override policy is enabled.
 - `securityHeadersEnabled` (boolean, default `true`) — adds safe browser/proxy hardening headers.
 - `httpHeadersTimeoutMs` (number, default `20000`) — Node `server.headersTimeout` (slowloris protection).
 - `httpRequestTimeoutMs` (number, default `0`) — Node `server.requestTimeout` (0 disables).
@@ -125,6 +127,11 @@ Accepts the same options and defaults as `createServer`.
 ### `POST /embeddings/run`
 - Body: `EmbeddingCallSpec` JSON.
 - Response: `application/json` `{ type: "response", data: <EmbeddingOperationResult> }`.
+
+### `POST /telemetry`
+- Body: telemetry submission JSON (`type: "signal"` or `type: "trace_update"`).
+- Response: `application/json` `{ type: "response", data: <TelemetryResult> }`.
+- Policy hardening: when `policy.telemetry.observabilityOverride.enabled=true`, top-level keys inside `payload.observability` must be in `policy.telemetry.observabilityOverride.allowlist`, otherwise the request is rejected with `400 validation_error`.
 
 ### `POST /realtime/webrtc/client-secret`
 
@@ -190,6 +197,8 @@ Production guidance:
   loaded from `LLM_ADAPTER_API_KEYS` (comma-separated). Entries can be raw tokens or sha256 digests.
 - **Policy gates (server):** dangerous inputs like `document.source.type="filepath"` are disabled by default
   and require `policy.documents.filepath.enabled=true` (optionally restrict with `allowedRoots`).
+- **Telemetry override gates (server):** `/telemetry` can optionally restrict top-level per-request `observability` override keys via
+  `policy.telemetry.observabilityOverride.enabled=true` and `policy.telemetry.observabilityOverride.allowlist`.
 - **Rate limiting (opt‑in):** when `rateLimit.enabled=true`, requests are token‑bucket limited
   per client key (auth identity when present, otherwise IP). Exceeding the bucket returns `429`.
 - **CORS (opt‑in):** when `cors.enabled=true`, the server sets standard CORS headers on responses

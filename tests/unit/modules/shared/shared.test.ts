@@ -7,8 +7,6 @@ import {
   clampRate,
   assertValidExtensionName,
   readTrimmedStringProperty,
-  resolveObservabilityEnabled,
-  resolveObservabilityTargetsOverride,
   makeHttpError,
   createDeferred,
   calculateBackoffDelay,
@@ -209,34 +207,6 @@ describe('modules/shared', () => {
     test('returns trimmed string when present', () => {
       expect(readTrimmedStringProperty({ k: '  value  ' }, 'k')).toBe('value');
       expect(readTrimmedStringProperty({ k: 'value' }, 'k')).toBe('value');
-    });
-  });
-
-  describe('observability env parsing', () => {
-    test('resolveObservabilityEnabled prioritizes explicit spec and then env', () => {
-      expect(resolveObservabilityEnabled(true, false, { LLM_ADAPTER_OBSERVABILITY_ENABLED: '0' } as any)).toBe(true);
-      expect(resolveObservabilityEnabled(false, true, { LLM_ADAPTER_OBSERVABILITY_ENABLED: '1' } as any)).toBe(false);
-      expect(resolveObservabilityEnabled(undefined, false, { LLM_ADAPTER_OBSERVABILITY_ENABLED: ' yes ' } as any)).toBe(true);
-      expect(resolveObservabilityEnabled(undefined, true, { LLM_ADAPTER_OBSERVABILITY_ENABLED: 'off' } as any)).toBe(false);
-      expect(resolveObservabilityEnabled(undefined, true, { LLM_ADAPTER_OBSERVABILITY_ENABLED: 'maybe' } as any)).toBe(true);
-    });
-
-    test('resolveObservabilityTargetsOverride parses CSV and JSON payloads', () => {
-      expect(resolveObservabilityTargetsOverride({ LLM_ADAPTER_OBSERVABILITY_TARGETS: 'a, b' } as any)).toEqual([
-        { provider: 'a' },
-        { provider: 'b' }
-      ]);
-
-      expect(resolveObservabilityTargetsOverride({
-        LLM_ADAPTER_OBSERVABILITY_TARGETS: JSON.stringify([
-          'x',
-          { provider: 'y', maxAttempts: 4 },
-          { provider: '' }
-        ])
-      } as any)).toEqual([
-        { provider: 'x' },
-        { provider: 'y', maxAttempts: 4 }
-      ]);
     });
   });
 

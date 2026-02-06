@@ -36,6 +36,12 @@ export interface ServerPolicyOptions {
       allowedRoots?: string[];
     };
   };
+  telemetry?: {
+    observabilityOverride?: {
+      enabled?: boolean;
+      allowlist?: string[];
+    };
+  };
 }
 
 export interface ServerOptions {

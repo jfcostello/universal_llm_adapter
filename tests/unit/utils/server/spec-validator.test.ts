@@ -100,6 +100,84 @@ describe('utils/server assertValidSpec', () => {
     ).toThrow(/telemetry/i);
   });
 
+  test('assertValidTelemetrySubmission accepts observability overrides when allowlist is disabled', () => {
+    expect(() =>
+      assertValidTelemetrySubmission({
+        type: 'signal',
+        traceId: 'trace_4',
+        level: 'error',
+        message: 'boom',
+        observability: {
+          enabled: true,
+          traceId: 'override-trace',
+          customValue: 'permitted-when-policy-disabled'
+        }
+      } as any)
+    ).not.toThrow();
+  });
+
+  test('assertValidTelemetrySubmission enforces observability override allowlist when configured', () => {
+    expect(() =>
+      assertValidTelemetrySubmission(
+        {
+          type: 'signal',
+          traceId: 'trace_5',
+          level: 'error',
+          message: 'boom',
+          observability: {
+            enabled: true,
+            traceId: 'override-trace'
+          }
+        } as any,
+        { observabilityOverrideAllowlist: ['enabled', 'traceId'] }
+      )
+    ).not.toThrow();
+
+    expect(() =>
+      assertValidTelemetrySubmission(
+        {
+          type: 'signal',
+          traceId: 'trace_6',
+          level: 'error',
+          message: 'boom',
+          observability: {
+            enabled: true,
+            providerConfig: { token: 'x' }
+          }
+        } as any,
+        { observabilityOverrideAllowlist: ['enabled', 'traceId'] }
+      )
+    ).toThrow(/telemetry/i);
+  });
+
+  test('assertValidTelemetrySubmission tolerates telemetry allowlist with non-string entries', () => {
+    expect(() =>
+      assertValidTelemetrySubmission(
+        {
+          type: 'signal',
+          traceId: 'trace_7',
+          level: 'error',
+          message: 'boom',
+          observability: { enabled: true }
+        } as any,
+        { observabilityOverrideAllowlist: ['enabled', '  ', 123 as any] }
+      )
+    ).not.toThrow();
+  });
+
+  test('assertValidTelemetrySubmission allows payloads without observability override when allowlist is enabled', () => {
+    expect(() =>
+      assertValidTelemetrySubmission(
+        {
+          type: 'trace_update',
+          traceId: 'trace_8',
+          name: 'trace-name'
+        } as any,
+        { observabilityOverrideAllowlist: ['enabled'] }
+      )
+    ).not.toThrow();
+  });
+
   test('resolveAjvConstructor uses default when present', () => {
     const ctor = () => {};
     expect(resolveAjvConstructor({ default: ctor })).toBe(ctor);

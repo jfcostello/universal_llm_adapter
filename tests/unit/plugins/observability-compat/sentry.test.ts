@@ -743,12 +743,24 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       } as any);
 
       // With concurrency=2, two envelope exports should be in-flight immediately.
+      await Promise.resolve();
+      await Promise.resolve();
       expect(mockFetch).toHaveBeenCalledTimes(2);
 
       // Drain the queue.
-      while (releases.length > 0) {
+      for (let released = 0; released < envelopeCount; released++) {
+        let spins = 0;
+        while (releases.length === 0) {
+          await Promise.resolve();
+          await Promise.resolve();
+          spins += 1;
+          if (spins > 1000) {
+            throw new Error('Timed out waiting for queued envelope response release');
+          }
+        }
         releases.shift()!();
         // Allow workers to schedule the next request.
+        await Promise.resolve();
         await Promise.resolve();
       }
 
@@ -788,10 +800,22 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
         providerConfig: { envelopeConcurrency: '2' }
       } as any);
 
+      await Promise.resolve();
+      await Promise.resolve();
       expect(mockFetch).toHaveBeenCalledTimes(2);
 
-      while (releases.length > 0) {
+      for (let released = 0; released < envelopeCount; released++) {
+        let spins = 0;
+        while (releases.length === 0) {
+          await Promise.resolve();
+          await Promise.resolve();
+          spins += 1;
+          if (spins > 1000) {
+            throw new Error('Timed out waiting for queued envelope response release');
+          }
+        }
         releases.shift()!();
+        await Promise.resolve();
         await Promise.resolve();
       }
 
@@ -830,10 +854,22 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       } as any);
 
       // Infinity is treated as invalid -> default concurrency applies (2).
+      await Promise.resolve();
+      await Promise.resolve();
       expect(mockFetch).toHaveBeenCalledTimes(2);
 
-      while (releases.length > 0) {
+      for (let released = 0; released < envelopeCount; released++) {
+        let spins = 0;
+        while (releases.length === 0) {
+          await Promise.resolve();
+          await Promise.resolve();
+          spins += 1;
+          if (spins > 1000) {
+            throw new Error('Timed out waiting for queued envelope response release');
+          }
+        }
         releases.shift()!();
+        await Promise.resolve();
         await Promise.resolve();
       }
 
@@ -871,10 +907,22 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
         providerConfig: { envelopeConcurrency: 'nope' }
       } as any);
 
+      await Promise.resolve();
+      await Promise.resolve();
       expect(mockFetch).toHaveBeenCalledTimes(2);
 
-      while (releases.length > 0) {
+      for (let released = 0; released < envelopeCount; released++) {
+        let spins = 0;
+        while (releases.length === 0) {
+          await Promise.resolve();
+          await Promise.resolve();
+          spins += 1;
+          if (spins > 1000) {
+            throw new Error('Timed out waiting for queued envelope response release');
+          }
+        }
         releases.shift()!();
+        await Promise.resolve();
         await Promise.resolve();
       }
 
@@ -912,10 +960,22 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
         providerConfig: { envelopeConcurrency: '   ' }
       } as any);
 
+      await Promise.resolve();
+      await Promise.resolve();
       expect(mockFetch).toHaveBeenCalledTimes(2);
 
-      while (releases.length > 0) {
+      for (let released = 0; released < envelopeCount; released++) {
+        let spins = 0;
+        while (releases.length === 0) {
+          await Promise.resolve();
+          await Promise.resolve();
+          spins += 1;
+          if (spins > 1000) {
+            throw new Error('Timed out waiting for queued envelope response release');
+          }
+        }
         releases.shift()!();
+        await Promise.resolve();
         await Promise.resolve();
       }
 
@@ -1082,6 +1142,87 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       }
     });
 
+    it('applies shared rate-limit delays across concurrent workers to avoid extra envelope churn', async () => {
+      jest.useFakeTimers();
+      try {
+        const eventIds = ['sig-0', 'sig-1', 'sig-2', 'sig-3', 'sig-4', 'sig-5'];
+        const { payload } = compat.buildBatch(
+          eventIds.map(envelopeId => ({
+            type: 'signal',
+            traceId,
+            generationId,
+            timestampMs: 1704067200600,
+            level: 'error',
+            message: envelopeId
+          } as any)),
+          mockManifest,
+          { eventIds } as any
+        );
+
+        const delayedReleases: Array<() => void> = [];
+        let callIndex = 0;
+        mockFetch.mockImplementation((_url: any, _init: any) => {
+          const currentCall = callIndex++;
+          if (currentCall === 0) {
+            return Promise.resolve({
+              ok: false,
+              status: 429,
+              statusText: 'Too Many Requests',
+              headers: {
+                get: (name: string) => (String(name).toLowerCase() === 'retry-after' ? '2' : null)
+              }
+            } as any);
+          }
+          if (currentCall <= 2) {
+            return new Promise(resolve => {
+              delayedReleases.push(() =>
+                resolve({
+                  ok: true,
+                  status: 200,
+                  statusText: 'OK',
+                  headers: { get: () => null }
+                } as any)
+              );
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: { get: () => null }
+          } as any);
+        });
+
+        const promise = compat.sendBatch(payload, mockManifest, {
+          eventIds,
+          providerConfig: { envelopeConcurrency: 3 }
+        } as any);
+
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(mockFetch).toHaveBeenCalledTimes(3);
+        expect(jest.getTimerCount()).toBe(1);
+
+        // Resolve the two non-rate-limited in-flight calls.
+        delayedReleases.shift()?.();
+        delayedReleases.shift()?.();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        // Shared pacing should prevent new fetches before the retry window elapses.
+        expect(mockFetch).toHaveBeenCalledTimes(3);
+
+        jest.advanceTimersByTime(2000);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        const result = await promise;
+        expect(result.outcomes).toHaveLength(eventIds.length);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     it('aborts when the signal fires during retry-after sleep', async () => {
       jest.useFakeTimers();
       try {
@@ -1108,7 +1249,12 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
         expect(jest.getTimerCount()).toBe(1);
 
         controller.abort();
-        await expect(promise).rejects.toThrow('Aborted');
+        await expect(promise).resolves.toEqual(
+          expect.objectContaining({
+            success: false,
+            outcomes: [expect.objectContaining({ envelopeId: 'sig', success: false, status: 429, retryable: true })]
+          })
+        );
       } finally {
         jest.useRealTimers();
       }
@@ -1417,7 +1563,12 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
 
       await expect(
         compat.sendBatch(payload, mockManifest, { timeoutMs: 1000, signal: controller.signal } as any)
-      ).rejects.toThrow('Aborted');
+      ).resolves.toEqual(
+        expect.objectContaining({
+          success: false,
+          outcomes: [expect.objectContaining({ envelopeId: 'sig', success: false, error: 'Aborted', retryable: true })]
+        })
+      );
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
@@ -1446,12 +1597,15 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
 
       const promise = compat.sendBatch(payload, mockManifest, { timeoutMs: 1000, signal: controller.signal } as any);
       controller.abort();
-      await expect(promise).rejects.toThrow('Aborted');
+      await expect(promise).resolves.toEqual(
+        expect.objectContaining({
+          success: false,
+          outcomes: [expect.objectContaining({ envelopeId: 'sig', success: false, error: 'Aborted', retryable: true })]
+        })
+      );
     });
 
     it('aborts in-flight envelope exports on timeout (covers AbortController timeout path)', async () => {
-      jest.useFakeTimers();
-
       mockFetch.mockImplementationOnce((_url: any, init: any) => {
         return new Promise((_resolve, reject) => {
           init.signal.addEventListener(
@@ -1473,10 +1627,72 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       );
 
       const promise = compat.sendBatch(payload, mockManifest, { timeoutMs: 1 } as any);
-      jest.advanceTimersByTime(2);
-      await expect(promise).rejects.toThrow('Aborted');
+      await expect(promise).resolves.toEqual(
+        expect.objectContaining({
+          success: false,
+          outcomes: [expect.objectContaining({ envelopeId: 'sig', success: false, error: 'Aborted', retryable: true })]
+        })
+      );
+    });
 
-      jest.useRealTimers();
+    it('records abort outcomes for every queued envelope when one worker aborts mid-batch', async () => {
+      const controller = new AbortController();
+      const eventIds = ['sig-0', 'sig-1', 'sig-2', 'sig-3'];
+      const { payload } = compat.buildBatch(
+        eventIds.map(envelopeId => ({
+          type: 'signal',
+          traceId,
+          generationId,
+          timestampMs: 1704067200600,
+          level: 'error',
+          message: envelopeId
+        } as any)),
+        mockManifest,
+        { eventIds } as any
+      );
+
+      let callIndex = 0;
+      mockFetch.mockImplementation((_url: any, init: any) => {
+        const currentCall = callIndex++;
+        if (currentCall === 0) {
+          return Promise.resolve({
+            ok: false,
+            status: 429,
+            statusText: 'Too Many Requests',
+            headers: {
+              get: (name: string) => (String(name).toLowerCase() === 'retry-after' ? '5' : null)
+            }
+          } as any);
+        }
+
+        return new Promise((_resolve, reject) => {
+          init.signal.addEventListener(
+            'abort',
+            () => {
+              const err = new Error('Aborted');
+              (err as any).name = 'AbortError';
+              reject(err);
+            },
+            { once: true }
+          );
+        });
+      });
+
+      const promise = compat.sendBatch(payload, mockManifest, {
+        eventIds,
+        signal: controller.signal,
+        providerConfig: { envelopeConcurrency: 2 }
+      } as any);
+
+      await Promise.resolve();
+      await Promise.resolve();
+      controller.abort();
+
+      const result = await promise;
+      expect(result.success).toBe(false);
+      expect(result.outcomes).toHaveLength(eventIds.length);
+      expect(result.outcomes.map(o => o.envelopeId).sort()).toEqual(eventIds.slice().sort());
+      expect(result.outcomes.every(o => o.success === false)).toBe(true);
     });
 
     it('skips OTLP export when enableOtlp is set but spans are empty', async () => {

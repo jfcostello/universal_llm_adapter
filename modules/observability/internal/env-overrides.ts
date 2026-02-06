@@ -1,4 +1,4 @@
 export {
   resolveObservabilityEnabled,
   resolveObservabilityTargetsOverride
-} from '../../shared/index.js';
+} from './observability-env.js';

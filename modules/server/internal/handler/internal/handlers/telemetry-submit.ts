@@ -22,7 +22,10 @@ export async function handleTelemetrySubmit(
       timeoutMs: ctx.config.bodyReadTimeoutMs
     });
 
-    assertValidTelemetrySubmission(payload);
+    const telemetryPolicy = ctx.policy.telemetry.observabilityOverride;
+    assertValidTelemetrySubmission(payload, {
+      observabilityOverrideAllowlist: telemetryPolicy.enabled ? telemetryPolicy.allowlist : undefined
+    });
     const { submitTelemetry } = await import('../../../../../observability/index.js');
     const result = await submitTelemetry(ctx.registry as any, payload as any, { runtime: { batchId: ctx.batchId } });
     writeJson(res, 200, { type: 'response', data: result });
@@ -32,4 +35,3 @@ export async function handleTelemetrySubmit(
     writeJson(res, mapped.status, mapped.body);
   }
 }
-

@@ -179,6 +179,12 @@ export interface ServerPolicyDefaults {
       allowedRoots: string[];
     };
   };
+  telemetry: {
+    observabilityOverride: {
+      enabled: boolean;
+      allowlist: string[];
+    };
+  };
 }
 
 export interface ServerExtensionsDefaults {
@@ -315,25 +321,25 @@ export interface ObservabilityDefaults {
    * - none: do not export prompt/response bodies
    * - text: export only text content parts (exclude tool results/doc blobs)
    * - full: export full structured message/content payloads
-   * @default 'full'
+   * @default 'none'
    */
   captureMessages: 'none' | 'text' | 'full';
 
   /**
    * Whether to export tool-call arguments/metadata.
-   * @default true
+   * @default false
    */
   captureToolArgs: boolean;
 
   /**
    * Whether to export the final provider request payload (`requestPayload`).
-   * @default true
+   * @default false
    */
   captureRequestPayload: boolean;
 
   /**
    * Whether to export raw provider response payloads when available (`rawResponse`).
-   * @default true
+   * @default false
    */
   captureRawResponse: boolean;
 

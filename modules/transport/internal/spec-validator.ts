@@ -259,6 +259,37 @@ const telemetrySubmissionSchema: any = {
 
 const validateTelemetrySubmission = ajv.compile(telemetrySubmissionSchema);
 
+function normalizeObservabilityOverrideAllowlist(value: unknown): Set<string> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const normalized = value
+    .map(entry => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter(Boolean);
+  return new Set(normalized);
+}
+
+function createTelemetryValidationError(details: unknown): Error {
+  const error = new Error('Telemetry validation failed');
+  (error as any).statusCode = 400;
+  (error as any).code = 'validation_error';
+  (error as any).details = details;
+  return error;
+}
+
+function assertTelemetryObservabilityOverridesAllowed(payload: unknown, allowlist: Set<string>): void {
+  const observability = (payload as any)?.observability;
+  if (!observability || typeof observability !== 'object' || Array.isArray(observability)) return;
+
+  const disallowedKeys = Object.keys(observability).filter(key => !allowlist.has(key));
+  if (disallowedKeys.length === 0) return;
+
+  throw createTelemetryValidationError(
+    disallowedKeys.map(key => ({
+      path: `.observability.${key}`,
+      message: `observability override key '${key}' is not allowed by server policy`
+    }))
+  );
+}
+
 export function assertValidSpec(spec: unknown): void {
   const ok = validateLlm(spec);
   if (ok) return;
@@ -292,13 +323,17 @@ export function assertValidEmbeddingSpec(spec: unknown): void {
   throw error;
 }
 
-export function assertValidTelemetrySubmission(payload: unknown): void {
+export function assertValidTelemetrySubmission(
+  payload: unknown,
+  options: { observabilityOverrideAllowlist?: string[] } = {}
+): void {
   const ok = validateTelemetrySubmission(payload);
-  if (ok) return;
+  if (!ok) {
+    throw createTelemetryValidationError(validateTelemetrySubmission.errors);
+  }
 
-  const error = new Error('Telemetry validation failed');
-  (error as any).statusCode = 400;
-  (error as any).code = 'validation_error';
-  (error as any).details = validateTelemetrySubmission.errors;
-  throw error;
+  const allowlist = normalizeObservabilityOverrideAllowlist(options.observabilityOverrideAllowlist);
+  if (allowlist) {
+    assertTelemetryObservabilityOverridesAllowed(payload, allowlist);
+  }
 }

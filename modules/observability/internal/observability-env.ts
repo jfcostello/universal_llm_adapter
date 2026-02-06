@@ -1,5 +1,5 @@
 import type { ObservabilityTargetSpec } from '../../../kernel/index.js';
-import { readTrimmedStringProperty } from './read-trimmed-string-property.js';
+import { readTrimmedStringProperty } from '../../shared/index.js';
 
 const TRUE_FLAGS = new Set(['1', 'true', 'yes', 'y', 'on']);
 const FALSE_FLAGS = new Set(['0', 'false', 'no', 'n', 'off']);

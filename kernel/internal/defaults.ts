@@ -128,6 +128,12 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
           enabled: false,
           allowedRoots: []
         }
+      },
+      telemetry: {
+        observabilityOverride: {
+          enabled: false,
+          allowlist: []
+        }
       }
     },
     securityHeadersEnabled: true,
@@ -153,10 +159,10 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
     timeoutMs: 10000,
     shutdownTimeoutMs: 5000,
     maxAttributeValueBytes: 16384,
-    captureMessages: 'full',
-    captureToolArgs: true,
-    captureRequestPayload: true,
-    captureRawResponse: true,
+    captureMessages: 'none',
+    captureToolArgs: false,
+    captureRequestPayload: false,
+    captureRawResponse: false,
     sampleRate: 1,
     maxInputTextBytes: 4096,
     maxOutputTextBytes: 4096,

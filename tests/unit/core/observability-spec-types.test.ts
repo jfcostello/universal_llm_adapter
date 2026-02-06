@@ -154,10 +154,10 @@ describe('observability-spec-types', () => {
           expect(defaults.observability.timeoutMs).toBe(10000);
           expect(defaults.observability.shutdownTimeoutMs).toBe(5000);
           expect(defaults.observability.maxAttributeValueBytes).toBe(16384);
-          expect((defaults.observability as any).captureMessages).toBe('full');
-          expect((defaults.observability as any).captureToolArgs).toBe(true);
-        expect((defaults.observability as any).captureRequestPayload).toBe(true);
-        expect((defaults.observability as any).captureRawResponse).toBe(true);
+          expect((defaults.observability as any).captureMessages).toBe('none');
+          expect((defaults.observability as any).captureToolArgs).toBe(false);
+        expect((defaults.observability as any).captureRequestPayload).toBe(false);
+        expect((defaults.observability as any).captureRawResponse).toBe(false);
         expect((defaults.observability as any).sampleRate).toBe(1);
         expect((defaults.observability as any).maxInputTextBytes).toBe(4096);
         expect((defaults.observability as any).maxOutputTextBytes).toBe(4096);

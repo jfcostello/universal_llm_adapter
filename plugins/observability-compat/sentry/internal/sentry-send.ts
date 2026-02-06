@@ -36,10 +36,13 @@ function isAbortError(error: unknown): boolean {
   return !!error && typeof error === 'object' && String((error as any).name) === 'AbortError';
 }
 
-function createAbortError(message = 'Aborted'): Error {
-  const error = new Error(message);
-  (error as any).name = 'AbortError';
-  return error;
+function createAbortOutcome(envelopeId: string): ObservabilityBatchResult['outcomes'][number] {
+  return {
+    envelopeId,
+    success: false,
+    error: 'Aborted',
+    retryable: true
+  };
 }
 
 function resolveEnvelopeConcurrency(context?: ObservabilityCompatContext): number {
@@ -156,10 +159,49 @@ export async function sendSentryBatch(
   if (envelopes.length > 0) {
     const includeResponseBodyOnError = resolveIncludeResponseBodyOnError(context);
     const errorBodyMaxBytes = resolveErrorBodyMaxBytes(context);
+    const envelopeOutcomes: Array<ObservabilityBatchResult['outcomes'][number] | undefined> = new Array(
+      envelopes.length
+    );
+    let aborted = false;
+    let rateLimitedUntilMs = 0;
 
-    const sendEnvelope = async (envelope: { envelopeId: string; body: string }): Promise<void> => {
+    const setOutcome = (index: number, outcome: ObservabilityBatchResult['outcomes'][number]): void => {
+      envelopeOutcomes[index] = outcome;
+      if (!outcome.success) {
+        overallSuccess = false;
+      }
+    };
+
+    const waitForRateLimitWindow = async (): Promise<boolean> => {
+      while (true) {
+        if (context?.signal?.aborted) return false;
+        const delayMs = rateLimitedUntilMs - Date.now();
+        if (delayMs <= 0) return true;
+
+        const slept = await sleepWithSignal(delayMs, context?.signal);
+        if (!slept) return false;
+      }
+    };
+
+    const applySharedRetryDelay = async (delayMs: number): Promise<boolean> => {
+      rateLimitedUntilMs = Math.max(rateLimitedUntilMs, Date.now() + delayMs);
+      return waitForRateLimitWindow();
+    };
+
+    const sendEnvelope = async (index: number): Promise<void> => {
+      const envelope = envelopes[index];
+
+      const canProceed = await waitForRateLimitWindow();
+      if (!canProceed) {
+        aborted = true;
+        setOutcome(index, createAbortOutcome(envelope.envelopeId));
+        return;
+      }
+
       if (context?.signal?.aborted) {
-        throw createAbortError();
+        aborted = true;
+        setOutcome(index, createAbortOutcome(envelope.envelopeId));
+        return;
       }
 
       const controller = new AbortController();
@@ -193,11 +235,9 @@ export async function sendSentryBatch(
         });
 
         if (res.ok) {
-          outcomes.push({ envelopeId: envelope.envelopeId, success: true, status: res.status });
+          setOutcome(index, { envelopeId: envelope.envelopeId, success: true, status: res.status });
           return;
         }
-
-        overallSuccess = false;
 
         let errorMessage =
           typeof (res as any)?.statusText === 'string' && (res as any).statusText
@@ -212,7 +252,7 @@ export async function sendSentryBatch(
         }
 
         const retryable = isRetryableStatus(res.status);
-        outcomes.push({
+        setOutcome(index, {
           envelopeId: envelope.envelopeId,
           success: false,
           status: res.status,
@@ -223,18 +263,21 @@ export async function sendSentryBatch(
         if (retryable) {
           const retryDelayMs = resolveRetryDelayMs(res as any);
           if (retryDelayMs && retryDelayMs > 0) {
-            const slept = await sleepWithSignal(retryDelayMs, context?.signal);
+            const slept = await applySharedRetryDelay(retryDelayMs);
             if (!slept) {
-              throw createAbortError();
+              aborted = true;
             }
           }
         }
       } catch (error: any) {
         if (context?.signal?.aborted || isAbortError(error)) {
-          throw createAbortError();
+          aborted = true;
+          if (!envelopeOutcomes[index]) {
+            setOutcome(index, createAbortOutcome(envelope.envelopeId));
+          }
+          return;
         }
-        overallSuccess = false;
-        outcomes.push({
+        setOutcome(index, {
           envelopeId: envelope.envelopeId,
           success: false,
           error: (error as Error)?.message ?? String(error),
@@ -252,13 +295,23 @@ export async function sendSentryBatch(
 
     const workers = Array.from({ length: workerCount }, async () => {
       while (true) {
+        if (aborted) return;
         const index = nextIndex++;
         if (index >= envelopes.length) return;
-        await sendEnvelope(envelopes[index]);
+        await sendEnvelope(index);
       }
     });
 
     await Promise.all(workers);
+
+    for (let i = 0; i < envelopes.length; i++) {
+      const outcome = envelopeOutcomes[i] ?? createAbortOutcome(envelopes[i].envelopeId);
+
+      if (!envelopeOutcomes[i]) {
+        overallSuccess = false;
+      }
+      outcomes.push(outcome);
+    }
   }
 
   // OTLP traces/tools

@@ -36,10 +36,10 @@ describe('core/defaults loading fallback', () => {
     expect(defaults.retry.maxAttempts).toBe(3);
     expect(defaults.tools.countdownEnabled).toBe(true);
     expect(defaults.vector.topK).toBe(5);
-    expect((defaults.observability as any).captureMessages).toBe('full');
-    expect((defaults.observability as any).captureToolArgs).toBe(true);
-    expect((defaults.observability as any).captureRequestPayload).toBe(true);
-    expect((defaults.observability as any).captureRawResponse).toBe(true);
+    expect((defaults.observability as any).captureMessages).toBe('none');
+    expect((defaults.observability as any).captureToolArgs).toBe(false);
+    expect((defaults.observability as any).captureRequestPayload).toBe(false);
+    expect((defaults.observability as any).captureRawResponse).toBe(false);
 
     jest.resetModules();
   });
@@ -75,10 +75,10 @@ describe('core/defaults loading fallback', () => {
     // Should use fallback defaults due to parse error.
     expect(defaults.retry.maxAttempts).toBe(3);
     expect(defaults.tools.countdownEnabled).toBe(true);
-    expect((defaults.observability as any).captureMessages).toBe('full');
-    expect((defaults.observability as any).captureToolArgs).toBe(true);
-    expect((defaults.observability as any).captureRequestPayload).toBe(true);
-    expect((defaults.observability as any).captureRawResponse).toBe(true);
+    expect((defaults.observability as any).captureMessages).toBe('none');
+    expect((defaults.observability as any).captureToolArgs).toBe(false);
+    expect((defaults.observability as any).captureRequestPayload).toBe(false);
+    expect((defaults.observability as any).captureRawResponse).toBe(false);
 
     jest.resetModules();
   });

@@ -9,6 +9,12 @@ export interface ServerPolicyConfig {
       allowedRoots?: string[];
     };
   };
+  telemetry?: {
+    observabilityOverride?: {
+      enabled?: boolean;
+      allowlist?: string[];
+    };
+  };
 }
 
 export interface NormalizedServerPolicy {
@@ -16,6 +22,12 @@ export interface NormalizedServerPolicy {
     filepath: {
       enabled: boolean;
       allowedRoots: string[];
+    };
+  };
+  telemetry: {
+    observabilityOverride: {
+      enabled: boolean;
+      allowlist: string[];
     };
   };
 }
@@ -26,10 +38,21 @@ export function normalizeServerPolicy(config: ServerPolicyConfig | undefined): N
   const allowedRoots = Array.isArray(rootsRaw)
     ? rootsRaw.map(r => String(r).trim()).filter(Boolean)
     : [];
+  const observabilityOverrideEnabled = Boolean(config?.telemetry?.observabilityOverride?.enabled);
+  const telemetryAllowlistRaw = config?.telemetry?.observabilityOverride?.allowlist;
+  const observabilityOverrideAllowlist = Array.isArray(telemetryAllowlistRaw)
+    ? Array.from(new Set(telemetryAllowlistRaw.map(k => String(k).trim()).filter(Boolean)))
+    : [];
 
   return {
     documents: {
       filepath: { enabled, allowedRoots }
+    },
+    telemetry: {
+      observabilityOverride: {
+        enabled: observabilityOverrideEnabled,
+        allowlist: observabilityOverrideAllowlist
+      }
     }
   };
 }

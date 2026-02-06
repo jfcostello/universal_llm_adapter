@@ -356,7 +356,7 @@ MCP server configurations live in `plugins/mcp/*.json`:
 
 ### Observability (Optional)
 
-Observability enables export of LLM call **and realtime session** telemetry. It is disabled by default. When enabled, capture defaults come from `plugins/configs/defaults.json` (shipped defaults currently enable full message + payload capture), and can be dialed down via the capture controls.
+Observability enables export of LLM call **and realtime session** telemetry. It is disabled by default. When enabled, capture defaults come from `plugins/configs/defaults.json` (shipped defaults use a minimal safety-first capture posture), and can be raised per deployment via capture controls.
 
 **Global Configuration** (`plugins/configs/defaults.json`):
 
