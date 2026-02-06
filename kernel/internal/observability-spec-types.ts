@@ -138,6 +138,12 @@ export interface RunContext {
   metadata?: Record<string, unknown>;
 
   /**
+   * Per-generation identifier propagated across provider/tool telemetry events.
+   * Present when observability is enabled.
+   */
+  generationId?: string;
+
+  /**
    * Observability context for recording LLM events.
    * Only present when observability is enabled.
    */

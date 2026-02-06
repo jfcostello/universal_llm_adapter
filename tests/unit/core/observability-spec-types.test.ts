@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import type { LLMCallSpec, ObservabilitySpec } from '@/kernel/index.ts';
+import type { LLMCallSpec, ObservabilitySpec, RunContext } from '@/kernel/index.ts';
 import { Role } from '@/kernel/index.ts';
 
 describe('observability-spec-types', () => {
@@ -45,6 +45,15 @@ describe('observability-spec-types', () => {
       };
 
       expect(spec.observability).toBeUndefined();
+    });
+
+    test('RunContext accepts optional generationId for internal observability correlation', () => {
+      const runContext: RunContext = {
+        metadata: { correlationId: 'corr-1' },
+        generationId: 'gen-1'
+      };
+
+      expect(runContext.generationId).toBe('gen-1');
     });
 
       test('ObservabilitySpec accepts all optional queue knobs', () => {
@@ -145,10 +154,10 @@ describe('observability-spec-types', () => {
           expect(defaults.observability.timeoutMs).toBe(10000);
           expect(defaults.observability.shutdownTimeoutMs).toBe(5000);
           expect(defaults.observability.maxAttributeValueBytes).toBe(16384);
-          expect((defaults.observability as any).captureMessages).toBe('none');
-          expect((defaults.observability as any).captureToolArgs).toBe(false);
-        expect((defaults.observability as any).captureRequestPayload).toBe(false);
-        expect((defaults.observability as any).captureRawResponse).toBe(false);
+          expect((defaults.observability as any).captureMessages).toBe('full');
+          expect((defaults.observability as any).captureToolArgs).toBe(true);
+        expect((defaults.observability as any).captureRequestPayload).toBe(true);
+        expect((defaults.observability as any).captureRawResponse).toBe(true);
         expect((defaults.observability as any).sampleRate).toBe(1);
         expect((defaults.observability as any).maxInputTextBytes).toBe(4096);
         expect((defaults.observability as any).maxOutputTextBytes).toBe(4096);

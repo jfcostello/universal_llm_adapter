@@ -1,7 +1,8 @@
 import type {
   AdapterLogger,
   ObservabilityContext,
-  ObservabilitySignalLevel
+  ObservabilitySignalLevel,
+  RunContext
 } from '../../../../../kernel/index.js';
 
 import { redactJsonCredentials } from '../../../../security/index.js';
@@ -15,7 +16,7 @@ function readTrimmedString(value: unknown): string | undefined {
 
 export function readRunContextGenerationId(runContext: unknown): string | undefined {
   if (!runContext || typeof runContext !== 'object') return undefined;
-  return readTrimmedString((runContext as any).generationId);
+  return readTrimmedString((runContext as Partial<RunContext>).generationId);
 }
 
 function boundJsonValue(value: unknown, maxJsonBytes: number): unknown {

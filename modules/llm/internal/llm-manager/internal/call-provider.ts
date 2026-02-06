@@ -44,7 +44,7 @@ export async function callProvider(options: {
   const startTimeMs = Date.now();
   const startTimeMonoNs = monotonicNowNs();
   const generationId = options.context.observability
-    ? readTrimmedString((options.context as any)?.generationId) ?? randomUUID()
+    ? readTrimmedString(options.context.generationId) ?? randomUUID()
     : undefined;
   const requestTimestampMs = startTimeMs;
   const normalizedMessages = aggregateSystemMessages(options.messages);

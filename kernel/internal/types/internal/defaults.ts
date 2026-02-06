@@ -315,25 +315,25 @@ export interface ObservabilityDefaults {
    * - none: do not export prompt/response bodies
    * - text: export only text content parts (exclude tool results/doc blobs)
    * - full: export full structured message/content payloads
-   * @default 'none'
+   * @default 'full'
    */
   captureMessages: 'none' | 'text' | 'full';
 
   /**
    * Whether to export tool-call arguments/metadata.
-   * @default false
+   * @default true
    */
   captureToolArgs: boolean;
 
   /**
    * Whether to export the final provider request payload (`requestPayload`).
-   * @default false
+   * @default true
    */
   captureRequestPayload: boolean;
 
   /**
    * Whether to export raw provider response payloads when available (`rawResponse`).
-   * @default false
+   * @default true
    */
   captureRawResponse: boolean;
 

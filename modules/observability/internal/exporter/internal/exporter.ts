@@ -14,6 +14,7 @@ import type {
   ObservabilityRecordResult
 } from '../../../../../kernel/index.js';
 import { getNoopLogger } from '../../../../../kernel/index.js';
+import { redactJsonCredentials } from '../../../../security/index.js';
 import { calculateBackoffDelay, sleepWithSignal } from '../../../../shared/index.js';
 
 import type { ObservabilityExporterConfig } from './config.js';
@@ -21,6 +22,17 @@ import type { ObservabilityExporterMetrics, QueuedEvent } from './types.js';
 import { sendWithSizeLimit } from './send-with-size-limit.js';
 
 const DROP_WARNING_THROTTLE_MS = 10_000;
+
+function redactEventMetadata<T extends { metadata?: Record<string, unknown> }>(event: T): T {
+  if (!event.metadata || typeof event.metadata !== 'object') {
+    return event;
+  }
+
+  return {
+    ...event,
+    metadata: redactJsonCredentials(event.metadata) as Record<string, unknown>
+  };
+}
 
 export class ObservabilityExporter implements IObservabilityExporter {
   private queue: QueuedEvent[] = [];
@@ -213,11 +225,11 @@ export class ObservabilityExporter implements IObservabilityExporter {
   }
 
   recordSignal(event: ObservabilitySignalEvent): ObservabilityRecordResult {
-    return this.enqueue('signal', event);
+    return this.enqueue('signal', redactEventMetadata(event));
   }
 
   recordTraceUpdate(event: ObservabilityTraceUpdateEvent): ObservabilityRecordResult {
-    return this.enqueue('trace_update', event);
+    return this.enqueue('trace_update', redactEventMetadata(event));
   }
 
   flush(): Promise<void> {

@@ -325,6 +325,72 @@ describe('modules/observability', () => {
       await exporter.shutdown();
     });
 
+    test('redacts sensitive metadata on signal and trace_update events before export', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 9999,
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 1,
+          baseDelayMs: 0,
+          maxDelayMs: 0,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        {
+          id: 'test',
+          compat: 'test',
+          endpoint: { urlTemplate: 'http://test', method: 'POST' }
+        } as any
+      );
+
+      exporter.recordSignal({
+        traceId: 'trace-1',
+        timestampMs: 1,
+        level: 'error',
+        message: 'boom',
+        metadata: {
+          apiKey: 'secret-value-1234',
+          nested: { password: 'hunter2' },
+          safe: 'ok'
+        }
+      } as any);
+
+      exporter.recordTraceUpdate({
+        traceId: 'trace-1',
+        timestampMs: 2,
+        name: 'rename',
+        metadata: {
+          authorization: 'Bearer top-secret-token',
+          note: 'ok'
+        }
+      } as any);
+
+      await exporter.flush();
+
+      const events = (mockCompat.buildBatch as jest.Mock).mock.calls[0][0] as any[];
+      const signal = events.find((evt: any) => evt.type === 'signal');
+      const traceUpdate = events.find((evt: any) => evt.type === 'trace_update');
+
+      expect(signal.metadata.apiKey).toMatch(/^\*\*\*/);
+      expect(signal.metadata.apiKey).not.toBe('secret-value-1234');
+      expect(signal.metadata.nested.password).toMatch(/^\*\*\*/);
+      expect(signal.metadata.safe).toBe('ok');
+
+      expect(traceUpdate.metadata.authorization).toMatch(/^Bearer \*\*\*/);
+      expect(traceUpdate.metadata.note).toBe('ok');
+
+      await exporter.shutdown();
+    });
+
     test('tracks enqueued/dropped counters and includes metrics in queue-drop warnings', async () => {
       const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
       const logger = createMockLogger();
