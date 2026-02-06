@@ -290,4 +290,79 @@ describe('modules/observability target resolution', () => {
       expect.objectContaining({ targets: 1 })
     );
   });
+
+  test('resolveConfig honors LLM_ADAPTER_OBSERVABILITY_ENABLED when spec omits enabled', async () => {
+    const { resolveConfig } = await import('@/modules/observability/internal/exporter/internal/config.ts');
+    const logger = createMockLogger();
+    const previousEnabled = process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED;
+
+    try {
+      process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED = '1';
+
+      const defaults: any = {
+        enabled: false,
+        provider: 'default-provider',
+        flushAt: 10,
+        flushIntervalMs: 5000,
+        maxQueueSize: 1000,
+        maxAttempts: 3,
+        baseDelayMs: 250,
+        maxDelayMs: 30000,
+        timeoutMs: 10000,
+        maxAttributeValueBytes: 16384
+      };
+
+      const config = resolveConfig(undefined, defaults, logger);
+      expect(config?.provider).toBe('default-provider');
+      expect(logger.warning).toHaveBeenCalledTimes(0);
+    } finally {
+      if (previousEnabled === undefined) {
+        delete process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED;
+      } else {
+        process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED = previousEnabled;
+      }
+    }
+  });
+
+  test('resolveTargets honors LLM_ADAPTER_OBSERVABILITY_TARGETS when spec omits targets/provider', async () => {
+    const { resolveTargets } = await import('@/modules/observability/internal/exporter/internal/config.ts');
+    const logger = createMockLogger();
+    const previousEnabled = process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED;
+    const previousTargets = process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS;
+
+    try {
+      process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED = 'true';
+      process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS = 'env-a, env-b';
+
+      const defaults: any = {
+        enabled: false,
+        provider: 'default-provider',
+        flushAt: 10,
+        flushIntervalMs: 5000,
+        maxQueueSize: 1000,
+        maxAttempts: 3,
+        baseDelayMs: 250,
+        maxDelayMs: 30000,
+        timeoutMs: 10000,
+        maxAttributeValueBytes: 16384
+      };
+
+      const targets = resolveTargets(undefined, defaults, logger);
+      expect(targets?.map(target => target.provider)).toEqual(['env-a', 'env-b']);
+      expect(targets?.[0]?.export).toEqual({ traces: true, tools: true, signals: true, traceUpdates: true });
+      expect(targets?.[1]?.export).toEqual({ traces: true, tools: true, signals: true, traceUpdates: true });
+      expect(logger.warning).toHaveBeenCalledTimes(0);
+    } finally {
+      if (previousEnabled === undefined) {
+        delete process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED;
+      } else {
+        process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED = previousEnabled;
+      }
+      if (previousTargets === undefined) {
+        delete process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS;
+      } else {
+        process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS = previousTargets;
+      }
+    }
+  });
 });

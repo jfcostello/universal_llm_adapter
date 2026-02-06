@@ -677,6 +677,8 @@ console.log(defaults.tools.maxIterations); // 10
 | `LLM_ADAPTER_BATCH_DIR` | Use batch-based directories for logs ("1" or "0") |
 | `LLM_ADAPTER_DISABLE_FILE_LOGS` | Disable file logging ("1" or unset) |
 | `LLM_ADAPTER_DISABLE_CONSOLE_LOGS` | Disable console logging ("1" or unset) |
+| `LLM_ADAPTER_OBSERVABILITY_ENABLED` | Override observability enabled flag when per-call spec omits `observability.enabled` |
+| `LLM_ADAPTER_OBSERVABILITY_TARGETS` | Override default observability targets when per-call spec omits `observability.provider/targets` (CSV provider list or JSON targets) |
 
 Provider-specific environment variables are defined in provider manifests with `${ENV_VAR}` syntax:
 - `${LLM_API_KEY}`

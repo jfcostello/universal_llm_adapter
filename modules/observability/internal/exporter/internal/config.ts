@@ -1,5 +1,6 @@
 import type { AdapterLogger, DefaultSettings, ObservabilitySpec } from '../../../../../kernel/index.js';
 import { clampInt } from '../../../../shared/index.js';
+import { resolveObservabilityEnabled, resolveObservabilityTargetsOverride } from '../../env-overrides.js';
 
 export type ObservabilityTargetExportConfig = {
   traces: boolean;
@@ -78,7 +79,7 @@ export function resolveConfig(
   defaults: DefaultSettings['observability'],
   logger: AdapterLogger
 ): ObservabilityExporterConfig | null {
-  const enabled = spec?.enabled ?? defaults.enabled;
+  const enabled = resolveObservabilityEnabled(spec?.enabled, defaults.enabled);
 
   if (!enabled) {
     return null;
@@ -125,7 +126,7 @@ export function resolveTargets(
   defaults: DefaultSettings['observability'],
   logger: AdapterLogger
 ): ResolvedObservabilityTarget[] | null {
-  const enabled = spec?.enabled ?? defaults.enabled;
+  const enabled = resolveObservabilityEnabled(spec?.enabled, defaults.enabled);
   if (!enabled) return null;
 
   const specProvider = readProviderId(spec?.provider);
@@ -133,8 +134,14 @@ export function resolveTargets(
   const specTargetsRaw = spec?.targets;
   const specTargets = Array.isArray(specTargetsRaw) ? specTargetsRaw : null;
 
+  const envTargets = (!specTargets && !specProvider)
+    ? resolveObservabilityTargetsOverride()
+    : undefined;
+
   const defaultsTargetsRaw = (defaults as any).targets;
-  const defaultsTargets = Array.isArray(defaultsTargetsRaw) ? defaultsTargetsRaw : null;
+  const defaultsTargets =
+    envTargets
+      ?? (Array.isArray(defaultsTargetsRaw) ? defaultsTargetsRaw : null);
 
   const rawTargets = specTargets ?? (specProvider ? null : defaultsTargets);
   if (!rawTargets) {

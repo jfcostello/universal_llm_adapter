@@ -2488,6 +2488,41 @@ describe('modules/observability', () => {
       await deps.shutdown();
     });
 
+    test('supports primitive providerConfig values in exporter cache keys', async () => {
+      const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test-compat',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const mockRegistry = {
+        getObservabilityProvider: jest.fn(async () => mockManifest),
+        getObservabilityCompat: jest.fn(async () => mockCompat)
+      };
+
+      const spec = {
+        enabled: true,
+        provider: 'test',
+        providerConfig: 'provider-config-token'
+      } as any;
+
+      const deps1 = await createObservabilityDeps(mockRegistry as any, spec);
+      const deps2 = await createObservabilityDeps(mockRegistry as any, spec);
+
+      expect(deps1.getExporter()).toBe(deps2.getExporter());
+      expect(mockRegistry.getObservabilityProvider).toHaveBeenCalledTimes(1);
+      expect(mockRegistry.getObservabilityCompat).toHaveBeenCalledTimes(1);
+
+      await deps1.shutdown();
+    });
+
     test('dedupes concurrent exporter initialization and shutdown', async () => {
       const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
 

@@ -5,6 +5,15 @@ import { resolveTargets } from './config.js';
 import { ensureRuntimeHookInstalled, getOrCreateSharedExporter, shutdownAllExporters } from './runtime.js';
 import { MultiObservabilityExporter } from './multi-exporter.js';
 
+function exportsAllCategories(config: {
+  traces: boolean;
+  tools: boolean;
+  signals: boolean;
+  traceUpdates: boolean;
+}): boolean {
+  return Boolean(config.traces && config.tools && config.signals && config.traceUpdates);
+}
+
 /**
  * Create observability deps for a given configuration.
  *
@@ -34,7 +43,7 @@ export async function createObservabilityDeps(
       })
     );
 
-    const exporter = targetExporters.length === 1
+    const exporter = targetExporters.length === 1 && exportsAllCategories(targetExporters[0].export)
       ? targetExporters[0].exporter
       : new MultiObservabilityExporter(targetExporters);
 

@@ -132,6 +132,17 @@ describe('cli/internal/unified-cli', () => {
       expect(telemetryCmd).toBeDefined();
     });
 
+    test('registers extension wildcard after telemetry so built-in telemetry command wins', () => {
+      const program = createUnifiedProgram(mockDeps);
+      const commandNames = program.commands.map(c => c.name());
+      const telemetryIndex = commandNames.indexOf('telemetry');
+      const wildcardIndex = commandNames.indexOf('*');
+
+      expect(telemetryIndex).toBeGreaterThanOrEqual(0);
+      expect(wildcardIndex).toBeGreaterThanOrEqual(0);
+      expect(telemetryIndex).toBeLessThan(wildcardIndex);
+    });
+
     test('has realtime command', () => {
       const program = createUnifiedProgram(mockDeps);
       const realtimeCmd = program.commands.find(c => c.name() === 'realtime');
@@ -1180,7 +1191,7 @@ describe('cli/internal/unified-cli', () => {
       ]);
 
       expect(mockDeps.createRegistry).toHaveBeenCalledWith('./plugins');
-      expect(mockRegistry.loadAll).toHaveBeenCalled();
+      expect(mockRegistry.loadAll).not.toHaveBeenCalled();
       expect(mockDeps.closeLogger).toHaveBeenCalled();
       expect(capturedExitCodes).toEqual([0]);
 

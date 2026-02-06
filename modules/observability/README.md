@@ -278,6 +278,12 @@ Env var:
 - `LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER=0` force-disable worker encoding
 - unset: enabled by default only for compiled JS bundles (and disabled by default in Jest)
 
+Global observability overrides (applied when the per-call spec omits those fields):
+- `LLM_ADAPTER_OBSERVABILITY_ENABLED=1|0` force-enable/disable observability
+- `LLM_ADAPTER_OBSERVABILITY_TARGETS=<value>` override default targets
+  - CSV provider list: `provider-a,provider-b`
+  - JSON array: `["provider-a", {"provider":"provider-b","export":{"signals":false}}]`
+
 ## Configuration Reference
 
 | Setting | Type | Default | Description |

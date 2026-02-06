@@ -42,8 +42,8 @@ export function createUnifiedProgram(partialDeps: Partial<UnifiedCliDependencies
   registerEmbeddingsCommands(program, ctx);
   registerServeCommand(program, ctx);
   registerRealtimeCommands(program, ctx);
-  registerExtensionCommands(program, ctx);
   registerTelemetryCommands(program, ctx);
+  registerExtensionCommands(program, ctx);
 
   return program;
 }

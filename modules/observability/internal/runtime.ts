@@ -4,6 +4,7 @@ import type { AdapterLogger, ObservabilityContext, ObservabilitySpec, PluginRegi
 import { getDefaults } from '../../../kernel/index.js';
 import { clampInt, clampRate, readTrimmedStringProperty } from '../../shared/index.js';
 import { createObservabilityDeps } from './observability.js';
+import { resolveObservabilityEnabled } from './env-overrides.js';
 
 export type ObservabilityRuntime = Omit<ObservabilityContext, 'traceId'> & {
   /**
@@ -40,7 +41,7 @@ export async function createObservabilityRuntime(
 ): Promise<ObservabilityRuntime | undefined> {
   const defaults = getDefaults().observability;
 
-  const enabled = spec?.enabled ?? defaults.enabled;
+  const enabled = resolveObservabilityEnabled(spec?.enabled, defaults.enabled);
   if (!enabled) return undefined;
 
   const captureMessages = normalizeCaptureMessages(spec?.captureMessages, defaults.captureMessages);

@@ -24,9 +24,6 @@ export function registerTelemetryCommands(program: Command, ctx: UnifiedCliConte
         assertValidTelemetrySubmission(payload);
 
         registry = await ctx.deps.createRegistry(options.plugins);
-        if (typeof registry?.loadAll === 'function') {
-          await registry.loadAll();
-        }
 
         const result = await submitTelemetry(registry as any, payload as any, {
           runtime: { batchId: options.batchId }
@@ -44,4 +41,3 @@ export function registerTelemetryCommands(program: Command, ctx: UnifiedCliConte
       }
     });
 }
-

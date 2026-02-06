@@ -80,6 +80,58 @@ describe('modules/observability (compat selection)', () => {
     await deps.shutdown();
   });
 
+  test('createObservabilityDeps enforces export routing for a single target', async () => {
+    const mockCompat = {
+      buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+      sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+    };
+
+    const mockManifest = {
+      id: 'provider-a',
+      compat: 'compat-a',
+      endpoint: { urlTemplate: 'http://a', method: 'POST' }
+    };
+
+    const registry = {
+      getObservabilityProvider: jest.fn(async () => mockManifest),
+      getObservabilityCompatForProvider: jest.fn(async () => mockCompat),
+      getObservabilityCompat: jest.fn(async () => {
+        throw new Error('Unexpected getObservabilityCompat call');
+      })
+    };
+
+    const deps = await createObservabilityDeps(registry as any, {
+      enabled: true,
+      targets: [{
+        provider: 'provider-a',
+        export: { traces: true, tools: true, signals: false, traceUpdates: true }
+      }]
+    } as any);
+
+    const exporter = deps.getExporter() as any;
+    const llmResult = exporter.recordLLMRequest({
+      type: 'llm_request',
+      traceId: 'trace-1',
+      timestampMs: Date.now(),
+      provider: 'provider-a',
+      model: 'test',
+      messages: []
+    });
+    const signalResult = exporter.recordSignal({
+      type: 'signal',
+      traceId: 'trace-1',
+      timestampMs: Date.now(),
+      level: 'info',
+      message: 'ignored',
+      source: 'adapter'
+    });
+
+    expect(llmResult.queued).toBe(true);
+    expect(signalResult).toEqual({ eventId: '', queued: false, reason: 'disabled' });
+
+    await deps.shutdown();
+  });
+
   test('createObservabilityDeps logs multi-target init failures without single-provider field', async () => {
     const logger: any = {
       withCorrelation: () => logger,

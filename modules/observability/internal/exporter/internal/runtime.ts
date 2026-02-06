@@ -19,6 +19,7 @@ type RegistryRuntime = {
 const runtimeByRegistry = new WeakMap<object, RegistryRuntime>();
 const registryRefByRegistry = new WeakMap<object, WeakRef<object>>();
 const runtimeRegistryRefs = new Set<WeakRef<object>>();
+const providerConfigHashCache = new WeakMap<object, string>();
 
 let shutdownAllPromise: Promise<void> | null = null;
 
@@ -97,11 +98,23 @@ function hashKey(value: string): string {
   return createHash('sha256').update(value).digest('hex').slice(0, 16);
 }
 
+function getProviderConfigHash(providerConfig: unknown): string {
+  if (providerConfig === null || providerConfig === undefined) return 'no_provider_config';
+
+  if (typeof providerConfig !== 'object') {
+    return hashKey(stableStringifyForKey(providerConfig));
+  }
+
+  const cached = providerConfigHashCache.get(providerConfig);
+  if (cached) return cached;
+
+  const hash = hashKey(stableStringifyForKey(providerConfig));
+  providerConfigHashCache.set(providerConfig, hash);
+  return hash;
+}
+
 function buildExporterCacheKey(config: ObservabilityExporterConfig): string {
-  const providerConfigHash =
-    config.providerConfig === null || config.providerConfig === undefined
-      ? 'no_provider_config'
-      : hashKey(stableStringifyForKey(config.providerConfig));
+  const providerConfigHash = getProviderConfigHash(config.providerConfig);
   return [
     String(config.provider),
     String(config.flushAt),
