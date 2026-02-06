@@ -25,6 +25,8 @@ import {
 const DEFAULT_ENVELOPE_CONCURRENCY = 2;
 const MAX_ENVELOPE_CONCURRENCY = 10;
 
+const DEFAULT_429_RETRY_DELAY_MS = 60_000;
+
 const DEFAULT_ERROR_BODY_MAX_BYTES = 1024;
 const MAX_ERROR_BODY_MAX_BYTES = 64 * 1024;
 
@@ -94,13 +96,26 @@ function readHeader(headers: any, name: string): string | null {
 }
 
 function resolveRetryDelayMs(response: any): number | null {
-  const retryAfterMs = parseRetryAfterMs(readHeader(response?.headers, 'Retry-After'));
-  const sentryRateLimitMs = parseSentryRateLimitsDelayMs(readHeader(response?.headers, 'X-Sentry-Rate-Limits'));
+  const retryAfterHeader = readHeader(response?.headers, 'Retry-After');
+  const sentryRateLimitHeader = readHeader(response?.headers, 'X-Sentry-Rate-Limits');
+
+  const retryAfterMs = parseRetryAfterMs(retryAfterHeader);
+  const sentryRateLimitMs = parseSentryRateLimitsDelayMs(sentryRateLimitHeader);
 
   let maxDelayMs = 0;
   if (retryAfterMs && retryAfterMs > 0) maxDelayMs = Math.max(maxDelayMs, retryAfterMs);
   if (sentryRateLimitMs && sentryRateLimitMs > 0) maxDelayMs = Math.max(maxDelayMs, sentryRateLimitMs);
-  return maxDelayMs > 0 ? maxDelayMs : null;
+  if (maxDelayMs > 0) return maxDelayMs;
+
+  const hasRetryAfter = typeof retryAfterHeader === 'string' && retryAfterHeader.trim().length > 0;
+  const hasSentryRateLimits = typeof sentryRateLimitHeader === 'string' && sentryRateLimitHeader.trim().length > 0;
+  const status = typeof response?.status === 'number' ? response.status : null;
+
+  if (status === 429 && !hasRetryAfter && !hasSentryRateLimits) {
+    return DEFAULT_429_RETRY_DELAY_MS;
+  }
+
+  return null;
 }
 
 async function tryReadSafeErrorBody(options: {

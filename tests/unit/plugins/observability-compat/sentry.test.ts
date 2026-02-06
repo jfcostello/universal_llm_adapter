@@ -1057,7 +1057,10 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
         ok: false,
         status: 429,
         statusText: 'Too Many Requests',
-        headers: { get: () => null }
+        headers: {
+          // Avoid default rate-limit fallback waits in this classification test.
+          get: (name: string) => (String(name).toLowerCase() === 'retry-after' ? '0' : null)
+        }
       } as any);
 
       const result429 = await compat.sendBatch(payload, mockManifest, { timeoutMs: 1000, eventIds: ['sig'] } as any);
@@ -1106,6 +1109,42 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
         await expect(early).resolves.toBe('pending');
 
         jest.advanceTimersByTime(2000);
+        const result = await promise;
+        expect(result.success).toBe(false);
+        expect(result.outcomes[0]).toEqual(
+          expect.objectContaining({ envelopeId: 'sig', success: false, status: 429, retryable: false })
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('waits for the default 60s window on bare 429 envelope failures (missing rate-limit headers)', async () => {
+      jest.useFakeTimers();
+      try {
+        mockFetch.mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          statusText: 'Too Many Requests',
+          headers: { get: () => null }
+        } as any);
+
+        const { payload } = compat.buildBatch(
+          [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+          mockManifest,
+          { eventIds: ['sig'] } as any
+        );
+
+        const promise = compat.sendBatch(payload, mockManifest, { eventIds: ['sig'] } as any);
+
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(jest.getTimerCount()).toBe(1);
+
+        const early = Promise.race([promise.then(() => 'resolved'), Promise.resolve('pending')]);
+        await expect(early).resolves.toBe('pending');
+
+        jest.advanceTimersByTime(60_000);
         const result = await promise;
         expect(result.success).toBe(false);
         expect(result.outcomes[0]).toEqual(
@@ -1422,6 +1461,37 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       expect(result.outcomes[0]).toEqual(
         expect.objectContaining({ envelopeId: 'sig', success: false, status: 503, retryable: true })
       );
+    });
+
+    it('does not apply retry-delay sleeps when the response status is missing', async () => {
+      jest.useFakeTimers();
+      try {
+        mockFetch.mockResolvedValueOnce({
+          ok: false,
+          statusText: 'Service Unavailable',
+          headers: { get: () => null }
+        } as any);
+
+        const { payload } = compat.buildBatch(
+          [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+          mockManifest,
+          { eventIds: ['sig'] } as any
+        );
+
+        const promise = compat.sendBatch(payload, mockManifest, { eventIds: ['sig'] } as any);
+
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(jest.getTimerCount()).toBe(0);
+
+        const result = await promise;
+        expect(result.success).toBe(false);
+        expect(result.outcomes[0]).toEqual(
+          expect.objectContaining({ envelopeId: 'sig', success: false, error: 'HTTP undefined: Service Unavailable' })
+        );
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('treats invalid payload shapes as empty', async () => {

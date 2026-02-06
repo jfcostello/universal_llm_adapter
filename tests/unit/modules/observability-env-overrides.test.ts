@@ -4,6 +4,12 @@ import {
 } from '@/modules/observability/internal/env-overrides.ts';
 
 describe('modules/observability env overrides', () => {
+  test('modules/observability public API exports env override helpers', async () => {
+    const mod = await import('@/modules/observability/index.ts');
+    expect(typeof (mod as any).resolveObservabilityEnabled).toBe('function');
+    expect(typeof (mod as any).resolveObservabilityTargetsOverride).toBe('function');
+  });
+
   test('resolveObservabilityEnabled prioritizes explicit spec value', () => {
     const env = { LLM_ADAPTER_OBSERVABILITY_ENABLED: '0' } as NodeJS.ProcessEnv;
     expect(resolveObservabilityEnabled(true, false, env)).toBe(true);
@@ -15,6 +21,7 @@ describe('modules/observability env overrides', () => {
     expect(resolveObservabilityEnabled(undefined, true, { LLM_ADAPTER_OBSERVABILITY_ENABLED: 'OFF' } as any)).toBe(false);
     expect(resolveObservabilityEnabled(undefined, true, { LLM_ADAPTER_OBSERVABILITY_ENABLED: 'maybe' } as any)).toBe(true);
     expect(resolveObservabilityEnabled(undefined, false, { LLM_ADAPTER_OBSERVABILITY_ENABLED: '   ' } as any)).toBe(false);
+    expect(resolveObservabilityEnabled(undefined, true, {} as any)).toBe(true);
   });
 
   test('resolveObservabilityTargetsOverride returns undefined when env var is missing or empty', () => {

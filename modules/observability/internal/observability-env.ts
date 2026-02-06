@@ -1,16 +1,7 @@
 import type { ObservabilityTargetSpec } from '../../../kernel/index.js';
 import { readTrimmedStringProperty } from '../../shared/index.js';
 
-const TRUE_FLAGS = new Set(['1', 'true', 'yes', 'y', 'on']);
-const FALSE_FLAGS = new Set(['0', 'false', 'no', 'n', 'off']);
-
-function parseEnabledFlag(value: unknown): boolean | undefined {
-  if (typeof value !== 'string') return undefined;
-  const normalized = value.trim().toLowerCase();
-  if (TRUE_FLAGS.has(normalized)) return true;
-  if (FALSE_FLAGS.has(normalized)) return false;
-  return undefined;
-}
+export { resolveObservabilityEnabled } from '../../../kernel/index.js';
 
 function readProviderId(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -74,19 +65,6 @@ function parseTargetsFromCsv(raw: string): ObservabilityTargetSpec[] | undefined
     .filter(Boolean)
     .map(provider => ({ provider }));
   return targets.length > 0 ? targets : undefined;
-}
-
-export function resolveObservabilityEnabled(
-  specEnabled: unknown,
-  defaultsEnabled: boolean,
-  env: NodeJS.ProcessEnv = process.env
-): boolean {
-  if (typeof specEnabled === 'boolean') return specEnabled;
-
-  const envEnabled = parseEnabledFlag(readTrimmedStringProperty(env, 'LLM_ADAPTER_OBSERVABILITY_ENABLED'));
-  if (typeof envEnabled === 'boolean') return envEnabled;
-
-  return defaultsEnabled;
 }
 
 export function resolveObservabilityTargetsOverride(

@@ -2185,6 +2185,7 @@ describe('modules/observability', () => {
       jest.resetModules();
 
       const { BUILT_IN_SENSITIVE_KEY_PATTERNS } = await import('@/kernel/internal/defaults.ts');
+      const { resolveObservabilityEnabled } = await import('@/kernel/internal/observability-env.ts');
 
       // Mock the kernel module to return defaults with no provider
       jest.unstable_mockModule('@/kernel/index.ts', () => ({
@@ -2205,6 +2206,7 @@ describe('modules/observability', () => {
           getExporter: overrides.getExporter ?? (() => ({})),
           shutdown: overrides.shutdown ?? (async () => {})
         }),
+        resolveObservabilityEnabled,
         getDefaults: () => ({
           observability: {
             enabled: true,
@@ -2696,6 +2698,7 @@ describe('modules/observability', () => {
       jest.resetModules();
 
       const { BUILT_IN_SENSITIVE_KEY_PATTERNS } = await import('@/kernel/internal/defaults.ts');
+      const { resolveObservabilityEnabled } = await import('@/kernel/internal/observability-env.ts');
 
       const mockCompat = {
         buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
@@ -2731,6 +2734,7 @@ describe('modules/observability', () => {
           getExporter: overrides.getExporter ?? (() => ({})),
           shutdown: overrides.shutdown ?? (async () => {})
         }),
+        resolveObservabilityEnabled,
         getDefaults: () => ({
           observability: {
             enabled: true,

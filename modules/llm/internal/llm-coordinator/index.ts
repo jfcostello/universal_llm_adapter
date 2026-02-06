@@ -17,24 +17,16 @@ import {
   sanitizeToolName,
   ProviderExecutionError,
   getDefaults,
-  resolveLoggingDeps
+  resolveLoggingDeps,
+  resolveObservabilityEnabled
 } from '../../../../kernel/index.js';
 import { LLMManager } from '../llm-manager.js';
-import { normalizeFlag, parseNonNegativeInt, readTrimmedStringProperty } from '../../../shared/index.js';
+import { normalizeFlag, parseNonNegativeInt } from '../../../shared/index.js';
 import type { MCPManager } from '../../../mcp/index.js';
 import type { VectorStoreManager, VectorContextInjector } from '../../../vector/index.js';
 import { prepareMessagesWithDocuments } from './internal/prepare-messages.js';
 import { runNonStream } from './internal/run-nonstream.js';
 import { runStream } from './internal/run-stream.js';
-function resolveObservabilityEnabled(
-  specEnabled: unknown,
-  defaultsEnabled: boolean,
-  env: NodeJS.ProcessEnv = process.env
-): boolean {
-  if (typeof specEnabled === 'boolean') return specEnabled;
-  const envEnabled = readTrimmedStringProperty(env, 'LLM_ADAPTER_OBSERVABILITY_ENABLED');
-  return normalizeFlag(envEnabled, defaultsEnabled);
-}
 
 export class LLMCoordinator {
   private llmManager: LLMManager;

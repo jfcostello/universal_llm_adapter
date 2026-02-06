@@ -1,5 +1,9 @@
 // Observability module public surface.
 export * from './internal/observability.js';
+export {
+  resolveObservabilityEnabled,
+  resolveObservabilityTargetsOverride
+} from './internal/env-overrides.js';
 export { createObservabilityRuntime } from './internal/runtime.js';
 export type { ObservabilityRuntime } from './internal/runtime.js';
 export { submitTelemetry } from './internal/telemetry-submit.js';
