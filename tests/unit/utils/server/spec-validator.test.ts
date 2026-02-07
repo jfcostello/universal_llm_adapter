@@ -43,6 +43,39 @@ describe('utils/server assertValidSpec', () => {
     ).not.toThrow();
   });
 
+  test('rejects vectorContexts entries missing required stores', () => {
+    expect(() =>
+      assertValidSpec({
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+        llmPriority: [{ provider: 'p', model: 'm' }],
+        settings: {},
+        vectorContexts: [{ mode: 'auto' }]
+      } as any)
+    ).toThrow(/validation/i);
+  });
+
+  test('rejects vectorContexts entries missing required mode', () => {
+    expect(() =>
+      assertValidSpec({
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+        llmPriority: [{ provider: 'p', model: 'm' }],
+        settings: {},
+        vectorContexts: [{ stores: ['memory'] }]
+      } as any)
+    ).toThrow(/validation/i);
+  });
+
+  test('accepts valid vectorContexts entries', () => {
+    expect(() =>
+      assertValidSpec({
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+        llmPriority: [{ provider: 'p', model: 'm' }],
+        settings: {},
+        vectorContexts: [{ stores: ['memory'], mode: 'auto' }]
+      } as any)
+    ).not.toThrow();
+  });
+
   test('assertValidVectorSpec accepts minimal valid vector spec', () => {
     expect(() =>
       assertValidVectorSpec({

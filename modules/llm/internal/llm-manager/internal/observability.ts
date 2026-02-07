@@ -80,7 +80,7 @@ export function recordObservabilityResponse(
 
   try {
     const captureMessages = context.observability.captureMessages ?? 'full';
-    const captureToolArgs = context.observability.captureToolArgs ?? true;
+    const captureToolArgs = context.observability.captureToolArgs ?? false;
     const captureRawResponse = context.observability.captureRawResponse ?? true;
 
     const endTimeMs = Date.now();

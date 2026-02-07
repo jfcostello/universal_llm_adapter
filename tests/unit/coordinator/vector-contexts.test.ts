@@ -59,10 +59,27 @@ describe('coordinator/vector-contexts helpers', () => {
   });
 
   test('withTimeout returns original promise for non-positive/non-finite timeout and times out otherwise', async () => {
-    await expect(withTimeout(Promise.resolve('ok'), 0, 'noop')).resolves.toBe('ok');
-    await expect(withTimeout(Promise.resolve('still-ok'), Number.POSITIVE_INFINITY, 'noop')).resolves.toBe('still-ok');
-    await expect(withTimeout(new Promise(() => {}), 1, 'vector context injection')).rejects.toThrow(
+    await expect(withTimeout(() => Promise.resolve('ok'), 0, 'noop')).resolves.toBe('ok');
+    await expect(withTimeout(() => Promise.resolve('still-ok'), Number.POSITIVE_INFINITY, 'noop')).resolves.toBe('still-ok');
+    await expect(withTimeout(() => new Promise(() => {}), 1, 'vector context injection')).rejects.toThrow(
       'vector context injection timed out after 1ms'
     );
+  });
+
+  test('withTimeout aborts the underlying operation signal on timeout', async () => {
+    let aborted = false;
+    await expect(
+      withTimeout(
+        (signal) =>
+          new Promise((_resolve) => {
+            signal.addEventListener('abort', () => {
+              aborted = true;
+            }, { once: true });
+          }),
+        1,
+        'vector context injection'
+      )
+    ).rejects.toThrow('vector context injection timed out after 1ms');
+    expect(aborted).toBe(true);
   });
 });

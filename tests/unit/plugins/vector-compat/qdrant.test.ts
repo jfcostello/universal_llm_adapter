@@ -181,6 +181,75 @@ describe('plugins/vector-compat/qdrant', () => {
       }));
     });
 
+    test('passes timeoutMs through to Qdrant timeout seconds', async () => {
+      mockClient.search.mockResolvedValue([]);
+
+      await compat.query('test', [1], 1, { timeoutMs: 1500 });
+
+      expect(mockClient.search).toHaveBeenCalledWith(
+        'test',
+        expect.objectContaining({
+          timeout: 1
+        })
+      );
+    });
+
+    test('enforces local timeout budget even when backend search hangs', async () => {
+      mockClient.search.mockImplementation(
+        () => new Promise(() => {})
+      );
+
+      await expect(
+        compat.query('test', [1], 1, { timeoutMs: 20 })
+      ).rejects.toThrow('Vector query timed out after 20ms');
+    });
+
+    test('throws when signal is already aborted before query starts', async () => {
+      const abortController = new AbortController();
+      abortController.abort();
+
+      await expect(
+        compat.query('test', [1], 1, { signal: abortController.signal })
+      ).rejects.toThrow('Vector query aborted');
+      expect(mockClient.search).not.toHaveBeenCalled();
+    });
+
+    test('preserves mid-query abort as AbortError', async () => {
+      const abortController = new AbortController();
+      mockClient.search.mockImplementation(async () => {
+        abortController.abort();
+        return [];
+      });
+
+      await expect(
+        compat.query('test', [1], 1, { signal: abortController.signal })
+      ).rejects.toThrow('Vector query aborted');
+    });
+
+    test('preserves cancelation error code from backend as abort-like failure', async () => {
+      mockClient.search.mockRejectedValue({ name: 'Error', code: 'ERR_CANCELED', message: 'request canceled' });
+
+      await expect(
+        compat.query('test', [1], 1)
+      ).rejects.toMatchObject({ code: 'ERR_CANCELED' });
+    });
+
+    test('preserves cancelation error code when backend error omits name', async () => {
+      mockClient.search.mockRejectedValue({ code: 'ABORT_ERR', message: 'request canceled' });
+
+      await expect(
+        compat.query('test', [1], 1)
+      ).rejects.toMatchObject({ code: 'ABORT_ERR' });
+    });
+
+    test('preserves abort-style name when backend error omits code', async () => {
+      mockClient.search.mockRejectedValue({ name: 'AbortError', message: 'request canceled' });
+
+      await expect(
+        compat.query('test', [1], 1)
+      ).rejects.toMatchObject({ name: 'AbortError' });
+    });
+
     test('converts dot-notation filter to nested Qdrant format', async () => {
       mockClient.search.mockResolvedValue([]);
 
@@ -243,6 +312,12 @@ describe('plugins/vector-compat/qdrant', () => {
       mockClient.search.mockRejectedValue(new Error('Search failed'));
 
       await expect(compat.query('test', [1], 1)).rejects.toThrow(VectorStoreError);
+    });
+
+    test('wraps non-object search failures as VectorStoreError', async () => {
+      mockClient.search.mockRejectedValue('search-failed');
+
+      await expect(compat.query('test', [1], 1)).rejects.toThrow('Query failed: search-failed');
     });
 
     test('throws when not connected', async () => {

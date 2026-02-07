@@ -677,11 +677,17 @@ The specification for LLM calls (`run` and `stream` commands).
   },
 
   // Vector/RAG (optional)
-  "vectorContext": {
+  "vectorContexts": [{
     "stores": ["memory"],
     "mode": "auto",
     "topK": 5,
     "embeddingPriority": [{"provider": "example-embeddings"}]
+  }],
+  "vectorRequestPolicy": {
+    "maxAutoContexts": 3,
+    "perContextTimeoutMs": 1500,
+    "totalAutoBudgetMs": 4000,
+    "maxInjectedPayloadBytes": 16384
   },
 
   // Retry configuration (optional)
@@ -916,7 +922,7 @@ The specification for embedding operations.
 
 ---
 
-## VectorContextConfig (RAG Integration)
+## vectorContexts[] (RAG Integration)
 
 When using LLM calls with vector stores for RAG:
 
@@ -925,7 +931,7 @@ When using LLM calls with vector stores for RAG:
   "messages": [...],
   "llmPriority": [...],
   "settings": {},
-  "vectorContext": {
+  "vectorContexts": [{
     // Which stores to query (required)
     "stores": ["memory"],
 
@@ -971,6 +977,12 @@ When using LLM calls with vector stores for RAG:
       "scoreThreshold": 0.7,
       "collection": "docs"
     }
+  }],
+  "vectorRequestPolicy": {
+    "maxAutoContexts": 3,
+    "perContextTimeoutMs": 1500,
+    "totalAutoBudgetMs": 4000,
+    "maxInjectedPayloadBytes": 16384
   }
 }
 ```
@@ -1360,14 +1372,14 @@ llm-adapter run --spec '{
   "messages": [{"role": "user", "content": [{"type": "text", "text": "What is machine learning?"}]}],
   "llmPriority": [{"provider": "example-llm", "model": "example-model"}],
   "settings": {},
-  "vectorContext": {
+  "vectorContexts": [{
     "stores": ["memory"],
     "mode": "auto",
     "topK": 5,
     "embeddingPriority": [{"provider": "example-embeddings"}],
     "injectAs": "system",
     "injectTemplate": "Use this context to answer:\n{{results}}"
-  }
+  }]
 }'
 ```
 
@@ -1379,13 +1391,13 @@ llm-adapter run --spec '{
   "messages": [{"role": "user", "content": [{"type": "text", "text": "Find info about neural networks"}]}],
   "llmPriority": [{"provider": "example-llm", "model": "example-model"}],
   "settings": {},
-  "vectorContext": {
+  "vectorContexts": [{
     "stores": ["memory"],
     "mode": "tool",
     "toolName": "search_knowledge_base",
     "toolDescription": "Search the knowledge base for relevant information",
     "embeddingPriority": [{"provider": "example-embeddings"}]
-  }
+  }]
 }'
 ```
 

@@ -40,4 +40,6 @@ export interface VectorQueryOptions {
   filter?: JsonObject;
   includeVector?: boolean;
   includePayload?: boolean;
+  signal?: AbortSignal;
+  timeoutMs?: number;
 }

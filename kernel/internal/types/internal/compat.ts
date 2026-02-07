@@ -98,6 +98,10 @@ export interface IVectorOperationLogger {
  */
 export type IOperationLogger = IEmbeddingOperationLogger & IVectorOperationLogger;
 
+export interface EmbeddingCompatOptions {
+  signal?: AbortSignal;
+}
+
 /**
  * Interface for embedding compat modules.
  */
@@ -106,7 +110,8 @@ export interface IEmbeddingCompat {
     input: string | string[],
     config: EmbeddingProviderConfig,
     model?: string,
-    logger?: IEmbeddingOperationLogger
+    logger?: IEmbeddingOperationLogger,
+    options?: EmbeddingCompatOptions
   ): Promise<EmbeddingResult>;
 
   getDimensions(config: EmbeddingProviderConfig, model?: string): number;

@@ -60,4 +60,14 @@ describe('plugins/embedding-compat/test', () => {
     await expect(compat.validate!(createConfig({ dimensions: 0 }))).resolves.toBe(false);
     await expect(compat.validate!(createConfig({ dimensions: undefined }))).resolves.toBe(true);
   });
+
+  test('embed rejects when aborted before start', async () => {
+    const compat = new TestEmbeddingCompat();
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      compat.embed('hello world', createConfig(), undefined, undefined, { signal: controller.signal })
+    ).rejects.toThrow('Embedding request aborted');
+  });
 });

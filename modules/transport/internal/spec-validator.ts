@@ -143,7 +143,19 @@ const llmSpecSchema: any = {
     mcpServers: { type: 'array', items: { type: 'string' }, nullable: true },
     vectorStores: { type: 'array', items: { type: 'string' }, nullable: true },
     vectorPriority: { type: 'array', items: { type: 'string' }, nullable: true },
-    vectorContexts: { type: 'array', nullable: true, items: { type: 'object', additionalProperties: true } },
+    vectorContexts: {
+      type: 'array',
+      nullable: true,
+      items: {
+        type: 'object',
+        required: ['stores', 'mode'],
+        properties: {
+          stores: { type: 'array', minItems: 1, items: { type: 'string' } },
+          mode: { type: 'string', enum: ['tool', 'auto', 'both'] }
+        },
+        additionalProperties: true
+      }
+    },
     vectorRequestPolicy: {
       type: 'object',
       nullable: true,

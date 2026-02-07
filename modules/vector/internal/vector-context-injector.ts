@@ -29,9 +29,24 @@ export interface InjectionResult {
 export interface InjectionOptions {
   maxInjectedPayloadBytes?: number;
   embeddingCache?: Map<string, number[]>;
+  abortSignal?: AbortSignal;
+  queryTimeoutMs?: number;
 }
 
 const getVectorDefaults = () => getDefaults().vector;
+
+function createAbortError(message: string): Error {
+  const error = new Error(message);
+  (error as any).name = 'AbortError';
+  (error as any).code = 'aborted';
+  return error;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw createAbortError('Vector context injection aborted');
+  }
+}
 
 export class VectorContextInjector {
   private registry: PluginRegistry;
@@ -78,25 +93,32 @@ export class VectorContextInjector {
     }
 
     try {
+      throwIfAborted(options.abortSignal);
       await this.ensureManagers();
+      throwIfAborted(options.abortSignal);
 
       const embeddingPriority = await resolveEmbeddingPriority(
         { explicit: config.embeddingPriority, storeIds: config.stores },
         this.registry
       );
+      throwIfAborted(options.abortSignal);
 
       const embeddingCacheKey = this.buildEmbeddingCacheKey(query, embeddingPriority);
       let queryVector = options.embeddingCache?.get(embeddingCacheKey);
       if (!queryVector) {
-        const embeddingResult = await this.embeddingManager!.embed(query, embeddingPriority);
+        const embeddingResult = await this.embeddingManager!.embed(query, embeddingPriority, {
+          signal: options.abortSignal
+        });
         queryVector = embeddingResult.vectors[0];
         options.embeddingCache?.set(embeddingCacheKey, queryVector);
       }
 
       let results: any[] = [];
       for (const storeId of config.stores) {
+        throwIfAborted(options.abortSignal);
         try {
           await this.ensureStoreInitialized(storeId);
+          throwIfAborted(options.abortSignal);
 
           const compat = (await this.vectorManager!.getCompat(storeId))!;
 
@@ -109,9 +131,12 @@ export class VectorContextInjector {
             config.topK ?? getVectorDefaults().topK,
             {
               filter: config.filter,
-              includePayload: true
+              includePayload: true,
+              signal: options.abortSignal,
+              timeoutMs: options.queryTimeoutMs
             }
           );
+          throwIfAborted(options.abortSignal);
 
           results = [...results, ...storeResults];
 
@@ -323,7 +348,12 @@ export class VectorContextInjector {
         }
       }
 
-      result.splice(lastUserIndex, 0, contextMessage);
+      if (lastUserIndex >= 0) {
+        result.splice(lastUserIndex, 0, contextMessage);
+      } else {
+        // No user messages exist; append deterministically instead of splice(-1, ...).
+        result.push(contextMessage);
+      }
     }
 
     return result;

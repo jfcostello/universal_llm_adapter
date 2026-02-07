@@ -87,9 +87,11 @@ export async function runNonStream(options: {
 
       try {
         const injectionResult = await withTimeout(
-          injector.injectContext(messages, contextConfig, options.spec.systemPrompt, {
+          (abortSignal) => injector.injectContext(messages, contextConfig, options.spec.systemPrompt, {
             maxInjectedPayloadBytes: vectorPolicy.maxInjectedPayloadBytes,
-            embeddingCache
+            embeddingCache,
+            abortSignal,
+            queryTimeoutMs: timeoutMs
           }),
           timeoutMs,
           'vector context injection'

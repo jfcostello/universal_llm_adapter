@@ -158,6 +158,17 @@ describe('managers/embedding-manager', () => {
       await expect(manager.embed('test', [{ provider: 'p1' }])).rejects.toThrow('Unknown error');
     });
 
+    test('does not treat non-object failures as abort errors', async () => {
+      const failCompat = {
+        embed: jest.fn().mockRejectedValue('plain-failure'),
+        getDimensions: jest.fn()
+      };
+      const registry = createMockRegistry({ compat: failCompat });
+      const manager = new EmbeddingManager(registry);
+
+      await expect(manager.embed('test', [{ provider: 'p1' }])).rejects.toThrow('Unknown error');
+    });
+
     test('throws when priority list is empty', async () => {
       const registry = createMockRegistry();
       const manager = new EmbeddingManager(registry);
@@ -183,8 +194,209 @@ describe('managers/embedding-manager', () => {
         'test',
         expect.anything(),
         'custom-model',
-        undefined // no logger passed to manager
+        undefined, // no logger passed to manager
+        undefined
       );
+    });
+
+    test('throws when abort signal is already aborted', async () => {
+      const compat = {
+        embed: jest.fn(),
+        getDimensions: jest.fn()
+      };
+      const registry = createMockRegistry({ compat });
+      const manager = new EmbeddingManager(registry);
+      const abortController = new AbortController();
+      abortController.abort();
+
+      await expect(
+        manager.embed('test', [{ provider: 'p1' }], { signal: abortController.signal })
+      ).rejects.toThrow('Embedding request aborted');
+      expect(compat.embed).not.toHaveBeenCalled();
+    });
+
+    test('passes signal options to compat when provided', async () => {
+      const compat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1]],
+          model: 'test',
+          dimensions: 1
+        }),
+        getDimensions: jest.fn()
+      };
+      const registry = createMockRegistry({ compat });
+      const manager = new EmbeddingManager(registry);
+      const abortController = new AbortController();
+
+      await manager.embed('test', [{ provider: 'test' }], { signal: abortController.signal });
+
+      expect(compat.embed).toHaveBeenCalledWith(
+        'test',
+        expect.anything(),
+        undefined,
+        undefined,
+        { signal: abortController.signal }
+      );
+    });
+
+    test('throws when signal aborts between provider fallback attempts', async () => {
+      const abortController = new AbortController();
+      const firstCompat = {
+        embed: jest.fn().mockImplementation(async () => {
+          abortController.abort();
+          throw new EmbeddingProviderError('p1', 'Rate limit', 429, true);
+        }),
+        getDimensions: jest.fn()
+      };
+      const secondCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.2]],
+          model: 'p2-model',
+          dimensions: 1
+        }),
+        getDimensions: jest.fn()
+      };
+
+      let compatCalls = 0;
+      const registry = {
+        getEmbeddingProvider: jest.fn().mockImplementation(async (providerId: string) => ({
+          id: providerId,
+          kind: 'test',
+          endpoint: { urlTemplate: 'http://test', headers: {} },
+          model: `${providerId}-model`,
+          dimensions: 1
+        })),
+        getEmbeddingCompat: jest.fn().mockImplementation(async () => {
+          compatCalls++;
+          return compatCalls === 1 ? firstCompat : secondCompat;
+        })
+      };
+
+      const manager = new EmbeddingManager(registry);
+
+      await expect(
+        manager.embed(
+          'test',
+          [{ provider: 'p1' }, { provider: 'p2' }],
+          { signal: abortController.signal }
+        )
+      ).rejects.toThrow('Embedding request aborted');
+      expect(firstCompat.embed).toHaveBeenCalledTimes(1);
+      expect(secondCompat.embed).not.toHaveBeenCalled();
+    });
+
+    test('checks abort signal at next-provider boundary after a non-abort first failure', async () => {
+      const abortController = new AbortController();
+      const firstError: any = {
+        name: 'ProviderError',
+        message: 'temporary failure',
+        get code() {
+          abortController.abort();
+          return 'E_TEMP';
+        }
+      };
+
+      const firstCompat = {
+        embed: jest.fn().mockRejectedValue(firstError),
+        getDimensions: jest.fn()
+      };
+      const secondCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.2]],
+          model: 'p2-model',
+          dimensions: 1
+        }),
+        getDimensions: jest.fn()
+      };
+
+      let compatCalls = 0;
+      const registry = {
+        getEmbeddingProvider: jest.fn().mockImplementation(async (providerId: string) => ({
+          id: providerId,
+          kind: 'test',
+          endpoint: { urlTemplate: 'http://test', headers: {} },
+          model: `${providerId}-model`,
+          dimensions: 1
+        })),
+        getEmbeddingCompat: jest.fn().mockImplementation(async () => {
+          compatCalls++;
+          return compatCalls === 1 ? firstCompat : secondCompat;
+        })
+      };
+
+      const manager = new EmbeddingManager(registry);
+      await expect(
+        manager.embed('test', [{ provider: 'p1' }, { provider: 'p2' }], { signal: abortController.signal })
+      ).rejects.toThrow('Embedding request aborted');
+      expect(firstCompat.embed).toHaveBeenCalledTimes(1);
+      expect(secondCompat.embed).not.toHaveBeenCalled();
+    });
+
+    test('treats AbortError from compat as request cancellation and does not continue fallback', async () => {
+      const firstCompat = {
+        embed: jest.fn().mockRejectedValue(Object.assign(new Error('canceled'), { name: 'AbortError' })),
+        getDimensions: jest.fn()
+      };
+      const secondCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.2]],
+          model: 'p2-model',
+          dimensions: 1
+        }),
+        getDimensions: jest.fn()
+      };
+
+      let compatCalls = 0;
+      const registry = {
+        getEmbeddingProvider: jest.fn().mockImplementation(async (providerId: string) => ({
+          id: providerId,
+          kind: 'test',
+          endpoint: { urlTemplate: 'http://test', headers: {} },
+          model: `${providerId}-model`,
+          dimensions: 1
+        })),
+        getEmbeddingCompat: jest.fn().mockImplementation(async () => {
+          compatCalls++;
+          return compatCalls === 1 ? firstCompat : secondCompat;
+        })
+      };
+
+      const manager = new EmbeddingManager(registry);
+      await expect(
+        manager.embed('test', [{ provider: 'p1' }, { provider: 'p2' }], { signal: new AbortController().signal })
+      ).rejects.toThrow('Embedding request aborted');
+      expect(firstCompat.embed).toHaveBeenCalledTimes(1);
+      expect(secondCompat.embed).not.toHaveBeenCalled();
+    });
+
+    test('treats cancelation error code from compat as request cancellation', async () => {
+      const compat = {
+        embed: jest.fn().mockRejectedValue({
+          name: 'Error',
+          code: 'ERR_CANCELED',
+          message: 'provider canceled request'
+        }),
+        getDimensions: jest.fn()
+      };
+      const registry = createMockRegistry({ compat });
+      const manager = new EmbeddingManager(registry);
+
+      await expect(
+        manager.embed('test', [{ provider: 'p1' }], { signal: new AbortController().signal })
+      ).rejects.toThrow('Embedding request aborted');
+    });
+
+    test('treats cancellation message from compat as request cancellation', async () => {
+      const compat = {
+        embed: jest.fn().mockRejectedValue(new Error('operation cancelled by user')),
+        getDimensions: jest.fn()
+      };
+      const registry = createMockRegistry({ compat });
+      const manager = new EmbeddingManager(registry);
+
+      await expect(
+        manager.embed('test', [{ provider: 'p1' }], { signal: new AbortController().signal })
+      ).rejects.toThrow('Embedding request aborted');
     });
 
     test('continues to next provider on config loading error', async () => {
@@ -396,7 +608,8 @@ describe('managers/embedding-manager', () => {
         'test',
         expect.anything(),
         undefined,
-        mockLogger
+        mockLogger,
+        undefined
       );
     });
   });

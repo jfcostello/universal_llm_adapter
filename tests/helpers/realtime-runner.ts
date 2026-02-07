@@ -723,19 +723,17 @@ export async function runRealtimeScenario(options: RunRealtimeScenarioOptions): 
       .filter(e => e?.type === 'event')
       .map(e => (e as any)?.event);
 
-    // Retry only if we never made meaningful progress (e.g., ready -> closed) and any observed
-    // errors are purely close-noise (ws_close) before the scenario could actually run.
-    const hasMeaningfulEvent = events.some((evt) => {
+    // Some providers can emit real progress events and still terminate abruptly with ws_close
+    // noise plus provider_close before an expected event is delivered. Retry those cases, but
+    // do not retry when we observed any non-ws_close error event.
+    const hasNonWsCloseError = events.some((evt) => {
       const type = String(evt?.type ?? '').trim();
-      if (!type) return false;
-      if (type === 'ready' || type === 'closed') return false;
-      if (type === 'error') {
-        const code = String(evt?.code ?? '').trim();
-        if (code === 'ws_close') return false;
-      }
+      if (type !== 'error') return false;
+      const code = String(evt?.code ?? '').trim();
+      if (code === 'ws_close') return false;
       return true;
     });
-    if (hasMeaningfulEvent) return false;
+    if (hasNonWsCloseError) return false;
 
     return true;
   };

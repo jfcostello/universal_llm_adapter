@@ -613,11 +613,17 @@ curl http://127.0.0.1:3000/embeddings/run \
   },
 
   // Vector/RAG (optional)
-  "vectorContext": {
+  "vectorContexts": [{
     "stores": ["memory"],
     "mode": "auto",
     "topK": 5,
     "embeddingPriority": [{"provider": "example-embeddings"}]
+  }],
+  "vectorRequestPolicy": {
+    "maxAutoContexts": 3,
+    "perContextTimeoutMs": 1500,
+    "totalAutoBudgetMs": 4000,
+    "maxInjectedPayloadBytes": 16384
   },
 
   // Metadata (optional)
@@ -1043,14 +1049,14 @@ curl http://127.0.0.1:3000/run \
     ],
     "llmPriority": [{"provider": "example-llm", "model": "example-model"}],
     "settings": {},
-    "vectorContext": {
+    "vectorContexts": [{
       "stores": ["memory"],
       "mode": "auto",
       "topK": 5,
       "embeddingPriority": [{"provider": "example-embeddings"}],
       "injectAs": "system",
       "injectTemplate": "Use this context:\n{{results}}"
-    }
+    }]
   }'
 ```
 
