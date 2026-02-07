@@ -81,28 +81,28 @@ spec:
   vectorStores: [memory]
   vectorPriority: [memory]
 
-  vectorContext:
-    stores: [memory]
-    collection: demo
-    mode: both           # auto inject + tool
-    topK: 3
-    scoreThreshold: 0.15
-    filter:
-      topic: sandbox
-    embeddingPriority:
-      - provider: test-openai
-        model: embed-model
-    injectAs: system
-    injectTemplate: "Relevant context:\\n{{results}}"
-    maxContextTokens: 512
-    resultFormat: "- {{payload.text}} (score: {{score}})"
-    toolName: vector_search
-    toolDescription: Search stored snippets
-    locks:
-      store: memory
+  vectorContexts:
+    - stores: [memory]
+      collection: demo
+      mode: both           # auto inject + tool
       topK: 3
+      scoreThreshold: 0.15
       filter:
         topic: sandbox
+      embeddingPriority:
+        - provider: test-openai
+          model: embed-model
+      injectAs: system
+      injectTemplate: "Relevant context:\\n{{results}}"
+      maxContextTokens: 512
+      resultFormat: "- {{payload.text}} (score: {{score}})"
+      toolName: vector_search
+      toolDescription: Search stored snippets
+      locks:
+        store: memory
+        topK: 3
+        filter:
+          topic: sandbox
 
   rateLimitRetryDelays: [1, 2, 5]
 

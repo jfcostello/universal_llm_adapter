@@ -1,4 +1,5 @@
 import type { ObservabilityTargetSpec } from '../../observability-spec-types.js';
+import type { VectorRequestPolicy } from './vector-context.js';
 
 /**
  * Retry and rate limiting default settings.
@@ -56,6 +57,7 @@ export interface VectorDefaults {
   includeVector: boolean;
   defaultCollection: string;
   queryConstruction: QueryConstructionSettings;
+  requestPolicy: VectorRequestPolicy;
 }
 
 /**

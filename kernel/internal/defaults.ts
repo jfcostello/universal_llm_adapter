@@ -67,6 +67,12 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
       includeSystemPrompt: 'if-in-range',
       includeAssistantMessages: true,
       messagesToInclude: 1
+    },
+    requestPolicy: {
+      maxAutoContexts: 3,
+      perContextTimeoutMs: 1500,
+      totalAutoBudgetMs: 4000,
+      maxInjectedPayloadBytes: 16384
     }
   },
   chunking: {

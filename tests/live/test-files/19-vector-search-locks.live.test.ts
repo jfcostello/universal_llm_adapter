@@ -128,7 +128,7 @@ function extractTextFromMessage(msg: any): string {
         parallelToolExecution: false
       }),
       toolChoice: { type: 'single', name: 'vector_search' },
-      vectorContext: {
+      vectorContexts: [{
         // Intentionally wrong/unhelpful defaults (locks must override these).
         mode: 'tool',
         stores: ['memory', STORE_ID],
@@ -144,7 +144,7 @@ function extractTextFromMessage(msg: any): string {
           filter: { relevance: 'high' },
           scoreThreshold: 0
         }
-      }
+      }]
     };
 
     const { result, response } = await runLlmOnce({

@@ -60,6 +60,11 @@ export interface SafeJsonStringifyOptions {
   maxDepth?: number;
   maxArrayLength?: number;
   maxObjectKeys?: number;
+  /**
+   * Maximum UTF-8 bytes for any single string encountered while serializing.
+   * Defaults to `min(maxBytes, 4096)` when maxBytes is set, otherwise 4096.
+   */
+  maxStringBytes?: number;
 }
 
 function boundJsonValue(
@@ -127,9 +132,13 @@ export function safeJsonStringify(value: unknown, options: SafeJsonStringifyOpti
   const maxArrayLength = clampInt(options.maxArrayLength, 50, 0, 1000);
   const maxObjectKeys = clampInt(options.maxObjectKeys, 50, 0, 2000);
 
-  const maxStringBytes = maxBytes !== null
-    ? Math.min(maxBytes, 4096)
-    : 4096;
+  const defaultMaxStringBytes = maxBytes !== null ? Math.min(maxBytes, 4096) : 4096;
+  const maxStringBytes = clampInt(
+    options.maxStringBytes,
+    defaultMaxStringBytes,
+    0,
+    maxBytes !== null ? maxBytes : 1_000_000
+  );
 
   const bounded = boundJsonValue(
     value,

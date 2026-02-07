@@ -54,7 +54,7 @@ function extractText(parts: ContentPart[] | undefined): string {
         // Ensure the core suite doesn't enable tools/MCP/vector implicitly.
         tools: [],
         mcpServers: [],
-        vectorContext: undefined
+        vectorContexts: undefined
       },
       traceId
     );

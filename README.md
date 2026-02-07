@@ -435,7 +435,8 @@ interface LLMCallSpec {
   toolChoice?: ToolChoice;
 
   // Vector/RAG
-  vectorContext?: VectorContextConfig;
+  vectorContexts?: VectorContextConfig[];
+  vectorRequestPolicy?: Partial<VectorRequestPolicy>;
   vectorPriority?: string[];
 
   // Retry

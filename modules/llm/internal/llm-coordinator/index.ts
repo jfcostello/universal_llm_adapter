@@ -27,6 +27,13 @@ import type { VectorStoreManager, VectorContextInjector } from '../../../vector/
 import { prepareMessagesWithDocuments } from './internal/prepare-messages.js';
 import { runNonStream } from './internal/run-nonstream.js';
 import { runStream } from './internal/run-stream.js';
+import { createToolCoordinatorProxy, type PendingVectorContexts } from './internal/tool-coordinator-proxy.js';
+import {
+  hasToolVectorContexts,
+  resolveAutoVectorContexts,
+  resolveVectorContexts,
+  resolveVectorRequestPolicy
+} from './internal/vector-contexts.js';
 
 export class LLMCoordinator {
   private llmManager: LLMManager;
@@ -39,10 +46,7 @@ export class LLMCoordinator {
   private logger: AdapterLogger;
   private toolCoordinatorInitialized = false;
   private activeToolSpec?: LLMCallSpec;
-  private pendingVectorContext?: {
-    config: VectorContextConfig | undefined;
-    aliasMap?: Record<string, string>;
-  };
+  private pendingVectorContexts?: PendingVectorContexts;
 
   constructor(
     private registry: PluginRegistry,
@@ -58,35 +62,23 @@ export class LLMCoordinator {
 
     // Stable proxy so tests can spy on methods without being broken by lazy initialization.
     // The real implementation is stored in `toolCoordinatorImpl` and populated on-demand.
-    this.toolCoordinator = {
-      __isToolCoordinatorProxy: true,
-      setVectorContext: (config: VectorContextConfig | undefined, _registry?: PluginRegistry, aliasMap?: Record<string, string>) => {
-        this.pendingVectorContext = { config, aliasMap };
-        this.toolCoordinatorImpl?.setVectorContext?.(config, this.registry, aliasMap);
+    this.toolCoordinator = createToolCoordinatorProxy({
+      getRegistry: () => this.registry,
+      getToolCoordinatorImpl: () => this.toolCoordinatorImpl,
+      setPendingVectorContexts: (pending) => {
+        this.pendingVectorContexts = pending;
       },
-      routeAndInvoke: async (toolName: string, callId: string, args: any, context: any) => {
-        if (!this.toolCoordinatorImpl) {
-          if (!this.activeToolSpec) {
-            throw new Error('ToolCoordinator not initialized (no active spec)');
-          }
-          await this.ensureToolCoordinator(this.activeToolSpec);
-        }
-        return this.toolCoordinatorImpl.routeAndInvoke(toolName, callId, args, context);
-      },
-      close: async () => {
-        await this.toolCoordinatorImpl?.close?.();
-      }
-    };
+      getActiveToolSpec: () => this.activeToolSpec,
+      ensureToolCoordinator: (spec) => this.ensureToolCoordinator(spec)
+    });
   }
 
   private async ensureToolCoordinator(spec: LLMCallSpec): Promise<any> {
     this.activeToolSpec = spec;
 
     if (this.toolCoordinatorInitialized) {
-      // Update vector context for new spec (may have different locks)
-      const config = this.pendingVectorContext?.config ?? spec.vectorContext;
-      const aliasMap = this.pendingVectorContext?.aliasMap;
-      this.toolCoordinatorImpl?.setVectorContext?.(config, this.registry, aliasMap);
+      const configs = this.resolveVectorContexts(spec);
+      this.toolCoordinatorImpl?.setVectorContexts?.(configs.length > 0 ? configs : undefined, this.registry);
       return this.toolCoordinator;
     }
 
@@ -101,13 +93,18 @@ export class LLMCoordinator {
 
     const processRoutes = await this.registry.getProcessRoutes();
     const { ToolCoordinator } = await import('../../../tools/index.js');
+
+    const initialConfigs = this.pendingVectorContexts?.configs ?? this.resolveVectorContexts(spec);
+    const initialAliasMaps = this.pendingVectorContexts?.aliasMaps;
+    this.pendingVectorContexts = undefined;
+
     this.toolCoordinatorImpl = new ToolCoordinator(
       processRoutes,
       this.mcpManager?.getPool(),
       {
-        vectorContext: this.pendingVectorContext?.config ?? spec.vectorContext,
+        vectorContexts: initialConfigs.length > 0 ? initialConfigs : undefined,
         registry: this.registry,
-        vectorSearchAliasMap: this.pendingVectorContext?.aliasMap
+        vectorSearchAliasMaps: initialAliasMaps
       }
     );
 
@@ -311,7 +308,9 @@ export class LLMCoordinator {
     return prepareMessagesWithDocuments(spec);
   }
 
-  private async collectTools(spec: LLMCallSpec): Promise<[UnifiedTool[], string[], Record<string, string>, Record<string, string> | undefined]> {
+  private async collectTools(
+    spec: LLMCallSpec
+  ): Promise<[UnifiedTool[], string[], Record<string, string>, Record<string, Record<string, string>> | undefined]> {
     const { collectTools } = await import('../../../tools/index.js');
     const result = await collectTools({
       spec,
@@ -319,7 +318,7 @@ export class LLMCoordinator {
       mcpManager: this.mcpManager,
       vectorManager: this.vectorManager
     });
-    return [result.tools, result.mcpServers, result.toolNameMap, result.vectorSearchAliasMap];
+    return [result.tools, result.mcpServers, result.toolNameMap, result.vectorSearchAliasMaps];
   }
 
   private ensureValidAssistantResponse(response: LLMResponse, providerId: string | undefined): void {
@@ -342,8 +341,9 @@ export class LLMCoordinator {
    * Returns true for 'auto' or 'both' modes.
    */
   private shouldInjectVectorContext(spec: LLMCallSpec): boolean {
-    const mode = spec.vectorContext?.mode;
-    return mode === 'auto' || mode === 'both';
+    const contexts = this.resolveVectorContexts(spec);
+    const policy = resolveVectorRequestPolicy(spec);
+    return resolveAutoVectorContexts(contexts, policy).length > 0;
   }
 
   /**
@@ -351,8 +351,8 @@ export class LLMCoordinator {
    * Returns true for 'tool' or 'both' modes.
    */
   private shouldCreateVectorTool(spec: LLMCallSpec): boolean {
-    const mode = spec.vectorContext?.mode;
-    return mode === 'tool' || mode === 'both';
+    const contexts = this.resolveVectorContexts(spec);
+    return hasToolVectorContexts(contexts);
   }
 
   /**
@@ -388,5 +388,9 @@ export class LLMCoordinator {
       });
     }
     return this.vectorContextInjector;
+  }
+
+  private resolveVectorContexts(spec: LLMCallSpec): VectorContextConfig[] {
+    return resolveVectorContexts(spec);
   }
 }

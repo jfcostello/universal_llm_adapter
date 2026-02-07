@@ -284,11 +284,11 @@ async function runCli(args: string[], env: NodeJS.ProcessEnv): Promise<{ code: n
       messages: [{ role: 'user', content: [{ type: 'text', text: 'What is 2+2?' }] }],
       llmPriority: runCfg.llmPriority,
       settings: runCfg.settings,
-      vectorContext: {
+      vectorContexts: [{
         mode: 'auto',
         stores: ['memory'],
         topK: 1
-      }
+      }]
     };
 
     const transport = String(process.env.LLM_LIVE_TRANSPORT || '').trim().toLowerCase();
@@ -348,7 +348,7 @@ async function runCli(args: string[], env: NodeJS.ProcessEnv): Promise<{ code: n
       messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
       llmPriority: runCfg.llmPriority,
       settings: runCfg.settings,
-      vectorContext: { mode: 'auto', stores: ['memory'], topK: 1 }
+      vectorContexts: [{ mode: 'auto', stores: ['memory'], topK: 1 }]
     };
 
     const transport = String(process.env.LLM_LIVE_TRANSPORT || '').trim().toLowerCase();

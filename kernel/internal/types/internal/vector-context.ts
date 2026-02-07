@@ -194,3 +194,28 @@ export interface VectorContextConfig {
    */
   queryConstruction?: Partial<QueryConstructionSettings>;
 }
+
+/**
+ * Request-scoped performance guardrails for auto vector context injection.
+ */
+export interface VectorRequestPolicy {
+  /**
+   * Max number of auto/both contexts to execute per request.
+   */
+  maxAutoContexts: number;
+
+  /**
+   * Timeout budget for each individual auto context retrieval.
+   */
+  perContextTimeoutMs: number;
+
+  /**
+   * Total timeout budget shared across all auto contexts in a request.
+   */
+  totalAutoBudgetMs: number;
+
+  /**
+   * Max UTF-8 bytes injected into prompt context for each auto context.
+   */
+  maxInjectedPayloadBytes: number;
+}

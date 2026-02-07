@@ -37,14 +37,16 @@ export function buildCommonTraceAttributes(options: {
   traceId: string;
   sessionId?: string;
   traceName?: string;
+  correlationId?: string;
   tags?: string[];
   batchId?: string;
 }): Record<string, unknown> {
-  const { traceId, sessionId, traceName, tags, batchId } = options;
+  const { traceId, sessionId, traceName, correlationId, tags, batchId } = options;
   return {
     'llm.adapter.trace_id': String(traceId || ''),
     ...(sessionId ? { 'langfuse.session.id': sessionId, 'llm.adapter.session_id': sessionId } : {}),
-    ...(traceName ? { 'langfuse.trace.name': traceName, 'llm.adapter.correlation_id': traceName } : {}),
+    ...(traceName ? { 'langfuse.trace.name': traceName } : {}),
+    ...(correlationId ? { 'llm.adapter.correlation_id': correlationId } : {}),
     ...(tags ? { 'langfuse.trace.tags': tags } : {}),
     ...(batchId ? { 'llm.adapter.batch_id': batchId } : {})
   };

@@ -37,7 +37,7 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
   });
 
   describe('isVectorSearchTool', () => {
-    test('returns false when no vectorContext configured', () => {
+    test('returns false when no vectorContexts configured', () => {
       const coordinator = new ToolCoordinator([]);
       const result = (coordinator as any).isVectorSearchTool('vector_search');
       expect(result).toBe(false);
@@ -50,7 +50,7 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
       };
 
       const coordinator = new ToolCoordinator([], undefined, {
-        vectorContext: config,
+        vectorContexts: [config],
         registry: mockRegistry
       });
 
@@ -65,7 +65,7 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
       };
 
       const coordinator = new ToolCoordinator([], undefined, {
-        vectorContext: config,
+        vectorContexts: [config],
         registry: mockRegistry
       });
 
@@ -80,7 +80,7 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
       };
 
       const coordinator = new ToolCoordinator([], undefined, {
-        vectorContext: config,
+        vectorContexts: [config],
         registry: mockRegistry
       });
 
@@ -96,7 +96,7 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
       };
 
       const coordinator = new ToolCoordinator([], undefined, {
-        vectorContext: config,
+        vectorContexts: [config],
         registry: mockRegistry
       });
 
@@ -111,7 +111,7 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
       };
 
       const coordinator = new ToolCoordinator([], undefined, {
-        vectorContext: config,
+        vectorContexts: [config],
         registry: mockRegistry
       });
 
@@ -119,17 +119,17 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
     });
   });
 
-  describe('setVectorContext', () => {
+  describe('setVectorContexts', () => {
     test('updates vector context and tool name', () => {
       const coordinator = new ToolCoordinator([]);
 
       expect((coordinator as any).isVectorSearchTool('vector_search')).toBe(false);
 
-      coordinator.setVectorContext({
+      coordinator.setVectorContexts([{
         stores: ['docs'],
         mode: 'tool',
         toolName: 'custom_search'
-      }, mockRegistry);
+      }], mockRegistry);
 
       expect((coordinator as any).isVectorSearchTool('custom_search')).toBe(true);
       expect((coordinator as any).isVectorSearchTool('vector_search')).toBe(false);
@@ -137,13 +137,13 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
 
     test('clears vector context when set to undefined', () => {
       const coordinator = new ToolCoordinator([], undefined, {
-        vectorContext: { stores: ['docs'], mode: 'tool' },
+        vectorContexts: [{ stores: ['docs'], mode: 'tool' }],
         registry: mockRegistry
       });
 
       expect((coordinator as any).isVectorSearchTool('vector_search')).toBe(true);
 
-      coordinator.setVectorContext(undefined);
+      coordinator.setVectorContexts(undefined);
 
       expect((coordinator as any).isVectorSearchTool('vector_search')).toBe(false);
     });
@@ -151,14 +151,13 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
     test('uses default tool name when config has no toolName', () => {
       const coordinator = new ToolCoordinator([]);
 
-      coordinator.setVectorContext({
+      coordinator.setVectorContexts([{
         stores: ['docs'],
         mode: 'tool'
         // No toolName specified - should default to 'vector_search'
-      }, mockRegistry);
+      }], mockRegistry);
 
       expect((coordinator as any).isVectorSearchTool('vector_search')).toBe(true);
-      expect((coordinator as any).vectorToolName).toBe('vector_search');
     });
   });
 
@@ -178,7 +177,7 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
       };
 
       const coordinator = new ToolCoordinator([], undefined, {
-        vectorContext: config,
+        vectorContexts: [config],
         registry: mockRegistry
       });
 
@@ -218,7 +217,7 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
       };
 
       const coordinator = new ToolCoordinator([], undefined, {
-        vectorContext: config,
+        vectorContexts: [config],
         registry: mockRegistry
       });
 
@@ -253,7 +252,7 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
       };
 
       const coordinator = new ToolCoordinator([processRoute as any], undefined, {
-        vectorContext: config,
+        vectorContexts: [config],
         registry: mockRegistry
       });
 
@@ -288,7 +287,7 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
       };
 
       const coordinator = new ToolCoordinator([], undefined, {
-        vectorContext: config
+        vectorContexts: [config]
         // No registry!
       });
 
@@ -318,7 +317,7 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
       };
 
       const coordinator = new ToolCoordinator([], undefined, {
-        vectorContext: config,
+        vectorContexts: [config],
         registry: mockRegistry
       });
 
@@ -368,9 +367,9 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
       };
 
       const coordinator = new ToolCoordinator([], undefined, {
-        vectorContext: config,
+        vectorContexts: [config],
         registry: mockRegistry,
-        vectorSearchAliasMap: aliasMap
+        vectorSearchAliasMaps: { vector_search: aliasMap }
       });
 
       await coordinator.routeAndInvoke(
@@ -410,9 +409,9 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
       };
 
       const coordinator = new ToolCoordinator([], undefined, {
-        vectorContext: config,
+        vectorContexts: [config],
         registry: mockRegistry,
-        vectorSearchAliasMap: aliasMap
+        vectorSearchAliasMaps: { vector_search: aliasMap }
       });
 
       // Using canonical name directly (not in alias map as key)
@@ -454,9 +453,9 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
       };
 
       const coordinator = new ToolCoordinator([], undefined, {
-        vectorContext: config,
+        vectorContexts: [config],
         registry: mockRegistry,
-        vectorSearchAliasMap: aliasMap
+        vectorSearchAliasMaps: { vector_search: aliasMap }
       });
 
       await coordinator.routeAndInvoke(
@@ -491,7 +490,7 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
       };
 
       const coordinator = new ToolCoordinator([], undefined, {
-        vectorContext: config,
+        vectorContexts: [config],
         registry: mockRegistry
         // No aliasMap
       });
@@ -512,7 +511,7 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
       );
     });
 
-    test('setVectorContext updates alias map', async () => {
+    test('setVectorContexts updates alias map', async () => {
       mockExecuteVectorSearch.mockResolvedValue({
         success: true,
         results: [],
@@ -522,7 +521,7 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
       mockFormatVectorSearchResults.mockReturnValue('No results found');
 
       const coordinator = new ToolCoordinator([], undefined, {
-        vectorContext: { stores: ['docs'], mode: 'tool' },
+        vectorContexts: [{ stores: ['docs'], mode: 'tool' }],
         registry: mockRegistry
       });
 
@@ -532,10 +531,10 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
         results: 'topK'
       };
 
-      coordinator.setVectorContext(
-        { stores: ['docs'], mode: 'tool' },
+      coordinator.setVectorContexts(
+        [{ stores: ['docs'], mode: 'tool' }],
         mockRegistry,
-        newAliasMap
+        { vector_search: newAliasMap }
       );
 
       await coordinator.routeAndInvoke(
@@ -575,9 +574,9 @@ describe('utils/tools/tool-coordinator vector search integration', () => {
       };
 
       const coordinator = new ToolCoordinator([], undefined, {
-        vectorContext: config,
+        vectorContexts: [config],
         registry: mockRegistry,
-        vectorSearchAliasMap: aliasMap
+        vectorSearchAliasMaps: { vector_search: aliasMap }
       });
 
       await coordinator.routeAndInvoke(

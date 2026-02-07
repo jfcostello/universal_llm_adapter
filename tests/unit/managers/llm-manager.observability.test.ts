@@ -88,7 +88,7 @@ describe('LLMManager observability', () => {
     expect(responseArg.toolCalls).toEqual([{ id: 'tc-1', name: 'test_tool' }]);
   });
 
-  test('callProvider omits tool args when captureToolArgs is missing (falls back to shipped default)', async () => {
+  test('callProvider records minimally redacted tool args when captureToolArgs is missing (falls back to shipped default)', async () => {
     const mockSDKResponse = {
       content: [{ type: 'text', text: 'SDK response' }],
       role: Role.ASSISTANT,
@@ -120,7 +120,7 @@ describe('LLMManager observability', () => {
     );
 
     const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
-    expect(responseArg.toolCalls).toEqual([{ id: 'tc-1', name: 'test_tool' }]);
+    expect(responseArg.toolCalls).toEqual([{ id: 'tc-1', name: 'test_tool', arguments: { api_key: '***1234' } }]);
   });
 
   test('callProvider records LLM request when observability is enabled', async () => {
@@ -1111,8 +1111,8 @@ describe('LLMManager observability', () => {
     expect(observability.exporter.recordLLMRequest).toHaveBeenCalledWith(
       expect.objectContaining({
         tools: [
-          { name: 'test_tool', description: 'A test tool' },
-          { name: 'another_tool', description: 'Another tool' }
+          { name: 'test_tool', description: 'A test tool', parameters: {} },
+          { name: 'another_tool', description: 'Another tool', parameters: {} }
         ]
       })
     );

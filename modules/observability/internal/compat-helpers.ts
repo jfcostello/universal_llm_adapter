@@ -55,7 +55,7 @@ export function getStringArrayMetadata(metadata: unknown, key: string): string[]
 export function resolveTraceContext(options: {
   event: { sessionId?: unknown; metadata?: unknown };
   cachedSummary?: { sessionId?: unknown; correlationId?: unknown; batchId?: unknown; tags?: unknown };
-}): { sessionId?: string; traceName?: string; batchId?: string; tags?: string[] } {
+}): { sessionId?: string; traceName?: string; correlationId?: string; batchId?: string; tags?: string[] } {
   const { event, cachedSummary } = options;
   const metadata = event.metadata;
 
@@ -65,7 +65,7 @@ export function resolveTraceContext(options: {
       ? String(event.sessionId)
       : undefined;
 
-  const traceName =
+  const correlationId =
     (cachedSummary?.correlationId ? String(cachedSummary.correlationId) : undefined) ??
     readTrimmedStringProperty(metadata, 'correlationId');
 
@@ -73,9 +73,11 @@ export function resolveTraceContext(options: {
     (cachedSummary?.batchId ? String(cachedSummary.batchId) : undefined) ??
     (readTrimmedStringProperty(metadata, 'batchId') ?? sessionId);
 
+  const traceName = batchId ?? correlationId;
+
   const tags = (cachedSummary?.tags as any) ?? getStringArrayMetadata(metadata, 'tags');
 
-  return { sessionId, traceName, batchId, tags };
+  return { sessionId, traceName, correlationId, batchId, tags };
 }
 
 export function getEventIds(context?: ObservabilityCompatContext): string[] {
@@ -147,6 +149,13 @@ export function buildCachedRequestSummary(
   context?: ObservabilityCompatContext
 ): CachedRequestSummary {
   const maxBytes = resolveMaxAttributeBytes(context);
+  const jsonOptions = {
+    maxBytes,
+    maxDepth: 25,
+    maxArrayLength: 1000,
+    maxObjectKeys: 2000,
+    maxStringBytes: maxBytes
+  } as const;
   const metadata = request.metadata;
   const sessionId = request.sessionId ? String(request.sessionId) : undefined;
   const correlationId = readTrimmedStringProperty(metadata, 'correlationId');
@@ -162,8 +171,8 @@ export function buildCachedRequestSummary(
     batchId,
     tags,
     inputText: flattenPrimitiveStrings(request.messages, { maxBytes }),
-    observationInput: safeJsonStringify(buildInputJson(request), { maxBytes }),
-    modelParameters: safeJsonStringify(request.settings ?? {}, { maxBytes })
+    observationInput: safeJsonStringify(buildInputJson(request), jsonOptions),
+    modelParameters: safeJsonStringify(request.settings ?? {}, jsonOptions)
   };
 }
 
@@ -189,4 +198,3 @@ export function applyTraceUpdateToCachedRequests(
     if (nextSessionId && !summary.sessionId) summary.sessionId = nextSessionId;
   }
 }
-

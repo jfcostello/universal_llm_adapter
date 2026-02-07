@@ -541,12 +541,12 @@ describe('integration/vector/auto-inject', () => {
     });
   });
 
-  describe('backward compatibility', () => {
-    test('vectorPriority and vectorContext are independent', async () => {
+  describe('vector configuration interoperability', () => {
+    test('vectorPriority and vectorContexts are independent', async () => {
       if (!coordinator) return;
 
       // vectorPriority is for semantic tool selection
-      // vectorContext is for RAG context injection
+      // vectorContexts is for RAG context injection
       // Both can be specified and work independently
 
       const spec: LLMCallSpec = {
@@ -554,21 +554,21 @@ describe('integration/vector/auto-inject', () => {
           { role: 'user' as Role, content: [{ type: 'text', text: 'Query' }] }
         ],
         vectorPriority: ['tool-store'],
-        vectorContext: {
+        vectorContexts: [{
           stores: ['doc-store'],
           mode: 'auto',
           topK: 5
-        },
+        }],
         llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
         settings: {}
       };
 
       // Both can be defined
       expect(spec.vectorPriority).toBeDefined();
-      expect(spec.vectorContext).toBeDefined();
+      expect(spec.vectorContexts).toBeDefined();
       // They serve different purposes
       expect(spec.vectorPriority).toContain('tool-store');
-      expect(spec.vectorContext?.stores).toContain('doc-store');
+      expect(spec.vectorContexts?.[0]?.stores).toContain('doc-store');
     });
   });
 });

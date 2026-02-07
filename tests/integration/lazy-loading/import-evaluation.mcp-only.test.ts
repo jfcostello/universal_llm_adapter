@@ -35,7 +35,7 @@ describe('integration/lazy-loading/import-evaluation (MCP-only)', () => {
       jest.unstable_mockModule('../../../modules/tools/index.js', () => ({
         ToolCoordinator: class ToolCoordinator {
           constructor(..._args: any[]) {}
-          setVectorContext() {}
+          setVectorContexts() {}
           async routeAndInvoke() {
             throw new Error('ToolCoordinator not used in MCP-only import test');
           }
@@ -46,7 +46,7 @@ describe('integration/lazy-loading/import-evaluation (MCP-only)', () => {
           tools: [],
           mcpServers: [],
           toolNameMap: {},
-          vectorSearchAliasMap: undefined
+          vectorSearchAliasMaps: undefined
         }),
         runToolLoop: async () => {
           throw new Error('runToolLoop not used in MCP-only import test');
@@ -93,4 +93,3 @@ describe('integration/lazy-loading/import-evaluation (MCP-only)', () => {
     });
   });
 });
-

@@ -16,7 +16,6 @@ Owns vector store orchestration, RAG context injection, and the built-in vector 
 ## Public API
 - `VectorStoreManager` for vector store compat orchestration.
 - `VectorStoreCoordinator` for CLI/server vector operations.
-- `VectorContextInjector` for `vectorContext.mode: 'auto' | 'both'` injection.
+- `VectorContextInjector` for `vectorContexts[].mode: 'auto' | 'both'` injection.
 - `executeVectorSearch` + `formatVectorSearchResults` for tool execution and formatting.
 - `chunkText` / `chunkFile` for ingestion chunking helpers.
-

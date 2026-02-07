@@ -1,4 +1,3 @@
-// VectorContextInjector - handles RAG context injection for auto/both modes.
 import { getDefaults, Message, QueryConstructionSettings, resolveLoggingDeps, Role, TextContent, VectorContextConfig } from '../../../kernel/index.js';
 import type {
   AdapterLogger,
@@ -8,6 +7,7 @@ import type {
   PluginRegistry
 } from '../../../kernel/index.js';
 import { interpolate } from '../../string/index.js';
+import { truncateUtf8Bytes } from '../../shared/index.js';
 import type { EmbeddingManager } from '../../embeddings/index.js';
 import { VectorStoreManager } from './vector-store-manager.js';
 import { resolveEmbeddingPriority } from './embedding-priority.js';
@@ -26,7 +26,11 @@ export interface InjectionResult {
   retrievedResults: any[];
 }
 
-// Get defaults from config (lazy loaded)
+export interface InjectionOptions {
+  maxInjectedPayloadBytes?: number;
+  embeddingCache?: Map<string, number[]>;
+}
+
 const getVectorDefaults = () => getDefaults().vector;
 
 export class VectorContextInjector {
@@ -48,16 +52,12 @@ export class VectorContextInjector {
     this.vectorLogger = this.logging.getVectorLogger();
   }
 
-  /**
-   * Inject vector context into messages based on configuration.
-   * Returns modified messages with context pre-injected.
-   */
   async injectContext(
     messages: Message[],
     config: VectorContextConfig,
-    systemPrompt?: string
+    systemPrompt?: string,
+    options: InjectionOptions = {}
   ): Promise<InjectionResult> {
-    // Only inject for 'auto' or 'both' modes
     if (config.mode === 'tool') {
       return {
         messages,
@@ -67,7 +67,6 @@ export class VectorContextInjector {
       };
     }
 
-    // Extract query from messages based on config
     const query = this.extractQuery(messages, config);
     if (!query) {
       return {
@@ -79,7 +78,6 @@ export class VectorContextInjector {
     }
 
     try {
-      // Ensure managers are initialized
       await this.ensureManagers();
 
       const embeddingPriority = await resolveEmbeddingPriority(
@@ -87,19 +85,19 @@ export class VectorContextInjector {
         this.registry
       );
 
-      // Embed the query
-      const embeddingResult = await this.embeddingManager!.embed(query, embeddingPriority);
-      const queryVector = embeddingResult.vectors[0];
+      const embeddingCacheKey = this.buildEmbeddingCacheKey(query, embeddingPriority);
+      let queryVector = options.embeddingCache?.get(embeddingCacheKey);
+      if (!queryVector) {
+        const embeddingResult = await this.embeddingManager!.embed(query, embeddingPriority);
+        queryVector = embeddingResult.vectors[0];
+        options.embeddingCache?.set(embeddingCacheKey, queryVector);
+      }
 
-      // Query vector stores
       let results: any[] = [];
       for (const storeId of config.stores) {
         try {
           await this.ensureStoreInitialized(storeId);
 
-          // getCompat will succeed since ensureStoreInitialized succeeded for this store
-          // Both methods go through the same registry to load the compat
-          // If it somehow returns null, compat.query() will throw and be caught below
           const compat = (await this.vectorManager!.getCompat(storeId))!;
 
           const storeConfig = await this.registry.getVectorStore(storeId);
@@ -117,26 +115,21 @@ export class VectorContextInjector {
 
           results = [...results, ...storeResults];
 
-          // If we got results, stop searching
           if (results.length > 0) break;
         } catch (error) {
           this.logger.warning('Vector store query failed', {
             storeId,
             error: error instanceof Error ? error.message : String(error)
           });
-          // Continue to next store
         }
       }
 
-      // Apply score threshold
       if (config.scoreThreshold !== undefined) {
         results = results.filter(r => r.score >= config.scoreThreshold!);
       }
 
-      // Limit to topK
       results = results.slice(0, config.topK ?? getVectorDefaults().topK);
 
-      // If no results, return original messages
       if (results.length === 0) {
         return {
           messages,
@@ -146,13 +139,10 @@ export class VectorContextInjector {
         };
       }
 
-      // Format results
       const formattedContext = this.formatResults(results, config);
 
-      // Apply template
-      const contextToInject = this.applyTemplate(formattedContext, config);
+      const contextToInject = this.applyTemplate(formattedContext, config, options.maxInjectedPayloadBytes);
 
-      // Inject into messages
       const modifiedMessages = this.injectIntoMessages(
         messages,
         contextToInject,
@@ -171,12 +161,10 @@ export class VectorContextInjector {
 
       this.logger.warning('Vector context injection failed', { error: message });
 
-      // Configuration errors should surface as request failures (do not silently degrade).
       if (String(error?.code ?? '') === 'config_error') {
         throw error;
       }
 
-      // Other errors (e.g., transient store failures) degrade gracefully.
       return {
         messages,
         resultsInjected: 0,
@@ -186,16 +174,11 @@ export class VectorContextInjector {
     }
   }
 
-  /**
-   * Extract the query from messages based on configuration.
-   */
   private extractQuery(messages: Message[], config: VectorContextConfig): string {
-    // Check for override first
     if (config.overrideEmbeddingQuery && config.overrideEmbeddingQuery.trim()) {
       return config.overrideEmbeddingQuery.trim();
     }
 
-    // Get query construction settings with defaults
     const defaults = getVectorDefaults().queryConstruction;
     const settings: QueryConstructionSettings = {
       includeSystemPrompt: config.queryConstruction?.includeSystemPrompt ?? defaults.includeSystemPrompt,
@@ -203,7 +186,6 @@ export class VectorContextInjector {
       messagesToInclude: config.queryConstruction?.messagesToInclude ?? defaults.messagesToInclude
     };
 
-    // Separate system message from other messages
     let systemMessage: Message | null = null;
     let nonSystemMessages: Message[] = [];
 
@@ -215,42 +197,32 @@ export class VectorContextInjector {
       }
     }
 
-    // Determine which messages to include based on messagesToInclude
     let messagesToProcess: Message[] = [];
 
     if (settings.messagesToInclude === 0) {
-      // Include all non-system messages
       messagesToProcess = nonSystemMessages;
     } else {
-      // Include last N messages
       messagesToProcess = nonSystemMessages.slice(-settings.messagesToInclude);
     }
 
-    // Filter by role (always include user, optionally include assistant)
     messagesToProcess = messagesToProcess.filter(msg => {
       if (msg.role === Role.USER) return true;
       if (msg.role === Role.ASSISTANT && settings.includeAssistantMessages) return true;
       return false;
     });
 
-    // Determine if system prompt should be included
     let includeSystem = false;
     if (systemMessage) {
       if (settings.includeSystemPrompt === 'always') {
         includeSystem = true;
       } else if (settings.includeSystemPrompt === 'if-in-range') {
-        // Include if total messages (including system) <= messagesToInclude
-        // Or if messagesToInclude is 0 (all messages)
         const totalMessages = messages.length;
         includeSystem = settings.messagesToInclude === 0 || totalMessages <= settings.messagesToInclude;
       }
-      // 'never' means includeSystem stays false
     }
 
-    // Build the query text
     const queryParts: string[] = [];
 
-    // Add system message first if included
     if (includeSystem && systemMessage) {
       const systemText = this.extractTextFromMessage(systemMessage);
       if (systemText) {
@@ -258,7 +230,6 @@ export class VectorContextInjector {
       }
     }
 
-    // Add other messages in order
     for (const msg of messagesToProcess) {
       const text = this.extractTextFromMessage(msg);
       if (text) {
@@ -269,9 +240,6 @@ export class VectorContextInjector {
     return queryParts.join('\n').trim();
   }
 
-  /**
-   * Extract text content from a message.
-   */
   private extractTextFromMessage(message: Message): string {
     for (const part of message.content) {
       if (part.type === 'text') {
@@ -284,9 +252,6 @@ export class VectorContextInjector {
     return '';
   }
 
-  /**
-   * Format results using the configured template.
-   */
   private formatResults(results: any[], config: VectorContextConfig): string {
     const format = config.resultFormat ?? getVectorDefaults().resultFormat;
 
@@ -301,17 +266,22 @@ export class VectorContextInjector {
     return formattedLines.join('\n');
   }
 
-  /**
-   * Apply the injection template.
-   */
-  private applyTemplate(content: string, config: VectorContextConfig): string {
+  private applyTemplate(content: string, config: VectorContextConfig, maxInjectedPayloadBytes?: number): string {
     const template = config.injectTemplate ?? getVectorDefaults().injectTemplate;
-    return template.replace('{{results}}', content);
+    const rendered = template.replace('{{results}}', content);
+    if (typeof maxInjectedPayloadBytes !== 'number' || maxInjectedPayloadBytes <= 0) {
+      return rendered;
+    }
+    return truncateUtf8Bytes(rendered, maxInjectedPayloadBytes);
   }
 
-  /**
-   * Inject context into messages.
-   */
+  private buildEmbeddingCacheKey(query: string, priority: Array<{ provider: string; model?: string }>): string {
+    const normalizedPriority = priority
+      .map(item => `${String(item.provider)}:${item.model ? String(item.model) : ''}`)
+      .join('|');
+    return `${query}::${normalizedPriority}`;
+  }
+
   private injectIntoMessages(
     messages: Message[],
     context: string,
@@ -321,7 +291,6 @@ export class VectorContextInjector {
     const result = [...messages];
 
     if (injectAs === 'system') {
-      // Create or update system message at the start
       const systemContent = systemPrompt
         ? `${systemPrompt}\n\n${context}`
         : context;
@@ -331,26 +300,21 @@ export class VectorContextInjector {
         content: [{ type: 'text', text: systemContent }]
       };
 
-      // Check if there's already a system message
       if (result.length > 0 && result[0].role === Role.SYSTEM) {
-        // Append to existing system message
         const existingText = (result[0].content[0] as TextContent)?.text ?? '';
         result[0] = {
           ...result[0],
           content: [{ type: 'text', text: `${existingText}\n\n${context}` }]
         };
       } else {
-        // Insert at the beginning
         result.unshift(systemMessage);
       }
     } else {
-      // Insert as user context before the last user message
       const contextMessage: Message = {
         role: Role.USER,
         content: [{ type: 'text', text: context }]
       };
 
-      // Find the last user message and insert before it
       let lastUserIndex = -1;
       for (let i = result.length - 1; i >= 0; i--) {
         if (result[i].role === Role.USER) {
@@ -359,38 +323,28 @@ export class VectorContextInjector {
         }
       }
 
-      // Insert before the last user message
-      // Note: lastUserIndex is always >= 0 here because extractQuery() requires a user message
       result.splice(lastUserIndex, 0, contextMessage);
     }
 
     return result;
   }
 
-  /**
-   * Ensure managers are initialized.
-   */
   private async ensureManagers(): Promise<void> {
     if (!this.embeddingManager) {
       const { EmbeddingManager } = await import('../../embeddings/index.js');
-      // Pass logger to embedding manager for HTTP request logging
       this.embeddingManager = new EmbeddingManager(this.registry as any, this.embeddingLogger);
     }
     if (!this.vectorManager) {
-      // Pass logger to vector manager for operation logging
       this.vectorManager = new VectorStoreManager(
-        new Map(),  // configs - will be loaded from registry
-        new Map(),  // adapters - will be created via compat
-        undefined,  // embedder - not needed, we use EmbeddingManager directly
+        new Map(),
+        new Map(),
+        undefined,
         this.registry,
-        this.vectorLogger  // logger for vector operations
+        this.vectorLogger
       );
     }
   }
 
-  /**
-   * Ensure a vector store is initialized.
-   */
   private async ensureStoreInitialized(storeId: string): Promise<void> {
     const compat = await this.vectorManager!.getCompat(storeId);
     if (!compat) {

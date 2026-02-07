@@ -284,7 +284,7 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       const attrs = span.attributes ?? {};
       expect(attrs['llm.adapter.trace_id']).toBe(traceId);
       expect(attrs['llm.adapter.session_id']).toBe('session-456');
-      expect(attrs['llm.adapter.correlation_id']).toBe('corr-123');
+      expect(attrs['llm.adapter.correlation_id']).toBe('batch-xyz');
       expect(attrs['llm.adapter.batch_id']).toBe('batch-xyz');
       expect(attrs['llm.adapter.provider']).toBe('provider-a');
       expect(attrs['llm.adapter.model']).toBe('model-a');
@@ -335,7 +335,7 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
 
       const respUpdated = compat.buildBatch([responseEvent], mockManifest, { eventIds: ['resp'], providerConfig: { enableOtlp: true } } as any);
       const updatedAttrs = (respUpdated.payload as any)?.spans?.[0]?.attributes ?? {};
-      expect(updatedAttrs['llm.adapter.correlation_id']).toBe('corr-updated');
+      expect(updatedAttrs['llm.adapter.correlation_id']).toBe('batch-xyz');
       expect(updatedAttrs['llm.adapter.tags']).toEqual(['updated']);
     });
 
@@ -373,7 +373,7 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
         { eventIds: ['sig'] } as any
       );
       const { payload: signalEvent } = parseEnvelope((signalBatch.payload as any).envelopes[0].body);
-      expect(signalEvent.tags['llm.adapter.correlation_id']).toBe('corr-updated');
+      expect(signalEvent.tags['llm.adapter.correlation_id']).toBe('batch-xyz');
       expect(signalEvent.tags['llm.adapter.tags']).toBe('updated');
     });
 
