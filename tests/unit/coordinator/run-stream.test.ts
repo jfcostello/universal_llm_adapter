@@ -4,6 +4,18 @@ import { StreamEventType, Role, ToolCallEventType } from '@/kernel/index.ts';
 
 const handleChunkMock = jest.fn();
 
+function createMockLogger() {
+  const logger: any = {
+    info: jest.fn(),
+    warning: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+    withCorrelation: jest.fn()
+  };
+  logger.withCorrelation.mockReturnValue(logger);
+  return logger;
+}
+
 function createCoordinator({ withDetector }: { withDetector: boolean }) {
     const compatModule = {
       parseStreamChunk: jest.fn().mockImplementation(chunk => ({
@@ -364,15 +376,97 @@ describe('LLMCoordinator runStream', () => {
         messages: [{ role: Role.USER, content: [{ type: 'text', text: 'Query' }] }],
         llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
         settings: {},
-        vectorContext: {
+        vectorContexts: [{
           stores: ['test-store'],
           mode: 'auto'
-        }
+        }]
       })) {
         events.push(event);
       }
 
       expect(mockInjector.injectContext).toHaveBeenCalled();
+    });
+
+    test('runStream applies auto-injection budget and skips remaining contexts', async () => {
+      const { coordinator, mockInjector } = createCoordinatorWithVectorSupport();
+      (coordinator as any).vectorContextInjector = mockInjector;
+      const logger = createMockLogger();
+      (coordinator as any).logger = logger;
+
+      const nowSpy = jest.spyOn(Date, 'now');
+      nowSpy
+        .mockReturnValueOnce(0)
+        .mockReturnValueOnce(0)
+        .mockReturnValueOnce(100);
+
+      for await (const _event of coordinator.runStream({
+        messages: [{ role: Role.USER, content: [{ type: 'text', text: 'Query' }] }],
+        llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
+        settings: {},
+        vectorContexts: [
+          { stores: ['test-store-a'], mode: 'auto' },
+          { stores: ['test-store-b'], mode: 'auto' }
+        ],
+        vectorRequestPolicy: {
+          totalAutoBudgetMs: 50,
+          perContextTimeoutMs: 1000,
+          maxAutoContexts: 5
+        }
+      } as any)) {
+        // consume
+      }
+
+      expect(mockInjector.injectContext).toHaveBeenCalledTimes(1);
+      expect(logger.warning).toHaveBeenCalledWith(
+        'Vector auto-injection budget exhausted; skipping remaining contexts',
+        { totalAutoBudgetMs: 50 }
+      );
+
+      nowSpy.mockRestore();
+    });
+
+    test('runStream rethrows config_error from vector context injection', async () => {
+      const { coordinator, mockInjector } = createCoordinatorWithVectorSupport();
+      const configError = Object.assign(new Error('invalid vector config'), { code: 'config_error' });
+      mockInjector.injectContext.mockRejectedValue(configError);
+      (coordinator as any).vectorContextInjector = mockInjector;
+
+      const iterator = coordinator.runStream({
+        messages: [{ role: Role.USER, content: [{ type: 'text', text: 'Query' }] }],
+        llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
+        settings: {},
+        vectorContexts: [{ stores: ['test-store'], mode: 'auto' }]
+      } as any);
+
+      await expect(iterator.next()).rejects.toBe(configError);
+    });
+
+    test('runStream logs non-config vector injection errors and continues', async () => {
+      const { coordinator, mockInjector } = createCoordinatorWithVectorSupport();
+      const logger = createMockLogger();
+      (coordinator as any).logger = logger;
+      mockInjector.injectContext.mockRejectedValue('stream-boom');
+      (coordinator as any).vectorContextInjector = mockInjector;
+
+      const events: any[] = [];
+      for await (const event of coordinator.runStream({
+        messages: [{ role: Role.USER, content: [{ type: 'text', text: 'Query' }] }],
+        llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
+        settings: {},
+        vectorContexts: [{ stores: ['test-store'], mode: 'auto' }]
+      } as any)) {
+        events.push(event);
+      }
+
+      expect(events.some(e => e.type === 'done')).toBe(true);
+      expect(logger.warning).toHaveBeenCalledWith(
+        'Vector context injection skipped due to error',
+        expect.objectContaining({
+          error: 'stream-boom',
+          mode: 'auto',
+          stores: ['test-store']
+        })
+      );
     });
 
     test('runStream injects vector context when mode is both', async () => {
@@ -386,10 +480,10 @@ describe('LLMCoordinator runStream', () => {
         messages: [{ role: Role.USER, content: [{ type: 'text', text: 'Query' }] }],
         llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
         settings: {},
-        vectorContext: {
+        vectorContexts: [{
           stores: ['test-store'],
           mode: 'both'
-        }
+        }]
       })) {
         events.push(event);
       }
@@ -408,15 +502,105 @@ describe('LLMCoordinator runStream', () => {
         messages: [{ role: Role.USER, content: [{ type: 'text', text: 'Query' }] }],
         llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
         settings: {},
-        vectorContext: {
+        vectorContexts: [{
           stores: ['test-store'],
           mode: 'tool'
-        }
+        }]
       })) {
         events.push(event);
       }
 
       expect(mockInjector.injectContext).not.toHaveBeenCalled();
+    });
+
+    test('runStream sets undefined tool vector contexts when alias maps are returned for auto-only configs', async () => {
+      const { coordinator } = createCoordinatorWithVectorSupport();
+
+      const setVectorContexts = jest.fn();
+      (coordinator as any).toolCoordinator = {
+        setVectorContexts,
+        routeAndInvoke: jest.fn(),
+        close: jest.fn()
+      };
+      jest.spyOn(coordinator as any, 'ensureToolCoordinator').mockResolvedValue((coordinator as any).toolCoordinator);
+      jest.spyOn(coordinator as any, 'collectTools').mockResolvedValue([
+        [],
+        [],
+        {},
+        { vector_search: { query: 'query' } }
+      ]);
+
+      for await (const _event of coordinator.runStream({
+        messages: [{ role: Role.USER, content: [{ type: 'text', text: 'Query' }] }],
+        llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
+        settings: {},
+        toolChoice: { type: 'single', name: 'ignored' },
+        vectorContexts: [{ stores: ['test-store'], mode: 'auto' }],
+        vectorRequestPolicy: { maxAutoContexts: 0 }
+      } as any)) {
+        // consume
+      }
+
+      expect(setVectorContexts).toHaveBeenCalledWith(
+        undefined,
+        expect.any(Object),
+        { vector_search: { query: 'query' } }
+      );
+    });
+
+    test('runStream logs and caps pre-delta buffer before first delta', async () => {
+      const { coordinator, compatModule } = createCoordinator({ withDetector: true });
+      const logger = createMockLogger();
+      (coordinator as any).logger = logger;
+
+      let parseCount = 0;
+      compatModule.parseStreamChunk.mockImplementation(() => {
+        parseCount += 1;
+        if (parseCount <= 300) {
+          return {
+            text: undefined,
+            toolEvents: [{ type: ToolCallEventType.TOOL_CALL_START, callId: String(parseCount), name: 'tool_sanitized' }]
+          };
+        }
+        return {
+          text: 'token',
+          toolEvents: []
+        };
+      });
+
+      (coordinator as any).llmManager.streamProvider = jest.fn().mockImplementation(async function* () {
+        for (let i = 0; i < 301; i += 1) {
+          yield { chunk: i };
+        }
+      });
+
+      for await (const _event of coordinator.runStream({
+        messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }],
+        llmPriority: [{ provider: 'provider', model: 'model' }],
+        settings: {}
+      } as any)) {
+        // consume
+      }
+
+      expect(logger.warning).toHaveBeenCalledWith(
+        'Pre-delta stream buffer reached cap; dropping oldest events',
+        { cap: 256 }
+      );
+    });
+
+    test('runStream throws fallback error when attempts fail with undefined error before first delta', async () => {
+      const { coordinator } = createCoordinator({ withDetector: false });
+      (coordinator as any).llmManager.streamProvider = jest.fn().mockImplementation(async function* () {
+        throw undefined;
+      });
+
+      const iterator = coordinator.runStream({
+        messages: [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }],
+        llmPriority: [{ provider: 'provider', model: 'model' }],
+        settings: {}
+      } as any);
+
+      await expect(iterator.next()).rejects.toThrow('Streaming failed: all llmPriority attempts exhausted');
     });
 
     test('ensureVectorContextInjector lazily initializes injector', async () => {

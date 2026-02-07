@@ -38,7 +38,7 @@ export async function resolveEmbeddingPriority(
 
   if (defaults.length === 0) {
     const error = new Error(
-      'No embedding priority configured. Provide vectorContext.embeddingPriority or set defaultEmbeddingPriority on the vector store plugin manifest.'
+      'No embedding priority configured. Provide vectorContexts[].embeddingPriority or set defaultEmbeddingPriority on the vector store plugin manifest.'
     );
     (error as any).statusCode = 400;
     (error as any).code = 'config_error';
@@ -60,7 +60,7 @@ export async function resolveEmbeddingPriority(
     .join(', ');
 
   const error = new Error(
-    `Multiple vector stores specify different default embedding priorities (${storeList}). Provide vectorContext.embeddingPriority explicitly.`
+    `Multiple vector stores specify different default embedding priorities (${storeList}). Provide vectorContexts[].embeddingPriority explicitly.`
   );
   (error as any).statusCode = 400;
   (error as any).code = 'config_error';

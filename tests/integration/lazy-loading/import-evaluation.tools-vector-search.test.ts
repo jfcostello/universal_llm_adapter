@@ -23,7 +23,7 @@ describe('integration/lazy-loading/import-evaluation (tools vector_search invoca
         [],
         undefined,
         {
-          vectorContext: { mode: 'tool', stores: ['memory'], topK: 1 },
+          vectorContexts: [{ mode: 'tool', stores: ['memory'], topK: 1 }],
           registry: {} as any
         }
       );
@@ -44,4 +44,3 @@ describe('integration/lazy-loading/import-evaluation (tools vector_search invoca
     });
   });
 });
-

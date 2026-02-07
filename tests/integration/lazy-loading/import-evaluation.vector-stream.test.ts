@@ -64,11 +64,11 @@ describe('integration/lazy-loading/import-evaluation (vector-context stream)', (
       for await (const _event of coordinator.runStream({
         messages: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }],
         llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
-        vectorContext: {
+        vectorContexts: [{
           mode: 'auto',
           stores: ['memory'],
           topK: 1
-        },
+        }],
         settings: {}
       } as any)) {
         // exhaust stream
@@ -81,4 +81,3 @@ describe('integration/lazy-loading/import-evaluation (vector-context stream)', (
     });
   });
 });
-

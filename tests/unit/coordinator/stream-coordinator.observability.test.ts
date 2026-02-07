@@ -254,7 +254,11 @@ describe('StreamCoordinator observability', () => {
     expect(requestArg.messages[0].content).toHaveLength(2);
 
     const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
-    expect(responseArg.toolCalls).toEqual([{ id: 'tool-1', name: 'echo.text' }]);
+    expect(responseArg.toolCalls).toEqual([{
+      id: 'tool-1',
+      name: 'echo.text',
+      arguments: { a: 1, api_key: '***cret' }
+    }]);
   });
 
   test('omits tool call arguments in observability when captureToolArgs is disabled', async () => {

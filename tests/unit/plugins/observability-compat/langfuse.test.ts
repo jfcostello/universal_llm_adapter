@@ -124,7 +124,7 @@ describe('LangfuseCompat (OTLP)', () => {
       expect(String(attrs['langfuse.observation.input'] || '')).toContain('Hello');
       expect(String(attrs['langfuse.observation.output'] || '')).toContain('Hello there!');
       expect(String(attrs['langfuse.observation.output'] || '')).toContain('test.echo');
-      expect(attrs['langfuse.trace.name']).toBe('corr-123');
+      expect(attrs['langfuse.trace.name']).toBe('batch-xyz');
       expect(attrs['llm.adapter.trace_id']).toBe(traceId);
       expect(attrs['llm.adapter.session_id']).toBe('session-456');
       expect(attrs['llm.adapter.correlation_id']).toBe('corr-123');
@@ -135,6 +135,23 @@ describe('LangfuseCompat (OTLP)', () => {
 
       const output = JSON.parse(String(attrs['langfuse.observation.output'] || '{}'));
       expect(output.rawResponse).toEqual(responseEvent.rawResponse);
+    });
+
+    it('uses trimmed metadata.step as the response span name when provided', () => {
+      compat.buildBatch([requestEvent], mockManifest, { eventIds: ['event-req-step'] } as any);
+
+      const steppedResponse = {
+        ...responseEvent,
+        metadata: {
+          ...(responseEvent.metadata ?? {}),
+          step: '  retrieval.phase  '
+        }
+      } as any;
+
+      const batch = compat.buildBatch([steppedResponse], mockManifest, { eventIds: ['event-resp-step'] } as any);
+      const spans = (batch.payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+      expect(spans[0]?.name).toBe('retrieval.phase');
     });
 
     it('maps tool_execution events as spans with input/output and parent span linkage', () => {
@@ -168,7 +185,7 @@ describe('LangfuseCompat (OTLP)', () => {
 
       const attrs = span.attributes ?? {};
       expect(attrs['langfuse.observation.type']).toBe('span');
-      expect(attrs['langfuse.trace.name']).toBe('corr-123');
+      expect(attrs['langfuse.trace.name']).toBe('batch-xyz');
       expect(attrs['llm.adapter.tool_name']).toBe('test.echo');
       expect(attrs['llm.adapter.tool_call_id']).toBe('call-1');
 
@@ -431,13 +448,15 @@ describe('LangfuseCompat (OTLP)', () => {
       const updateBatch = compat.buildBatch([{ ...updateEvent, type: 'trace_update' } as any], mockManifest, { eventIds: ['event-update'] } as any);
       const updateSpans = (updateBatch.payload as any)?.spans ?? [];
       expect(updateSpans).toHaveLength(1);
-      expect(updateSpans[0].attributes?.['langfuse.trace.name']).toBe('corr-updated');
+      expect(updateSpans[0].attributes?.['langfuse.trace.name']).toBe('batch-xyz');
+      expect(updateSpans[0].attributes?.['llm.adapter.correlation_id']).toBe('corr-updated');
 
       const respBatch = compat.buildBatch([responseEvent], mockManifest, ctxResp);
       const spans = (respBatch.payload as any)?.spans ?? [];
       expect(spans).toHaveLength(1);
       const attrs = spans[0]?.attributes ?? {};
-      expect(attrs['langfuse.trace.name']).toBe('corr-updated');
+      expect(attrs['langfuse.trace.name']).toBe('batch-xyz');
+      expect(attrs['llm.adapter.correlation_id']).toBe('corr-updated');
       expect(attrs['langfuse.trace.tags']).toEqual(['t2', 't3']);
     });
 
@@ -768,7 +787,7 @@ describe('LangfuseCompat (OTLP)', () => {
 
       const attrs = spans[0]?.attributes ?? {};
       expect(attrs['llm.adapter.correlation_id']).toBeUndefined();
-      expect(attrs['langfuse.trace.name']).toBeUndefined();
+      expect(attrs['langfuse.trace.name']).toBe('session-456');
       expect(attrs['llm.adapter.batch_id']).toBe('session-456');
     });
 

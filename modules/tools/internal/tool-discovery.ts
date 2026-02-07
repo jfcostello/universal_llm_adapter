@@ -14,8 +14,7 @@ export interface ToolDiscoveryResult {
   tools: UnifiedTool[];
   mcpServers: string[];
   toolNameMap: Record<string, string>;
-  /** Maps exposed vector search param names -> canonical names for arg translation */
-  vectorSearchAliasMap?: Record<string, string>;
+  vectorSearchAliasMaps?: Record<string, Record<string, string>>;
 }
 const DISALLOWED_TERMINAL_FLAG_FIELDS = new Set(['__proto__', 'prototype', 'constructor']);
 
@@ -156,12 +155,22 @@ export async function collectTools({
     }
   }
 
-  // Create vector_search tool if vectorContext mode is 'tool' or 'both'
-  let vectorSearchAliasMap: Record<string, string> | undefined;
-  if (spec.vectorContext && shouldCreateVectorSearchTool(spec.vectorContext.mode)) {
-    const result = createVectorSearchTool(spec.vectorContext);
+  // Create vector tools when vectorContexts mode is 'tool' or 'both'
+  let vectorSearchAliasMaps: Record<string, Record<string, string>> | undefined;
+  for (const ctx of spec.vectorContexts ?? []) {
+    if (!ctx || typeof ctx !== 'object') continue;
+    if (!shouldCreateVectorSearchTool(ctx.mode)) continue;
+
+    const result = createVectorSearchTool(ctx);
+    if (toolMap.has(result.tool.name)) {
+      throw new Error(
+        `Vector search tool name '${result.tool.name}' conflicts with an existing tool. ` +
+        'Use unique vectorContexts[].toolName values.'
+      );
+    }
     toolMap.set(result.tool.name, result.tool);
-    vectorSearchAliasMap = result.aliasMap;
+    vectorSearchAliasMaps = vectorSearchAliasMaps ?? {};
+    vectorSearchAliasMaps[result.tool.name] = result.aliasMap;
   }
 
   const sanitize = sanitizeName ?? sanitizeToolName;
@@ -188,7 +197,7 @@ export async function collectTools({
     tools: sanitizedTools,
     mcpServers,
     toolNameMap,
-    vectorSearchAliasMap
+    vectorSearchAliasMaps
   };
 }
 
@@ -231,35 +240,21 @@ function isUnifiedTool(value: unknown): value is UnifiedTool {
   );
 }
 
-/**
- * Check if a vector_search tool should be created based on vectorContext mode.
- */
 export function shouldCreateVectorSearchTool(mode: string | undefined): boolean {
   return mode === 'tool' || mode === 'both';
 }
 
-/**
- * Result from creating a vector search tool, including the alias map for arg translation.
- */
 export interface VectorSearchToolResult {
-  /** The generated tool definition */
   tool: UnifiedTool;
-  /** Maps exposed parameter name -> canonical name for arg translation */
   aliasMap: Record<string, string>;
 }
 
-/**
- * Default parameter configurations for vector search tool.
- */
 interface ParamConfig {
   canonical: string;
   type: string;
   defaultDescription: (config: VectorContextConfig) => string;
-  /** Whether this param is exposed by default (without overrides) */
   defaultExpose: boolean;
-  /** Property for lock check - if locked, param is always hidden */
   lockKey?: keyof NonNullable<VectorContextConfig['locks']>;
-  /** Additional properties for the schema */
   additionalProps?: Record<string, any>;
 }
 
@@ -309,13 +304,6 @@ const PARAM_CONFIGS: ParamConfig[] = [
   }
 ];
 
-/**
- * Create a vector_search tool for LLM-driven vector store queries.
- * When locks are specified, locked parameters are omitted from the schema
- * and enforced server-side.
- *
- * Supports schema overrides for customizing parameter names and descriptions.
- */
 export function createVectorSearchTool(config: VectorContextConfig): VectorSearchToolResult {
   const toolName = config.toolName ?? 'vector_search';
   const locks = config.locks;

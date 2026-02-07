@@ -24,7 +24,7 @@ export type BaseSpec = {
   tools?: any[];
   functionToolNames?: string[];
   mcpServers?: string[];
-  vectorContext?: any;
+  vectorContexts?: any[];
   observability?: any;
   metadata?: Record<string, any>;
   toolChoice?: any;

@@ -2,7 +2,6 @@ import { spawn } from 'child_process';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import axios from 'axios';
-import { Minimatch } from 'minimatch';
 import { ProcessRouteManifest, VectorContextConfig, ToolExecutionError, getDefaults } from '../../../../kernel/index.js';
 import type { PluginRegistry } from '../../../../kernel/index.js';
 import type { MCPClientPool } from '../../../mcp/index.js';
@@ -10,19 +9,26 @@ import { invokeCommand as invokeCommandImpl } from './internal/invoke-command.js
 import { resolveInvokeModulePath } from './internal/resolve-invoke-module-path.js';
 import { createTimeout as createTimeoutImpl } from './internal/timeout.js';
 import type { ToolContext, ToolRouteAndInvokeContext } from './internal/types.js';
+import { compileMatcher } from './internal/matcher.js';
+import {
+  computeVectorSearchState,
+  getVectorSearchEntryForToolName,
+  translateVectorSearchArgs as translateVectorSearchArgsImpl,
+  type VectorSearchEntry
+} from './internal/vector-search.js';
+import { closeVectorRuntime, ensureVectorRuntime, type VectorRuntimeState } from './internal/vector-runtime.js';
 
 export interface ToolCoordinatorOptions {
-  vectorContext?: VectorContextConfig;
+  vectorContexts?: VectorContextConfig[];
   registry?: PluginRegistry;
-  vectorSearchAliasMap?: Record<string, string>;
+  vectorSearchAliasMaps?: Record<string, Record<string, string>>;
 }
 
 export class ToolCoordinator {
   private mcpServerIds: string[] = [];
-  private vectorContext?: VectorContextConfig;
   private registry?: PluginRegistry;
-  private vectorToolName: string = 'vector_search';
-  private vectorSearchAliasMap?: Record<string, string>;
+  private vectorContextsByToolName = new Map<string, VectorSearchEntry>();
+  private vectorRuntime: VectorRuntimeState = {};
   private warnedInvokeModuleCwdFallback = new Set<string>();
   private routesById = new Map<string, ProcessRouteManifest>();
   private compiledRoutes: Array<{ route: ProcessRouteManifest; match: (toolName: string) => boolean }> = [];
@@ -37,17 +43,16 @@ export class ToolCoordinator {
       this.mcpServerIds = mcpPool.getServerIds();
     }
 
-    if (options?.vectorContext) {
-      this.vectorContext = options.vectorContext;
-      this.vectorToolName = options.vectorContext.toolName ?? 'vector_search';
-    }
     this.registry = options?.registry;
-    this.vectorSearchAliasMap = options?.vectorSearchAliasMap;
+    if (options?.vectorContexts && options.vectorContexts.length > 0) {
+      this.setVectorContexts(options.vectorContexts, this.registry, options.vectorSearchAliasMaps);
+    }
+
     this.routesById = new Map(routes.map(route => [route.id, route]));
-    this.compiledRoutes = routes.map((route) => ({ route, match: this.compileMatcher(route.match) }));
+    this.compiledRoutes = routes.map((route) => ({ route, match: compileMatcher(route.match) }));
     this.compiledToolIdRoutes = routes
       .filter(route => !!route.matchToolId)
-      .map(route => ({ route, match: this.compileMatcher(route.matchToolId!) }));
+      .map(route => ({ route, match: compileMatcher(route.matchToolId!) }));
   }
 
   protected createTimeout(
@@ -60,52 +65,20 @@ export class ToolCoordinator {
     return createTimeoutImpl(seconds, options);
   }
 
-  private compileMatcher(match: { type: string; pattern: any }): (value: string) => boolean {
-    const matchType = match.type;
-    const pattern = match.pattern;
-    switch (matchType) {
-      case 'exact':
-        return (value: string) => value === pattern;
-      case 'prefix':
-        return (value: string) => value.startsWith(pattern);
-      case 'regex': {
-        try {
-          const regex = new RegExp(pattern);
-          return (value: string) => regex.test(value);
-        } catch (error: any) {
-          return () => {
-            throw error;
-          };
-        }
-      }
-      case 'glob': {
-        try {
-          const matcher = new Minimatch(pattern);
-          return (value: string) => matcher.match(value);
-        } catch (error: any) {
-          return () => {
-            throw error;
-          };
-        }
-      }
-      default:
-        return () => false;
-    }
-  }
-
-  setVectorContext(
-    config: VectorContextConfig | undefined,
+  setVectorContexts(
+    configs: VectorContextConfig[] | undefined,
     registry?: PluginRegistry,
-    aliasMap?: Record<string, string>
+    aliasMaps?: Record<string, Record<string, string>>
   ): void {
-    this.vectorContext = config;
-    if (config) {
-      this.vectorToolName = config.toolName ?? 'vector_search';
-    }
     if (registry) {
       this.registry = registry;
     }
-    this.vectorSearchAliasMap = aliasMap;
+
+    this.vectorContextsByToolName = computeVectorSearchState(configs, aliasMaps);
+  }
+
+  private isVectorSearchTool(toolName: string): boolean {
+    return !!this.getVectorSearchEntry(toolName);
   }
 
   async routeAndInvoke(
@@ -114,13 +87,16 @@ export class ToolCoordinator {
     args: any,
     context: ToolRouteAndInvokeContext
   ): Promise<any> {
-    if (this.isVectorSearchTool(toolName)) {
-      return this.invokeVectorSearch(toolName, callId, args, context);
+    const vectorEntry = this.getVectorSearchEntry(toolName);
+    if (vectorEntry) {
+      return this.invokeVectorSearch(toolName, callId, args, context, vectorEntry);
     }
+
     const route = this.selectRoute(toolName, { processRouteId: context.processRouteId, toolId: context.toolId });
     if (!route) {
       throw new ToolExecutionError(`No matching process route for tool '${toolName}'`);
     }
+
     const ctx: ToolContext = {
       toolName,
       callId,
@@ -150,7 +126,6 @@ export class ToolCoordinator {
 
     const timeoutMs = route.timeoutMs ?? getDefaults().tools.timeoutMs;
     const timeoutSeconds = timeoutMs / 1000;
-
     const timeoutCancel = new AbortController();
     const invokeAbort = new AbortController();
 
@@ -171,47 +146,40 @@ export class ToolCoordinator {
     }
   }
 
-  private isVectorSearchTool(toolName: string): boolean {
-    if (!this.vectorContext) return false;
-    const mode = this.vectorContext.mode;
-    if (mode !== 'tool' && mode !== 'both') return false;
-    return toolName === this.vectorToolName;
+  private getVectorSearchEntry(toolName: string): VectorSearchEntry | undefined {
+    return getVectorSearchEntryForToolName({
+      toolName,
+      byToolName: this.vectorContextsByToolName
+    });
   }
 
-  private translateVectorSearchArgs(args: Record<string, any>): Record<string, any> {
-    if (!this.vectorSearchAliasMap) {
-      return args;
-    }
-
-    const translated: Record<string, any> = {};
-    for (const [key, value] of Object.entries(args)) {
-      const canonicalName = this.vectorSearchAliasMap[key] ?? key;
-      translated[canonicalName] = value;
-    }
-    return translated;
+  private translateVectorSearchArgs(args: Record<string, any>, aliasMap?: Record<string, string>): Record<string, any> {
+    return translateVectorSearchArgsImpl(args, aliasMap);
   }
 
   private async invokeVectorSearch(
     toolName: string,
     callId: string,
     args: any,
-    context: ToolRouteAndInvokeContext
+    context: ToolRouteAndInvokeContext,
+    entry: VectorSearchEntry
   ): Promise<any> {
-    if (!this.vectorContext || !this.registry) {
+    if (!this.registry) {
       throw new ToolExecutionError('Vector search not configured');
     }
 
-    const translatedArgs = this.translateVectorSearchArgs(args);
+    const translatedArgs = this.translateVectorSearchArgs(args, entry.aliasMap);
 
     context.logger?.info('Invoking built-in vector_search handler', {
       toolName,
       callId,
-      hasLocks: !!this.vectorContext.locks,
-      lockedParams: Object.keys(this.vectorContext.locks ?? {}),
-      hasAliasMap: !!this.vectorSearchAliasMap
+      hasLocks: !!entry.config.locks,
+      lockedParams: Object.keys(entry.config.locks ?? {}),
+      hasAliasMap: !!entry.aliasMap
     });
 
     const { executeVectorSearch, formatVectorSearchResults } = await import('../../../vector/index.js');
+    const runtime = await ensureVectorRuntime(this.vectorRuntime, this.registry);
 
     const result = await executeVectorSearch(
       {
@@ -223,13 +191,15 @@ export class ToolCoordinator {
         scoreThreshold: translatedArgs.scoreThreshold
       },
       {
-        vectorConfig: this.vectorContext,
+        vectorConfig: entry.config,
         registry: this.registry,
-        logger: context.logger
+        logger: context.logger,
+        embeddingManager: runtime.embeddingManager,
+        vectorManager: runtime.vectorManager
       }
     );
 
-    const formattedResult = formatVectorSearchResults(result, this.vectorContext);
+    const formattedResult = formatVectorSearchResults(result, entry.config);
     return { result: formattedResult };
   }
 
@@ -242,6 +212,7 @@ export class ToolCoordinator {
       }
       return routed;
     }
+
     const toolId = options?.toolId;
     if (toolId) {
       const routedById = this.routesById.get(toolId);
@@ -254,6 +225,7 @@ export class ToolCoordinator {
         }
       }
     }
+
     for (const compiled of this.compiledRoutes) {
       if (compiled.match(toolName)) {
         return compiled.route;
@@ -287,17 +259,13 @@ export class ToolCoordinator {
       case 'command':
         return this.invokeCommand(route, ctx, options);
       case 'mcp':
-        return this.invokeMcp(route, ctx, options);
+        return this.invokeMcp(route, ctx);
       default:
         throw new ToolExecutionError(`Unsupported invoke kind '${route.invoke.kind}'`);
     }
   }
 
-  private async invokeModule(
-    route: ProcessRouteManifest,
-    ctx: ToolContext,
-    options: { signal?: AbortSignal }
-  ): Promise<any> {
+  private async invokeModule(route: ProcessRouteManifest, ctx: ToolContext, options: { signal?: AbortSignal }): Promise<any> {
     if (!route.invoke.module) {
       throw new ToolExecutionError('Module route missing module field');
     }
@@ -315,11 +283,7 @@ export class ToolCoordinator {
     return { result: invocation };
   }
 
-  private async invokeHttp(
-    route: ProcessRouteManifest,
-    ctx: ToolContext,
-    options: { signal?: AbortSignal }
-  ): Promise<any> {
+  private async invokeHttp(route: ProcessRouteManifest, ctx: ToolContext, options: { signal?: AbortSignal }): Promise<any> {
     if (!route.invoke.url) {
       throw new ToolExecutionError('HTTP route missing url');
     }
@@ -335,11 +299,7 @@ export class ToolCoordinator {
     return response.data || { result: null };
   }
 
-  private async invokeCommand(
-    route: ProcessRouteManifest,
-    ctx: ToolContext,
-    options: { signal?: AbortSignal }
-  ): Promise<any> {
+  private async invokeCommand(route: ProcessRouteManifest, ctx: ToolContext, options: { signal?: AbortSignal }): Promise<any> {
     if (!route.invoke.command) {
       throw new ToolExecutionError('Command route missing command');
     }
@@ -352,11 +312,7 @@ export class ToolCoordinator {
     });
   }
 
-  private async invokeMcp(
-    route: ProcessRouteManifest,
-    ctx: ToolContext,
-    _options: { signal?: AbortSignal }
-  ): Promise<any> {
+  private async invokeMcp(route: ProcessRouteManifest, ctx: ToolContext): Promise<any> {
     if (!this.mcpPool) {
       throw new ToolExecutionError('MCP route requested but no pool configured');
     }
@@ -373,11 +329,9 @@ export class ToolCoordinator {
     if (modulePath.startsWith('file:') || modulePath.startsWith('node:')) {
       return import(modulePath);
     }
-
     if (path.isAbsolute(modulePath)) {
       return import(pathToFileURL(modulePath).href);
     }
-
     return import(modulePath);
   }
 
@@ -395,6 +349,6 @@ export class ToolCoordinator {
   }
 
   async close(): Promise<void> {
-    // Cleanup if needed
+    await closeVectorRuntime(this.vectorRuntime);
   }
 }

@@ -21,6 +21,17 @@ describe('utils/server assertValidSpec', () => {
     expect(() => assertValidSpec({ messages: [] } as any)).toThrow(/validation/i);
   });
 
+  test('rejects deprecated vectorContext field with migration details', () => {
+    expect(() =>
+      assertValidSpec({
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+        llmPriority: [{ provider: 'p', model: 'm' }],
+        settings: {},
+        vectorContext: { stores: ['memory'], mode: 'auto' }
+      } as any)
+    ).toThrow(/vectorContext/);
+  });
+
   test('accepts toolChoice="required" string shorthand', () => {
     expect(() =>
       assertValidSpec({

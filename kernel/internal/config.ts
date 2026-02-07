@@ -11,16 +11,35 @@ type EnvSubstitutionSpec =
   | { type: 'optional'; envVar: string }
   | { type: 'default'; envVar: string; defaultValue: string };
 
+function findPackageRoot(startDir: string): string {
+  let current = startDir;
+  while (current !== path.dirname(current)) {
+    const pkgPath = path.join(current, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      return current;
+    }
+    current = path.dirname(current);
+  }
+  return startDir;
+}
+
 function loadRootDotenv(): void {
   if (envLoaded) return;
-  
+
+  // Bound dotenv lookup to this package root to avoid loading a parent repo env file.
+  const packageRoot = findPackageRoot(moduleDir);
+
   let current = moduleDir;
-  while (current !== path.dirname(current)) {
+  while (true) {
     const dotenvPath = path.join(current, '.env');
     if (fs.existsSync(dotenvPath)) {
       dotenvConfig({ path: dotenvPath, override: false });
       envLoaded = true;
       return;
+    }
+
+    if (current === packageRoot) {
+      break;
     }
     current = path.dirname(current);
   }
