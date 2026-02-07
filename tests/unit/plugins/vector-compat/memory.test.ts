@@ -1,6 +1,7 @@
 import MemoryCompat from '@/plugins/vector-compat/memory/index.ts';
 import { VectorStoreError } from '@/kernel/index.ts';
 import type { VectorStoreConfig, VectorPoint } from '@/kernel/index.ts';
+import { queryCollection } from '@/plugins/vector-compat/memory/internal/query.ts';
 
 function createConfig(): VectorStoreConfig {
   return {
@@ -175,6 +176,32 @@ describe('plugins/vector-compat/memory', () => {
 
       // Should not include the point without payload
       expect(results.find(r => r.id === 'no-payload')).toBeUndefined();
+    });
+
+    test('returns empty results when signal is already aborted', async () => {
+      const abortController = new AbortController();
+      abortController.abort();
+
+      const results = await compat.query('test', [1, 0], 10, { signal: abortController.signal });
+      expect(results).toEqual([]);
+    });
+  });
+
+  describe('queryCollection abort handling', () => {
+    test('stops processing when signal becomes aborted mid-loop', () => {
+      const abortController = new AbortController();
+      const coll = new Map<string, VectorPoint>();
+      coll.set('first', {
+        id: 'first',
+        get vector() {
+          abortController.abort();
+          return [1, 0];
+        }
+      } as unknown as VectorPoint);
+      coll.set('second', { id: 'second', vector: [0, 1] });
+
+      const results = queryCollection(coll, [1, 0], 2, { signal: abortController.signal });
+      expect(results).toEqual([]);
     });
   });
 

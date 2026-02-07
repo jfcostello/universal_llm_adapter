@@ -9,6 +9,19 @@ import { VectorStoreError } from '../../../../../kernel/index.js';
 import { convertFilter } from '../filters/convert-filter.js';
 import { ORIGINAL_ID_KEY } from '../ids/normalize-point-id.js';
 
+function createAbortError(message: string): Error {
+  const error = new Error(message);
+  (error as any).name = 'AbortError';
+  (error as any).code = 'aborted';
+  return error;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw createAbortError('Vector query aborted');
+  }
+}
+
 export async function queryQdrant(options: {
   client: QdrantClient;
   storeId: string;
@@ -20,6 +33,7 @@ export async function queryQdrant(options: {
 }): Promise<VectorQueryResult[]> {
   const startTime = Date.now();
   const queryOptions = options.queryOptions;
+  throwIfAborted(queryOptions?.signal);
 
   // Log query request
   options.logger?.logVectorRequest({
@@ -43,6 +57,10 @@ export async function queryQdrant(options: {
       with_vector: queryOptions?.includeVector || false
     };
 
+    if (typeof queryOptions?.timeoutMs === 'number' && Number.isFinite(queryOptions.timeoutMs) && queryOptions.timeoutMs > 0) {
+      searchParams.timeout = Math.max(1, Math.ceil(queryOptions.timeoutMs / 1000));
+    }
+
     // Convert generic filter to Qdrant format
     if (queryOptions?.filter) {
       const qFilter = convertFilter(queryOptions.filter);
@@ -52,6 +70,7 @@ export async function queryQdrant(options: {
     }
 
     const results = await options.client.search(options.collection, searchParams);
+    throwIfAborted(queryOptions?.signal);
 
     const mappedResults = results.map(item => ({
       id:
@@ -97,4 +116,3 @@ export async function queryQdrant(options: {
     throw new VectorStoreError(`Query failed: ${error.message}`, options.storeId, options.collection);
   }
 }
-

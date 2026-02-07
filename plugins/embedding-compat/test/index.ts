@@ -1,4 +1,5 @@
 import type {
+  EmbeddingCompatOptions,
   EmbeddingProviderConfig,
   EmbeddingResult,
   IEmbeddingCompat,
@@ -47,8 +48,13 @@ export default class TestEmbeddingCompat implements IEmbeddingCompat {
     input: string | string[],
     config: EmbeddingProviderConfig,
     model?: string,
-    logger?: IEmbeddingOperationLogger
+    logger?: IEmbeddingOperationLogger,
+    options?: EmbeddingCompatOptions
   ): Promise<EmbeddingResult> {
+    if (options?.signal?.aborted) {
+      throw new Error('Embedding request aborted');
+    }
+
     const dimensions = this.getDimensions(config, model);
     const texts = Array.isArray(input) ? input : [input];
 

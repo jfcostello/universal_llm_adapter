@@ -63,15 +63,25 @@ export function hasToolVectorContexts(contexts: VectorContextConfig[]): boolean 
   return contexts.some(ctx => ctx.mode === 'tool' || ctx.mode === 'both');
 }
 
-export async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return promise;
+export async function withTimeout<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return operation(new AbortController().signal);
+  }
 
+  const abortController = new AbortController();
   let timeout: NodeJS.Timeout | undefined;
   try {
     return await Promise.race([
-      promise,
+      operation(abortController.signal),
       new Promise<T>((_resolve, reject) => {
-        timeout = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+        timeout = setTimeout(() => {
+          abortController.abort();
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
       })
     ]);
   } finally {

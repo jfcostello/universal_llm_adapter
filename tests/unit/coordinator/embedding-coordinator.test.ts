@@ -91,7 +91,8 @@ describe('coordinator/embedding-coordinator', () => {
         ['hello', 'world'],
         expect.anything(),
         undefined,
-        expect.anything()
+        expect.anything(),
+        undefined
       );
     });
 
@@ -121,7 +122,8 @@ describe('coordinator/embedding-coordinator', () => {
         'hello',
         expect.anything(),
         undefined,
-        expect.anything()
+        expect.anything(),
+        undefined
       );
     });
 

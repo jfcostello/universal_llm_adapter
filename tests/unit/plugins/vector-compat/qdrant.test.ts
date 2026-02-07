@@ -181,6 +181,41 @@ describe('plugins/vector-compat/qdrant', () => {
       }));
     });
 
+    test('passes timeoutMs through to Qdrant timeout seconds', async () => {
+      mockClient.search.mockResolvedValue([]);
+
+      await compat.query('test', [1], 1, { timeoutMs: 1500 });
+
+      expect(mockClient.search).toHaveBeenCalledWith(
+        'test',
+        expect.objectContaining({
+          timeout: 2
+        })
+      );
+    });
+
+    test('throws when signal is already aborted before query starts', async () => {
+      const abortController = new AbortController();
+      abortController.abort();
+
+      await expect(
+        compat.query('test', [1], 1, { signal: abortController.signal })
+      ).rejects.toThrow('Vector query aborted');
+      expect(mockClient.search).not.toHaveBeenCalled();
+    });
+
+    test('wraps mid-query abort as VectorStoreError', async () => {
+      const abortController = new AbortController();
+      mockClient.search.mockImplementation(async () => {
+        abortController.abort();
+        return [];
+      });
+
+      await expect(
+        compat.query('test', [1], 1, { signal: abortController.signal })
+      ).rejects.toThrow('Query failed: Vector query aborted');
+    });
+
     test('converts dot-notation filter to nested Qdrant format', async () => {
       mockClient.search.mockResolvedValue([]);
 

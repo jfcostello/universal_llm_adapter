@@ -179,6 +179,13 @@ export async function collectTools({
 
   for (const originalTool of toolMap.values()) {
     const sanitizedName = sanitize(originalTool.name);
+    const existingOriginalName = toolNameMap[sanitizedName];
+    if (existingOriginalName && existingOriginalName !== originalTool.name) {
+      throw new Error(
+        `Tool names '${existingOriginalName}' and '${originalTool.name}' conflict after sanitization ` +
+        `to '${sanitizedName}'. Use unique tool names that remain unique after sanitization.`
+      );
+    }
     toolNameMap[sanitizedName] = originalTool.name;
     const terminalFlag = normalizeToolCallTerminalFlag(originalTool.toolCallTerminalFlag);
     const appliedFlag = applyToolCallTerminalFlagToSchema(originalTool.parametersJsonSchema, terminalFlag);

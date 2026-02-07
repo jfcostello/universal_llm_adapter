@@ -7,9 +7,16 @@ export function queryCollection(
   topK: number,
   options?: VectorQueryOptions
 ): VectorQueryResult[] {
+  if (options?.signal?.aborted) {
+    return [];
+  }
+
   const scored: Array<{ id: string; score: number; point: VectorPoint }> = [];
 
   for (const [id, point] of coll.entries()) {
+    if (options?.signal?.aborted) {
+      return [];
+    }
     if (options?.filter && !matchesFlatFilter(point.payload, options.filter)) {
       continue;
     }
@@ -28,4 +35,3 @@ export function queryCollection(
     vector: options?.includeVector ? item.point.vector : undefined
   }));
 }
-

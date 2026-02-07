@@ -122,7 +122,8 @@ describe('utils/vector/vector-context-injector', () => {
         'What is machine learning?',
         expect.anything(),
         undefined,
-        expect.anything() // logger parameter
+        expect.anything(), // logger parameter
+        undefined
       );
     });
 
@@ -412,7 +413,8 @@ describe('utils/vector/vector-context-injector', () => {
         expect.anything(),
         expect.anything(),
         'custom-model',
-        expect.anything() // logger parameter
+        expect.anything(), // logger parameter
+        undefined
       );
     });
 
@@ -642,6 +644,76 @@ describe('utils/vector/vector-context-injector', () => {
 
       expect(result.resultsInjected).toBe(1);
     });
+
+    test('forwards abortSignal to embedding and vector query operations', async () => {
+      const registry = createMockRegistry();
+      const embeddingManager = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1, 0.2, 0.3]],
+          model: 'test-model',
+          dimensions: 3
+        })
+      } as any;
+      const vectorCompat = {
+        query: jest.fn().mockResolvedValue([
+          { id: 'doc1', score: 0.92, payload: { text: 'Abort-aware result' } }
+        ])
+      };
+      const vectorManager = {
+        getCompat: jest.fn().mockResolvedValue(vectorCompat)
+      } as any;
+
+      const injector = new VectorContextInjector({ registry, embeddingManager, vectorManager });
+      const messages = createMessages(['Query']);
+      const controller = new AbortController();
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        embeddingPriority: [{ provider: 'test-embeddings' }]
+      };
+
+      await injector.injectContext(messages, config, undefined, { abortSignal: controller.signal });
+
+      expect(embeddingManager.embed).toHaveBeenCalledWith(
+        'Query',
+        expect.anything(),
+        expect.objectContaining({ signal: controller.signal })
+      );
+      expect(vectorCompat.query).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({ signal: controller.signal })
+      );
+    });
+
+    test('returns original messages when abortSignal is already aborted', async () => {
+      const registry = createMockRegistry();
+      const embeddingManager = {
+        embed: jest.fn()
+      } as any;
+      const vectorManager = {
+        getCompat: jest.fn()
+      } as any;
+
+      const injector = new VectorContextInjector({ registry, embeddingManager, vectorManager });
+      const messages = createMessages(['Query']);
+      const controller = new AbortController();
+      controller.abort();
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        embeddingPriority: [{ provider: 'test-embeddings' }]
+      };
+
+      const result = await injector.injectContext(messages, config, undefined, { abortSignal: controller.signal });
+      expect(result.messages).toEqual(messages);
+      expect(result.resultsInjected).toBe(0);
+      expect(embeddingManager.embed).not.toHaveBeenCalled();
+      expect(vectorManager.getCompat).not.toHaveBeenCalled();
+    });
   });
 
   describe('query extraction edge cases', () => {
@@ -673,7 +745,8 @@ describe('utils/vector/vector-context-injector', () => {
         'Third question',
         expect.anything(),
         undefined,
-        expect.anything() // logger parameter
+        expect.anything(), // logger parameter
+        undefined
       );
     });
 
@@ -752,7 +825,8 @@ describe('utils/vector/vector-context-injector', () => {
         'custom search terms for embedding',
         expect.anything(),
         undefined,
-        expect.anything()
+        expect.anything(),
+        undefined
       );
     });
 
@@ -1217,6 +1291,42 @@ describe('utils/vector/vector-context-injector', () => {
       // Without user messages and with assistant messages excluded, query extraction returns empty
       expect(result.resultsInjected).toBe(0);
       expect(result.query).toBe('');
+    });
+
+    test('appends user_context when overrideEmbeddingQuery is set and no user messages exist', async () => {
+      const vectorCompat = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([
+          { id: 'doc1', score: 0.9, payload: { text: 'Injected context' } }
+        ])
+      };
+      const registry = createMockRegistry({ vectorCompat });
+
+      const injector = new VectorContextInjector({ registry });
+      const messages: Message[] = [
+        { role: Role.ASSISTANT, content: [{ type: 'text', text: 'Only assistant message' }] }
+      ];
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        injectAs: 'user_context',
+        overrideEmbeddingQuery: 'forced query even without user message',
+        queryConstruction: {
+          includeAssistantMessages: false
+        }
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      expect(result.query).toBe('forced query even without user message');
+      expect(result.resultsInjected).toBe(1);
+      expect(result.messages).toHaveLength(2);
+      expect(result.messages[0].role).toBe(Role.ASSISTANT);
+      expect(result.messages[1].role).toBe(Role.USER);
+      const injected = (result.messages[1].content[0] as any).text;
+      expect(injected).toContain('Injected context');
     });
 
     test('processes multiple queries successfully', async () => {

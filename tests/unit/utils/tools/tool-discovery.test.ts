@@ -352,6 +352,32 @@ describe('utils/tools/tool-discovery', () => {
     });
   });
 
+  test('collectTools rejects tools that collide after sanitization', async () => {
+    const spec = {
+      messages: [],
+      llmPriority: [],
+      settings: {},
+      tools: [
+        {
+          name: 'foo bar',
+          parametersJsonSchema: { type: 'object' }
+        },
+        {
+          name: 'foo_bar',
+          parametersJsonSchema: { type: 'object' }
+        }
+      ]
+    } as unknown as LLMCallSpec;
+
+    const registry = {
+      getTool: jest.fn()
+    } as unknown as PluginRegistry;
+
+    await expect(
+      collectTools({ spec, registry })
+    ).rejects.toThrow("conflict after sanitization to 'foo_bar'");
+  });
+
   test('collectTools falls back to latest user message when vector query missing', async () => {
     const spec = {
       messages: [

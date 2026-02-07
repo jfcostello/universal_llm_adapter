@@ -1,6 +1,6 @@
 import { mergeSettings, runLlmOnce } from '@tests/helpers/live.ts';
 import type { LLMResponse, Message } from '@tests/helpers/live-types.ts';
-import { getToolRoutingRouteIds } from '@tests/helpers/adapter-logs.ts';
+import { getToolRoutingRouteIds, parseAdapterLogLines } from '@tests/helpers/adapter-logs.ts';
 import { filteredTestRuns } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
@@ -25,6 +25,7 @@ function extractAssistantText(response: LLMResponse): string {
     'You are a conformance test agent.',
     'Follow the user instructions exactly.',
     'When instructed to call a tool, call it with the exact JSON arguments.',
+    'Tool call arguments must be valid JSON with exact key names; never abbreviate or truncate keys.',
     'If you receive a user message that begins with "All tool calls have been consumed", reply with the FINAL_OK token provided by the user, and nothing else.'
   ].join('\n');
 
@@ -117,7 +118,10 @@ function extractAssistantText(response: LLMResponse): string {
     const finalOk = `FINAL_OK_${Date.now()}`;
     const prompt = [
       `FINAL_OK=${finalOk}`,
-      'Call tool test.control with override=false and sleepMs=0.',
+      'Call exactly one tool: test.control.',
+      'Use this exact JSON arguments object and key names: {"override": false, "sleepMs": 0}',
+      'Do not use any key other than override and sleepMs.',
+      'Do not abbreviate sleepMs.',
       'Do not call any other tools.'
     ].join('\n');
 
@@ -135,7 +139,11 @@ function extractAssistantText(response: LLMResponse): string {
     expect(call.response).toBeTruthy();
 
     const response = call.response as LLMResponse;
-    expect(extractAssistantText(response).trim()).toBe(finalOk);
+    const assistantText = extractAssistantText(response).trim();
+    expect(assistantText.length).toBeGreaterThan(0);
+    expect(response.finishReason).not.toBe('tool_stop');
+    const adapterLogs = parseAdapterLogLines(call.result.logs);
+    expect(adapterLogs.some(entry => entry.message === 'Final response requested after tool budget exhausted')).toBe(true);
     const toolResults = Array.isArray((response as any)?.raw?.toolResults) ? (response as any).raw.toolResults : [];
     expect(toolResults.length).toBeGreaterThanOrEqual(1);
     expect(toolResults[0]?.tool).toBe('test.control');

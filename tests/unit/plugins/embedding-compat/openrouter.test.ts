@@ -95,6 +95,28 @@ describe('plugins/embedding-compat/openrouter', () => {
       );
     });
 
+    test('passes abort signal to HTTP client when provided', async () => {
+      const mockHttpClient = createMockHttpClient({
+        status: 200,
+        data: {
+          object: 'list',
+          data: [{ object: 'embedding', index: 0, embedding: [0.1, 0.2, 0.3] }],
+          model: 'openai/text-embedding-3-small'
+        }
+      });
+
+      const compat = new OpenRouterEmbeddingCompat(mockHttpClient as any);
+      const config = createConfig();
+      const abortController = new AbortController();
+      await compat.embed('hello world', config, undefined, undefined, { signal: abortController.signal });
+
+      expect(mockHttpClient.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          signal: abortController.signal
+        })
+      );
+    });
+
     test('throws EmbeddingProviderError on HTTP error', async () => {
       const mockHttpClient = createMockHttpClient({
         status: 400,

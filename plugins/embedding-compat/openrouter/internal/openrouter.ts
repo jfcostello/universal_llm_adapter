@@ -29,7 +29,8 @@ export default class OpenRouterEmbeddingCompat implements IEmbeddingCompat {
     input: string | string[],
     config: EmbeddingProviderConfig,
     model?: string,
-    logger?: IEmbeddingOperationLogger
+    logger?: IEmbeddingOperationLogger,
+    options: { signal?: AbortSignal } = {}
   ): Promise<EmbeddingResult> {
     const effectiveModel = model || config.model;
     const url = config.endpoint.urlTemplate;
@@ -55,7 +56,8 @@ export default class OpenRouterEmbeddingCompat implements IEmbeddingCompat {
         method: 'POST',
         url,
         headers,
-        data: payload
+        data: payload,
+        ...(options.signal ? { signal: options.signal } : {})
       });
 
       if (response.status >= 400) {

@@ -1,4 +1,6 @@
 import {
+  EmbeddingCompatOptions,
+  IEmbeddingCompat,
   EmbeddingPriorityItem,
   EmbeddingResult,
   IEmbeddingOperationLogger
@@ -31,23 +33,36 @@ export class EmbeddingManager {
    */
   async embed(
     input: string | string[],
-    priority: EmbeddingPriorityItem[]
+    priority: EmbeddingPriorityItem[],
+    options: {
+      signal?: AbortSignal;
+    } = {}
   ): Promise<EmbeddingResult> {
     if (!priority || priority.length === 0) {
       throw new EmbeddingError('No embedding providers specified in priority list');
     }
 
+    if (options.signal?.aborted) {
+      throw new EmbeddingError('Embedding request aborted');
+    }
+
     const errors: Error[] = [];
 
     for (const item of priority) {
+      if (options.signal?.aborted) {
+        throw new EmbeddingError('Embedding request aborted');
+      }
       try {
         const config = await this.registry.getEmbeddingProvider(item.provider);
-        const compat = typeof this.registry.getEmbeddingCompatForProvider === 'function'
+        const compat = (typeof this.registry.getEmbeddingCompatForProvider === 'function'
           ? await this.registry.getEmbeddingCompatForProvider(config.id)
-          : await this.registry.getEmbeddingCompat(config.kind);
+          : await this.registry.getEmbeddingCompat(config.kind)) as IEmbeddingCompat;
 
         // Pass logger to compat for HTTP logging
-        const result = await compat.embed(input, config, item.model, this.logger);
+        const compatOptions: EmbeddingCompatOptions | undefined = options.signal
+          ? { signal: options.signal }
+          : undefined;
+        const result = await compat.embed(input, config, item.model, this.logger, compatOptions);
         return result;
       } catch (error: any) {
         errors.push(error);

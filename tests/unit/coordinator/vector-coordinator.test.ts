@@ -120,7 +120,8 @@ describe('coordinator/vector-coordinator', () => {
           ['hello', 'world'],
           expect.anything(),
           undefined,
-          expect.anything() // logger parameter
+          expect.anything(), // logger parameter
+          undefined
         );
         expect(vectorCompat.upsert).toHaveBeenCalled();
       });
@@ -274,21 +275,24 @@ describe('coordinator/vector-coordinator', () => {
           ['text1', 'text2'],
           expect.anything(),
           undefined,
-          expect.anything()
+          expect.anything(),
+          undefined
         );
         expect(embeddingCompat.embed).toHaveBeenNthCalledWith(
           2,
           ['text3', 'text4'],
           expect.anything(),
           undefined,
-          expect.anything()
+          expect.anything(),
+          undefined
         );
         expect(embeddingCompat.embed).toHaveBeenNthCalledWith(
           3,
           ['text5'],
           expect.anything(),
           undefined,
-          expect.anything()
+          expect.anything(),
+          undefined
         );
       });
 
@@ -322,14 +326,16 @@ describe('coordinator/vector-coordinator', () => {
           texts.slice(0, 10),
           expect.anything(),
           undefined,
-          expect.anything()
+          expect.anything(),
+          undefined
         );
         expect(embeddingCompat.embed).toHaveBeenNthCalledWith(
           2,
           texts.slice(10, 15),
           expect.anything(),
           undefined,
-          expect.anything()
+          expect.anything(),
+          undefined
         );
       });
 
@@ -522,7 +528,8 @@ describe('coordinator/vector-coordinator', () => {
           'What is machine learning?',
           expect.anything(),
           undefined,
-          expect.anything() // logger parameter
+          expect.anything(), // logger parameter
+          undefined
         );
         expect(vectorCompat.query).toHaveBeenCalledWith(
           'docs',
