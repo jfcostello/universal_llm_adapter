@@ -1,4 +1,5 @@
 import OpenAIResponsesCompat from '@/plugins/compat/openai-responses/index.ts';
+import { Role } from '@/kernel/index.ts';
 
 describe('compat/openai-responses', () => {
   let compat: OpenAIResponsesCompat;
@@ -7,7 +8,88 @@ describe('compat/openai-responses', () => {
     compat = new OpenAIResponsesCompat();
   });
 
+  describe('serializeToolChoice', () => {
+    const baseMessages: any[] = [
+      { role: Role.USER, content: [{ type: 'text', text: 'hi' }] }
+    ];
+
+    const baseTools: any[] = [
+      {
+        name: 'test.echo',
+        description: 'Echo tool',
+        parametersJsonSchema: { type: 'object', properties: {} }
+      },
+      {
+        name: 'test.random',
+        description: 'Random tool',
+        parametersJsonSchema: { type: 'object', properties: {} }
+      }
+    ];
+
+    test('passes toolChoice string modes through to tool_choice', () => {
+      const payloadNone = compat.buildPayload('gpt-4o', {} as any, baseMessages as any, baseTools as any, 'none');
+      expect(payloadNone.tool_choice).toBe('none');
+
+      const payloadAuto = compat.buildPayload('gpt-4o', {} as any, baseMessages as any, baseTools as any, 'auto');
+      expect(payloadAuto.tool_choice).toBe('auto');
+
+      const payloadRequired = compat.buildPayload('gpt-4o', {} as any, baseMessages as any, baseTools as any, 'required');
+      expect(payloadRequired.tool_choice).toBe('required');
+    });
+
+    test('serializes ToolChoiceSingle as a function tool_choice object', () => {
+      const payload = compat.buildPayload(
+        'gpt-4o',
+        {} as any,
+        baseMessages as any,
+        baseTools as any,
+        { type: 'single', name: 'test.echo' } as any
+      );
+
+      expect(payload.tool_choice).toEqual({ type: 'function', name: 'test.echo' });
+    });
+
+    test('serializes ToolChoiceRequired allowed[1] as a function tool_choice object', () => {
+      const payload = compat.buildPayload(
+        'gpt-4o',
+        {} as any,
+        baseMessages as any,
+        baseTools as any,
+        { type: 'required', allowed: ['test.echo'] } as any
+      );
+
+      expect(payload.tool_choice).toEqual({ type: 'function', name: 'test.echo' });
+    });
+
+    test('serializes ToolChoiceRequired allowed[>1] as an allowed_tools tool_choice object', () => {
+      const payload = compat.buildPayload(
+        'gpt-4o',
+        {} as any,
+        baseMessages as any,
+        baseTools as any,
+        { type: 'required', allowed: ['test.echo', 'test.random'] } as any
+      );
+
+      expect(payload.tool_choice).toEqual({
+        type: 'allowed_tools',
+        mode: 'required',
+        tools: [
+          { type: 'function', name: 'test.echo' },
+          { type: 'function', name: 'test.random' }
+        ]
+      });
+    });
+  });
+
   describe('serializeSettings', () => {
+    test('passes through parallelToolCalls as parallel_tool_calls', () => {
+      const result = (compat as any).serializeSettings({
+        parallelToolCalls: true
+      });
+
+      expect(result.parallel_tool_calls).toBe(true);
+    });
+
     test('maps reasoning.enabled + budget to a default reasoning.effort', () => {
       const result = (compat as any).serializeSettings({
         reasoning: { enabled: true, budget: 1024 }

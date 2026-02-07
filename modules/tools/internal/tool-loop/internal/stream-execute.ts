@@ -11,6 +11,7 @@ import { createProgressFields, resolveCountdownText } from './utils.js';
 import { isToolTerminalByDefinition, resolveCallArgTerminalOverride, resolveTerminalOverride, stripCallArgTerminalFlag } from './helpers.js';
 import type { InvokeToolFn } from './types.js';
 import { recordToolExecutionObservability, recordToolFailureSignal } from './observability.js';
+import { executeStreamToolCallsRoundParallel } from './stream-execute-parallel.js';
 
 export async function* executeStreamToolCallsRound(options: {
   toolCallsToExecute: ToolCall[];
@@ -21,6 +22,7 @@ export async function* executeStreamToolCallsRound(options: {
   toolByName: Map<string, UnifiedTool>;
   budget: ToolCallBudget;
   toolCountdownEnabled: boolean;
+  parallelExecution: boolean;
   maxResultLength: number | null;
   providerManifest: ProviderManifest;
   model: string;
@@ -61,6 +63,15 @@ export async function* executeStreamToolCallsRound(options: {
     sanitizeName: name => name,
     reasoning: options.toolCallReasoning
   });
+
+  if (options.parallelExecution) {
+    const { terminalStopThisRound } = yield* executeStreamToolCallsRoundParallel(options);
+
+    pruneToolResults(options.messages, options.preserveToolResults);
+    pruneReasoning(options.messages, options.preserveReasoning);
+
+    return { terminalStopThisRound };
+  }
 
   let terminalStopThisRound = false;
 

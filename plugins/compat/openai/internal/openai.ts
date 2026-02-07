@@ -32,12 +32,29 @@ export default class OpenAICompat implements ICompatModule {
     tools: UnifiedTool[],
     toolChoice?: ToolChoice
   ): any {
-    const hasTools = Array.isArray(tools) && tools.length > 0;
+    const allTools = tools;
+    let filteredTools = allTools;
+
+    // Constrain tool definitions to the choice set. This keeps OpenAI-compatible providers
+    // happy without relying on non-standard payload fields.
+    if (toolChoice && typeof toolChoice === 'object') {
+      if (toolChoice.type === 'single') {
+        filteredTools = allTools.filter(t => t?.name === toolChoice.name);
+      } else if (toolChoice.type === 'required') {
+        const allowed = toolChoice.allowed;
+        if (allowed.length > 0) {
+          const allowSet = new Set(allowed);
+          filteredTools = allTools.filter(t => allowSet.has(t?.name));
+        }
+      }
+    }
+
+    const hasTools = filteredTools.length > 0;
     const payload: any = {
       model,
       messages: serializeMessages(messages),
       ...serializeSettings(settings),
-      ...this.serializeTools(tools),
+      ...this.serializeTools(filteredTools),
       ...(hasTools ? this.serializeToolChoice(toolChoice) : {})
     };
 

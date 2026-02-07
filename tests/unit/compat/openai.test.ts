@@ -69,6 +69,23 @@ describe('compat/openai', () => {
     });
   });
 
+  test('buildPayload enables parallel tool calls when parallelToolCalls is set', () => {
+    const payload = compat.buildPayload(
+      'gpt-4o',
+      { parallelToolCalls: true } as any,
+      [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }],
+      [
+        {
+          name: 'echo.text',
+          description: 'Echo tool',
+          parametersJsonSchema: { type: 'object' }
+        }
+      ]
+    );
+
+    expect(payload.parallel_tool_calls).toBe(true);
+  });
+
   test('serializeContent drops unsupported parts', () => {
     const compatAny = compat as any;
     const result = compatAny.serializeContent([
@@ -116,6 +133,11 @@ describe('compat/openai', () => {
           name: 'b.tool',
           description: 'b tool',
           parametersJsonSchema: { type: 'object', properties: {} }
+        },
+        {
+          name: 'c.tool',
+          description: 'c tool',
+          parametersJsonSchema: { type: 'object', properties: {} }
         }
       ],
       { type: 'required', allowed: ['a.tool', 'b.tool'] }
@@ -130,7 +152,9 @@ describe('compat/openai', () => {
     expect(payload.messages[1].tool_call_id).toBe('tc-1');
     expect(payload.messages[1].content).toBe('');
     expect(payload.tool_choice).toBe('required');
-    expect(payload.allowed_tools).toEqual(['a.tool', 'b.tool']);
+    expect(payload.allowed_tools).toBeUndefined();
+    expect(payload.tools).toHaveLength(2);
+    expect(payload.tools.map((t: any) => t?.function?.name)).toEqual(['a.tool', 'b.tool']);
 
     const autoChoice = compat.buildPayload(
       'gpt-3.5-turbo',
@@ -423,12 +447,58 @@ describe('compat/openai', () => {
           name: 'b.tool',
           description: 'b tool',
           parametersJsonSchema: { type: 'object', properties: {} }
+        },
+        {
+          name: 'c.tool',
+          description: 'c tool',
+          parametersJsonSchema: { type: 'object', properties: {} }
         }
       ],
       { type: 'required', allowed: ['a.tool', 'b.tool'] }
     );
     expect(payload.tool_choice).toBe('required');
-    expect(payload.allowed_tools).toEqual(['a.tool', 'b.tool']);
+    expect(payload.allowed_tools).toBeUndefined();
+    expect(payload.tools).toHaveLength(2);
+    expect(payload.tools.map((t: any) => t?.function?.name)).toEqual(['a.tool', 'b.tool']);
+  });
+
+  test('buildPayload treats required tool choice with empty allowed list as auto and does not filter tools', () => {
+    const payload = compat.buildPayload(
+      'gpt-4',
+      { temperature: 0 },
+      [],
+      [
+        {
+          name: 'a.tool',
+          description: 'a tool',
+          parametersJsonSchema: { type: 'object', properties: {} }
+        }
+      ],
+      { type: 'required', allowed: [] }
+    );
+
+    expect(payload.tool_choice).toBe('auto');
+    expect(payload.tools).toHaveLength(1);
+    expect(payload.tools[0]?.function?.name).toBe('a.tool');
+  });
+
+  test('buildPayload omits tool_choice when ToolChoiceSingle references a missing tool', () => {
+    const payload = compat.buildPayload(
+      'gpt-4',
+      { temperature: 0 },
+      [],
+      [
+        {
+          name: 'a.tool',
+          description: 'a tool',
+          parametersJsonSchema: { type: 'object', properties: {} }
+        }
+      ],
+      { type: 'single', name: 'missing.tool' }
+    );
+
+    expect(payload.tools).toBeUndefined();
+    expect(payload.tool_choice).toBeUndefined();
   });
 
   test('parseToolCalls handles missing ids and returns undefined when input invalid', () => {
@@ -587,7 +657,7 @@ describe('compat/openai', () => {
 
   test('serializeToolChoice handles required variants directly', () => {
     const direct = (compat as any).serializeToolChoice({ type: 'required', allowed: ['a', 'b'] });
-    expect(direct).toEqual({ tool_choice: 'required', allowed_tools: ['a', 'b'] });
+    expect(direct).toEqual({ tool_choice: 'required' });
   });
 
   test('parseStreamChunk emits text deltas and tool events', () => {

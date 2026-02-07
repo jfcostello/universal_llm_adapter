@@ -188,13 +188,18 @@ describe('integration/providers/openai-provider', () => {
       });
 
       test('handles required tool choice with multiple tools', () => {
-        const payload = compat.buildPayload('gpt-4', {}, baseMessages, multipleTools, {
+        const payload = compat.buildPayload('gpt-4', {}, baseMessages, [
+          ...multipleTools,
+          { name: 'extra.tool', description: 'Extra tool', parametersJsonSchema: { type: 'object', properties: {} } }
+        ], {
           type: 'required',
           allowed: ['get.weather', 'search.web']
         });
 
         expect(payload.tool_choice).toBe('required');
-        expect(payload.allowed_tools).toEqual(['get.weather', 'search.web']);
+        expect(payload.allowed_tools).toBeUndefined();
+        expect(payload.tools).toHaveLength(2);
+        expect(payload.tools.map((t: any) => t?.function?.name)).toEqual(['get.weather', 'search.web']);
       });
 
       test('handles required tool choice with single tool (optimization)', () => {

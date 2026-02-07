@@ -10,6 +10,27 @@ const providerManifest: any = {
   compat: 'mock'
 };
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function drainStreamGenerator(gen: any): Promise<{ events: any[]; result: any }> {
+  const events: any[] = [];
+  while (true) {
+    const next = await gen.next();
+    if (next.done) {
+      return { events, result: next.value };
+    }
+    events.push(next.value);
+  }
+}
+
 const createLoggerStub = () => ({
   info: jest.fn(),
   warning: jest.fn(),
@@ -42,6 +63,422 @@ describe('utils/tools/runToolLoop', () => {
     const first = await gen.next();
     expect(first.done).toBe(true);
     expect(first.value).toEqual({ terminalStopThisRound: false });
+  });
+
+  test('executeStreamToolCallsRound parallel execution streams tool results on completion, but appends tool messages in tool-call order', async () => {
+    const messages: any[] = [];
+
+    const deferred1 = createDeferred<any>();
+    const deferred2 = createDeferred<any>();
+
+    deferred2.resolve({ result: { from: 'two' } });
+    setImmediate(() => deferred1.resolve({ result: { from: 'one' } }));
+
+    const invokeTool = jest.fn(async (_toolName: string, call: any) => {
+      if (call.id === 'call-1') return deferred1.promise;
+      if (call.id === 'call-2') return deferred2.promise;
+      throw new Error('unexpected call');
+    });
+
+    const gen = executeStreamToolCallsRound({
+      toolCallsToExecute: [
+        { id: 'call-1', name: 'tool.one', arguments: { a: 1 }, args: { a: 1 } },
+        { id: 'call-2', name: 'tool.two', arguments: { b: 2 }, args: { b: 2 } }
+      ],
+      toolCallReasoning: undefined,
+      messages,
+      tools: [{ name: 'tool.one' }, { name: 'tool.two' }] as any,
+      toolNameMap: { 'tool.one': 'tool.one', 'tool.two': 'tool.two' },
+      toolByName: new Map([['tool.one', { name: 'tool.one' }], ['tool.two', { name: 'tool.two' }]]),
+      budget: new ToolCallBudget(10),
+      toolCountdownEnabled: false,
+      parallelExecution: true,
+      maxResultLength: null,
+      providerManifest,
+      model: 'model',
+      metadata: undefined,
+      logger: createLoggerStub(),
+      invokeTool,
+      calledToolNames: new Set(),
+      preserveToolResults: 'all',
+      preserveReasoning: 'all'
+    } as any);
+
+    const events: any[] = [];
+    while (true) {
+      const next = await gen.next();
+      if (next.done) {
+        expect(next.value).toEqual({ terminalStopThisRound: false });
+        break;
+      }
+      events.push(next.value);
+    }
+
+    const toolResultEvents = events.filter(
+      e => e.type === StreamEventType.TOOL && e.toolEvent?.type === ToolCallEventType.TOOL_RESULT
+    );
+    expect(toolResultEvents.map((e: any) => e.toolEvent.callId)).toEqual(['call-2', 'call-1']);
+
+    const toolMessages = messages.filter(m => m.role === Role.TOOL);
+    expect(toolMessages.map(m => m.toolCallId)).toEqual(['call-1', 'call-2']);
+    expect(invokeTool).toHaveBeenCalledTimes(2);
+  });
+
+  test('executeStreamToolCallsRound parallel execution does not emit TOOL_RESULT for budget-exhausted calls', async () => {
+    const messages: any[] = [];
+
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    const gen = executeStreamToolCallsRound({
+      toolCallsToExecute: [
+        { id: 'call-1', name: 'tool.one', arguments: {}, args: {} },
+        { id: 'call-2', name: 'tool.two', arguments: {}, args: {} }
+      ],
+      toolCallReasoning: undefined,
+      messages,
+      tools: [{ name: 'tool.one' }, { name: 'tool.two' }] as any,
+      toolNameMap: { 'tool.one': 'tool.one', 'tool.two': 'tool.two' },
+      toolByName: new Map([['tool.one', { name: 'tool.one' }], ['tool.two', { name: 'tool.two' }]]),
+      budget: new ToolCallBudget(1),
+      toolCountdownEnabled: false,
+      parallelExecution: true,
+      maxResultLength: null,
+      providerManifest,
+      model: 'model',
+      metadata: undefined,
+      logger: createLoggerStub(),
+      invokeTool,
+      calledToolNames: new Set(),
+      preserveToolResults: 'all',
+      preserveReasoning: 'all'
+    } as any);
+
+    const events: any[] = [];
+    // Drain generator
+    while (true) {
+      const next = await gen.next();
+      if (next.done) {
+        expect(next.value).toEqual({ terminalStopThisRound: false });
+        break;
+      }
+      events.push(next.value);
+    }
+
+    const toolResultEvents = events.filter(
+      e => e.type === StreamEventType.TOOL && e.toolEvent?.type === ToolCallEventType.TOOL_RESULT
+    );
+    expect(toolResultEvents.map((e: any) => e.toolEvent.callId)).toEqual(['call-1']);
+
+    const toolMessages = messages.filter(m => m.role === Role.TOOL);
+    expect(toolMessages.map(m => m.toolCallId)).toEqual(['call-1', 'call-2']);
+
+    const exhaustedMessage = toolMessages.find(m => m.toolCallId === 'call-2');
+    expect(exhaustedMessage.content?.some((c: any) => c.type === 'tool_result' && c.result?.error === 'tool_call_budget_exhausted')).toBe(true);
+    expect(invokeTool).toHaveBeenCalledTimes(1);
+  });
+
+  test('executeStreamToolCallsRound parallel execution covers tool name mapping fallbacks and truncation paths', async () => {
+    const messages: any[] = [];
+
+    const invokeTool = jest.fn().mockResolvedValue('ok');
+
+    const gen = executeStreamToolCallsRound({
+      toolCallsToExecute: [
+        // directMatch branch
+        { id: 'call-1', name: 'direct.name', arguments: { a: 1 }, args: { a: 1 } },
+        // sanitizedMatch branch (toolNameMap has only sanitized key)
+        { id: 'call-2', name: 'needs.sanitize', arguments: { b: 2 } },
+        // fallback-to-call.name branch (no mapping)
+        { id: 'call-3', name: 'no.map', args: { c: 3 } },
+        // unknown_tool branch (name missing and no mapping)
+        { id: 'call-4' } as any
+      ],
+      toolCallReasoning: undefined,
+      messages,
+      tools: [{ name: 'direct.name' }, { name: 'needs.sanitize' }, { name: 'no.map' }] as any,
+      toolNameMap: {
+        'direct.name': 'direct.name',
+        needs_sanitize: 'needs.sanitize'
+      },
+      toolByName: new Map([
+        ['direct.name', { name: 'direct.name' }],
+        ['needs.sanitize', { name: 'needs.sanitize' }],
+        ['no.map', { name: 'no.map' }]
+      ]),
+      budget: new ToolCallBudget(10),
+      toolCountdownEnabled: false,
+      parallelExecution: true,
+      maxResultLength: 1,
+      providerManifest,
+      model: 'model',
+      metadata: undefined,
+      logger: createLoggerStub(),
+      invokeTool,
+      calledToolNames: new Set(),
+      preserveToolResults: 'all',
+      preserveReasoning: 'all'
+    } as any);
+
+    const { result } = await drainStreamGenerator(gen);
+    expect(result).toEqual({ terminalStopThisRound: false });
+
+    const invokedTools = invokeTool.mock.calls.map(call => call[0]);
+    expect(invokedTools).toEqual(['direct.name', 'needs.sanitize', 'no.map', 'unknown_tool']);
+  });
+
+  test('executeStreamToolCallsRound parallel execution skips all tool invocations when budget exhausted at start', async () => {
+    const messages: any[] = [];
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    const gen = executeStreamToolCallsRound({
+      toolCallsToExecute: [
+        { id: 'call-1', name: 'tool.one', arguments: {}, args: {} },
+        { id: 'call-2', name: 'tool.two', arguments: {}, args: {} }
+      ],
+      toolCallReasoning: undefined,
+      messages,
+      tools: [{ name: 'tool.one' }, { name: 'tool.two' }] as any,
+      toolNameMap: { 'tool.one': 'tool.one', 'tool.two': 'tool.two' },
+      toolByName: new Map([['tool.one', { name: 'tool.one' }], ['tool.two', { name: 'tool.two' }]]),
+      budget: new ToolCallBudget(0),
+      toolCountdownEnabled: false,
+      parallelExecution: true,
+      maxResultLength: null,
+      providerManifest,
+      model: 'model',
+      metadata: undefined,
+      logger: createLoggerStub(),
+      invokeTool,
+      calledToolNames: new Set(),
+      preserveToolResults: 'all',
+      preserveReasoning: 'all'
+    } as any);
+
+    const { events, result } = await drainStreamGenerator(gen);
+    expect(result).toEqual({ terminalStopThisRound: false });
+    expect(events.length).toBe(0);
+    expect(invokeTool).toHaveBeenCalledTimes(0);
+
+    const toolMessages = messages.filter(m => m.role === Role.TOOL);
+    expect(toolMessages.length).toBe(2);
+    expect(toolMessages.every((m: any) => m.content?.some((c: any) => c.type === 'tool_result' && c.result?.error === 'tool_call_budget_exhausted'))).toBe(true);
+  });
+
+  test('executeStreamToolCallsRound parallel execution covers consume=false branch without invoking tools', async () => {
+    const messages: any[] = [];
+    const logger = createLoggerStub();
+    const invokeTool = jest.fn().mockResolvedValue({ result: { ok: true } });
+
+    const gen = executeStreamToolCallsRound({
+      toolCallsToExecute: [{ id: 'call-1', name: 'tool.one', arguments: {}, args: {} }],
+      toolCallReasoning: undefined,
+      messages,
+      tools: [{ name: 'tool.one' }] as any,
+      toolNameMap: { 'tool.one': 'tool.one' },
+      toolByName: new Map([['tool.one', { name: 'tool.one' }]]),
+      budget: new ToolCallBudget(0.5),
+      toolCountdownEnabled: false,
+      parallelExecution: true,
+      maxResultLength: null,
+      providerManifest,
+      model: 'model',
+      metadata: undefined,
+      logger,
+      invokeTool,
+      calledToolNames: new Set(),
+      preserveToolResults: 'all',
+      preserveReasoning: 'all'
+    } as any);
+
+    const { events, result } = await drainStreamGenerator(gen);
+    expect(result).toEqual({ terminalStopThisRound: false });
+    expect(events.length).toBe(0);
+    expect(invokeTool).toHaveBeenCalledTimes(0);
+    expect(logger.info).toHaveBeenCalledWith(
+      'Tool budget consumption blocked invocation',
+      expect.objectContaining({ toolName: 'tool.one', callId: 'call-1' })
+    );
+  });
+
+  test('executeStreamToolCallsRound parallel execution records terminal stop when tool result override is terminal', async () => {
+    const messages: any[] = [];
+
+    const invokeTool = jest.fn().mockResolvedValue({
+      tool_type_response_override_terminal: true,
+      result: 'terminal'
+    });
+
+    const gen = executeStreamToolCallsRound({
+      toolCallsToExecute: [{ id: 'call-1', name: 'tool.one', arguments: {}, args: {} }],
+      toolCallReasoning: undefined,
+      messages,
+      tools: [{ name: 'tool.one' }] as any,
+      toolNameMap: { 'tool.one': 'tool.one' },
+      toolByName: new Map([['tool.one', { name: 'tool.one', terminal: false }]]),
+      budget: new ToolCallBudget(2),
+      toolCountdownEnabled: false,
+      parallelExecution: true,
+      maxResultLength: 10,
+      providerManifest,
+      model: 'model',
+      metadata: undefined,
+      logger: createLoggerStub(),
+      invokeTool,
+      calledToolNames: new Set(),
+      preserveToolResults: 'all',
+      preserveReasoning: 'all'
+    } as any);
+
+    const { result } = await drainStreamGenerator(gen);
+    expect(result).toEqual({ terminalStopThisRound: true });
+  });
+
+  test('executeStreamToolCallsRound parallel execution honors call-arg terminal override when tool result override is absent', async () => {
+    const messages: any[] = [];
+
+    const invokeTool = jest.fn().mockResolvedValue('ok');
+
+    const gen = executeStreamToolCallsRound({
+      toolCallsToExecute: [{ id: 'call-1', name: 'tool.one', arguments: { terminal: true }, args: { terminal: true } }],
+      toolCallReasoning: undefined,
+      messages,
+      tools: [{ name: 'tool.one' }] as any,
+      toolNameMap: { 'tool.one': 'tool.one' },
+      toolByName: new Map([
+        [
+          'tool.one',
+          {
+            name: 'tool.one',
+            terminal: false,
+            toolCallTerminalFlag: { field: 'terminal' }
+          }
+        ]
+      ]),
+      budget: new ToolCallBudget(2),
+      toolCountdownEnabled: false,
+      parallelExecution: true,
+      maxResultLength: null,
+      providerManifest,
+      model: 'model',
+      metadata: undefined,
+      logger: createLoggerStub(),
+      invokeTool,
+      calledToolNames: new Set(),
+      preserveToolResults: 'all',
+      preserveReasoning: 'all'
+    } as any);
+
+    const { result } = await drainStreamGenerator(gen);
+    expect(result).toEqual({ terminalStopThisRound: true });
+  });
+
+  test('executeStreamToolCallsRound parallel execution covers error handling (Error and non-Error throws)', async () => {
+    const messages: any[] = [];
+    const invokeTool = jest.fn(async (_toolName: string, call: any) => {
+      if (call.id === 'call-1') throw new Error('boom');
+      throw 'bang';
+    });
+
+    const gen = executeStreamToolCallsRound({
+      toolCallsToExecute: [
+        { id: 'call-1', name: 'tool.one', arguments: {}, args: {} },
+        { id: 'call-2', name: 'tool.two', arguments: {}, args: {} }
+      ],
+      toolCallReasoning: undefined,
+      messages,
+      tools: [{ name: 'tool.one' }, { name: 'tool.two' }] as any,
+      toolNameMap: { 'tool.one': 'tool.one', 'tool.two': 'tool.two' },
+      toolByName: new Map([['tool.one', { name: 'tool.one' }], ['tool.two', { name: 'tool.two' }]]),
+      budget: new ToolCallBudget(10),
+      toolCountdownEnabled: false,
+      parallelExecution: true,
+      maxResultLength: null,
+      providerManifest,
+      model: 'model',
+      metadata: undefined,
+      logger: createLoggerStub(),
+      invokeTool,
+      calledToolNames: new Set(),
+      preserveToolResults: 'all',
+      preserveReasoning: 'all'
+    } as any);
+
+    const { events, result } = await drainStreamGenerator(gen);
+    expect(result).toEqual({ terminalStopThisRound: false });
+
+    const toolResultEvents = events.filter(
+      e => e.type === StreamEventType.TOOL && e.toolEvent?.type === ToolCallEventType.TOOL_RESULT
+    );
+    expect(toolResultEvents.length).toBe(2);
+    for (const ev of toolResultEvents) {
+      const payload = JSON.parse(String(ev.toolEvent.arguments ?? 'null'));
+      expect(payload?.error).toBe('tool_execution_failed');
+    }
+  });
+
+  test('executeStreamToolCallsRound parallel execution covers countdown progress fields when budget is finite', async () => {
+    const messages: any[] = [];
+    const logger = createLoggerStub();
+    const invokeTool = jest.fn().mockResolvedValue('ok');
+
+    const gen = executeStreamToolCallsRound({
+      toolCallsToExecute: [{ id: 'call-1', name: 'tool.one', arguments: {}, args: {} }],
+      toolCallReasoning: undefined,
+      messages,
+      tools: [{ name: 'tool.one' }] as any,
+      toolNameMap: { 'tool.one': 'tool.one' },
+      toolByName: new Map([['tool.one', { name: 'tool.one' }]]),
+      budget: new ToolCallBudget(2),
+      toolCountdownEnabled: true,
+      parallelExecution: true,
+      maxResultLength: null,
+      providerManifest,
+      model: 'model',
+      metadata: undefined,
+      logger,
+      invokeTool,
+      calledToolNames: new Set(),
+      preserveToolResults: 'all',
+      preserveReasoning: 'all'
+    } as any);
+
+    const { result } = await drainStreamGenerator(gen);
+    expect(result).toEqual({ terminalStopThisRound: false });
+    expect(logger.info).toHaveBeenCalledWith(
+      'Invoking tool',
+      expect.objectContaining({ toolCallProgress: expect.stringContaining('Tool call') })
+    );
+  });
+
+  test('executeStreamToolCallsRound parallel execution skips progress fields when budget is null even if countdown is enabled', async () => {
+    const messages: any[] = [];
+    const logger = createLoggerStub();
+    const invokeTool = jest.fn().mockResolvedValue('ok');
+
+    const gen = executeStreamToolCallsRound({
+      toolCallsToExecute: [{ id: 'call-1', name: 'tool.one', arguments: {}, args: {} }],
+      toolCallReasoning: undefined,
+      messages,
+      tools: [{ name: 'tool.one' }] as any,
+      toolNameMap: { 'tool.one': 'tool.one' },
+      toolByName: new Map([['tool.one', { name: 'tool.one' }]]),
+      budget: new ToolCallBudget(null),
+      toolCountdownEnabled: true,
+      parallelExecution: true,
+      maxResultLength: null,
+      providerManifest,
+      model: 'model',
+      metadata: undefined,
+      logger,
+      invokeTool,
+      calledToolNames: new Set(),
+      preserveToolResults: 'all',
+      preserveReasoning: 'all'
+    } as any);
+
+    const { result } = await drainStreamGenerator(gen);
+    expect(result).toEqual({ terminalStopThisRound: false });
+    expect(logger.info).toHaveBeenCalledWith('Invoking tool', expect.not.objectContaining({ toolCallProgress: expect.any(String) }));
   });
 
   test('non-stream loop handles string runtime flags and records tool results', async () => {

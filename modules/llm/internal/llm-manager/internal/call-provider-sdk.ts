@@ -15,6 +15,7 @@ import { logRequest, logResponse, monotonicElapsedMs } from '../../../../shared/
 
 import { normalizeToolCallsIfPresent } from './normalize-tool-calls.js';
 import { recordObservabilityRequest, recordObservabilityResponse, logLiveObservabilityEvent } from './observability.js';
+import { attachUsageCostForResponseIfNeeded } from './attach-usage-cost.js';
 import { redactUnsupportedExtraValue } from './redact-unsupported-extra.js';
 
 export async function callProviderViaSdk(options: {
@@ -96,6 +97,13 @@ export async function callProviderViaSdk(options: {
     const response = await options.compat.callSDK(options.model, options.settings, options.normalizedMessages, options.tools, options.toolChoice, options.logger, options.provider.endpoint.headers);
     response.toolCalls = await normalizeToolCallsIfPresent(response.toolCalls);
     response.provider = options.provider.id;
+
+    await attachUsageCostForResponseIfNeeded({
+      usage: response.usage,
+      settings: options.settings,
+      provider: options.provider.id,
+      model: options.model
+    });
 
     // Log SDK response using existing logging infrastructure
     if (options.logger) {

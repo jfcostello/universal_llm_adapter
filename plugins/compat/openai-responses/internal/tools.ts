@@ -20,20 +20,28 @@ export function serializeToolChoiceForSDK(choice?: ToolChoice): any {
   if (!choice) return undefined;
 
   if (typeof choice === 'string') {
-    if (choice === 'none') {
-      return undefined;
-    }
+    // Responses API supports the literal modes directly.
     return choice;
   }
 
   if (choice.type === 'single') {
-    return choice.name;
+    // OpenAI Responses API requires an object for function tool forcing.
+    return { type: 'function', name: choice.name };
   }
 
   if (choice.type === 'required') {
-    return 'required';
+    if (choice.allowed.length === 1) {
+      return { type: 'function', name: choice.allowed[0] };
+    }
+
+    // Constrain available tools to the allowed set and require at least one call.
+    // Note: We only support function tools here (adapter tool names).
+    return {
+      type: 'allowed_tools',
+      mode: 'required',
+      tools: choice.allowed.map(name => ({ type: 'function', name }))
+    };
   }
 
   return undefined;
 }
-

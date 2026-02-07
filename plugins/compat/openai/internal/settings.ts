@@ -37,6 +37,10 @@ export function serializeSettings(settings: LLMCallSettings): any {
     result.top_logprobs = settings.topLogprobs;
   }
 
+  if (settings.parallelToolCalls !== undefined) {
+    result.parallel_tool_calls = settings.parallelToolCalls;
+  }
+
   // Serialize reasoning settings for OpenAI-compatible providers.
   if (settings.reasoning) {
     const reasoningPayload: any = {};
@@ -63,4 +67,3 @@ export function serializeSettings(settings: LLMCallSettings): any {
 
   return result;
 }
-

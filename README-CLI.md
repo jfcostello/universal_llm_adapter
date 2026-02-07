@@ -644,6 +644,7 @@ The specification for LLM calls (`run` and `stream` commands).
     "toolCountdownEnabled": true,
     "toolFinalPromptEnabled": true,
     "parallelToolExecution": false,
+    "parallelToolCalls": false,
     "preserveToolResults": 3,
     "preserveReasoning": 3,
     "toolResultMaxChars": 50000,
@@ -700,6 +701,12 @@ The specification for LLM calls (`run` and `stream` commands).
   }
 }
 ```
+
+### Tool Parallelism
+
+- `settings.parallelToolCalls`: Hint to the underlying provider that the model is allowed to emit multiple tool calls in a single assistant message (provider-dependent).
+- `settings.parallelToolExecution`: Execute tool invocations concurrently when multiple tool calls are present in a single tool-call round.
+- Streaming ordering: tool result events are emitted as each tool completes (completion order), while tool result messages appended into follow-up context remain in original tool-call order.
 
 ### Usage Cost Calculation
 

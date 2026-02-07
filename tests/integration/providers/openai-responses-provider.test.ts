@@ -290,8 +290,8 @@ describe('integration/providers/openai-responses-provider', () => {
           name: 'echo.text'
         });
 
-        // Responses API uses just the tool name string
-        expect(params.tool_choice).toBe('echo.text');
+        // Responses API requires an object to force a specific function tool.
+        expect(params.tool_choice).toEqual({ type: 'function', name: 'echo.text' });
       });
 
       test('handles required tool choice', () => {
@@ -300,8 +300,14 @@ describe('integration/providers/openai-responses-provider', () => {
           allowed: ['get.weather', 'search.web']
         });
 
-        // Required might map to 'required' or be handled differently
-        expect(params.tool_choice).toBeDefined();
+        expect(params.tool_choice).toEqual({
+          type: 'allowed_tools',
+          mode: 'required',
+          tools: [
+            { type: 'function', name: 'get.weather' },
+            { type: 'function', name: 'search.web' }
+          ]
+        });
       });
 
       test('handles undefined tool choice', () => {
@@ -782,7 +788,7 @@ describe('integration/providers/openai-responses-provider', () => {
 
     test('serializeToolChoice works correctly', () => {
       expect(compat.serializeToolChoice('auto')).toEqual({ tool_choice: 'auto' });
-      expect(compat.serializeToolChoice('none')).toEqual({});
+      expect(compat.serializeToolChoice('none')).toEqual({ tool_choice: 'none' });
       expect(compat.serializeToolChoice(undefined)).toEqual({});
     });
   });

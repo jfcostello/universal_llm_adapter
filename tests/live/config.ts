@@ -96,7 +96,10 @@ export const testRuns: TestRun[] = [
     ],
     settings: {
       temperature: 0,
-      maxTokens: 60000
+      maxTokens: 60000,
+      // Disable "thinking" tokens for deterministic short-output assertions (prevents MAX_TOKENS
+      // truncation when hidden thought tokens consume output budget).
+      reasoningBudget: 0
     }
   },
   {

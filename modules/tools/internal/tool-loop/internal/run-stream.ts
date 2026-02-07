@@ -1,4 +1,4 @@
-import { Role, StreamEventType, ToolCallEventType, safeJsonParse } from '../../../../../kernel/index.js';
+import { Role, StreamEventType, ToolCallEventType, getDefaults, safeJsonParse } from '../../../../../kernel/index.js';
 import type {
   LLMStreamEvent,
   ReasoningData,
@@ -41,11 +41,13 @@ export async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncG
   const compat = typeof (registry as any).getCompatModuleForProvider === 'function'
     ? await (registry as any).getCompatModuleForProvider(providerManifest.id)
     : await registry.getCompatModule(providerManifest.compat);
-  const preserveToolResults = runtime.preserveToolResults ?? 3;
-  const preserveReasoning = runtime.preserveReasoning ?? 3;
+  const toolDefaults = getDefaults().tools;
+  const preserveToolResults = runtime.preserveToolResults ?? toolDefaults.preserveResults;
+  const preserveReasoning = runtime.preserveReasoning ?? toolDefaults.preserveReasoning;
 
-  const budget = new ToolCallBudget(parseMaxToolIterations(runtime.maxToolIterations));
-  const toolCountdownEnabled = normalizeFlag(runtime.toolCountdownEnabled, true);
+  const budget = new ToolCallBudget(parseMaxToolIterations(runtime.maxToolIterations, toolDefaults.maxIterations));
+  const toolCountdownEnabled = normalizeFlag(runtime.toolCountdownEnabled, toolDefaults.countdownEnabled);
+  const parallelExecution = normalizeFlag(runtime.parallelToolExecution, toolDefaults.parallelExecution);
   const maxResultLength = typeof runtime.toolResultMaxChars === 'number' && runtime.toolResultMaxChars > 0
     ? Math.floor(runtime.toolResultMaxChars)
     : null;
@@ -78,6 +80,7 @@ export async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncG
         toolByName,
         budget,
         toolCountdownEnabled,
+        parallelExecution,
         maxResultLength,
         providerManifest,
         model,

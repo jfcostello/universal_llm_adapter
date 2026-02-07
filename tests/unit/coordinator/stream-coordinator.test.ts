@@ -81,6 +81,82 @@ describe('StreamCoordinator', () => {
     expect(events[1].response).toBeDefined();
   });
 
+  test('coordinateStream retries tool_choice-required stream when no tool calls are emitted (before first delta)', async () => {
+    const streamResponses = [
+      // Attempt 1: no text deltas, no tool events => triggers retry.
+      (async function* () {
+        yield { choices: [{}] };
+      })(),
+      // Attempt 2: emits a tool call.
+      (async function* () {
+        yield { choices: [{}] };
+      })(),
+      // Follow-up after tool execution.
+      (async function* () {
+        yield { choices: [{ delta: { content: 'final' } }] };
+      })()
+    ];
+
+    let parseCallCount = 0;
+    const { coordinator, llmManager, toolCoordinator, compatModule } = createCoordinator({
+      compatModule: {
+        parseStreamChunk: jest.fn((chunk: any) => {
+          parseCallCount++;
+          if (parseCallCount === 2) {
+            return {
+              text: undefined,
+              toolEvents: [
+                { type: ToolCallEventType.TOOL_CALL_START, callId: '1', name: 'tool_raw' },
+                { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: '1', argumentsDelta: '{}' },
+                { type: ToolCallEventType.TOOL_CALL_END, callId: '1', name: 'tool_raw', arguments: '{}' }
+              ],
+              finishedWithToolCalls: true
+            };
+          }
+          return {
+            text: chunk.choices?.[0]?.delta?.content,
+            toolEvents: undefined
+          };
+        })
+      },
+      llmManager: {
+        streamProvider: jest.fn(() => streamResponses.shift()!)
+      },
+      toolCoordinator: {
+        routeAndInvoke: jest.fn().mockResolvedValue({ result: { ok: true } })
+      }
+    });
+
+    const spec: any = {
+      llmPriority: [{ provider: 'provider', model: 'model' }],
+      settings: { maxToolIterations: 2 },
+      toolChoice: { type: 'required', allowed: ['tool_raw'] },
+      metadata: {}
+    };
+
+    const context = createContext();
+    context.toolNameMap = new Map([['tool_raw', 'tool.raw']]);
+
+    const events: any[] = [];
+    for await (const event of coordinator.coordinateStream(spec, [], [{ name: 'tool_raw' }], context, { requireFinishToExecute: true })) {
+      events.push(event);
+    }
+
+    expect(llmManager.streamProvider).toHaveBeenCalledTimes(3);
+    const retryMessages = llmManager.streamProvider.mock.calls[1]?.[3] ?? [];
+    expect(Array.isArray(retryMessages)).toBe(true);
+    expect(retryMessages.some((m: any) => m?.role === Role.USER && JSON.stringify(m?.content || []).includes('You MUST call the required tool now.'))).toBe(true);
+    expect(compatModule.parseStreamChunk).toHaveBeenCalled();
+    expect(toolCoordinator.routeAndInvoke).toHaveBeenCalledWith(
+      'tool.raw',
+      '1',
+      {},
+      expect.objectContaining({ provider: 'provider', model: 'model' })
+    );
+    expect(events.some(e => e.type === StreamEventType.TOOL && e.toolEvent?.type === ToolCallEventType.TOOL_RESULT)).toBe(true);
+    expect(events.at(-1)?.type).toBe('done');
+  });
+
 	  test('coordinateStream dispatches tool events and follow-up streaming', async () => {
     const streamResponses = [
       (async function* () {
@@ -172,6 +248,94 @@ describe('StreamCoordinator', () => {
 	    expect(toolCallEvents.filter(e => e.toolCall?.id === '1').length).toBe(1);
 	    expect(doneEvents[0].response.toolCalls?.filter((tc: any) => tc.id === '1').length).toBe(1);
 	  });
+
+    test('coordinateStream streams TOOL_RESULT events in completion order when parallelToolExecution is enabled', async () => {
+      const streamResponses = [
+        (async function* () {
+          yield { choices: [{ delta: { content: 'pre-tool' } }] };
+        })(),
+        (async function* () {
+          yield { choices: [{ delta: { content: 'final' } }] };
+        })()
+      ];
+
+      let parseCallCount = 0;
+
+      let resolveTool1: ((value: any) => void) | undefined;
+      const tool1Promise = new Promise(res => {
+        resolveTool1 = res;
+      });
+      const tool2Promise = Promise.resolve({ result: { ok: true } });
+
+      const { coordinator, llmManager, toolCoordinator, compatModule } = createCoordinator({
+        compatModule: {
+          parseStreamChunk: jest.fn((chunk: any) => {
+            parseCallCount++;
+            if (parseCallCount === 1) {
+              return {
+                text: chunk.choices?.[0]?.delta?.content,
+                toolEvents: [
+                  { type: ToolCallEventType.TOOL_CALL_START, callId: '1', name: 'tool.sanitized.one' },
+                  { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: '1', argumentsDelta: '{}' },
+                  { type: ToolCallEventType.TOOL_CALL_END, callId: '1', name: 'tool.sanitized.one', arguments: '{}' },
+                  { type: ToolCallEventType.TOOL_CALL_START, callId: '2', name: 'tool.sanitized.two' },
+                  { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: '2', argumentsDelta: '{}' },
+                  { type: ToolCallEventType.TOOL_CALL_END, callId: '2', name: 'tool.sanitized.two', arguments: '{}' }
+                ]
+              };
+            }
+            return {
+              text: chunk.choices?.[0]?.delta?.content,
+              toolEvents: undefined
+            };
+          })
+        },
+        llmManager: {
+          streamProvider: jest.fn(() => streamResponses.shift()!)
+        },
+        toolCoordinator: {
+          routeAndInvoke: jest.fn((toolName: string, callId: string) => {
+            if (callId === '1') return tool1Promise;
+            if (callId === '2') return tool2Promise;
+            throw new Error('unexpected tool call');
+          })
+        }
+      });
+
+      // Ensure tool 1 resolves after tool 2 in parallel mode, but still resolves quickly in sequential mode.
+      setImmediate(() => resolveTool1?.({ result: { ok: true } }));
+
+      const spec: any = {
+        llmPriority: [{ provider: 'provider', model: 'model' }],
+        settings: { maxToolIterations: 5, parallelToolExecution: true },
+        metadata: {}
+      };
+
+      const context = createContext();
+      context.toolNameMap = new Map([
+        ['tool.sanitized.one', 'tool.one'],
+        ['tool.sanitized.two', 'tool.two']
+      ]);
+
+      const events: any[] = [];
+      for await (const event of coordinator.coordinateStream(
+        spec,
+        [],
+        [{ name: 'tool.one' }, { name: 'tool.two' }],
+        context
+      )) {
+        events.push(event);
+      }
+
+      expect(llmManager.streamProvider).toHaveBeenCalledTimes(2);
+      expect(compatModule.parseStreamChunk).toHaveBeenCalled();
+      expect(toolCoordinator.routeAndInvoke).toHaveBeenCalledTimes(2);
+
+      const toolResultEvents = events.filter(
+        e => e.type === StreamEventType.TOOL && e.toolEvent?.type === ToolCallEventType.TOOL_RESULT
+      );
+      expect(toolResultEvents.map((e: any) => e.toolEvent.callId)).toEqual(['2', '1']);
+    });
 
     test('coordinateStream executes tool calls emitted in follow-up stream', async () => {
       const streamResponses = [

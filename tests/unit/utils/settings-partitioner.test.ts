@@ -50,6 +50,16 @@ describe('settings-partitioner', () => {
     expect(providerExtras).toEqual({ fakeField: 'value' });
   });
 
+  test('treats parallelToolCalls as provider setting (not provider extra)', () => {
+    const { provider, providerExtras } = partitionSettings({
+      parallelToolCalls: true,
+      fakeField: 'value'
+    } as any);
+
+    expect(provider).toEqual({ parallelToolCalls: true, fakeField: 'value' });
+    expect(providerExtras).toEqual({ fakeField: 'value' });
+  });
+
   test('includes known provider settings without duplicating extras', () => {
     const { runtime, provider, providerExtras } = partitionSettings({
       temperature: 0.7,

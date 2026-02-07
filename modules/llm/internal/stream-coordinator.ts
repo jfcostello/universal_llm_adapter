@@ -8,7 +8,7 @@ import type {
   AdapterLogger,
   ObservabilityContext
 } from '../../../kernel/index.js';
-import { StreamEventType, ToolCallEventType, getDefaults, safeJsonParse, sanitizeToolName } from '../../../kernel/index.js';
+import { Role, StreamEventType, ToolCallEventType, getDefaults, safeJsonParse, sanitizeToolName } from '../../../kernel/index.js';
 import { monotonicNowNs, normalizeFlag } from '../../shared/index.js';
 import { partitionSettings } from '../../settings/index.js';
 import { usageStatsToJson } from '../../usage/index.js';
@@ -77,127 +77,133 @@ export class StreamCoordinator {
     const allToolCalls: any[] = [];
     let upstreamProviderHint: string | undefined;
 
-    // Track accumulated tool calls
-    const pendingToolCalls = new Map<string, {
-      name?: string;
-      arguments: string;
-      metadata?: Record<string, any>;
-    }>();
-    let finishedWithToolCalls = false;
-
-    // Stream the initial response
-    const stream = this.llmManager.streamProvider(
-      providerManifest,
-      model,
-      executionSpec.settings,
-      messages,
-      tools,
-      executionSpec.toolChoice,
-      providerExtras,
-      context.logger,
-      context
-    );
+    const requiresInitialToolCalls = tools.length > 0 &&
+      executionSpec.toolChoice !== undefined &&
+      executionSpec.toolChoice !== 'auto' &&
+      executionSpec.toolChoice !== 'none';
+    const maxIgnoredToolChoiceRetries = 3;
+    let ignoredToolChoiceRetries = 0;
 
     let hasToolCalls = false;
     let toolStop = false;
-    const detectedCallsById = new Map<string, any>();
     let latestUsage: UsageStats | undefined;
     let reasoningAggregate: ReasoningData | undefined;
 
-    for await (const chunk of stream) {
-      if (context.observability && upstreamProviderHint === undefined) {
-        const maybeProvider = (chunk as any)?.provider;
-        if (typeof maybeProvider === 'string') {
-          const trimmed = maybeProvider.trim();
-          if (trimmed && trimmed !== providerManifest.id) {
-            upstreamProviderHint = trimmed;
-          }
-        }
-      }
+    let pendingToolCalls = new Map<string, { name?: string; arguments: string; metadata?: Record<string, any> }>();
+    let finishedWithToolCalls = false;
+    let detectedCallsById = new Map<string, any>();
 
-      // Parse chunk using compat module
-      const parsed = compat.parseStreamChunk(chunk);
+    while (true) {
+      pendingToolCalls = new Map();
+      finishedWithToolCalls = false;
+      detectedCallsById = new Map();
+      hasToolCalls = false;
+      latestUsage = undefined;
+      reasoningAggregate = undefined;
 
-      // Extract text token if present
-      if (parsed.text) {
-        accumulatedContent += parsed.text;
-        yield {
-          type: StreamEventType.DELTA,
-          content: parsed.text
-        };
-      }
+      const stream = this.llmManager.streamProvider(
+        providerManifest,
+        model,
+        executionSpec.settings,
+        messages,
+        tools,
+        executionSpec.toolChoice,
+        providerExtras,
+        context.logger,
+        context
+      );
 
-      // Process tool call events from compat module
-      if (parsed.toolEvents) {
-        for (const event of parsed.toolEvents) {
-          hasToolCalls = true;
-
-          // Track tool call state
-          if (event.type === ToolCallEventType.TOOL_CALL_START) {
-            pendingToolCalls.set(event.callId, {
-              name: event.name,
-              arguments: '',
-              metadata: event.metadata
-            });
-          } else if (event.type === ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA) {
-            const state = pendingToolCalls.get(event.callId);
-            if (state) {
-              state.arguments += event.argumentsDelta || '';
+      for await (const chunk of stream) {
+        if (context.observability && upstreamProviderHint === undefined) {
+          const maybeProvider = (chunk as any)?.provider;
+          if (typeof maybeProvider === 'string') {
+            const trimmed = maybeProvider.trim();
+            if (trimmed && trimmed !== providerManifest.id) {
+              upstreamProviderHint = trimmed;
             }
-          } else if (event.type === ToolCallEventType.TOOL_CALL_END) {
-            const state = pendingToolCalls.get(event.callId);
-            const toolCall: any = {
-              id: event.callId,
-              name: state?.name ?? event.name,
-              arguments: state?.arguments || event.arguments || ''
-            };
+          }
+        }
 
-            const metadata = state?.metadata ?? event.metadata;
-            if (metadata) {
-              toolCall.metadata = metadata;
+        const parsed = compat.parseStreamChunk(chunk);
+
+        if (parsed.text) {
+          accumulatedContent += parsed.text;
+          yield { type: StreamEventType.DELTA, content: parsed.text };
+        }
+
+        if (parsed.toolEvents) {
+          for (const event of parsed.toolEvents) {
+            hasToolCalls = true;
+
+            if (event.type === ToolCallEventType.TOOL_CALL_START) {
+              pendingToolCalls.set(event.callId, {
+                name: event.name,
+                arguments: '',
+                metadata: event.metadata
+              });
+            } else if (event.type === ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA) {
+              const state = pendingToolCalls.get(event.callId);
+              if (state) {
+                state.arguments += event.argumentsDelta || '';
+              }
+            } else if (event.type === ToolCallEventType.TOOL_CALL_END) {
+              const state = pendingToolCalls.get(event.callId);
+              const toolCall: any = {
+                id: event.callId,
+                name: state?.name ?? event.name,
+                arguments: state?.arguments || event.arguments || ''
+              };
+
+              const metadata = state?.metadata ?? event.metadata;
+              if (metadata) {
+                toolCall.metadata = metadata;
+              }
+
+              detectedCallsById.set(event.callId, toolCall);
+              pendingToolCalls.delete(event.callId);
             }
 
-            detectedCallsById.set(event.callId, toolCall);
-            pendingToolCalls.delete(event.callId);
+            yield { type: StreamEventType.TOOL, toolEvent: event };
           }
-
-          // Emit tool event
-          yield {
-            type: StreamEventType.TOOL,
-            toolEvent: event
-          };
         }
-      }
 
-      // Check if provider signaled finishing with tool calls
-      if (parsed.finishedWithToolCalls) {
-        finishedWithToolCalls = true;
-      }
+        if (parsed.finishedWithToolCalls) {
+          finishedWithToolCalls = true;
+        }
 
-      if (parsed.usage) {
-        latestUsage = parsed.usage;
-        yield {
-          type: StreamEventType.TOKEN,
-          metadata: { usage: usageStatsToJson(parsed.usage) }
-        };
-      }
+        if (parsed.usage) {
+          latestUsage = parsed.usage;
+          yield { type: StreamEventType.TOKEN, metadata: { usage: usageStatsToJson(parsed.usage) } };
+        }
 
-      if (parsed.reasoning?.text) {
-        if (!reasoningAggregate) {
-          reasoningAggregate = {
-            text: parsed.reasoning.text,
-            metadata: parsed.reasoning.metadata
-          };
-        } else {
-          reasoningAggregate.text += parsed.reasoning.text;
-          if (parsed.reasoning.metadata) {
-            reasoningAggregate.metadata = {
-              ...(reasoningAggregate.metadata ?? {}),
-              ...parsed.reasoning.metadata
-            };
+        if (parsed.reasoning?.text) {
+          if (!reasoningAggregate) {
+            reasoningAggregate = { text: parsed.reasoning.text, metadata: parsed.reasoning.metadata };
+          } else {
+            reasoningAggregate.text += parsed.reasoning.text;
+            if (parsed.reasoning.metadata) {
+              reasoningAggregate.metadata = { ...(reasoningAggregate.metadata ?? {}), ...parsed.reasoning.metadata };
+            }
           }
         }
       }
+
+      const hasDetectedCalls = finishedWithToolCalls || detectedCallsById.size > 0 || pendingToolCalls.size > 0;
+      if (
+        requiresInitialToolCalls &&
+        !hasDetectedCalls &&
+        accumulatedContent.length === 0 &&
+        ignoredToolChoiceRetries < maxIgnoredToolChoiceRetries
+      ) {
+        ignoredToolChoiceRetries += 1;
+        messages.push({
+          role: Role.USER,
+          content: [{ type: 'text', text: 'You MUST call the required tool now.\nDo NOT answer with any text.\nReturn ONLY a tool call.' } as any]
+        });
+        continue;
+      }
+
+      break;
     }
 
     // Handle tool calls if stream finished with tool_calls (matches prior behavior)

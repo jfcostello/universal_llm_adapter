@@ -30,7 +30,7 @@ const TEST_FILE = '21-observability-cost-ingestion';
           }
         ],
         llmPriority: runCfg.llmPriority,
-        settings: mergeSettings(runCfg.settings, { maxTokens: 80 })
+        settings: mergeSettings(runCfg.settings, { maxTokens: 80, usageCost: true, reasoningBudget: 0 })
       } as any,
       traceId
     );
