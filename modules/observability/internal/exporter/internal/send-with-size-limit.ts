@@ -1,7 +1,25 @@
 import type { AdapterLogger, IObservabilityCompat, ObservabilityCompatContext, ObservabilityProviderManifest } from '../../../../../kernel/index.js';
+import { safeJsonStringify } from '../../../../shared/index.js';
 
 import type { ObservabilityExporterConfig } from './config.js';
 import type { ObservabilityExporterMetrics, QueuedEvent } from './types.js';
+
+function measurePayloadBytes(payload: unknown, maxBatchBytes: number): number {
+  if (payload instanceof Uint8Array) {
+    return payload.byteLength;
+  }
+
+  if (typeof payload === 'string') {
+    return Buffer.byteLength(payload, 'utf8');
+  }
+
+  try {
+    return Buffer.byteLength(JSON.stringify(payload), 'utf8');
+  } catch {
+    const fallback = safeJsonStringify(payload, { maxBytes: maxBatchBytes + 1 });
+    return Buffer.byteLength(fallback, 'utf8');
+  }
+}
 
 export async function sendWithSizeLimit(options: {
   batchEvents: QueuedEvent[];
@@ -45,10 +63,7 @@ export async function sendWithSizeLimit(options: {
   }
 
   if (typeof options.maxBatchBytes === 'number' && options.maxBatchBytes > 0) {
-    const bytes =
-      payload instanceof Uint8Array
-        ? payload.byteLength
-        : Buffer.byteLength(JSON.stringify(payload), 'utf8');
+    const bytes = measurePayloadBytes(payload, options.maxBatchBytes);
     if (bytes > options.maxBatchBytes) {
       if (options.batchEvents.length <= 1) {
         options.metrics.droppedTotal += 1;

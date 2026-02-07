@@ -202,6 +202,53 @@ describe('realtime-compat/gemini — event mapper', () => {
     expect(complete.some(e => e.type === 'assistant_transcript.final')).toBe(true);
   });
 
+  test('maps assistant transcript deltas from modelTurn.parts.text when outputTranscription is missing', () => {
+    const state = makeState();
+
+    const events = mapGeminiLiveServerMessage(
+      {
+        serverContent: {
+          modelTurn: { parts: [{ text: 'hello' }] }
+        }
+      },
+      state
+    );
+
+    expect(events.find(e => e.type === 'assistant_transcript.delta')).toEqual({
+      type: 'assistant_transcript.delta',
+      textDelta: 'hello'
+    });
+
+    const complete = mapGeminiLiveServerMessage(
+      { serverContent: { turnComplete: true } },
+      state
+    );
+
+    expect(complete.find(e => e.type === 'assistant_transcript.final')).toEqual({
+      type: 'assistant_transcript.final',
+      text: 'hello'
+    });
+  });
+
+  test('falls back to modelTurn.parts.text when outputTranscription text is whitespace-only', () => {
+    const state = makeState();
+
+    const events = mapGeminiLiveServerMessage(
+      {
+        serverContent: {
+          outputTranscription: { text: '   ' },
+          modelTurn: { parts: [{ text: 'fallback text' }] }
+        }
+      },
+      state
+    );
+
+    expect(events.find(e => e.type === 'assistant_transcript.delta')).toEqual({
+      type: 'assistant_transcript.delta',
+      textDelta: 'fallback text'
+    });
+  });
+
   test('emits user_transcript.final at turn completion when pending', () => {
     const state = makeState();
     state.pendingUserTranscriptFinal = true;

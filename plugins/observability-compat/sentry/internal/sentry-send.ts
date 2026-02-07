@@ -1,0 +1,360 @@
+import type {
+  ObservabilityBatchResult,
+  ObservabilityCompatContext,
+  ObservabilityProviderManifest
+} from '../../../../kernel/index.js';
+
+import type { OtlpSpanSpec } from '../../../../modules/observability/index.js';
+import {
+  clampInt,
+  parseRetryAfterMs,
+  safeJsonStringify,
+  setUnrefTimeout,
+  sleepWithSignal,
+  truncateUtf8Bytes
+} from '../../../../modules/shared/index.js';
+import { redactJsonCredentials } from '../../../../modules/security/index.js';
+
+import {
+  buildSentryOtlpAuthHeader,
+  isOtlpEnabled,
+  parseSentryDsn,
+  resolveSentryDsn
+} from './sentry-helpers.js';
+
+const DEFAULT_ENVELOPE_CONCURRENCY = 2;
+const MAX_ENVELOPE_CONCURRENCY = 10;
+
+const DEFAULT_429_RETRY_DELAY_MS = 60_000;
+
+const DEFAULT_ERROR_BODY_MAX_BYTES = 1024;
+const MAX_ERROR_BODY_MAX_BYTES = 64 * 1024;
+
+function isRetryableStatus(status: number): boolean {
+  return status >= 500 && status < 600;
+}
+
+function isAbortError(error: unknown): boolean {
+  return !!error && typeof error === 'object' && String((error as any).name) === 'AbortError';
+}
+
+function createAbortOutcome(envelopeId: string): ObservabilityBatchResult['outcomes'][number] {
+  return {
+    envelopeId,
+    success: false,
+    error: 'Aborted',
+    retryable: true
+  };
+}
+
+function resolveEnvelopeConcurrency(context?: ObservabilityCompatContext): number {
+  const providerConfig = context?.providerConfig;
+  const raw =
+    providerConfig && typeof providerConfig === 'object'
+      ? (providerConfig as any).envelopeConcurrency
+      : undefined;
+  return clampInt(raw, DEFAULT_ENVELOPE_CONCURRENCY, 1, MAX_ENVELOPE_CONCURRENCY);
+}
+
+function resolveIncludeResponseBodyOnError(context?: ObservabilityCompatContext): boolean {
+  const providerConfig = context?.providerConfig;
+  return !!(providerConfig && typeof providerConfig === 'object' && (providerConfig as any).includeResponseBodyOnError === true);
+}
+
+function resolveErrorBodyMaxBytes(context?: ObservabilityCompatContext): number {
+  const providerConfig = context?.providerConfig;
+  const raw =
+    providerConfig && typeof providerConfig === 'object'
+      ? (providerConfig as any).errorResponseBodyMaxBytes
+      : undefined;
+  return clampInt(raw, DEFAULT_ERROR_BODY_MAX_BYTES, 0, MAX_ERROR_BODY_MAX_BYTES);
+}
+
+function parseSentryRateLimitsDelayMs(headerValue: unknown): number | null {
+  if (typeof headerValue !== 'string') return null;
+  const trimmed = headerValue.trim();
+  if (!trimmed) return null;
+
+  let maxDelayMs = 0;
+  for (const quota of trimmed.split(',')) {
+    const candidate = quota.trim();
+    if (!candidate) continue;
+    const retryAfter = candidate.split(':', 1)[0]?.trim();
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      maxDelayMs = Math.max(maxDelayMs, Math.floor(seconds * 1000));
+    }
+  }
+
+  return maxDelayMs > 0 ? maxDelayMs : null;
+}
+
+function readHeader(headers: any, name: string): string | null {
+  if (!headers || typeof headers.get !== 'function') return null;
+  const value = headers.get(name) ?? headers.get(name.toLowerCase());
+  return typeof value === 'string' ? value : null;
+}
+
+function resolveRetryDelayMs(response: any): number | null {
+  const retryAfterHeader = readHeader(response?.headers, 'Retry-After');
+  const sentryRateLimitHeader = readHeader(response?.headers, 'X-Sentry-Rate-Limits');
+
+  const retryAfterMs = parseRetryAfterMs(retryAfterHeader);
+  const sentryRateLimitMs = parseSentryRateLimitsDelayMs(sentryRateLimitHeader);
+
+  let maxDelayMs = 0;
+  if (retryAfterMs && retryAfterMs > 0) maxDelayMs = Math.max(maxDelayMs, retryAfterMs);
+  if (sentryRateLimitMs && sentryRateLimitMs > 0) maxDelayMs = Math.max(maxDelayMs, sentryRateLimitMs);
+  if (maxDelayMs > 0) return maxDelayMs;
+
+  const hasRetryAfter = typeof retryAfterHeader === 'string' && retryAfterHeader.trim().length > 0;
+  const hasSentryRateLimits = typeof sentryRateLimitHeader === 'string' && sentryRateLimitHeader.trim().length > 0;
+  const status = typeof response?.status === 'number' ? response.status : null;
+
+  if (status === 429 && !hasRetryAfter && !hasSentryRateLimits) {
+    return DEFAULT_429_RETRY_DELAY_MS;
+  }
+
+  return null;
+}
+
+async function tryReadSafeErrorBody(options: {
+  response: any;
+  maxBytes: number;
+}): Promise<string | null> {
+  if (options.maxBytes <= 0) return null;
+  if (!options.response || typeof options.response.text !== 'function') return null;
+
+  let text: string;
+  try {
+    text = await options.response.text();
+  } catch {
+    return null;
+  }
+
+  if (typeof text !== 'string') return null;
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const redacted = redactJsonCredentials(parsed);
+      const json = safeJsonStringify(redacted);
+      return truncateUtf8Bytes(json, options.maxBytes);
+    } catch {
+      // fall through
+    }
+  }
+
+  return truncateUtf8Bytes(trimmed, options.maxBytes);
+}
+
+export async function sendSentryBatch(
+  payload: unknown,
+  manifest: ObservabilityProviderManifest,
+  context?: ObservabilityCompatContext
+): Promise<ObservabilityBatchResult> {
+  const spans = Array.isArray((payload as any)?.spans) ? ((payload as any).spans as OtlpSpanSpec[]) : [];
+  const envelopes = Array.isArray((payload as any)?.envelopes)
+    ? ((payload as any).envelopes as Array<{ envelopeId: string; body: string }>)
+    : [];
+
+  if (spans.length === 0 && envelopes.length === 0) {
+    return { success: true, outcomes: [] };
+  }
+
+  const dsn = resolveSentryDsn(manifest);
+  const parsed = parseSentryDsn(dsn);
+
+  const outcomes: ObservabilityBatchResult['outcomes'] = [];
+  let overallSuccess = true;
+
+  // Envelopes (signals/errors)
+  if (envelopes.length > 0) {
+    const includeResponseBodyOnError = resolveIncludeResponseBodyOnError(context);
+    const errorBodyMaxBytes = resolveErrorBodyMaxBytes(context);
+    const envelopeOutcomes: Array<ObservabilityBatchResult['outcomes'][number] | undefined> = new Array(
+      envelopes.length
+    );
+    let aborted = false;
+    let rateLimitedUntilMs = 0;
+
+    const setOutcome = (index: number, outcome: ObservabilityBatchResult['outcomes'][number]): void => {
+      envelopeOutcomes[index] = outcome;
+      if (!outcome.success) {
+        overallSuccess = false;
+      }
+    };
+
+    const waitForRateLimitWindow = async (): Promise<boolean> => {
+      while (true) {
+        if (context?.signal?.aborted) return false;
+        const delayMs = rateLimitedUntilMs - Date.now();
+        if (delayMs <= 0) return true;
+
+        const slept = await sleepWithSignal(delayMs, context?.signal);
+        if (!slept) return false;
+      }
+    };
+
+    const applySharedRetryDelay = async (delayMs: number): Promise<boolean> => {
+      rateLimitedUntilMs = Math.max(rateLimitedUntilMs, Date.now() + delayMs);
+      return waitForRateLimitWindow();
+    };
+
+    const sendEnvelope = async (index: number): Promise<void> => {
+      const envelope = envelopes[index];
+
+      const canProceed = await waitForRateLimitWindow();
+      if (!canProceed) {
+        aborted = true;
+        setOutcome(index, createAbortOutcome(envelope.envelopeId));
+        return;
+      }
+
+      if (context?.signal?.aborted) {
+        aborted = true;
+        setOutcome(index, createAbortOutcome(envelope.envelopeId));
+        return;
+      }
+
+      const controller = new AbortController();
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      let cleanupSignal: (() => void) | undefined;
+
+      const timeoutMs =
+        typeof context?.timeoutMs === 'number' && Number.isFinite(context.timeoutMs) && context.timeoutMs > 0
+          ? Math.floor(context.timeoutMs)
+          : undefined;
+
+      if (timeoutMs !== undefined) {
+        timeoutId = setUnrefTimeout(() => controller.abort(), timeoutMs);
+      }
+
+      try {
+        if (context?.signal) {
+          const onAbort = () => controller.abort();
+          cleanupSignal = () => context.signal!.removeEventListener('abort', onAbort);
+          context.signal.addEventListener('abort', onAbort, { once: true });
+        }
+
+        const res = await fetch(parsed.envelopeUrl, {
+          method: 'POST',
+          headers: {
+            ...(manifest.endpoint.headers ?? {}),
+            'Content-Type': 'application/x-sentry-envelope'
+          },
+          body: envelope.body,
+          signal: controller.signal
+        });
+        const retryDelayMs = resolveRetryDelayMs(res as any);
+
+        if (res.ok) {
+          setOutcome(index, { envelopeId: envelope.envelopeId, success: true, status: res.status });
+          if (retryDelayMs && retryDelayMs > 0) {
+            const slept = await applySharedRetryDelay(retryDelayMs);
+            if (!slept) {
+              aborted = true;
+            }
+          }
+          return;
+        }
+
+        let errorMessage =
+          typeof (res as any)?.statusText === 'string' && (res as any).statusText
+            ? `HTTP ${res.status}: ${(res as any).statusText}`
+            : `HTTP ${res.status}`;
+
+        if (includeResponseBodyOnError) {
+          const body = await tryReadSafeErrorBody({ response: res as any, maxBytes: errorBodyMaxBytes });
+          if (body) {
+            errorMessage = `${errorMessage}; body: ${body}`;
+          }
+        }
+
+        const retryable = isRetryableStatus(res.status);
+        setOutcome(index, {
+          envelopeId: envelope.envelopeId,
+          success: false,
+          status: res.status,
+          error: errorMessage,
+          retryable
+        });
+
+        if (retryDelayMs && retryDelayMs > 0) {
+          const slept = await applySharedRetryDelay(retryDelayMs);
+          if (!slept) {
+            aborted = true;
+          }
+        }
+      } catch (error: any) {
+        if (context?.signal?.aborted || isAbortError(error)) {
+          aborted = true;
+          if (!envelopeOutcomes[index]) {
+            setOutcome(index, createAbortOutcome(envelope.envelopeId));
+          }
+          return;
+        }
+        setOutcome(index, {
+          envelopeId: envelope.envelopeId,
+          success: false,
+          error: (error as Error)?.message ?? String(error),
+          retryable: true
+        });
+      } finally {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        cleanupSignal?.();
+      }
+    };
+
+    const concurrency = resolveEnvelopeConcurrency(context);
+    const workerCount = Math.min(concurrency, envelopes.length);
+    let nextIndex = 0;
+
+    const workers = Array.from({ length: workerCount }, async () => {
+      while (true) {
+        if (aborted) return;
+        const index = nextIndex++;
+        if (index >= envelopes.length) return;
+        await sendEnvelope(index);
+      }
+    });
+
+    await Promise.all(workers);
+
+    for (let i = 0; i < envelopes.length; i++) {
+      const outcome = envelopeOutcomes[i] ?? createAbortOutcome(envelopes[i].envelopeId);
+
+      if (!envelopeOutcomes[i]) {
+        overallSuccess = false;
+      }
+      outcomes.push(outcome);
+    }
+  }
+
+  // OTLP traces/tools
+  if (isOtlpEnabled(context) && spans.length > 0) {
+    const { sendOtlpTraceSpans } = await import('../../../../modules/observability/index.js');
+    const otlp = await sendOtlpTraceSpans({
+      spans,
+      url: parsed.otlpTracesUrl,
+      headers: {
+        ...(manifest.endpoint.headers ?? {}),
+        'Content-Type': 'application/x-protobuf',
+        'x-sentry-auth': buildSentryOtlpAuthHeader(parsed.publicKey)
+      },
+      timeoutMs: context?.timeoutMs,
+      maxBatchBytes: manifest.limits?.maxBatchBytes,
+      signal: context?.signal
+    });
+
+    outcomes.push(...otlp.outcomes);
+    if (!otlp.success) overallSuccess = false;
+  }
+
+  return {
+    success: overallSuccess && outcomes.every(o => o.success),
+    outcomes
+  };
+}

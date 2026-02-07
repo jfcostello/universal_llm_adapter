@@ -51,6 +51,42 @@ normalizeFlag('maybe', false);   // false (unrecognized → default)
 - `null/undefined` → returns `defaultValue`
 - other → converted via `Boolean()`
 
+### `clampInt(value, fallback, min, max)`
+
+Normalizes a numeric-like value to an integer and clamps it to a bounded range.
+
+```typescript
+import { clampInt } from '../shared/index.js';
+
+clampInt('12.8', 5, 1, 20);   // 12
+clampInt('', 5, 1, 20);       // 5 (fallback)
+clampInt('999', 5, 1, 20);    // 20 (max clamp)
+clampInt('-3', 5, 1, 20);     // 1 (min clamp)
+```
+
+**Behavior:**
+- accepts finite `number` values and numeric `string` values
+- empty/whitespace/non-numeric strings use `fallback`
+- applies `Math.floor()` before clamping to `[min, max]`
+
+### `clampRate(value, fallback)`
+
+Normalizes a numeric-like sampling/rate value and clamps to the inclusive `0..1` range.
+
+```typescript
+import { clampRate } from '../shared/index.js';
+
+clampRate('0.75', 1);   // 0.75
+clampRate('2', 1);      // 1
+clampRate('-1', 1);     // 0
+clampRate('', 1);       // 1 (fallback)
+```
+
+**Behavior:**
+- accepts finite `number` values and numeric `string` values
+- empty/whitespace/non-numeric strings use `fallback`
+- clamps the result to `0..1`
+
 ### `createDeferred<T>()`
 
 Creates a deferred promise with externally accessible resolve/reject handlers.
@@ -100,6 +136,18 @@ import { sleepWithSignal } from '../shared/index.js';
 const abortController = new AbortController();
 const completed = await sleepWithSignal(5000, abortController.signal);
 // completed === false if aborted before 5s elapses
+```
+
+### `parseRetryAfterMs(headerValue, nowMs?)`
+
+Parses an HTTP `Retry-After` header into milliseconds.
+Supports both delta-seconds and HTTP-date formats.
+
+```typescript
+import { parseRetryAfterMs } from '../shared/index.js';
+
+parseRetryAfterMs('1.5'); // 1500
+parseRetryAfterMs('Thu, 01 Jan 1970 00:00:02 GMT', 0); // 2000
 ```
 
 ### `isPlainObject(value)`

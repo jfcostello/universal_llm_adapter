@@ -55,6 +55,76 @@ describe('LLMCoordinator observability', () => {
       expect(result).toBeUndefined();
     });
 
+    test('enables observability from env override when spec omits observability.enabled', async () => {
+      const previousEnabled = process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED;
+      process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED = '1';
+
+      try {
+        const registry = createMockRegistry();
+        const coordinator = new LLMCoordinator(registry);
+
+        registry.getObservabilityProvider = jest.fn().mockResolvedValue({
+          id: 'langfuse',
+          compat: 'langfuse',
+          endpoint: { host: 'http://test.com' }
+        });
+        registry.getObservabilityCompat = jest.fn().mockResolvedValue({
+          buildBatch: jest.fn().mockReturnValue({ payload: [], eventIndexByEnvelopeId: new Map() }),
+          sendBatch: jest.fn().mockResolvedValue({ success: true, outcomes: [] })
+        });
+
+        const result = await (coordinator as any).createObservabilityContext(createMockSpec(undefined), {});
+
+        expect(result).toBeDefined();
+        expect(registry.getObservabilityProvider).toHaveBeenCalledTimes(1);
+      } finally {
+        if (previousEnabled === undefined) {
+          delete process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED;
+        } else {
+          process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED = previousEnabled;
+        }
+      }
+    });
+
+    test('applies env target override when spec omits observability targets/provider', async () => {
+      const previousEnabled = process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED;
+      const previousTargets = process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS;
+      process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED = 'true';
+      process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS = 'env-a, env-b';
+
+      try {
+        const registry = createMockRegistry();
+        const coordinator = new LLMCoordinator(registry);
+
+        registry.getObservabilityProvider = jest.fn().mockImplementation(async (id: string) => ({
+          id,
+          compat: `${id}-compat`,
+          endpoint: { host: 'http://test.com' }
+        }));
+        registry.getObservabilityCompat = jest.fn().mockResolvedValue({
+          buildBatch: jest.fn().mockReturnValue({ payload: [], eventIndexByEnvelopeId: new Map() }),
+          sendBatch: jest.fn().mockResolvedValue({ success: true, outcomes: [] })
+        });
+
+        const result = await (coordinator as any).createObservabilityContext(createMockSpec(undefined), {});
+        expect(result).toBeDefined();
+        expect(registry.getObservabilityProvider).toHaveBeenCalledWith('env-a');
+        expect(registry.getObservabilityProvider).toHaveBeenCalledWith('env-b');
+      } finally {
+        if (previousEnabled === undefined) {
+          delete process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED;
+        } else {
+          process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED = previousEnabled;
+        }
+
+        if (previousTargets === undefined) {
+          delete process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS;
+        } else {
+          process.env.LLM_ADAPTER_OBSERVABILITY_TARGETS = previousTargets;
+        }
+      }
+    });
+
     test('creates observability context when enabled via spec', async () => {
       const registry = createMockRegistry();
       const coordinator = new LLMCoordinator(registry);
@@ -428,10 +498,10 @@ describe('LLMCoordinator observability', () => {
       const result = await (coordinator as any).createObservabilityContext(spec, {});
 
       expect(result).toBeDefined();
-      expect((result as any).captureMessages).toBe('full');
-      expect((result as any).captureToolArgs).toBe(true);
-      expect((result as any).captureRequestPayload).toBe(true);
-      expect((result as any).captureRawResponse).toBe(true);
+      expect((result as any).captureMessages).toBe('none');
+      expect((result as any).captureToolArgs).toBe(false);
+      expect((result as any).captureRequestPayload).toBe(false);
+      expect((result as any).captureRawResponse).toBe(false);
       expect((result as any).sampleRate).toBe(1);
       expect((result as any).maxInputTextBytes).toBe(4096);
       expect((result as any).maxOutputTextBytes).toBe(4096);

@@ -27,6 +27,28 @@ describe('modules/observability/internal/runtime', () => {
     });
   });
 
+  test('uses LLM_ADAPTER_OBSERVABILITY_ENABLED override when spec omits enabled', async () => {
+    await jest.isolateModulesAsync(async () => {
+      process.env.LLM_ADAPTER_OBSERVABILITY_ENABLED = '1';
+
+      const exporter = { flush: jest.fn(async () => {}) };
+      const createObservabilityDeps = jest.fn(() => ({
+        isEnabled: () => true,
+        getExporter: () => exporter
+      }));
+
+      jest.unstable_mockModule('../../../modules/observability/internal/observability.js', () => ({
+        createObservabilityDeps
+      }));
+
+      const { createObservabilityRuntime } = await import('@/modules/observability/internal/runtime.ts');
+
+      const runtime = await createObservabilityRuntime({} as any, undefined);
+      expect(runtime).toBeDefined();
+      expect(createObservabilityDeps).toHaveBeenCalledTimes(1);
+    });
+  });
+
   test('returns undefined when sampleRate <= 0', async () => {
     await jest.isolateModulesAsync(async () => {
       const createObservabilityDeps = jest.fn(() => ({
@@ -165,4 +187,3 @@ describe('modules/observability/internal/runtime', () => {
     });
   });
 });
-

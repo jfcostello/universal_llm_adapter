@@ -1,47 +1,59 @@
 import type {
   ObservabilityCompatContext,
-  ObservabilityLLMRequestEvent,
-  ObservabilityLLMResponseEvent,
   ObservabilityProviderManifest
 } from '../../../../kernel/index.js';
 import { substituteEnv } from '../../../../kernel/index.js';
-import { safeJsonStringify, flattenPrimitiveStrings, readTrimmedStringProperty } from '../../../../modules/shared/index.js';
+import type { CachedRequestSummary } from '../../../../modules/observability/index.js';
+export {
+  resolveMaxAttributeBytes,
+  eventTimestampToIso,
+  deriveStartTimeIsoFromDuration,
+  getStringArrayMetadata,
+  resolveTraceContext,
+  getEventIds,
+  getEnvelopeId,
+  isRequestEvent,
+  isResponseEvent,
+  deriveStartTimeIso,
+  cacheKey,
+  buildInputJson,
+  buildOutputJson,
+  buildCachedRequestSummary,
+  applyTraceUpdateToCachedRequests
+} from '../../../../modules/observability/index.js';
 
 const ALLOW_BASEURL_OVERRIDE_ENV = 'LLM_ADAPTER_ALLOW_OBSERVABILITY_BASEURL_OVERRIDE';
 const BASEURL_OVERRIDE_ALLOWLIST_ENV = 'LLM_ADAPTER_OBSERVABILITY_BASEURL_ALLOWLIST';
+
+export function normalizeLangfuseObservationLevel(level: unknown): 'DEBUG' | 'DEFAULT' | 'WARNING' | 'ERROR' {
+  const raw = typeof level === 'string' ? level.trim().toLowerCase() : '';
+  if (raw === 'debug') return 'DEBUG';
+  if (raw === 'warning' || raw === 'warn') return 'WARNING';
+  if (raw === 'error') return 'ERROR';
+  return 'DEFAULT';
+}
+
+export function buildCommonTraceAttributes(options: {
+  traceId: string;
+  sessionId?: string;
+  traceName?: string;
+  tags?: string[];
+  batchId?: string;
+}): Record<string, unknown> {
+  const { traceId, sessionId, traceName, tags, batchId } = options;
+  return {
+    'llm.adapter.trace_id': String(traceId || ''),
+    ...(sessionId ? { 'langfuse.session.id': sessionId, 'llm.adapter.session_id': sessionId } : {}),
+    ...(traceName ? { 'langfuse.trace.name': traceName, 'llm.adapter.correlation_id': traceName } : {}),
+    ...(tags ? { 'langfuse.trace.tags': tags } : {}),
+    ...(batchId ? { 'llm.adapter.batch_id': batchId } : {})
+  };
+}
 
 function readUsageNumber(value: unknown): number | undefined {
   if (typeof value !== 'number') return undefined;
   if (!Number.isFinite(value)) return undefined;
   return value;
-}
-
-function readTimestampMs(event: { timestampMs?: unknown; timestamp?: unknown }): number | undefined {
-  if (typeof event.timestampMs === 'number' && Number.isFinite(event.timestampMs)) {
-    return event.timestampMs;
-  }
-
-  const raw = event.timestamp;
-  if (typeof raw !== 'string') return undefined;
-  const trimmed = raw.trim();
-  if (!trimmed) return undefined;
-
-  const parsed = Date.parse(trimmed);
-  if (!Number.isFinite(parsed)) return undefined;
-  return parsed;
-}
-
-export function eventTimestampToIso(event: { timestampMs?: unknown; timestamp?: unknown }): string {
-  const ms = readTimestampMs(event);
-  if (ms === undefined) return '1970-01-01T00:00:00.000Z';
-  return new Date(ms).toISOString();
-}
-
-export function getStringArrayMetadata(metadata: unknown, key: string): string[] | undefined {
-  const value = (metadata as any)?.[key];
-  if (!Array.isArray(value)) return undefined;
-  const tags = value.map(v => String(v).trim()).filter(Boolean);
-  return tags.length > 0 ? tags : undefined;
 }
 
 export function buildLangfuseUsageDetails(usage: unknown): Record<string, number> {
@@ -203,99 +215,7 @@ export function buildBasicAuthHeader(manifest: ObservabilityProviderManifest): s
   return `Basic ${Buffer.from(`${publicKey}:${secretKey}`).toString('base64')}`;
 }
 
-export function getEventIds(context?: ObservabilityCompatContext): string[] {
-  return Array.isArray(context?.eventIds) ? context!.eventIds!.map(String) : [];
-}
-
-export function getEnvelopeId(eventIds: string[], index: number, fallback: string): string {
-  const raw = eventIds[index];
-  if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
-  return fallback;
-}
-
-export function isRequestEvent(event: any): event is ObservabilityLLMRequestEvent {
-  return !!event && typeof event === 'object' && Array.isArray((event as any).messages);
-}
-
-export function isResponseEvent(event: any): event is ObservabilityLLMResponseEvent {
-  return !!event && typeof event === 'object' && Array.isArray((event as any).content);
-}
-
-export function deriveStartTimeIso(response: ObservabilityLLMResponseEvent): string {
-  const endMs = readTimestampMs(response);
-  const durationMs = typeof response.durationMs === 'number' ? response.durationMs : NaN;
-  if (endMs === undefined || !Number.isFinite(durationMs) || durationMs < 0) {
-    return eventTimestampToIso(response);
-  }
-  return new Date(endMs - durationMs).toISOString();
-}
-
 export type CachedRequest = {
   summary: CachedRequestSummary;
   createdAtMs: number;
 };
-
-type CachedRequestSummary = {
-  startTimeIso: string;
-  sessionId?: string;
-  provider: string;
-  model: string;
-  correlationId?: string;
-  batchId?: string;
-  tags?: string[];
-  inputText: string;
-  observationInput: string;
-  modelParameters: string;
-};
-
-export function cacheKey(traceId: string, generationId?: string): string {
-  const trace = String(traceId || '');
-  const gen = String(generationId || '');
-  return gen ? `${trace}:${gen}` : trace;
-}
-
-export function buildInputJson(request?: ObservabilityLLMRequestEvent): Record<string, unknown> {
-  if (!request) return { messages: [] };
-  return {
-    messages: request.messages,
-    tools: request.tools ?? [],
-    ...(request.requestPayload !== undefined ? { requestPayload: request.requestPayload } : {})
-  };
-}
-
-export function buildOutputJson(response: ObservabilityLLMResponseEvent): Record<string, unknown> {
-  return {
-    content: response.content,
-    toolCalls: response.toolCalls ?? [],
-    ...(response.rawResponse !== undefined ? { rawResponse: response.rawResponse } : {}),
-    error: response.error ?? null
-  };
-}
-
-export function buildCachedRequestSummary(
-  request: ObservabilityLLMRequestEvent,
-  context?: ObservabilityCompatContext
-): CachedRequestSummary {
-  const maxBytes = typeof context?.maxAttributeValueBytes === 'number' && Number.isFinite(context.maxAttributeValueBytes) && context.maxAttributeValueBytes > 0
-    ? Math.floor(context.maxAttributeValueBytes)
-    : 16384;
-  const metadata = request.metadata;
-  const sessionId = request.sessionId ? String(request.sessionId) : undefined;
-  const correlationId = readTrimmedStringProperty(metadata, 'correlationId');
-  const batchId = readTrimmedStringProperty(metadata, 'batchId') ?? sessionId;
-  const tags = getStringArrayMetadata(metadata, 'tags');
-
-  return {
-    startTimeIso: eventTimestampToIso(request),
-    sessionId,
-    provider: String(request.provider || ''),
-    model: String(request.model || ''),
-    correlationId,
-    batchId,
-    tags,
-    inputText: flattenPrimitiveStrings(request.messages, { maxBytes }),
-    observationInput: safeJsonStringify(buildInputJson(request), { maxBytes }),
-    modelParameters: safeJsonStringify(request.settings ?? {}, { maxBytes })
-  };
-}
-

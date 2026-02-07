@@ -9,6 +9,8 @@ describe('utils/server policy', () => {
     const policy = normalizeServerPolicy(undefined);
     expect(policy.documents.filepath.enabled).toBe(false);
     expect(policy.documents.filepath.allowedRoots).toEqual([]);
+    expect(policy.telemetry.observabilityOverride.enabled).toBe(false);
+    expect(policy.telemetry.observabilityOverride.allowlist).toEqual([]);
   });
 
   test('normalizeServerPolicy trims and filters allowedRoots', () => {
@@ -17,6 +19,20 @@ describe('utils/server policy', () => {
     });
     expect(policy.documents.filepath.enabled).toBe(true);
     expect(policy.documents.filepath.allowedRoots).toEqual(['a', 'b']);
+  });
+
+  test('normalizeServerPolicy trims and deduplicates telemetry observability override allowlist', () => {
+    const policy = normalizeServerPolicy({
+      telemetry: {
+        observabilityOverride: {
+          enabled: true,
+          allowlist: [' enabled ', '', 'traceId', 'enabled', 'traceId', '  ']
+        }
+      }
+    } as any);
+
+    expect(policy.telemetry.observabilityOverride.enabled).toBe(true);
+    expect(policy.telemetry.observabilityOverride.allowlist).toEqual(['enabled', 'traceId']);
   });
 
   test('allows specs without filepath documents', () => {

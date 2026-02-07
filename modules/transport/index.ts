@@ -2,8 +2,8 @@ export {
   resolveAjvConstructor,
   assertValidSpec,
   assertValidVectorSpec,
-  assertValidEmbeddingSpec
+  assertValidEmbeddingSpec,
+  assertValidTelemetrySubmission
 } from './internal/spec-validator.js';
 
 export { mapErrorToHttp } from './internal/error-mapper.js';
-

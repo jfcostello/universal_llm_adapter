@@ -195,7 +195,7 @@ export interface RealtimeSessionSpec {
    * Optional observability export configuration for realtime turns.
    *
    * When enabled, the adapter records LLM request/response telemetry per turn and
-   * exports via the configured observability provider (e.g. Langfuse).
+   * exports via the configured observability backend.
    */
   observability?: ObservabilitySpec;
 

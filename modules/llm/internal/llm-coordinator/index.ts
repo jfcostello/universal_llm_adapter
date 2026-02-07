@@ -17,11 +17,11 @@ import {
   sanitizeToolName,
   ProviderExecutionError,
   getDefaults,
-  resolveLoggingDeps
+  resolveLoggingDeps,
+  resolveObservabilityEnabled
 } from '../../../../kernel/index.js';
 import { LLMManager } from '../llm-manager.js';
 import { normalizeFlag, parseNonNegativeInt } from '../../../shared/index.js';
-
 import type { MCPManager } from '../../../mcp/index.js';
 import type { VectorStoreManager, VectorContextInjector } from '../../../vector/index.js';
 import { prepareMessagesWithDocuments } from './internal/prepare-messages.js';
@@ -142,7 +142,7 @@ export class LLMCoordinator {
     const obsSpec = spec.observability;
 
     // Determine if observability is enabled
-    const enabled = obsSpec?.enabled ?? defaults.enabled;
+    const enabled = resolveObservabilityEnabled(obsSpec?.enabled, defaults.enabled);
     if (!enabled) {
       return undefined;
     }

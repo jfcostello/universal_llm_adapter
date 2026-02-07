@@ -1,14 +1,16 @@
 import { StreamEventType, ToolCallEventType } from '../../../../../kernel/index.js';
-import type { AdapterLogger, LLMStreamEvent, Message, ProviderManifest, ReasoningData, ToolCall, UnifiedTool } from '../../../../../kernel/index.js';
+import type { AdapterLogger, LLMStreamEvent, Message, ObservabilityContext, ProviderManifest, ReasoningData, ToolCall, UnifiedTool } from '../../../../../kernel/index.js';
 
 import { ToolCallBudget } from '../../tool-budget.js';
 import { appendAssistantToolCalls, appendToolResult } from '../../../../messages/index.js';
 import { pruneReasoning, pruneToolResults } from '../../../../context/index.js';
 import { sanitizeToolName } from '../../tool-names.js';
+import { monotonicElapsedMs, monotonicNowNs } from '../../../../shared/index.js';
 
 import { createProgressFields, resolveCountdownText } from './utils.js';
 import { isToolTerminalByDefinition, resolveCallArgTerminalOverride, resolveTerminalOverride, stripCallArgTerminalFlag } from './helpers.js';
 import type { InvokeToolFn } from './types.js';
+import { recordToolExecutionObservability, recordToolFailureSignal } from './observability.js';
 
 export async function* executeStreamToolCallsRound(options: {
   toolCallsToExecute: ToolCall[];
@@ -23,6 +25,8 @@ export async function* executeStreamToolCallsRound(options: {
   providerManifest: ProviderManifest;
   model: string;
   metadata: Record<string, any> | undefined;
+  observability?: ObservabilityContext;
+  generationId?: string;
   logger: AdapterLogger;
   invokeTool: InvokeToolFn;
   calledToolNames: Set<string>;
@@ -74,13 +78,44 @@ export async function* executeStreamToolCallsRound(options: {
       { ...toolCall, name: definitionName } as any,
       options.toolByName
     );
+    const toolArgs = (toolCall as any)?.arguments ?? (toolCall as any)?.args;
+    const exhaustedPayload = {
+      error: 'tool_call_budget_exhausted',
+      message: 'No remaining tool calls are available for this run.',
+      tool: targetToolName
+    };
 
     if (options.budget.exhausted) {
-      const exhaustedPayload = {
-        error: 'tool_call_budget_exhausted',
-        message: 'No remaining tool calls are available for this run.',
-        tool: targetToolName
-      };
+      const timestampMs = Date.now();
+      recordToolExecutionObservability({
+        observability: options.observability,
+        logger: options.logger,
+        generationId: options.generationId,
+        provider: options.providerManifest.id,
+        model: options.model,
+        toolCallId: toolCall.id,
+        toolName: targetToolName,
+        timestampMs,
+        args: toolArgs,
+        result: exhaustedPayload,
+        skipped: true,
+        skipReason: 'tool_call_budget_exhausted',
+        maxResultLength: options.maxResultLength
+      });
+      recordToolFailureSignal({
+        observability: options.observability,
+        logger: options.logger,
+        generationId: options.generationId,
+        timestampMs,
+        level: 'warning',
+        code: 'tool_call_budget_exhausted',
+        message: `Tool skipped due to budget exhaustion: ${targetToolName}`,
+        toolCallId: toolCall.id,
+        toolName: targetToolName,
+        provider: options.providerManifest.id,
+        model: options.model,
+        skipReason: 'tool_call_budget_exhausted'
+      });
 
       appendToolResult(
         options.messages,
@@ -104,6 +139,50 @@ export async function* executeStreamToolCallsRound(options: {
         toolName: targetToolName,
         callId: toolCall.id
       });
+      const timestampMs = Date.now();
+      recordToolExecutionObservability({
+        observability: options.observability,
+        logger: options.logger,
+        generationId: options.generationId,
+        provider: options.providerManifest.id,
+        model: options.model,
+        toolCallId: toolCall.id,
+        toolName: targetToolName,
+        timestampMs,
+        args: toolArgs,
+        result: exhaustedPayload,
+        skipped: true,
+        skipReason: 'tool_call_budget_exhausted',
+        maxResultLength: options.maxResultLength
+      });
+      recordToolFailureSignal({
+        observability: options.observability,
+        logger: options.logger,
+        generationId: options.generationId,
+        timestampMs,
+        level: 'warning',
+        code: 'tool_call_budget_exhausted',
+        message: `Tool skipped due to budget exhaustion: ${targetToolName}`,
+        toolCallId: toolCall.id,
+        toolName: targetToolName,
+        provider: options.providerManifest.id,
+        model: options.model,
+        skipReason: 'tool_call_budget_exhausted'
+      });
+
+      appendToolResult(
+        options.messages,
+        {
+          toolName: targetToolName,
+          callId: toolCall.id,
+          result: exhaustedPayload,
+          resultText: JSON.stringify(exhaustedPayload)
+        },
+        {
+          countdownText: resolveCountdownText(options.toolCountdownEnabled, options.budget),
+          maxLength: options.maxResultLength
+        }
+      );
       break;
     }
 
@@ -119,15 +198,18 @@ export async function* executeStreamToolCallsRound(options: {
     };
 
     options.logger.info('Invoking tool', logPayload);
+    const startTimeMonoNs = monotonicNowNs();
 
     let normalizedPayload: any;
     let overrideTerminal: boolean | undefined;
+    let executionError: any;
+    let invocationToolCall: any;
     try {
       const stripped = stripCallArgTerminalFlag(
         { ...toolCall, name: definitionName } as any,
         options.toolByName
       );
-      const invocationToolCall: any = {
+      invocationToolCall = {
         ...toolCall,
         arguments: stripped.arguments,
         args: (stripped as any).args ?? stripped.arguments
@@ -149,6 +231,11 @@ export async function* executeStreamToolCallsRound(options: {
         ? invocationResult.result
         : invocationResult;
     } catch (error: any) {
+      executionError = error;
+      options.logger.error?.('Tool execution failed', {
+        ...logPayload,
+        error: error?.message ?? String(error)
+      });
       const errorResult = {
         error: 'tool_execution_failed',
         message: error?.message ?? String(error)
@@ -163,6 +250,51 @@ export async function* executeStreamToolCallsRound(options: {
           : terminalByDefinition;
     if (isTerminal) {
       terminalStopThisRound = true;
+    }
+
+    const timestampMs = Date.now();
+    recordToolExecutionObservability({
+      observability: options.observability,
+      logger: options.logger,
+      generationId: options.generationId,
+      provider: options.providerManifest.id,
+      model: options.model,
+      toolCallId: toolCall.id,
+      toolName: targetToolName,
+      timestampMs,
+      durationMs: monotonicElapsedMs(startTimeMonoNs),
+      args: (invocationToolCall as any)?.arguments ?? (invocationToolCall as any)?.args ?? toolArgs,
+      result: normalizedPayload,
+      ...(executionError
+        ? {
+            error: {
+              message: executionError?.message ?? String(executionError),
+              code: 'tool_execution_failed',
+              ...(executionError && typeof executionError === 'object' && typeof executionError.stack === 'string'
+                ? { stack: executionError.stack }
+                : {})
+            }
+          }
+        : {}),
+      maxResultLength: options.maxResultLength
+    });
+    if (executionError) {
+      recordToolFailureSignal({
+        observability: options.observability,
+        logger: options.logger,
+        generationId: options.generationId,
+        timestampMs,
+        level: 'error',
+        code: 'tool_execution_failed',
+        message: `Tool execution failed: ${targetToolName}`,
+        ...(executionError && typeof executionError === 'object' && typeof executionError.stack === 'string'
+          ? { stack: executionError.stack }
+          : {}),
+        toolCallId: toolCall.id,
+        toolName: targetToolName,
+        provider: options.providerManifest.id,
+        model: options.model
+      });
     }
 
     const resultText = typeof normalizedPayload === 'string'

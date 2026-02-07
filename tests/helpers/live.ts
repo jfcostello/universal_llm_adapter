@@ -187,6 +187,47 @@ export async function runLlmOnce(options: {
   return { result, response: payload as LLMResponse };
 }
 
+export async function runTelemetryOnce(options: {
+  payload: any;
+  pluginsPath?: string;
+  env?: NodeJS.ProcessEnv;
+  cwd?: string;
+  testFileBase: string;
+  testName?: string;
+  batchId?: string;
+}): Promise<{ result: CliResult; response?: any }> {
+  const env = {
+    ...(options.env ?? process.env),
+    LLM_LIVE: '1',
+    TEST_FILE: options.testFileBase,
+    ...(options.testName ? { LLM_TEST_NAME: options.testName } : {})
+  };
+
+  const args = [
+    'telemetry',
+    '--spec',
+    JSON.stringify(options.payload),
+    '--plugins',
+    options.pluginsPath ?? './plugins'
+  ];
+  if (options.batchId) {
+    args.push('--batch-id', String(options.batchId));
+  }
+
+  const result = await runCoordinator({
+    args,
+    cwd: options.cwd ?? process.cwd(),
+    env
+  });
+
+  if (result.code !== 0) {
+    return { result };
+  }
+
+  const parsed = JSON.parse(result.stdout.trim());
+  return { result, response: parsed };
+}
+
 export async function runLlmStreamOnce(options: {
   spec: BaseSpec;
   pluginsPath?: string;

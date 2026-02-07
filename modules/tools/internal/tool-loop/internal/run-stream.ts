@@ -15,6 +15,7 @@ import { resolveFollowUpToolChoice } from './helpers.js';
 import { parseMaxToolIterations } from './utils.js';
 import type { StreamLoopResult, StreamToolLoopOptions } from './types.js';
 import { executeStreamToolCallsRound } from './stream-execute.js';
+import { readRunContextGenerationId } from './observability.js';
 
 export async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncGenerator<LLMStreamEvent, StreamLoopResult | undefined> {
   const {
@@ -63,6 +64,9 @@ export async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncG
   let toolCallsToExecute: ToolCall[] = initialToolCalls;
   let toolCallReasoning: ReasoningData | undefined = initialReasoning;
 
+  const observability = runContext?.observability;
+  const generationId = readRunContextGenerationId(runContext);
+
   while (true) {
     if (toolCallsToExecute.length > 0) {
       const { terminalStopThisRound } = yield* executeStreamToolCallsRound({
@@ -78,6 +82,8 @@ export async function* runStreamToolLoop(options: StreamToolLoopOptions): AsyncG
         providerManifest,
         model,
         metadata,
+        observability,
+        generationId,
         logger,
         invokeTool,
         calledToolNames,

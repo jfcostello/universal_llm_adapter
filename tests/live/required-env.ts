@@ -5,30 +5,48 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-let cachedDefaultsObservabilityProvider: string | null | undefined;
+let cachedDefaultsObservabilityProviders: string[] | null | undefined;
 
-function readDefaultsObservabilityProvider(): string | null {
-  if (cachedDefaultsObservabilityProvider !== undefined) {
-    return cachedDefaultsObservabilityProvider;
+function readDefaultsObservabilityProviders(): string[] {
+  if (cachedDefaultsObservabilityProviders !== undefined) {
+    return cachedDefaultsObservabilityProviders ?? [];
   }
 
   const defaultsPath = path.join(__dirname, '..', '..', 'plugins', 'configs', 'defaults.json');
   try {
     if (!fs.existsSync(defaultsPath)) {
-      cachedDefaultsObservabilityProvider = 'langfuse';
-      return cachedDefaultsObservabilityProvider;
+      cachedDefaultsObservabilityProviders = ['langfuse'];
+      return cachedDefaultsObservabilityProviders;
     }
 
     const raw = fs.readFileSync(defaultsPath, 'utf-8');
     const parsed = JSON.parse(raw);
-    const provider = parsed?.observability?.provider;
-    cachedDefaultsObservabilityProvider = typeof provider === 'string' && provider.trim() !== ''
-      ? provider.trim()
-      : 'langfuse';
-    return cachedDefaultsObservabilityProvider;
+    const obs = parsed?.observability;
+
+    const providers = new Set<string>();
+    const single = obs?.provider;
+    if (typeof single === 'string' && single.trim() !== '') {
+      providers.add(single.trim());
+    }
+
+    const targets = Array.isArray(obs?.targets) ? obs.targets : [];
+    for (const target of targets) {
+      const provider = target?.provider;
+      if (typeof provider === 'string' && provider.trim() !== '') {
+        providers.add(provider.trim());
+      }
+    }
+
+    if (providers.size === 0) {
+      providers.add('langfuse');
+    }
+
+    const list = [...providers];
+    cachedDefaultsObservabilityProviders = list;
+    return list;
   } catch {
-    cachedDefaultsObservabilityProvider = 'langfuse';
-    return cachedDefaultsObservabilityProvider;
+    cachedDefaultsObservabilityProviders = ['langfuse'];
+    return cachedDefaultsObservabilityProviders;
   }
 }
 
@@ -114,10 +132,18 @@ export function getMissingRequiredEnv(options: {
 
   // Require Langfuse auth when the configured observability provider is langfuse and
   // the selected live suite is expected to include LLM calls.
-  const observabilityProvider = readDefaultsObservabilityProvider();
-  if (expectsLlmCalls && observabilityProvider === 'langfuse') {
+  const observabilityProviders = readDefaultsObservabilityProviders();
+  if (expectsLlmCalls && observabilityProviders.includes('langfuse')) {
     required.add('LANGFUSE_PUBLIC_KEY');
     required.add('LANGFUSE_SECRET_KEY');
+  }
+
+  const wantsSentry = wantsAllLive || /\bsentry\b/i.test(patterns);
+  if (expectsLlmCalls && (wantsSentry || observabilityProviders.includes('sentry'))) {
+    required.add('SENTRY_API_KEY');
+    required.add('SENTRY_ORG_SLUG');
+    required.add('SENTRY_PROJECT_SLUG');
+    required.add('SENTRY_DSN');
   }
 
   return [...required].filter(key => !options.env?.[key] || String(options.env[key]).trim() === '');

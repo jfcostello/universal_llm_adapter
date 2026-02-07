@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto';
+
 import type { PluginRegistry } from '../../../../../kernel/index.js';
 import { Role, getDefaults } from '../../../../../kernel/index.js';
 import type {
@@ -23,6 +25,7 @@ import { executeNonStreamToolCallsRound } from './nonstream-execute.js';
 import { resolveFollowUpToolChoice } from './helpers.js';
 import { maybeAttachUsageCost, parseMaxToolIterations } from './utils.js';
 import type { NonStreamToolLoopOptions } from './types.js';
+import { readRunContextGenerationId } from './observability.js';
 
 export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): Promise<LLMResponse> {
   const {
@@ -60,11 +63,68 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
   const allToolCalls: ToolCall[] = [];
   const calledToolNames = new Set<string>();
 
+  let currentRunContext = runContext;
+
   let response = initialResponse;
   let forceFinalize = false;
   let terminalStop = false;
   const maxIgnoredToolChoiceRetries = 3;
   let ignoredToolChoiceRetries = 0;
+
+  const withNextGenerationId = <T extends Record<string, any> | undefined>(ctx: T): T => {
+    if (!ctx?.observability) return ctx;
+    return { ...ctx, generationId: randomUUID() } as T;
+  };
+
+  const buildToolChoiceReminderLines = (choice: ToolChoice | undefined): string[] => {
+    const reminderLines: string[] = [
+      'You MUST call the required tool now.',
+      'Do NOT answer with any text.',
+      'Return ONLY a tool call.'
+    ];
+
+    if (!choice || typeof choice !== 'object') {
+      return reminderLines;
+    }
+
+    if (choice.type === 'single') {
+      const apiName = choice.name;
+      const displayName = toolNameMap[apiName] || apiName;
+      reminderLines.splice(
+        1,
+        0,
+        displayName === apiName
+          ? `Call tool: ${displayName}`
+          : `Call tool: ${displayName} (tool name: ${apiName})`
+      );
+      return reminderLines;
+    }
+
+    if (choice.type === 'required') {
+      const allowed = Array.isArray(choice.allowed) ? choice.allowed : [];
+      if (allowed.length === 0) {
+        return reminderLines;
+      }
+
+      if (allowed.length === 1) {
+        const apiName = allowed[0];
+        const displayName = toolNameMap[apiName] || apiName;
+        reminderLines.splice(
+          1,
+          0,
+          displayName === apiName
+            ? `Call tool: ${displayName}`
+            : `Call tool: ${displayName} (tool name: ${apiName})`
+        );
+        return reminderLines;
+      }
+
+      const display = allowed.map(name => toolNameMap[name] || name);
+      reminderLines.splice(1, 0, `Allowed tools: ${display.join(', ')}`);
+    }
+
+    return reminderLines;
+  };
 
   const requireToolCalls = tools.length > 0 &&
     toolChoice !== undefined &&
@@ -76,42 +136,6 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
     ignoredToolChoiceRetries < maxIgnoredToolChoiceRetries) {
     ignoredToolChoiceRetries += 1;
 
-    const reminderLines: string[] = [
-      'You MUST call the required tool now.',
-      'Do NOT answer with any text.',
-      'Return ONLY a tool call.'
-    ];
-
-    if (toolChoice && typeof toolChoice === 'object') {
-      if (toolChoice.type === 'single') {
-        const apiName = toolChoice.name;
-        const displayName = toolNameMap[apiName] || apiName;
-        reminderLines.splice(
-          1,
-          0,
-          displayName === apiName
-            ? `Call tool: ${displayName}`
-            : `Call tool: ${displayName} (tool name: ${apiName})`
-        );
-      } else if (toolChoice.type === 'required') {
-        const allowed = Array.isArray(toolChoice.allowed) ? toolChoice.allowed : [];
-        if (allowed.length === 1) {
-          const apiName = allowed[0];
-          const displayName = toolNameMap[apiName] || apiName;
-          reminderLines.splice(
-            1,
-            0,
-            displayName === apiName
-              ? `Call tool: ${displayName}`
-              : `Call tool: ${displayName} (tool name: ${apiName})`
-          );
-        } else if (allowed.length > 0) {
-          const display = allowed.map(name => toolNameMap[name] || name);
-          reminderLines.splice(1, 0, `Allowed tools: ${display.join(', ')}`);
-        }
-      }
-    }
-
     logger.warning?.('Tool choice was ignored; retrying tool call request', {
       provider: providerManifest.id,
       model,
@@ -121,8 +145,11 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
 
     messages.push({
       role: Role.USER,
-      content: [{ type: 'text', text: reminderLines.join('\n') } as any]
+      content: [{ type: 'text', text: buildToolChoiceReminderLines(toolChoice).join('\n') } as any]
     });
+
+    const retryRunContext = withNextGenerationId(currentRunContext);
+    currentRunContext = retryRunContext;
 
     response = await llmManager.callProvider(
       providerManifest,
@@ -133,10 +160,14 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
       toolChoice,
       providerExtras,
       logger,
-      runContext
+      retryRunContext
     );
 
     await maybeAttachUsageCost(response, providerManifest, model, providerSettings);
+  }
+
+  if (response.toolCalls && response.toolCalls.length > 0) {
+    ignoredToolChoiceRetries = 0;
   }
 
   while (response.toolCalls && response.toolCalls.length > 0 && !forceFinalize) {
@@ -167,6 +198,9 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
       }
     );
 
+    const observability = currentRunContext?.observability;
+    const generationId = readRunContextGenerationId(currentRunContext);
+
     const round = await executeNonStreamToolCallsRound({
       toolCalls: response.toolCalls,
       toolNameMap,
@@ -178,6 +212,8 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
       providerManifest,
       model,
       metadata,
+      observability,
+      generationId,
       logger,
       messages,
       invokeTool
@@ -198,9 +234,17 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
     pruneToolResults(messages, preserveToolResults);
     pruneReasoning(messages, preserveReasoning);
 
-    const followUpRunContext = runContext
-      ? { ...runContext, toolCallsSoFar: allToolCalls }
+    const followUpRunContext = currentRunContext
+      ? { ...currentRunContext, toolCallsSoFar: allToolCalls }
       : { toolCallsSoFar: allToolCalls };
+    const followUpCallContext = withNextGenerationId(followUpRunContext);
+    currentRunContext = followUpCallContext;
+
+    const followUpToolChoice = resolveFollowUpToolChoice(toolChoice, calledToolNames);
+    const requireFollowUpToolCalls = tools.length > 0 &&
+      followUpToolChoice !== undefined &&
+      followUpToolChoice !== 'auto' &&
+      followUpToolChoice !== 'none';
 
     response = await llmManager.callProvider(
       providerManifest,
@@ -208,13 +252,53 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
       providerSettings,
       messages,
       tools,
-      resolveFollowUpToolChoice(toolChoice, calledToolNames),
+      followUpToolChoice,
       providerExtras,
       logger,
-      followUpRunContext
+      followUpCallContext
     );
 
     await maybeAttachUsageCost(response, providerManifest, model, providerSettings);
+
+    while (requireFollowUpToolCalls &&
+      (!response.toolCalls || response.toolCalls.length === 0) &&
+      ignoredToolChoiceRetries < maxIgnoredToolChoiceRetries) {
+      ignoredToolChoiceRetries += 1;
+
+      logger.warning?.('Tool choice was ignored; retrying tool call request', {
+        provider: providerManifest.id,
+        model,
+        toolChoice: followUpToolChoice,
+        retry: ignoredToolChoiceRetries
+      });
+
+      messages.push({
+        role: Role.USER,
+        content: [{ type: 'text', text: buildToolChoiceReminderLines(followUpToolChoice).join('\n') } as any]
+      });
+
+      const retryFollowUpContext = withNextGenerationId(followUpRunContext);
+      currentRunContext = retryFollowUpContext;
+
+      response = await llmManager.callProvider(
+        providerManifest,
+        model,
+        providerSettings,
+        messages,
+        tools,
+        followUpToolChoice,
+        providerExtras,
+        logger,
+        retryFollowUpContext
+      );
+
+      await maybeAttachUsageCost(response, providerManifest, model, providerSettings);
+    }
+
+    if (response.toolCalls && response.toolCalls.length > 0) {
+      ignoredToolChoiceRetries = 0;
+    }
+
     logger.info('Follow-up provider response processed', {
       provider: providerManifest.id,
       model,
@@ -244,6 +328,12 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
     pruneToolResults(messages, preserveToolResults);
     pruneReasoning(messages, preserveReasoning);
 
+    const finalRunContextBase = currentRunContext
+      ? { ...currentRunContext, tools: [], mcpServers: [], toolNameMap: {}, toolCallsSoFar: allToolCalls }
+      : { tools: [], mcpServers: [], toolNameMap: {}, toolCallsSoFar: allToolCalls };
+    const finalRunContext = withNextGenerationId(finalRunContextBase);
+    currentRunContext = finalRunContext;
+
     response = await llmManager.callProvider(
       providerManifest,
       model,
@@ -253,9 +343,7 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
       'none',
       providerExtras,
       logger,
-      runContext
-        ? { ...runContext, tools: [], mcpServers: [], toolNameMap: {}, toolCallsSoFar: allToolCalls }
-        : { tools: [], mcpServers: [], toolNameMap: {}, toolCallsSoFar: allToolCalls }
+      finalRunContext
     );
 
     await maybeAttachUsageCost(response, providerManifest, model, providerSettings);

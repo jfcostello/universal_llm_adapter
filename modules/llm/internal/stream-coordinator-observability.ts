@@ -75,7 +75,7 @@ export function recordStreamLlmResponseObservability(options: {
 }): void {
   try {
     const captureMessages = options.observability.captureMessages ?? 'full';
-    const captureToolArgs = options.observability.captureToolArgs ?? true;
+    const captureToolArgs = options.observability.captureToolArgs ?? false;
     const observabilityModel = deriveObservabilityModel({
       provider: options.provider,
       model: options.model,
@@ -146,4 +146,3 @@ export function recordStreamLlmResponseObservability(options: {
     });
   }
 }
-

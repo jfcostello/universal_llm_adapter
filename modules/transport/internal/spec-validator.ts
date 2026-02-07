@@ -217,6 +217,79 @@ const embeddingSpecSchema: any = {
 
 const validateEmbedding = ajv.compile(embeddingSpecSchema);
 
+const telemetrySignalSchema: any = {
+  type: 'object',
+  required: ['type', 'traceId', 'level', 'message'],
+  properties: {
+    type: { type: 'string', enum: ['signal'] },
+    traceId: { type: 'string', minLength: 1, pattern: '\\S' },
+    generationId: { type: 'string', nullable: true, pattern: '\\S' },
+    timestampMs: { type: 'number', nullable: true },
+    level: { type: 'string', enum: ['debug', 'info', 'warning', 'error'] },
+    message: { type: 'string', minLength: 1, pattern: '\\S' },
+    source: { type: 'string', nullable: true },
+    code: { type: 'string', nullable: true },
+    stack: { type: 'string', nullable: true },
+    tags: { type: 'array', nullable: true, items: { type: 'string' } },
+    metadata: { type: 'object', nullable: true, additionalProperties: true },
+    observability: { type: 'object', nullable: true, additionalProperties: true }
+  },
+  additionalProperties: true
+};
+
+const telemetryTraceUpdateSchema: any = {
+  type: 'object',
+  required: ['type', 'traceId'],
+  properties: {
+    type: { type: 'string', enum: ['trace_update'] },
+    traceId: { type: 'string', minLength: 1, pattern: '\\S' },
+    generationId: { type: 'string', nullable: true, pattern: '\\S' },
+    timestampMs: { type: 'number', nullable: true },
+    name: { type: 'string', nullable: true },
+    tags: { type: 'array', nullable: true, items: { type: 'string' } },
+    metadata: { type: 'object', nullable: true, additionalProperties: true },
+    observability: { type: 'object', nullable: true, additionalProperties: true }
+  },
+  additionalProperties: true
+};
+
+const telemetrySubmissionSchema: any = {
+  anyOf: [telemetrySignalSchema, telemetryTraceUpdateSchema]
+};
+
+const validateTelemetrySubmission = ajv.compile(telemetrySubmissionSchema);
+
+function normalizeObservabilityOverrideAllowlist(value: unknown): Set<string> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const normalized = value
+    .map(entry => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter(Boolean);
+  return new Set(normalized);
+}
+
+function createTelemetryValidationError(details: unknown): Error {
+  const error = new Error('Telemetry validation failed');
+  (error as any).statusCode = 400;
+  (error as any).code = 'validation_error';
+  (error as any).details = details;
+  return error;
+}
+
+function assertTelemetryObservabilityOverridesAllowed(payload: unknown, allowlist: Set<string>): void {
+  const observability = (payload as any)?.observability;
+  if (!observability || typeof observability !== 'object' || Array.isArray(observability)) return;
+
+  const disallowedKeys = Object.keys(observability).filter(key => !allowlist.has(key));
+  if (disallowedKeys.length === 0) return;
+
+  throw createTelemetryValidationError(
+    disallowedKeys.map(key => ({
+      path: `.observability.${key}`,
+      message: `observability override key '${key}' is not allowed by server policy`
+    }))
+  );
+}
+
 export function assertValidSpec(spec: unknown): void {
   const ok = validateLlm(spec);
   if (ok) return;
@@ -248,4 +321,19 @@ export function assertValidEmbeddingSpec(spec: unknown): void {
   (error as any).code = 'validation_error';
   (error as any).details = validateEmbedding.errors;
   throw error;
+}
+
+export function assertValidTelemetrySubmission(
+  payload: unknown,
+  options: { observabilityOverrideAllowlist?: string[] } = {}
+): void {
+  const ok = validateTelemetrySubmission(payload);
+  if (!ok) {
+    throw createTelemetryValidationError(validateTelemetrySubmission.errors);
+  }
+
+  const allowlist = normalizeObservabilityOverrideAllowlist(options.observabilityOverrideAllowlist);
+  if (allowlist) {
+    assertTelemetryObservabilityOverridesAllowed(payload, allowlist);
+  }
 }

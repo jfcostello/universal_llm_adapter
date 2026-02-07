@@ -13,5 +13,4 @@ Core observability plumbing: exporter wiring, runtime helpers, and dependency co
 
 ## Import rules
 - Runtime code should import from `modules/observability/index.ts`.
-- Do not import from `modules/observability/internal/observability/internal/**` outside of `modules/observability`.
-
+- Do not import from `modules/observability/internal/exporter/internal/**` outside of `modules/observability`.

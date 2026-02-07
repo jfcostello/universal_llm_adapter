@@ -356,7 +356,7 @@ MCP server configurations live in `plugins/mcp/*.json`:
 
 ### Observability (Optional)
 
-Observability enables export of LLM call **and realtime session** telemetry to platforms like Langfuse. It is disabled by default, and capture is intentionally minimal unless you opt in.
+Observability enables export of LLM call **and realtime session** telemetry. It is disabled by default. When enabled, capture defaults come from `plugins/configs/defaults.json` (shipped defaults use a minimal safety-first capture posture), and can be raised per deployment via capture controls.
 
 **Global Configuration** (`plugins/configs/defaults.json`):
 
@@ -364,7 +364,10 @@ Observability enables export of LLM call **and realtime session** telemetry to p
 {
   "observability": {
     "enabled": true,
-    "provider": "langfuse",
+    "targets": [
+      { "provider": "langfuse", "export": { "signals": false } },
+      { "provider": "sentry", "export": { "traces": false, "tools": false, "traceUpdates": false } }
+    ],
     "captureMessages": "text"
   }
 }
@@ -376,10 +379,10 @@ Observability enables export of LLM call **and realtime session** telemetry to p
 {
   observability: {
     enabled: true,
-    provider: 'langfuse',
+    provider: 'langfuse',          // or: 'sentry'
     traceId: 'custom-trace-id',    // Optional
     sessionId: 'session-abc',       // Optional
-    // Capture controls (defaults are safe/lightweight)
+    // Capture controls (override the shipped defaults)
     captureMessages: 'text',        // 'none' | 'text' | 'full'
     captureToolArgs: false,
     captureRequestPayload: false,
@@ -389,12 +392,15 @@ Observability enables export of LLM call **and realtime session** telemetry to p
 ```
 
 **Tip:** For stable naming/grouping, set:
-- `spec.metadata.correlationId` (used as the Langfuse trace name when using the Langfuse provider)
-- `spec.metadata.tags` (forwarded as Langfuse tags when present)
+- `spec.metadata.correlationId` (trace display/name in providers that support it)
+- `spec.metadata.tags` (forwarded as provider tags when present)
 
-**Required Environment Variables** (for Langfuse):
-- `LANGFUSE_SECRET_KEY` - Langfuse secret key
-- `LANGFUSE_PUBLIC_KEY` - Langfuse public key
+**Required Environment Variables**:
+- Langfuse:
+  - `LANGFUSE_SECRET_KEY`
+  - `LANGFUSE_PUBLIC_KEY`
+- Sentry:
+  - `SENTRY_DSN`
 
 Observability is non-blocking: if export fails, LLM calls still succeed. See `modules/observability/README.md` for full documentation.
 
@@ -671,6 +677,8 @@ console.log(defaults.tools.maxIterations); // 10
 | `LLM_ADAPTER_BATCH_DIR` | Use batch-based directories for logs ("1" or "0") |
 | `LLM_ADAPTER_DISABLE_FILE_LOGS` | Disable file logging ("1" or unset) |
 | `LLM_ADAPTER_DISABLE_CONSOLE_LOGS` | Disable console logging ("1" or unset) |
+| `LLM_ADAPTER_OBSERVABILITY_ENABLED` | Override observability enabled flag when per-call spec omits `observability.enabled` |
+| `LLM_ADAPTER_OBSERVABILITY_TARGETS` | Override default observability targets when per-call spec omits `observability.provider/targets` (CSV provider list or JSON targets) |
 
 Provider-specific environment variables are defined in provider manifests with `${ENV_VAR}` syntax:
 - `${LLM_API_KEY}`

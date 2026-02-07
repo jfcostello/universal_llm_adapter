@@ -13,6 +13,9 @@ export default {
     '/node_modules/',
     '<rootDir>/tests/live/_v1_legacy/'
   ],
+  modulePathIgnorePatterns: [
+    '<rootDir>/.worktrees/'
+  ],
   moduleFileExtensions: ['ts', 'js', 'json'],
   extensionsToTreatAsEsm: ['.ts'],
   resolver: './tests/setup/ts-resolver.cjs',
@@ -36,6 +39,7 @@ export default {
   collectCoverageFrom: [
     '<rootDir>/**/*.ts',
     '!<rootDir>/dist/**',
+    '!<rootDir>/.worktrees/**',
     '!<rootDir>/node_modules/**',
     '!<rootDir>/**/tests/**',
     '!<rootDir>/**/__tests__/**',

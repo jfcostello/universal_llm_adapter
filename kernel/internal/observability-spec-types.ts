@@ -30,13 +30,15 @@ export interface ObservabilityContext {
   /**
    * The observability exporter for recording events.
    */
-  exporter: {
-    recordLLMRequest: (event: import('./observability.js').ObservabilityLLMRequestEvent) =>
-      import('./observability.js').ObservabilityRecordResult;
-    recordLLMResponse: (event: import('./observability.js').ObservabilityLLMResponseEvent) =>
-      import('./observability.js').ObservabilityRecordResult;
-    flush: () => Promise<void>;
-  };
+  exporter: Pick<
+    import('./observability.js').IObservabilityExporter,
+    | 'recordLLMRequest'
+    | 'recordLLMResponse'
+    | 'recordToolExecution'
+    | 'recordSignal'
+    | 'recordTraceUpdate'
+    | 'flush'
+  >;
 
   /**
    * Trace ID for the current call.
@@ -63,19 +65,19 @@ export interface ObservabilityContext {
 
   /**
    * Whether to export tool-call arguments/metadata.
-   * Defaults to false for safety/performance.
+   * Defaults to `DefaultSettings.observability.captureToolArgs`.
    */
   captureToolArgs: boolean;
 
   /**
    * Whether to export the final provider request payload (`requestPayload`).
-   * Defaults to false for safety/performance.
+   * Defaults to `DefaultSettings.observability.captureRequestPayload`.
    */
   captureRequestPayload: boolean;
 
   /**
    * Whether to export raw provider response payloads when available (`rawResponse`).
-   * Defaults to false for safety/performance.
+   * Defaults to `DefaultSettings.observability.captureRawResponse`.
    */
   captureRawResponse: boolean;
 
@@ -136,10 +138,57 @@ export interface RunContext {
   metadata?: Record<string, unknown>;
 
   /**
+   * Per-generation identifier propagated across provider/tool telemetry events.
+   * Present when observability is enabled.
+   */
+  generationId?: string;
+
+  /**
    * Observability context for recording LLM events.
    * Only present when observability is enabled.
    */
   observability?: ObservabilityContext;
+}
+
+export interface ObservabilityTargetExportSpec {
+  traces?: boolean;
+  tools?: boolean;
+  signals?: boolean;
+  traceUpdates?: boolean;
+}
+
+export interface ObservabilityTargetSpec {
+  /**
+   * Observability provider ID.
+   * Must match an ID from plugins/observability-providers/*.json.
+   */
+  provider: string;
+
+  /**
+   * Provider-specific configuration overrides.
+   * Passed through to the observability compat layer.
+   * Shape depends on the provider; opaque to core.
+   */
+  providerConfig?: Record<string, unknown>;
+
+  /**
+   * Per-target export routing configuration.
+   * When omitted, all event categories are exported.
+   */
+  export?: ObservabilityTargetExportSpec;
+
+  // ========================================
+  // Queue/export tuning (optional overrides)
+  // ========================================
+
+  flushAt?: number;
+  flushIntervalMs?: number;
+  maxQueueSize?: number;
+  maxAttempts?: number;
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+  timeoutMs?: number;
+  maxAttributeValueBytes?: number;
 }
 
 export interface ObservabilitySpec {
@@ -174,6 +223,12 @@ export interface ObservabilitySpec {
    * Shape depends on the provider; opaque to core.
    */
   providerConfig?: Record<string, unknown>;
+
+  /**
+   * Multi-target observability configuration.
+   * When provided, overrides single-provider `provider` config.
+   */
+  targets?: ObservabilityTargetSpec[];
 
   // ========================================
   // Queue/export tuning (optional overrides)

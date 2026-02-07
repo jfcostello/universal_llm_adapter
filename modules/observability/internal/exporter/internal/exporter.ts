@@ -7,10 +7,14 @@ import type {
   ObservabilityCompatContext,
   ObservabilityLLMRequestEvent,
   ObservabilityLLMResponseEvent,
+  ObservabilitySignalEvent,
+  ObservabilityToolExecutionEvent,
+  ObservabilityTraceUpdateEvent,
   ObservabilityProviderManifest,
   ObservabilityRecordResult
 } from '../../../../../kernel/index.js';
 import { getNoopLogger } from '../../../../../kernel/index.js';
+import { redactJsonCredentials } from '../../../../security/index.js';
 import { calculateBackoffDelay, sleepWithSignal } from '../../../../shared/index.js';
 
 import type { ObservabilityExporterConfig } from './config.js';
@@ -19,11 +23,21 @@ import { sendWithSizeLimit } from './send-with-size-limit.js';
 
 const DROP_WARNING_THROTTLE_MS = 10_000;
 
+function redactEventMetadata<T extends { metadata?: Record<string, unknown> }>(event: T): T {
+  if (!event.metadata || typeof event.metadata !== 'object') {
+    return event;
+  }
+
+  return {
+    ...event,
+    metadata: redactJsonCredentials(event.metadata) as Record<string, unknown>
+  };
+}
+
 export class ObservabilityExporter implements IObservabilityExporter {
   private queue: QueuedEvent[] = [];
   private queueHead = 0;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
-  private flushing = false;
   private shuttingDown = false;
   private flushPromise: Promise<void> | null = null;
   private logger: AdapterLogger;
@@ -166,7 +180,7 @@ export class ObservabilityExporter implements IObservabilityExporter {
     this.logger.info('Observability exporter shutdown summary', payload);
   }
 
-  private enqueue(type: QueuedEvent['type'], data: QueuedEvent['data']): ObservabilityRecordResult {
+  private enqueue(type: QueuedEvent['type'], data: any): ObservabilityRecordResult {
     const eventId = this.generateEventId();
 
     if (this.shuttingDown) {
@@ -184,9 +198,8 @@ export class ObservabilityExporter implements IObservabilityExporter {
     const event: QueuedEvent = {
       id: eventId,
       type,
-      data,
-      timestamp: Date.now(),
-      attempts: 0
+      data: { ...(data as any), type },
+      timestamp: Date.now()
     };
 
     this.queue.push(event);
@@ -207,11 +220,22 @@ export class ObservabilityExporter implements IObservabilityExporter {
     return this.enqueue('llm_response', event);
   }
 
+  recordToolExecution(event: ObservabilityToolExecutionEvent): ObservabilityRecordResult {
+    return this.enqueue('tool_execution', redactEventMetadata(event));
+  }
+
+  recordSignal(event: ObservabilitySignalEvent): ObservabilityRecordResult {
+    return this.enqueue('signal', redactEventMetadata(event));
+  }
+
+  recordTraceUpdate(event: ObservabilityTraceUpdateEvent): ObservabilityRecordResult {
+    return this.enqueue('trace_update', redactEventMetadata(event));
+  }
+
   flush(): Promise<void> {
     if (this.flushPromise) return this.flushPromise;
     if (this.getQueueSize() === 0) return Promise.resolve();
 
-    this.flushing = true;
     const loop = (async () => {
       while (this.getQueueSize() > 0) {
         await this.doFlush();
@@ -219,7 +243,6 @@ export class ObservabilityExporter implements IObservabilityExporter {
     })();
 
     this.flushPromise = loop.finally(() => {
-      this.flushing = false;
       this.flushPromise = null;
     });
 
@@ -304,4 +327,3 @@ export class ObservabilityExporter implements IObservabilityExporter {
     }
   }
 }
-

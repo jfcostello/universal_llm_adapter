@@ -24,3 +24,4 @@ export * from './internal/async-queue.js';
 export * from './internal/lru-map.js';
 export * from './internal/observability-spec-types.js';
 export * from './internal/observability.js';
+export * from './internal/observability-env.js';

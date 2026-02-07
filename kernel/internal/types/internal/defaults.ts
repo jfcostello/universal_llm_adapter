@@ -1,3 +1,5 @@
+import type { ObservabilityTargetSpec } from '../../observability-spec-types.js';
+
 /**
  * Retry and rate limiting default settings.
  */
@@ -177,6 +179,12 @@ export interface ServerPolicyDefaults {
       allowedRoots: string[];
     };
   };
+  telemetry: {
+    observabilityOverride: {
+      enabled: boolean;
+      allowlist: string[];
+    };
+  };
 }
 
 export interface ServerExtensionsDefaults {
@@ -243,6 +251,12 @@ export interface ObservabilityDefaults {
    * Must match an ID from plugins/observability-providers/*.json.
    */
   provider?: string;
+
+  /**
+   * Optional multi-target observability configuration.
+   * When provided, this takes precedence over `provider`.
+   */
+  targets?: ObservabilityTargetSpec[];
 
   /**
    * Number of events to accumulate before triggering a flush.

@@ -3,9 +3,9 @@ import { createHash } from 'crypto';
 import type { PluginRegistry } from '../../../../../kernel/index.js';
 import { getDefaults } from '../../../../../kernel/index.js';
 
-import { clampInt } from './config.js';
 import type { ObservabilityExporterConfig } from './config.js';
 import { ObservabilityExporter } from './exporter.js';
+import { clampInt } from '../../../../shared/index.js';
 
 const OBSERVABILITY_RUNTIME_SYMBOL = Symbol.for('llm_adapter_observability_runtime');
 const DEFAULT_MAX_EXPORTERS_PER_REGISTRY = 10;
@@ -17,7 +17,9 @@ type RegistryRuntime = {
 };
 
 const runtimeByRegistry = new WeakMap<object, RegistryRuntime>();
-const runtimeRegistries = new Set<object>();
+const registryRefByRegistry = new WeakMap<object, WeakRef<object>>();
+const runtimeRegistryRefs = new Set<WeakRef<object>>();
+const providerConfigHashCache = new WeakMap<object, string>();
 
 let shutdownAllPromise: Promise<void> | null = null;
 
@@ -30,7 +32,7 @@ export function ensureRuntimeHookInstalled(): void {
 function getOrCreateRegistryRuntime(registry: object): RegistryRuntime {
   const existing = runtimeByRegistry.get(registry);
   if (existing) {
-    runtimeRegistries.add(registry);
+    trackRegistry(registry);
     return existing;
   }
 
@@ -41,8 +43,28 @@ function getOrCreateRegistryRuntime(registry: object): RegistryRuntime {
   };
 
   runtimeByRegistry.set(registry, created);
-  runtimeRegistries.add(registry);
+  trackRegistry(registry);
   return created;
+}
+
+function trackRegistry(registry: object): void {
+  const existing = registryRefByRegistry.get(registry);
+  if (existing) {
+    // shutdownAllExporters() clears the ref set but keeps weak-map entries;
+    // re-add tracked refs so subsequent shutdown calls still see this registry.
+    runtimeRegistryRefs.add(existing);
+    return;
+  }
+
+  if (runtimeRegistryRefs.size > 1000) {
+    for (const ref of runtimeRegistryRefs) {
+      if (!ref.deref()) runtimeRegistryRefs.delete(ref);
+    }
+  }
+
+  const ref = new WeakRef(registry);
+  registryRefByRegistry.set(registry, ref);
+  runtimeRegistryRefs.add(ref);
 }
 
 function stableSortForKey(value: unknown, seen: WeakSet<object>): unknown {
@@ -81,11 +103,23 @@ function hashKey(value: string): string {
   return createHash('sha256').update(value).digest('hex').slice(0, 16);
 }
 
+function getProviderConfigHash(providerConfig: unknown): string {
+  if (providerConfig === null || providerConfig === undefined) return 'no_provider_config';
+
+  if (typeof providerConfig !== 'object') {
+    return hashKey(stableStringifyForKey(providerConfig));
+  }
+
+  const cached = providerConfigHashCache.get(providerConfig);
+  if (cached) return cached;
+
+  const hash = hashKey(stableStringifyForKey(providerConfig));
+  providerConfigHashCache.set(providerConfig, hash);
+  return hash;
+}
+
 function buildExporterCacheKey(config: ObservabilityExporterConfig): string {
-  const providerConfigHash =
-    config.providerConfig === null || config.providerConfig === undefined
-      ? 'no_provider_config'
-      : hashKey(stableStringifyForKey(config.providerConfig));
+  const providerConfigHash = getProviderConfigHash(config.providerConfig);
   return [
     String(config.provider),
     String(config.flushAt),
@@ -156,9 +190,17 @@ export async function shutdownAllExporters(): Promise<void> {
   shutdownAllPromise = (async () => {
     const shutdownTimeoutMs = clampInt(getDefaults().observability.shutdownTimeoutMs, 5000, 0, 300_000);
 
+    const registries: object[] = [];
+    for (const ref of runtimeRegistryRefs) {
+      const registry = ref.deref();
+      if (!registry) continue;
+      registries.push(registry);
+    }
+
     const exporters: ObservabilityExporter[] = [];
-    for (const registry of runtimeRegistries) {
-      const runtime = runtimeByRegistry.get(registry)!;
+    for (const registry of registries) {
+      const runtime = runtimeByRegistry.get(registry);
+      if (!runtime) continue;
       for (const exporter of runtime.exportersByKey.values()) {
         exporters.push(exporter);
       }
@@ -171,7 +213,7 @@ export async function shutdownAllExporters(): Promise<void> {
         exporter.setShutdownSignal(undefined);
       }
       await Promise.all(exporters.map(exp => Promise.resolve().then(() => exp.shutdown()).catch(() => {})));
-      runtimeRegistries.clear();
+      runtimeRegistryRefs.clear();
       return;
     }
 
@@ -205,11 +247,10 @@ export async function shutdownAllExporters(): Promise<void> {
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
     }
-    runtimeRegistries.clear();
+    runtimeRegistryRefs.clear();
   })().finally(() => {
     shutdownAllPromise = null;
   });
 
   return shutdownAllPromise;
 }
-

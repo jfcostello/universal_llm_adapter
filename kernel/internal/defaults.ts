@@ -128,6 +128,12 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
           enabled: false,
           allowedRoots: []
         }
+      },
+      telemetry: {
+        observabilityOverride: {
+          enabled: false,
+          allowlist: []
+        }
       }
     },
     securityHeadersEnabled: true,

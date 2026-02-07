@@ -66,7 +66,21 @@ export async function invokeCommand(options: {
       }
     });
 
-    proc.stdin.write(JSON.stringify(options.ctx) + '\n');
-    proc.stdin.end();
+    const ignoreStdinError = (_err: unknown) => {};
+    if (typeof (proc.stdin as any)?.on === 'function') {
+      proc.stdin.on('error', ignoreStdinError);
+    }
+
+    try {
+      proc.stdin.write(JSON.stringify(options.ctx) + '\n');
+    } catch (err) {
+      ignoreStdinError(err);
+    }
+
+    try {
+      proc.stdin.end();
+    } catch (err) {
+      ignoreStdinError(err);
+    }
   });
 }

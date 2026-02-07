@@ -1,3 +1,5 @@
+import { clampInt } from './normalize-number.js';
+
 function isHighSurrogate(codeUnit: number): boolean {
   return codeUnit >= 0xd800 && codeUnit <= 0xdbff;
 }
@@ -41,11 +43,6 @@ export function truncateUtf8Bytes(value: string, maxBytes: number): string {
 
   const truncated = safeSliceByCodeUnits(input, low);
   return truncated + suffix;
-}
-
-function clampInt(value: unknown, fallback: number, min: number, max: number): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
-  return Math.min(max, Math.max(min, Math.floor(value)));
 }
 
 function isByteArray(value: unknown): value is Uint8Array {
@@ -143,6 +140,49 @@ export function safeJsonStringify(value: unknown, options: SafeJsonStringifyOpti
 
   const json = JSON.stringify(bounded);
   return maxBytes === null ? json : truncateUtf8Bytes(json, maxBytes);
+}
+
+export type SafeJsonValueOptions = SafeJsonStringifyOptions;
+
+export function safeJsonValue(value: unknown, options: SafeJsonValueOptions = {}): unknown {
+  const maxBytes = typeof options.maxBytes === 'number' && Number.isFinite(options.maxBytes)
+    ? Math.max(0, Math.floor(options.maxBytes))
+    : null;
+
+  if (maxBytes !== null && maxBytes <= 0) return null;
+
+  let maxDepth = clampInt(options.maxDepth, 6, 0, 25);
+  let maxArrayLength = clampInt(options.maxArrayLength, 50, 0, 1000);
+  let maxObjectKeys = clampInt(options.maxObjectKeys, 50, 0, 2000);
+
+  let maxStringBytes = maxBytes !== null
+    ? Math.min(maxBytes, 4096)
+    : 4096;
+
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const bounded = boundJsonValue(
+      value,
+      maxDepth,
+      { maxArrayLength, maxObjectKeys, maxStringBytes },
+      new WeakSet()
+    );
+
+    if (maxBytes === null) return bounded;
+
+    const json = JSON.stringify(bounded);
+    if (Buffer.byteLength(json, 'utf8') <= maxBytes) return bounded;
+
+    if (maxDepth <= 0 && maxArrayLength <= 0 && maxObjectKeys <= 0 && maxStringBytes <= 16) {
+      break;
+    }
+
+    maxDepth = maxDepth <= 0 ? 0 : Math.floor(maxDepth * 0.6);
+    maxArrayLength = maxArrayLength <= 0 ? 0 : Math.floor(maxArrayLength * 0.6);
+    maxObjectKeys = maxObjectKeys <= 0 ? 0 : Math.floor(maxObjectKeys * 0.6);
+    maxStringBytes = Math.max(16, Math.floor(maxStringBytes * 0.6));
+  }
+
+  return '[Truncated]';
 }
 
 export interface FlattenPrimitiveStringsOptions {

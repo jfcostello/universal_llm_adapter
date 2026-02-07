@@ -2,8 +2,9 @@ import { randomUUID } from 'crypto';
 
 import type { AdapterLogger, ObservabilityContext, ObservabilitySpec, PluginRegistry } from '../../../kernel/index.js';
 import { getDefaults } from '../../../kernel/index.js';
-import { readTrimmedStringProperty } from '../../shared/index.js';
+import { clampInt, clampRate, normalizeFlag, readTrimmedStringProperty } from '../../shared/index.js';
 import { createObservabilityDeps } from './observability.js';
+import { resolveObservabilityEnabled } from './env-overrides.js';
 
 export type ObservabilityRuntime = Omit<ObservabilityContext, 'traceId'> & {
   /**
@@ -24,31 +25,6 @@ function normalizeCaptureMessages(
   return fallback;
 }
 
-function normalizeBool(value: unknown, fallback: boolean): boolean {
-  return typeof value === 'boolean' ? value : fallback;
-}
-
-function normalizeNumber(value: unknown): number | null {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (typeof value === 'string') {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-function clampInt(value: unknown, fallback: number, min: number, max: number): number {
-  const normalized = normalizeNumber(value);
-  const asInt = Number.isFinite(normalized as any) ? Math.floor(normalized as number) : Math.floor(fallback);
-  return Math.min(max, Math.max(min, asInt));
-}
-
-function clampRate(value: unknown, fallback: number): number {
-  const normalized = normalizeNumber(value);
-  const asNum = Number.isFinite(normalized as any) ? (normalized as number) : fallback;
-  return Math.min(1, Math.max(0, asNum));
-}
-
 export async function createObservabilityRuntime(
   registry: PluginRegistry,
   spec?: ObservabilitySpec,
@@ -61,13 +37,13 @@ export async function createObservabilityRuntime(
 ): Promise<ObservabilityRuntime | undefined> {
   const defaults = getDefaults().observability;
 
-  const enabled = spec?.enabled ?? defaults.enabled;
+  const enabled = resolveObservabilityEnabled(spec?.enabled, defaults.enabled);
   if (!enabled) return undefined;
 
   const captureMessages = normalizeCaptureMessages(spec?.captureMessages, defaults.captureMessages);
-  const captureToolArgs = normalizeBool(spec?.captureToolArgs, defaults.captureToolArgs);
-  const captureRequestPayload = normalizeBool(spec?.captureRequestPayload, defaults.captureRequestPayload);
-  const captureRawResponse = normalizeBool(spec?.captureRawResponse, defaults.captureRawResponse);
+  const captureToolArgs = normalizeFlag(spec?.captureToolArgs, defaults.captureToolArgs);
+  const captureRequestPayload = normalizeFlag(spec?.captureRequestPayload, defaults.captureRequestPayload);
+  const captureRawResponse = normalizeFlag(spec?.captureRawResponse, defaults.captureRawResponse);
   const sampleRate = clampRate(spec?.sampleRate, defaults.sampleRate);
   const maxInputTextBytes = clampInt(spec?.maxInputTextBytes, defaults.maxInputTextBytes, 0, 1_000_000);
   const maxOutputTextBytes = clampInt(spec?.maxOutputTextBytes, defaults.maxOutputTextBytes, 0, 1_000_000);
@@ -115,4 +91,3 @@ export async function createObservabilityRuntime(
     maxJsonBytes
   };
 }
-

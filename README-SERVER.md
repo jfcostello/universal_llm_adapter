@@ -270,6 +270,76 @@ Realtime sessions over WebSocket using the same message/envelope contract as `ll
 - Configure limits via the `realtime.*` options (message size, idle timeout, concurrency, audio rate, max duration).
 - The WebSocket idle timeout defaults to `realtime.wsIdleTimeoutMs` and is updated to `spec.timeout.idleTimeoutMs` after `open` (when provided).
 
+### Telemetry Submit (Observability)
+
+```
+POST /telemetry
+Content-Type: application/json
+```
+
+Submit telemetry to the observability exporter queue (either a `signal` or a `trace_update`).
+
+This endpoint is useful when you want to:
+- Emit an application-level warning/error linked to a `traceId`
+- Update a trace name/tags out-of-band
+- Use the same behavior as `llm-adapter telemetry`
+
+**Request Body:** `TelemetrySubmissionPayload`
+
+Signal example:
+
+```json
+{
+  "type": "signal",
+  "traceId": "trace-123",
+  "level": "error",
+  "message": "Something went wrong"
+}
+```
+
+Trace update example:
+
+```json
+{
+  "type": "trace_update",
+  "traceId": "trace-123",
+  "name": "checkout-flow",
+  "tags": ["web", "prod"]
+}
+```
+
+Per-submission observability override (optional):
+
+```json
+{
+  "type": "signal",
+  "traceId": "trace-123",
+  "level": "warning",
+  "message": "Send this to a specific target",
+  "observability": {
+    "enabled": true,
+    "traceId": "trace-123",
+    "flushAt": 1,
+    "targets": [
+      { "provider": "sentry", "export": { "signals": true } }
+    ]
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "type": "response",
+  "data": {
+    "traceId": "trace-123",
+    "eventId": "evt_...",
+    "queued": true
+  }
+}
+```
+
 ### LLM Run (Non-Streaming)
 
 ```
@@ -1131,6 +1201,7 @@ for line in response.iter_lines():
 | `VECTOR_STORE_API_KEY` | Vector store API key |
 | `LANGFUSE_SECRET_KEY` | Langfuse secret key (for observability) |
 | `LANGFUSE_PUBLIC_KEY` | Langfuse public key (for observability) |
+| `SENTRY_DSN` | Sentry DSN (for observability) |
 
 ### Observability (Optional)
 
@@ -1141,6 +1212,23 @@ Enable LLM call and realtime session telemetry export in your request body/spec:
   "observability": {
     "enabled": true,
     "provider": "langfuse",
+    "captureMessages": "text"
+  },
+  "messages": [...],
+  "llmPriority": [...]
+}
+```
+
+Or configure multi-target export via `targets`:
+
+```json
+{
+  "observability": {
+    "enabled": true,
+    "targets": [
+      { "provider": "langfuse", "export": { "signals": false } },
+      { "provider": "sentry", "export": { "traces": false, "tools": false, "traceUpdates": false } }
+    ],
     "captureMessages": "text"
   },
   "messages": [...],

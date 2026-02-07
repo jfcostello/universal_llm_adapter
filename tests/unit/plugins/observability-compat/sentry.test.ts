@@ -1,0 +1,1943 @@
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type {
+  ObservabilityProviderManifest,
+  ObservabilityLLMRequestEvent,
+  ObservabilityLLMResponseEvent,
+  ObservabilitySignalEvent,
+  ObservabilityToolExecutionEvent,
+  ObservabilityTraceUpdateEvent
+} from '@/kernel/index.ts';
+import { deriveOtlpSpanIdHex, deriveOtlpTraceIdHex } from '@/modules/observability/index.ts';
+import { SentryCompat } from '@/plugins/observability-compat/sentry/internal/sentry.ts';
+import {
+  buildSentryOtlpAuthHeader,
+  buildSentrySignalEnvelope,
+  normalizeSentryLevel,
+  parseSentryDsn,
+  resolveSentryDsn
+} from '@/plugins/observability-compat/sentry/internal/sentry-helpers.ts';
+import defaultCompat from '@/plugins/observability-compat/sentry/index.ts';
+
+const mockFetch = jest.fn<typeof fetch>();
+(globalThis as any).fetch = mockFetch;
+
+function parseEnvelope(body: string): { envelopeHeader: any; itemHeader: any; payload: any } {
+  const lines = body.split('\n').filter(Boolean);
+  expect(lines.length).toBeGreaterThanOrEqual(3);
+  return {
+    envelopeHeader: JSON.parse(lines[0]),
+    itemHeader: JSON.parse(lines[1]),
+    payload: JSON.parse(lines[2])
+  };
+}
+
+describe('SentryCompat (envelopes + OTLP traces)', () => {
+  let compat: SentryCompat;
+  let originalEnv: NodeJS.ProcessEnv;
+
+  const traceId = 'trace-xyz';
+  const generationId = 'gen-abc';
+
+  const mockManifest: ObservabilityProviderManifest = {
+    id: 'sentry',
+    compat: 'sentry',
+    endpoint: {
+      urlTemplate: '${SENTRY_DSN}',
+      method: 'POST',
+      headers: {}
+    }
+  };
+
+  const requestEvent: ObservabilityLLMRequestEvent = {
+    traceId,
+    generationId,
+    sessionId: 'session-456',
+    timestampMs: 1704067200000,
+    provider: 'provider-a',
+    model: 'model-a',
+    messages: [
+      { role: 'system', content: [{ type: 'text', text: 'sys msg' }] },
+      { role: 'user', content: [{ type: 'text', text: 'Hello' }] }
+    ],
+    tools: [{ name: 'test.echo', description: 'Echo a message' }],
+    settings: { temperature: 0.7 },
+    requestPayload: { messages: [{ role: 'user', content: 'Hello' }] },
+    metadata: { correlationId: 'corr-123', batchId: 'batch-xyz', tags: ['t1'] }
+  };
+
+  const responseEvent: ObservabilityLLMResponseEvent = {
+    traceId,
+    generationId,
+    sessionId: 'session-456',
+    timestampMs: 1704067201000,
+    provider: 'provider-a',
+    model: 'model-a',
+    content: [{ type: 'text', text: 'Hello there!' }],
+    rawResponse: { id: 'raw-1', ok: true },
+    toolCalls: [{ id: 'call-1', name: 'test.echo', arguments: { message: 'abc' } }],
+    usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+    durationMs: 1000,
+    metadata: { correlationId: 'corr-123', batchId: 'batch-xyz', tags: ['t1'] }
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    originalEnv = { ...process.env };
+    process.env.SENTRY_DSN = 'https://public123@o0.ingest.sentry.io/42';
+    delete process.env.LLM_LIVE;
+    compat = new SentryCompat();
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it('exports a constructor as default (plugin registry compat loading)', () => {
+    expect(typeof defaultCompat).toBe('function');
+  });
+
+  describe('parseSentryDsn', () => {
+    it('derives envelope + OTLP trace endpoints (with and without path prefix)', () => {
+      const parsed = parseSentryDsn('https://public123@o0.ingest.sentry.io/42');
+      expect(parsed.publicKey).toBe('public123');
+      expect(parsed.projectId).toBe('42');
+      expect(parsed.envelopeUrl).toBe('https://o0.ingest.sentry.io/api/42/envelope/');
+      expect(parsed.otlpTracesUrl).toBe('https://o0.ingest.sentry.io/api/42/integration/otlp/v1/traces');
+
+      const parsedWithPrefix = parseSentryDsn('https://public123@sentry.example.com/sentry/prefix/99');
+      expect(parsedWithPrefix.envelopeUrl).toBe('https://sentry.example.com/sentry/prefix/api/99/envelope/');
+      expect(parsedWithPrefix.otlpTracesUrl).toBe('https://sentry.example.com/sentry/prefix/api/99/integration/otlp/v1/traces');
+    });
+
+    it('rejects invalid DSNs', () => {
+      expect(() => parseSentryDsn('')).toThrow('Invalid Sentry DSN: empty');
+      expect(() => parseSentryDsn('not-a-url')).toThrow('Invalid Sentry DSN');
+      expect(() => parseSentryDsn('https://@o0.ingest.sentry.io/42')).toThrow('Sentry DSN missing public key');
+      expect(() => parseSentryDsn('https://public123@o0.ingest.sentry.io/')).toThrow('Sentry DSN missing project id');
+      expect(() => parseSentryDsn('ftp://public123@o0.ingest.sentry.io/42')).toThrow('Invalid Sentry DSN');
+    });
+  });
+
+  describe('sentry-helpers', () => {
+    it('normalizes Sentry levels and validates OTLP auth header inputs', () => {
+      expect(normalizeSentryLevel('debug')).toBe('debug');
+      expect(normalizeSentryLevel('warn')).toBe('warning');
+      expect(normalizeSentryLevel('')).toBe('info');
+      expect(normalizeSentryLevel(123 as any)).toBe('info');
+
+      expect(() => buildSentryOtlpAuthHeader('')).toThrow('Sentry OTLP auth requires a public key');
+      expect(buildSentryOtlpAuthHeader(' public ')).toBe('sentry sentry_key=public');
+    });
+
+    it('throws when resolving a missing DSN from the provider manifest', () => {
+      expect(() => resolveSentryDsn({ ...mockManifest, endpoint: { ...mockManifest.endpoint, urlTemplate: '' } } as any)).toThrow(
+        'Missing required env var for Sentry: SENTRY_DSN'
+      );
+    });
+
+    it('builds a minimal envelope with stable 32-hex event_id and omits optional sections when empty', () => {
+      const envelopeId = '0123456789abcdef0123456789abcdef';
+      const { body } = buildSentrySignalEnvelope({
+        dsn: 'https://public@o0.ingest.sentry.io/42',
+        envelopeId,
+        event: {
+          traceId: 'trace-xyz',
+          generationId: undefined,
+          timestampMs: 1704067200000,
+          level: 'debug',
+          message: 'hello'
+        } as any,
+        traceContext: {},
+        context: { maxAttributeValueBytes: 1024 } as any
+      });
+
+      const { envelopeHeader, payload } = parseEnvelope(body);
+      expect(envelopeHeader.event_id).toBe(envelopeId);
+      expect(envelopeHeader.dsn).toBe('https://public@o0.ingest.sentry.io/42');
+      expect(payload.event_id).toBe(envelopeId);
+      expect(payload.level).toBe('debug');
+      expect(payload.message).toBe('hello');
+      expect(payload.tags).toBeUndefined();
+      expect(payload.extra).toBeUndefined();
+      expect(payload.contexts?.trace?.span_id).toBeUndefined();
+    });
+
+    it('uses event.code as the message fallback when message is empty', () => {
+      const { body } = buildSentrySignalEnvelope({
+        dsn: 'https://public@o0.ingest.sentry.io/42',
+        envelopeId: 'sig-2',
+        event: {
+          traceId: 'trace-xyz',
+          generationId: undefined,
+          timestampMs: 1704067200000,
+          level: 'info',
+          message: '',
+          code: 'code-only'
+        } as any,
+        traceContext: {},
+        context: { maxAttributeValueBytes: 1024 } as any
+      });
+
+      const { payload } = parseEnvelope(body);
+      expect(payload.message).toBe('code-only');
+      expect(payload.extra?.code).toBe('code-only');
+    });
+
+    it('includes extra fields, tags, and span linkage when present', () => {
+      const { body } = buildSentrySignalEnvelope({
+        dsn: 'https://public@o0.ingest.sentry.io/42',
+        envelopeId: 'sig-1',
+        event: {
+          traceId: 'trace-xyz',
+          generationId: 'gen-abc',
+          timestampMs: 1704067200000,
+          level: 'warn',
+          stack: 'stack',
+          metadata: { deep: { ok: true, apiKey: 'sk-123456' } },
+          source: 'src',
+          tags: ['t1']
+        } as any,
+        traceContext: { sessionId: 'sess', traceName: 'corr', batchId: 'batch', tags: ['a', 'b'] },
+        context: { maxAttributeValueBytes: 2048 } as any
+      });
+
+      const { payload } = parseEnvelope(body);
+      expect(payload.message).toBe('signal');
+      expect(payload.tags['llm.adapter.tags']).toBe('a,b');
+      expect(payload.extra?.stack).toBe('stack');
+      expect(payload.extra?.metadata).toEqual({ deep: { ok: true, apiKey: '***3456' } });
+      expect(payload.contexts?.trace?.span_id).toBe(deriveOtlpSpanIdHex('gen-abc'));
+    });
+
+    it('derives stable identifiers even when envelopeId and traceId are empty', () => {
+      const { body } = buildSentrySignalEnvelope({
+        dsn: 'https://public@o0.ingest.sentry.io/42',
+        envelopeId: '',
+        event: {
+          traceId: undefined,
+          generationId: undefined,
+          timestampMs: 1704067200000,
+          level: 'info',
+          message: 'ok'
+        } as any,
+        traceContext: {},
+        context: { maxAttributeValueBytes: 1024 } as any
+      });
+
+      const { payload } = parseEnvelope(body);
+      expect(typeof payload.event_id).toBe('string');
+      expect(String(payload.event_id).length).toBe(32);
+      expect(payload.contexts?.trace?.trace_id).toBe(deriveOtlpTraceIdHex(''));
+    });
+  });
+
+  describe('buildBatch', () => {
+    it('exports only envelopes by default (OTLP disabled)', () => {
+      const signal: ObservabilitySignalEvent = {
+        traceId,
+        generationId,
+        sessionId: 'session-456',
+        timestampMs: 1704067200600,
+        level: 'warning',
+        message: 'warn msg',
+        source: 'tool_loop',
+        code: 'tool_call_budget_exhausted',
+        tags: ['t2'],
+        metadata: { correlationId: 'corr-123', batchId: 'batch-xyz', tags: ['t1'] }
+      };
+
+      const { payload, eventIndexByEnvelopeId } = compat.buildBatch(
+        [requestEvent, responseEvent, { ...signal, type: 'signal' } as any],
+        mockManifest,
+        { eventIds: ['req', 'resp', 'sig'] } as any
+      );
+
+      expect((payload as any).spans).toHaveLength(0);
+      expect((payload as any).envelopes).toHaveLength(1);
+      expect(eventIndexByEnvelopeId.size).toBe(1);
+      expect(eventIndexByEnvelopeId.get('sig')).toBe(2);
+
+      const { envelopeHeader, itemHeader, payload: event } = parseEnvelope((payload as any).envelopes[0].body);
+      expect(envelopeHeader.dsn).toBe(process.env.SENTRY_DSN);
+      expect(itemHeader.type).toBe('event');
+      expect(event.level).toBe('warning');
+      expect(event.message).toBe('warn msg');
+      expect(event.contexts?.trace?.trace_id).toBe(deriveOtlpTraceIdHex(traceId));
+      expect(event.contexts?.trace?.span_id).toBe(deriveOtlpSpanIdHex(generationId));
+    });
+
+    it('builds OTLP spans when enableOtlp is set', () => {
+      const ctx = { eventIds: ['req', 'resp'], providerConfig: { enableOtlp: true } } as any;
+      const { payload, eventIndexByEnvelopeId } = compat.buildBatch([requestEvent, responseEvent], mockManifest, ctx);
+
+      const spans = (payload as any).spans ?? [];
+      expect(spans).toHaveLength(1);
+      expect(eventIndexByEnvelopeId.get('resp')).toBe(1);
+
+      const span = spans[0];
+      expect(span.traceIdHex).toBe(deriveOtlpTraceIdHex(traceId));
+      expect(span.spanIdHex).toBe(deriveOtlpSpanIdHex(generationId));
+      expect(span.startTimeIso).toBe('2024-01-01T00:00:00.000Z');
+      expect(span.endTimeIso).toBe('2024-01-01T00:00:01.000Z');
+      expect(span.status).toEqual({ code: 'OK' });
+
+      const attrs = span.attributes ?? {};
+      expect(attrs['llm.adapter.trace_id']).toBe(traceId);
+      expect(attrs['llm.adapter.session_id']).toBe('session-456');
+      expect(attrs['llm.adapter.correlation_id']).toBe('corr-123');
+      expect(attrs['llm.adapter.batch_id']).toBe('batch-xyz');
+      expect(attrs['llm.adapter.provider']).toBe('provider-a');
+      expect(attrs['llm.adapter.model']).toBe('model-a');
+      expect(String(attrs['llm.adapter.input_text'] || '')).toContain('Hello');
+      expect(String(attrs['llm.adapter.output_text'] || '')).toContain('Hello there!');
+    });
+
+    it('maps tool_execution events as child spans and updates cached trace context on trace_update', () => {
+      const ctxReq = { eventIds: ['req'], providerConfig: { enableOtlp: true } } as any;
+      compat.buildBatch([requestEvent], mockManifest, ctxReq);
+
+      const toolEvent: ObservabilityToolExecutionEvent = {
+        traceId,
+        generationId,
+        sessionId: 'session-456',
+        timestampMs: 1704067200500,
+        provider: 'provider-a',
+        model: 'model-a',
+        toolCallId: 'call-1',
+        toolName: 'test.echo',
+        durationMs: 50,
+        args: { text: 'hi' },
+        resultText: 'ok',
+        result: { ok: true },
+        metadata: { correlationId: 'corr-123', batchId: 'batch-xyz', tags: ['t1'] }
+      };
+
+      const toolBatch = compat.buildBatch([{ ...toolEvent, type: 'tool_execution' } as any], mockManifest, { eventIds: ['tool'], providerConfig: { enableOtlp: true } } as any);
+      const toolSpans = (toolBatch.payload as any)?.spans ?? [];
+      expect(toolSpans).toHaveLength(1);
+
+      const toolSpan = toolSpans[0];
+      expect(toolSpan.parentSpanIdHex).toBe(deriveOtlpSpanIdHex(generationId));
+      expect(toolSpan.startTimeIso).toBe('2024-01-01T00:00:00.450Z');
+      expect(toolSpan.endTimeIso).toBe('2024-01-01T00:00:00.500Z');
+      expect(toolSpan.attributes?.['llm.adapter.tool_name']).toBe('test.echo');
+      expect(toolSpan.attributes?.['llm.adapter.tool_call_id']).toBe('call-1');
+
+      const update: ObservabilityTraceUpdateEvent = {
+        traceId,
+        generationId,
+        timestampMs: 1704067200601,
+        name: 'corr-updated',
+        tags: [' updated ']
+      };
+
+      compat.buildBatch([{ ...update, type: 'trace_update' } as any], mockManifest, { eventIds: ['update'], providerConfig: { enableOtlp: true } } as any);
+
+      const respUpdated = compat.buildBatch([responseEvent], mockManifest, { eventIds: ['resp'], providerConfig: { enableOtlp: true } } as any);
+      const updatedAttrs = (respUpdated.payload as any)?.spans?.[0]?.attributes ?? {};
+      expect(updatedAttrs['llm.adapter.correlation_id']).toBe('corr-updated');
+      expect(updatedAttrs['llm.adapter.tags']).toEqual(['updated']);
+    });
+
+    it('treats trace_update as cache mutation only (no direct envelope/span export)', () => {
+      const ctxReq = { eventIds: ['req'], providerConfig: { enableOtlp: true } } as any;
+      compat.buildBatch([requestEvent], mockManifest, ctxReq);
+
+      const update: ObservabilityTraceUpdateEvent = {
+        traceId,
+        generationId,
+        timestampMs: 1704067200601,
+        name: 'corr-updated',
+        tags: [' updated ']
+      };
+
+      const updateBatch = compat.buildBatch(
+        [{ ...update, type: 'trace_update' } as any],
+        mockManifest,
+        { eventIds: ['update'], providerConfig: { enableOtlp: true } } as any
+      );
+      expect((updateBatch.payload as any).spans).toHaveLength(0);
+      expect((updateBatch.payload as any).envelopes).toHaveLength(0);
+      expect(updateBatch.eventIndexByEnvelopeId.size).toBe(0);
+
+      const signalBatch = compat.buildBatch(
+        [{
+          type: 'signal',
+          traceId,
+          generationId,
+          timestampMs: 1704067200700,
+          level: 'warning',
+          message: 'warn'
+        } as any],
+        mockManifest,
+        { eventIds: ['sig'] } as any
+      );
+      const { payload: signalEvent } = parseEnvelope((signalBatch.payload as any).envelopes[0].body);
+      expect(signalEvent.tags['llm.adapter.correlation_id']).toBe('corr-updated');
+      expect(signalEvent.tags['llm.adapter.tags']).toBe('updated');
+    });
+
+    it('covers response fallbacks when request cache is missing and error variants are present', () => {
+      const respNoCache: any = {
+        traceId: '',
+        generationId: undefined,
+        timestampMs: 1704067200100,
+        durationMs: 0,
+        provider: '',
+        model: '',
+        content: [],
+        error: {}
+      };
+
+      const { payload } = compat.buildBatch([respNoCache], mockManifest, { eventIds: ['resp'], providerConfig: { enableOtlp: true } } as any);
+      const spans = (payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+
+      const span = spans[0];
+      expect(span.status).toEqual({ code: 'ERROR', message: 'error' });
+      const attrs = span.attributes ?? {};
+      expect(attrs['llm.adapter.trace_id']).toBe('');
+      expect(attrs['llm.adapter.provider']).toBe('');
+      expect(attrs['llm.adapter.model']).toBe('');
+      expect(attrs['llm.adapter.input_text']).toBe('');
+    });
+
+    it('skips tool_execution spans when enableOtlp is disabled and ignores unknown event shapes', () => {
+      const toolEvent: any = { type: 'tool_execution', traceId, generationId, timestampMs: 1704067200500, durationMs: 1 };
+      const unknownEvent: any = { type: 123, foo: 'bar' };
+
+      const batch = compat.buildBatch([toolEvent, unknownEvent], mockManifest, { eventIds: ['tool', 'unknown'] } as any);
+      expect((batch.payload as any).spans).toHaveLength(0);
+      expect((batch.payload as any).envelopes).toHaveLength(0);
+    });
+
+    it('exports successful tool_execution results as envelopes when exportToolResultsAsSignals is enabled (OTLP disabled)', () => {
+      const toolEvent: ObservabilityToolExecutionEvent = {
+        traceId,
+        generationId,
+        sessionId: 'session-456',
+        timestampMs: 1704067200500,
+        provider: 'provider-a',
+        model: 'model-a',
+        toolCallId: 'call-1',
+        toolName: 'test.echo',
+        durationMs: 50,
+        args: { text: 'hi' },
+        resultText: 'ok',
+        result: { ok: true },
+        metadata: { correlationId: 'corr-123', batchId: 'batch-xyz', tags: ['t1'] }
+      };
+
+      const { payload, eventIndexByEnvelopeId } = compat.buildBatch(
+        [requestEvent, { ...toolEvent, type: 'tool_execution' } as any],
+        mockManifest,
+        { eventIds: ['req', 'tool'], providerConfig: { exportToolResultsAsSignals: true }, maxAttributeValueBytes: 2048 } as any
+      );
+
+      expect((payload as any).spans).toHaveLength(0);
+      expect((payload as any).envelopes).toHaveLength(1);
+      expect(eventIndexByEnvelopeId.get('tool')).toBe(1);
+
+      const { payload: event } = parseEnvelope((payload as any).envelopes[0].body);
+      expect(event.message).toBe('tool_result:test.echo');
+      expect(event.contexts?.trace?.trace_id).toBe(deriveOtlpTraceIdHex(traceId));
+
+      const metadata = event.extra?.metadata as any;
+      expect(metadata.toolExecution?.name).toBe('test.echo');
+      expect(metadata.toolExecution?.callId).toBe('call-1');
+      expect(metadata.toolExecution?.resultText).toBe('ok');
+    });
+
+    it('exports tool_execution envelopes with result fallbacks and omits empty optional fields', () => {
+      const toolEvent: any = {
+        traceId,
+        generationId,
+        sessionId: 'session-456',
+        timestampMs: 1704067200500,
+        provider: 'provider-a',
+        model: 'model-a',
+        toolCallId: 'call-1',
+        toolName: 'test.echo',
+        durationMs: 50,
+        args: undefined,
+        resultText: undefined,
+        result: { message: 'from-result' },
+        metadata: 'not-an-object'
+      };
+
+      const { payload } = compat.buildBatch(
+        [requestEvent, { ...toolEvent, type: 'tool_execution' } as any],
+        mockManifest,
+        { eventIds: ['req', 'tool'], providerConfig: { exportToolResultsAsSignals: true }, maxAttributeValueBytes: 2048 } as any
+      );
+
+      const { payload: event } = parseEnvelope((payload as any).envelopes[0].body);
+      const metadata = event.extra?.metadata as any;
+      expect(metadata.toolExecution?.argsText).toBeUndefined();
+      expect(metadata.toolExecution?.resultText).toBe('from-result');
+    });
+
+    it('exports tool_execution envelopes even when results are missing (and omits resultText)', () => {
+      const toolEvent: any = {
+        traceId,
+        generationId,
+        sessionId: 'session-456',
+        timestampMs: 1704067200500,
+        provider: 'provider-a',
+        model: 'model-a',
+        toolCallId: 'call-1',
+        toolName: 'test.echo',
+        durationMs: 50,
+        args: undefined,
+        resultText: undefined,
+        result: undefined
+      };
+
+      const { payload } = compat.buildBatch(
+        [requestEvent, { ...toolEvent, type: 'tool_execution' } as any],
+        mockManifest,
+        { eventIds: ['req', 'tool'], providerConfig: { exportToolResultsAsSignals: true }, maxAttributeValueBytes: 2048 } as any
+      );
+
+      const { payload: event } = parseEnvelope((payload as any).envelopes[0].body);
+      const metadata = event.extra?.metadata as any;
+      expect(metadata.toolExecution?.resultText).toBeUndefined();
+    });
+
+    it('skips tool_execution envelope exports for errors and skipped tools', () => {
+      const events: any[] = [
+        {
+          ...requestEvent
+        },
+        {
+          type: 'tool_execution',
+          traceId,
+          generationId,
+          sessionId: 'session-456',
+          timestampMs: 1704067200500,
+          toolCallId: 'call-1',
+          toolName: 'test.echo',
+          error: { message: 'boom' }
+        },
+        {
+          type: 'tool_execution',
+          traceId,
+          generationId,
+          sessionId: 'session-456',
+          timestampMs: 1704067200500,
+          toolCallId: 'call-2',
+          toolName: 'test.echo',
+          skipped: true,
+          skipReason: 'policy'
+        }
+      ];
+
+      const { payload } = compat.buildBatch(
+        events,
+        mockManifest,
+        { eventIds: ['req', 'tool-err', 'tool-skip'], providerConfig: { exportToolResultsAsSignals: true } } as any
+      );
+
+      expect((payload as any).envelopes).toHaveLength(0);
+      expect((payload as any).spans).toHaveLength(0);
+    });
+
+    it('covers tool_execution envelope fallbacks for empty trace/tool identifiers', () => {
+      const toolEvent: any = {
+        traceId: '',
+        generationId: undefined,
+        sessionId: 'session-456',
+        timestampMs: 1704067200500,
+        toolCallId: '',
+        toolName: '',
+        resultText: 'ok'
+      };
+
+      const { payload } = compat.buildBatch(
+        [{ ...toolEvent, type: 'tool_execution' } as any],
+        mockManifest,
+        { eventIds: ['tool'], providerConfig: { exportToolResultsAsSignals: true }, maxAttributeValueBytes: 2048 } as any
+      );
+
+      expect((payload as any).envelopes).toHaveLength(1);
+      const { payload: event } = parseEnvelope((payload as any).envelopes[0].body);
+      expect(event.message).toBe('tool_result:tool');
+      expect(event.contexts?.trace?.trace_id).toBe(deriveOtlpTraceIdHex(''));
+
+      const metadata = event.extra?.metadata as any;
+      expect(metadata.toolExecution?.name).toBe('');
+      expect(metadata.toolExecution?.callId).toBe('');
+    });
+
+    it('does not export tool_execution envelopes when OTLP is enabled (avoids duplication)', () => {
+      const toolEvent: ObservabilityToolExecutionEvent = {
+        traceId,
+        generationId,
+        sessionId: 'session-456',
+        timestampMs: 1704067200500,
+        provider: 'provider-a',
+        model: 'model-a',
+        toolCallId: 'call-1',
+        toolName: 'test.echo',
+        durationMs: 50,
+        args: { text: 'hi' },
+        resultText: 'ok',
+        result: { ok: true }
+      };
+
+      const { payload } = compat.buildBatch(
+        [requestEvent, { ...toolEvent, type: 'tool_execution' } as any],
+        mockManifest,
+        { eventIds: ['req', 'tool'], providerConfig: { enableOtlp: true, exportToolResultsAsSignals: true } } as any
+      );
+
+      expect((payload as any).spans).toHaveLength(1);
+      expect((payload as any).envelopes).toHaveLength(0);
+    });
+
+    it('prunes expired request cache entries', () => {
+      const key = `${traceId}:${generationId}`;
+      (compat as any).requestCache.set(key, {
+        summary: { startTimeIso: '2024-01-01T00:00:00.000Z', provider: '', model: '', inputText: '', observationInput: '', modelParameters: '' },
+        createdAtMs: Date.now() - (10 * 60_000) - 1
+      });
+
+      compat.buildBatch([], mockManifest, { eventIds: [] } as any);
+      expect((compat as any).requestCache.get(key)).toBeUndefined();
+    });
+
+    it('covers tool_execution mapping variants (missing ids, skipped, and error branches)', () => {
+      const events: any[] = [
+        {
+          type: 'tool_execution',
+          traceId,
+          generationId: undefined,
+          timestampMs: 1704067200525,
+          durationMs: '25',
+          error: { message: 'boom' }
+        },
+        {
+          type: 'tool_execution',
+          traceId: '',
+          generationId: undefined,
+          timestampMs: 1704067200530,
+          durationMs: 0,
+          error: {}
+        },
+        {
+          type: 'tool_execution',
+          traceId,
+          generationId: undefined,
+          timestampMs: 1704067200600,
+          durationMs: -1,
+          skipped: true,
+          skipReason: 'policy'
+        },
+        {
+          type: 'tool_execution',
+          traceId,
+          generationId: undefined,
+          timestampMs: 1704067200650,
+          durationMs: 0,
+          skipped: true
+        }
+      ];
+
+      const batch = compat.buildBatch(events, mockManifest, { eventIds: ['t0', 't1', 't2', 't3'], providerConfig: { enableOtlp: true } } as any);
+      const spans = (batch.payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(4);
+
+      expect(spans[0].parentSpanIdHex).toBeUndefined();
+      expect(spans[0].status).toEqual({ code: 'ERROR', message: 'boom' });
+      expect(spans[0].attributes?.['llm.adapter.output_text']).toBe('boom');
+
+      expect(spans[1].status).toEqual({ code: 'ERROR', message: 'error' });
+      expect(spans[1].attributes?.['llm.adapter.trace_id']).toBe('');
+      expect(spans[1].attributes?.['llm.adapter.input_text']).toBe('');
+
+      expect(spans[2].attributes?.['llm.adapter.tool_skipped']).toBe(true);
+      expect(spans[2].attributes?.['llm.adapter.tool_skip_reason']).toBe('policy');
+      expect(spans[2].attributes?.['llm.adapter.output_text']).toBe('policy');
+
+      expect(spans[3].attributes?.['llm.adapter.tool_skipped']).toBe(true);
+      expect(spans[3].attributes?.['llm.adapter.tool_skip_reason']).toBeUndefined();
+      expect(spans[3].attributes?.['llm.adapter.output_text']).toBe('');
+    });
+  });
+
+  describe('sendBatch', () => {
+    it('sends envelopes over HTTP and returns per-envelope outcomes (OTLP disabled)', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: { get: () => null }
+      } as any);
+
+      const signal: ObservabilitySignalEvent = {
+        traceId,
+        generationId,
+        timestampMs: 1704067200600,
+        level: 'error',
+        message: 'boom'
+      };
+
+      const { payload, eventIndexByEnvelopeId } = compat.buildBatch(
+        [{ ...signal, type: 'signal' } as any],
+        mockManifest,
+        { eventIds: ['sig'] } as any
+      );
+
+      const result = await compat.sendBatch(payload, mockManifest, { timeoutMs: 1000, eventIds: ['sig'] } as any);
+      expect(result.success).toBe(true);
+      expect(result.outcomes).toHaveLength(eventIndexByEnvelopeId.size);
+
+      const call = mockFetch.mock.calls[0];
+      expect(call?.[0]).toBe('https://o0.ingest.sentry.io/api/42/envelope/');
+      const init = call?.[1] as RequestInit;
+      expect((init.headers as any)?.['Content-Type']).toBe('application/x-sentry-envelope');
+      expect(typeof init.body).toBe('string');
+    });
+
+    it('sends envelopes with bounded concurrency when envelopeConcurrency is set', async () => {
+      const envelopeCount = 5;
+      const eventIds = Array.from({ length: envelopeCount }, (_v, i) => `sig-${i}`);
+
+      const { payload } = compat.buildBatch(
+        eventIds.map((envelopeId) => ({
+          type: 'signal',
+          traceId,
+          generationId,
+          timestampMs: 1704067200600,
+          level: 'error',
+          message: envelopeId
+        } as any)),
+        mockManifest,
+        { eventIds } as any
+      );
+
+      let inFlight = 0;
+      let maxInFlight = 0;
+      const releases: Array<() => void> = [];
+
+      mockFetch.mockImplementation((_url: any, _init: any) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        return new Promise((resolve) => {
+          releases.push(() => {
+            inFlight -= 1;
+            resolve({
+              ok: true,
+              status: 200,
+              statusText: 'OK',
+              headers: { get: () => null }
+            } as any);
+          });
+        });
+      });
+
+      const promise = compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds,
+        providerConfig: { envelopeConcurrency: 2 }
+      } as any);
+
+      // With concurrency=2, two envelope exports should be in-flight immediately.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      // Drain the queue.
+      for (let released = 0; released < envelopeCount; released++) {
+        let spins = 0;
+        while (releases.length === 0) {
+          await Promise.resolve();
+          await Promise.resolve();
+          spins += 1;
+          if (spins > 1000) {
+            throw new Error('Timed out waiting for queued envelope response release');
+          }
+        }
+        releases.shift()!();
+        // Allow workers to schedule the next request.
+        await Promise.resolve();
+        await Promise.resolve();
+      }
+
+      const result = await promise;
+      expect(result.success).toBe(true);
+      expect(maxInFlight).toBe(2);
+      mockFetch.mockReset();
+    });
+
+    it('supports numeric string envelopeConcurrency values', async () => {
+      const envelopeCount = 5;
+      const eventIds = Array.from({ length: envelopeCount }, (_v, i) => `sig-${i}`);
+
+      const { payload } = compat.buildBatch(
+        eventIds.map((envelopeId) => ({
+          type: 'signal',
+          traceId,
+          generationId,
+          timestampMs: 1704067200600,
+          level: 'error',
+          message: envelopeId
+        } as any)),
+        mockManifest,
+        { eventIds } as any
+      );
+
+      const releases: Array<() => void> = [];
+      mockFetch.mockImplementation((_url: any, _init: any) => {
+        return new Promise((resolve) => {
+          releases.push(() => resolve({ ok: true, status: 200, statusText: 'OK', headers: { get: () => null } } as any));
+        });
+      });
+
+      const promise = compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds,
+        providerConfig: { envelopeConcurrency: '2' }
+      } as any);
+
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      for (let released = 0; released < envelopeCount; released++) {
+        let spins = 0;
+        while (releases.length === 0) {
+          await Promise.resolve();
+          await Promise.resolve();
+          spins += 1;
+          if (spins > 1000) {
+            throw new Error('Timed out waiting for queued envelope response release');
+          }
+        }
+        releases.shift()!();
+        await Promise.resolve();
+        await Promise.resolve();
+      }
+
+      await expect(promise).resolves.toEqual(expect.objectContaining({ success: true }));
+      mockFetch.mockReset();
+    });
+
+    it('falls back to default envelopeConcurrency for invalid values', async () => {
+      const envelopeCount = 5;
+      const eventIds = Array.from({ length: envelopeCount }, (_v, i) => `sig-${i}`);
+
+      const { payload } = compat.buildBatch(
+        eventIds.map((envelopeId) => ({
+          type: 'signal',
+          traceId,
+          generationId,
+          timestampMs: 1704067200600,
+          level: 'error',
+          message: envelopeId
+        } as any)),
+        mockManifest,
+        { eventIds } as any
+      );
+
+      const releases: Array<() => void> = [];
+      mockFetch.mockImplementation((_url: any, _init: any) => {
+        return new Promise((resolve) => {
+          releases.push(() => resolve({ ok: true, status: 200, statusText: 'OK', headers: { get: () => null } } as any));
+        });
+      });
+
+      const promise = compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds,
+        providerConfig: { envelopeConcurrency: Number.POSITIVE_INFINITY }
+      } as any);
+
+      // Infinity is treated as invalid -> default concurrency applies (2).
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      for (let released = 0; released < envelopeCount; released++) {
+        let spins = 0;
+        while (releases.length === 0) {
+          await Promise.resolve();
+          await Promise.resolve();
+          spins += 1;
+          if (spins > 1000) {
+            throw new Error('Timed out waiting for queued envelope response release');
+          }
+        }
+        releases.shift()!();
+        await Promise.resolve();
+        await Promise.resolve();
+      }
+
+      await expect(promise).resolves.toEqual(expect.objectContaining({ success: true }));
+      mockFetch.mockReset();
+    });
+
+    it('falls back to default envelopeConcurrency for invalid numeric strings', async () => {
+      const envelopeCount = 5;
+      const eventIds = Array.from({ length: envelopeCount }, (_v, i) => `sig-${i}`);
+
+      const { payload } = compat.buildBatch(
+        eventIds.map((envelopeId) => ({
+          type: 'signal',
+          traceId,
+          generationId,
+          timestampMs: 1704067200600,
+          level: 'error',
+          message: envelopeId
+        } as any)),
+        mockManifest,
+        { eventIds } as any
+      );
+
+      const releases: Array<() => void> = [];
+      mockFetch.mockImplementation((_url: any, _init: any) => {
+        return new Promise((resolve) => {
+          releases.push(() => resolve({ ok: true, status: 200, statusText: 'OK', headers: { get: () => null } } as any));
+        });
+      });
+
+      const promise = compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds,
+        providerConfig: { envelopeConcurrency: 'nope' }
+      } as any);
+
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      for (let released = 0; released < envelopeCount; released++) {
+        let spins = 0;
+        while (releases.length === 0) {
+          await Promise.resolve();
+          await Promise.resolve();
+          spins += 1;
+          if (spins > 1000) {
+            throw new Error('Timed out waiting for queued envelope response release');
+          }
+        }
+        releases.shift()!();
+        await Promise.resolve();
+        await Promise.resolve();
+      }
+
+      await expect(promise).resolves.toEqual(expect.objectContaining({ success: true }));
+      mockFetch.mockReset();
+    });
+
+    it('treats whitespace envelopeConcurrency values as invalid and falls back to default', async () => {
+      const envelopeCount = 5;
+      const eventIds = Array.from({ length: envelopeCount }, (_v, i) => `sig-${i}`);
+
+      const { payload } = compat.buildBatch(
+        eventIds.map((envelopeId) => ({
+          type: 'signal',
+          traceId,
+          generationId,
+          timestampMs: 1704067200600,
+          level: 'error',
+          message: envelopeId
+        } as any)),
+        mockManifest,
+        { eventIds } as any
+      );
+
+      const releases: Array<() => void> = [];
+      mockFetch.mockImplementation((_url: any, _init: any) => {
+        return new Promise((resolve) => {
+          releases.push(() => resolve({ ok: true, status: 200, statusText: 'OK', headers: { get: () => null } } as any));
+        });
+      });
+
+      const promise = compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds,
+        providerConfig: { envelopeConcurrency: '   ' }
+      } as any);
+
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      for (let released = 0; released < envelopeCount; released++) {
+        let spins = 0;
+        while (releases.length === 0) {
+          await Promise.resolve();
+          await Promise.resolve();
+          spins += 1;
+          if (spins > 1000) {
+            throw new Error('Timed out waiting for queued envelope response release');
+          }
+        }
+        releases.shift()!();
+        await Promise.resolve();
+        await Promise.resolve();
+      }
+
+      await expect(promise).resolves.toEqual(expect.objectContaining({ success: true }));
+      mockFetch.mockReset();
+    });
+
+    it('sends OTLP spans to the derived Sentry OTLP endpoint when enableOtlp is set', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: { get: () => null }
+      } as any);
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: { get: () => null }
+      } as any);
+
+      const signal: ObservabilitySignalEvent = {
+        traceId,
+        generationId,
+        timestampMs: 1704067200600,
+        level: 'warning',
+        message: 'warn msg'
+      };
+
+      const { payload, eventIndexByEnvelopeId } = compat.buildBatch(
+        [requestEvent, responseEvent, { ...signal, type: 'signal' } as any],
+        mockManifest,
+        { eventIds: ['req', 'resp', 'sig'], providerConfig: { enableOtlp: true } } as any
+      );
+
+      const result = await compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds: ['req', 'resp', 'sig'],
+        providerConfig: { enableOtlp: true }
+      } as any);
+
+      expect(result.outcomes).toHaveLength(eventIndexByEnvelopeId.size);
+
+      const urls = mockFetch.mock.calls.map(c => String(c?.[0] || ''));
+      expect(urls).toContain('https://o0.ingest.sentry.io/api/42/envelope/');
+      expect(urls).toContain('https://o0.ingest.sentry.io/api/42/integration/otlp/v1/traces');
+
+      const otlpCallIndex = urls.findIndex(u => u.endsWith('/integration/otlp/v1/traces'));
+      const otlpInit = mockFetch.mock.calls[otlpCallIndex]?.[1] as RequestInit;
+      const headers = otlpInit.headers as Record<string, string>;
+      expect(headers['Content-Type']).toBe('application/x-protobuf');
+      expect(headers['x-sentry-auth']).toBe('sentry sentry_key=public123');
+    });
+
+    it('marks envelope failures retryable for 5xx and non-retryable for 429/4xx', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable',
+        headers: { get: () => null }
+      } as any);
+
+      const signal: ObservabilitySignalEvent = {
+        traceId,
+        generationId,
+        timestampMs: 1704067200600,
+        level: 'error',
+        message: 'boom'
+      };
+
+      const { payload } = compat.buildBatch([{ ...signal, type: 'signal' } as any], mockManifest, { eventIds: ['sig'] } as any);
+      const result503 = await compat.sendBatch(payload, mockManifest, { timeoutMs: 1000, eventIds: ['sig'] } as any);
+      expect(result503.success).toBe(false);
+      expect(result503.outcomes[0]).toEqual(
+        expect.objectContaining({ envelopeId: 'sig', success: false, status: 503, retryable: true })
+      );
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        statusText: 'Too Many Requests',
+        headers: {
+          // Avoid default rate-limit fallback waits in this classification test.
+          get: (name: string) => (String(name).toLowerCase() === 'retry-after' ? '0' : null)
+        }
+      } as any);
+
+      const result429 = await compat.sendBatch(payload, mockManifest, { timeoutMs: 1000, eventIds: ['sig'] } as any);
+      expect(result429.outcomes[0]).toEqual(
+        expect.objectContaining({ envelopeId: 'sig', success: false, status: 429, retryable: false })
+      );
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => null }
+      } as any);
+
+      const result400 = await compat.sendBatch(payload, mockManifest, { timeoutMs: 1000, eventIds: ['sig'] } as any);
+      expect(result400.outcomes[0]).toEqual(
+        expect.objectContaining({ envelopeId: 'sig', success: false, status: 400, retryable: false })
+      );
+    });
+
+    it('waits for Retry-After before returning 429 envelope failures', async () => {
+      jest.useFakeTimers();
+      try {
+        mockFetch.mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          statusText: 'Too Many Requests',
+          headers: {
+            get: (name: string) => (String(name).toLowerCase() === 'retry-after' ? '2' : null)
+          }
+        } as any);
+
+        const { payload } = compat.buildBatch(
+          [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+          mockManifest,
+          { eventIds: ['sig'] } as any
+        );
+
+        const promise = compat.sendBatch(payload, mockManifest, { eventIds: ['sig'] } as any);
+
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(jest.getTimerCount()).toBe(1);
+
+        const early = Promise.race([promise.then(() => 'resolved'), Promise.resolve('pending')]);
+        await expect(early).resolves.toBe('pending');
+
+        jest.advanceTimersByTime(2000);
+        const result = await promise;
+        expect(result.success).toBe(false);
+        expect(result.outcomes[0]).toEqual(
+          expect.objectContaining({ envelopeId: 'sig', success: false, status: 429, retryable: false })
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('waits for the default 60s window on bare 429 envelope failures (missing rate-limit headers)', async () => {
+      jest.useFakeTimers();
+      try {
+        mockFetch.mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          statusText: 'Too Many Requests',
+          headers: { get: () => null }
+        } as any);
+
+        const { payload } = compat.buildBatch(
+          [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+          mockManifest,
+          { eventIds: ['sig'] } as any
+        );
+
+        const promise = compat.sendBatch(payload, mockManifest, { eventIds: ['sig'] } as any);
+
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(jest.getTimerCount()).toBe(1);
+
+        const early = Promise.race([promise.then(() => 'resolved'), Promise.resolve('pending')]);
+        await expect(early).resolves.toBe('pending');
+
+        jest.advanceTimersByTime(60_000);
+        const result = await promise;
+        expect(result.success).toBe(false);
+        expect(result.outcomes[0]).toEqual(
+          expect.objectContaining({ envelopeId: 'sig', success: false, status: 429, retryable: false })
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('waits for X-Sentry-Rate-Limits on successful envelope responses', async () => {
+      jest.useFakeTimers();
+      try {
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: {
+            get: (name: string) => (String(name).toLowerCase() === 'x-sentry-rate-limits' ? '2:error:key' : null)
+          }
+        } as any);
+
+        const { payload } = compat.buildBatch(
+          [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+          mockManifest,
+          { eventIds: ['sig'] } as any
+        );
+
+        const promise = compat.sendBatch(payload, mockManifest, { eventIds: ['sig'] } as any);
+
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(jest.getTimerCount()).toBe(1);
+
+        const early = Promise.race([promise.then(() => 'resolved'), Promise.resolve('pending')]);
+        await expect(early).resolves.toBe('pending');
+
+        jest.advanceTimersByTime(2000);
+        const result = await promise;
+        expect(result).toEqual(
+          expect.objectContaining({
+            success: true,
+            outcomes: [expect.objectContaining({ envelopeId: 'sig', success: true, status: 200 })]
+          })
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('stops shared success delay wait when external signal aborts', async () => {
+      jest.useFakeTimers();
+      try {
+        const controller = new AbortController();
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: {
+            get: (name: string) => (String(name).toLowerCase() === 'x-sentry-rate-limits' ? '2:error:key' : null)
+          }
+        } as any);
+
+        const { payload } = compat.buildBatch(
+          [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+          mockManifest,
+          { eventIds: ['sig'] } as any
+        );
+
+        const promise = compat.sendBatch(payload, mockManifest, { eventIds: ['sig'], signal: controller.signal } as any);
+
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(jest.getTimerCount()).toBe(1);
+
+        controller.abort();
+
+        const result = await promise;
+        expect(result).toEqual(
+          expect.objectContaining({
+            success: true,
+            outcomes: [expect.objectContaining({ envelopeId: 'sig', success: true, status: 200 })]
+          })
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('waits for X-Sentry-Rate-Limits when Retry-After is missing', async () => {
+      jest.useFakeTimers();
+      try {
+        mockFetch.mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: {
+            get: (name: string) => (String(name).toLowerCase() === 'x-sentry-rate-limits' ? '1.5:error:key' : null)
+          }
+        } as any);
+
+        const { payload } = compat.buildBatch(
+          [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+          mockManifest,
+          { eventIds: ['sig'] } as any
+        );
+
+        const promise = compat.sendBatch(payload, mockManifest, { eventIds: ['sig'] } as any);
+
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(jest.getTimerCount()).toBe(1);
+
+        const early = Promise.race([promise.then(() => 'resolved'), Promise.resolve('pending')]);
+        await expect(early).resolves.toBe('pending');
+
+        jest.advanceTimersByTime(1500);
+        const result = await promise;
+        expect(result.success).toBe(false);
+        expect(result.outcomes[0]).toEqual(
+          expect.objectContaining({ envelopeId: 'sig', success: false, status: 503, retryable: true })
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('applies shared rate-limit delays across concurrent workers to avoid extra envelope churn', async () => {
+      jest.useFakeTimers();
+      try {
+        const eventIds = ['sig-0', 'sig-1', 'sig-2', 'sig-3', 'sig-4', 'sig-5'];
+        const { payload } = compat.buildBatch(
+          eventIds.map(envelopeId => ({
+            type: 'signal',
+            traceId,
+            generationId,
+            timestampMs: 1704067200600,
+            level: 'error',
+            message: envelopeId
+          } as any)),
+          mockManifest,
+          { eventIds } as any
+        );
+
+        const delayedReleases: Array<() => void> = [];
+        let callIndex = 0;
+        mockFetch.mockImplementation((_url: any, _init: any) => {
+          const currentCall = callIndex++;
+          if (currentCall === 0) {
+            return Promise.resolve({
+              ok: false,
+              status: 429,
+              statusText: 'Too Many Requests',
+              headers: {
+                get: (name: string) => (String(name).toLowerCase() === 'retry-after' ? '2' : null)
+              }
+            } as any);
+          }
+          if (currentCall <= 2) {
+            return new Promise(resolve => {
+              delayedReleases.push(() =>
+                resolve({
+                  ok: true,
+                  status: 200,
+                  statusText: 'OK',
+                  headers: { get: () => null }
+                } as any)
+              );
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: { get: () => null }
+          } as any);
+        });
+
+        const promise = compat.sendBatch(payload, mockManifest, {
+          eventIds,
+          providerConfig: { envelopeConcurrency: 3 }
+        } as any);
+
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(mockFetch).toHaveBeenCalledTimes(3);
+        expect(jest.getTimerCount()).toBe(1);
+
+        // Resolve the two non-rate-limited in-flight calls.
+        delayedReleases.shift()?.();
+        delayedReleases.shift()?.();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        // Shared pacing should prevent new fetches before the retry window elapses.
+        expect(mockFetch).toHaveBeenCalledTimes(3);
+
+        jest.advanceTimersByTime(2000);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        const result = await promise;
+        expect(result.outcomes).toHaveLength(eventIds.length);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('aborts when the signal fires during retry-after sleep', async () => {
+      jest.useFakeTimers();
+      try {
+        const controller = new AbortController();
+
+        mockFetch.mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          statusText: 'Too Many Requests',
+          headers: {
+            get: (name: string) => (String(name).toLowerCase() === 'retry-after' ? '5' : null)
+          }
+        } as any);
+
+        const { payload } = compat.buildBatch(
+          [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+          mockManifest,
+          { eventIds: ['sig'] } as any
+        );
+
+        const promise = compat.sendBatch(payload, mockManifest, { eventIds: ['sig'], signal: controller.signal } as any);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(jest.getTimerCount()).toBe(1);
+
+        controller.abort();
+        await expect(promise).resolves.toEqual(
+          expect.objectContaining({
+            success: false,
+            outcomes: [expect.objectContaining({ envelopeId: 'sig', success: false, status: 429, retryable: false })]
+          })
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('ignores blank or malformed X-Sentry-Rate-Limits headers (no retry-delay sleep)', async () => {
+      jest.useFakeTimers();
+      try {
+        const { payload } = compat.buildBatch(
+          [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+          mockManifest,
+          { eventIds: ['sig'] } as any
+        );
+
+        mockFetch.mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: {
+            get: (name: string) => (String(name).toLowerCase() === 'x-sentry-rate-limits' ? '   ' : null)
+          }
+        } as any);
+
+        const blankHeaderPromise = compat.sendBatch(payload, mockManifest, { eventIds: ['sig'] } as any);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(jest.getTimerCount()).toBe(0);
+        await expect(blankHeaderPromise).resolves.toEqual(
+          expect.objectContaining({
+            success: false,
+            outcomes: [expect.objectContaining({ envelopeId: 'sig', status: 503, retryable: true })]
+          })
+        );
+
+        mockFetch.mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: {
+            get: (name: string) => (String(name).toLowerCase() === 'x-sentry-rate-limits' ? ' , , bad:error:key' : null)
+          }
+        } as any);
+
+        const malformedHeaderPromise = compat.sendBatch(payload, mockManifest, { eventIds: ['sig'] } as any);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(jest.getTimerCount()).toBe(0);
+        await expect(malformedHeaderPromise).resolves.toEqual(
+          expect.objectContaining({
+            success: false,
+            outcomes: [expect.objectContaining({ envelopeId: 'sig', status: 503, retryable: true })]
+          })
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('handles retryable envelope failures when response headers are missing', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable'
+      } as any);
+
+      const { payload } = compat.buildBatch(
+        [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+        mockManifest,
+        { eventIds: ['sig'] } as any
+      );
+
+      const result = await compat.sendBatch(payload, mockManifest, { eventIds: ['sig'] } as any);
+      expect(result.success).toBe(false);
+      expect(result.outcomes[0]).toEqual(
+        expect.objectContaining({ envelopeId: 'sig', success: false, status: 503, retryable: true })
+      );
+    });
+
+    it('does not apply retry-delay sleeps when the response status is missing', async () => {
+      jest.useFakeTimers();
+      try {
+        mockFetch.mockResolvedValueOnce({
+          ok: false,
+          statusText: 'Service Unavailable',
+          headers: { get: () => null }
+        } as any);
+
+        const { payload } = compat.buildBatch(
+          [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+          mockManifest,
+          { eventIds: ['sig'] } as any
+        );
+
+        const promise = compat.sendBatch(payload, mockManifest, { eventIds: ['sig'] } as any);
+
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(jest.getTimerCount()).toBe(0);
+
+        const result = await promise;
+        expect(result.success).toBe(false);
+        expect(result.outcomes[0]).toEqual(
+          expect.objectContaining({ envelopeId: 'sig', success: false, error: 'HTTP undefined: Service Unavailable' })
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('treats invalid payload shapes as empty', async () => {
+      const result = await compat.sendBatch({ spans: 'nope', envelopes: {} } as any, mockManifest, { timeoutMs: 1 } as any);
+      expect(result).toEqual({ success: true, outcomes: [] });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('formats non-ok envelope errors without statusText', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        statusText: '',
+        headers: { get: () => null }
+      } as any);
+
+      const { payload } = compat.buildBatch(
+        [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+        mockManifest,
+        { eventIds: ['sig'] } as any
+      );
+
+      const result = await compat.sendBatch(payload, mockManifest, { timeoutMs: 1000, eventIds: ['sig'] } as any);
+      expect(result.success).toBe(false);
+      expect(result.outcomes[0]).toEqual(expect.objectContaining({ envelopeId: 'sig', status: 500, error: 'HTTP 500' }));
+    });
+
+    it('includes a truncated response body on non-2xx envelope responses when enabled', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => 'application/json' },
+        text: jest.fn(async () => JSON.stringify({ message: 'nope', api_key: 'abcd1234' }))
+      } as any);
+
+      const { payload } = compat.buildBatch(
+        [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+        mockManifest,
+        { eventIds: ['sig'] } as any
+      );
+
+      const result = await compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds: ['sig'],
+        providerConfig: { includeResponseBodyOnError: true }
+      } as any);
+
+      expect(result.success).toBe(false);
+      expect(result.outcomes[0]?.success).toBe(false);
+      expect(result.outcomes[0]?.status).toBe(400);
+      expect(result.outcomes[0]?.error).toContain('HTTP 400');
+      expect(result.outcomes[0]?.error).toContain('body:');
+      expect(result.outcomes[0]?.error).toContain('***1234');
+      expect(result.outcomes[0]?.error).not.toContain('abcd1234');
+    });
+
+    it('omits response bodies when includeResponseBodyOnError is enabled but the body cannot be safely read', async () => {
+      const { payload } = compat.buildBatch(
+        [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+        mockManifest,
+        { eventIds: ['sig'] } as any
+      );
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => null }
+      } as any);
+
+      const missingText = await compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds: ['sig'],
+        providerConfig: { includeResponseBodyOnError: true }
+      } as any);
+      expect(missingText.outcomes[0]?.error).not.toContain('body:');
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => null },
+        text: jest.fn(async () => {
+          throw new Error('boom');
+        })
+      } as any);
+
+      const throwingText = await compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds: ['sig'],
+        providerConfig: { includeResponseBodyOnError: true }
+      } as any);
+      expect(throwingText.outcomes[0]?.error).not.toContain('body:');
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => null },
+        text: jest.fn(async () => 123)
+      } as any);
+
+      const nonStringText = await compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds: ['sig'],
+        providerConfig: { includeResponseBodyOnError: true }
+      } as any);
+      expect(nonStringText.outcomes[0]?.error).not.toContain('body:');
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => null },
+        text: jest.fn(async () => '   ')
+      } as any);
+
+      const emptyText = await compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds: ['sig'],
+        providerConfig: { includeResponseBodyOnError: true }
+      } as any);
+      expect(emptyText.outcomes[0]?.error).not.toContain('body:');
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => null },
+        text: jest.fn(async () => JSON.stringify([{ api_key: 'abcd1234' }]))
+      } as any);
+
+      const jsonArray = await compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds: ['sig'],
+        providerConfig: { includeResponseBodyOnError: true }
+      } as any);
+      expect(jsonArray.outcomes[0]?.error).toContain('body:');
+      expect(jsonArray.outcomes[0]?.error).toContain('***1234');
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => null },
+        text: jest.fn(async () => 'not-json')
+      } as any);
+
+      const notJson = await compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds: ['sig'],
+        providerConfig: { includeResponseBodyOnError: true }
+      } as any);
+      expect(notJson.outcomes[0]?.error).toContain('body: not-json');
+    });
+
+    it('respects errorResponseBodyMaxBytes=0 by omitting response bodies even when enabled', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => null },
+        text: jest.fn(async () => JSON.stringify({ message: 'nope', api_key: 'abcd1234' }))
+      } as any);
+
+      const { payload } = compat.buildBatch(
+        [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+        mockManifest,
+        { eventIds: ['sig'] } as any
+      );
+
+      const result = await compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds: ['sig'],
+        providerConfig: { includeResponseBodyOnError: true, errorResponseBodyMaxBytes: 0 }
+      } as any);
+
+      expect(result.outcomes[0]?.error).not.toContain('body:');
+    });
+
+    it('treats whitespace errorResponseBodyMaxBytes as invalid and falls back to default body capture limit', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => null },
+        text: jest.fn(async () => JSON.stringify({ message: 'nope', api_key: 'abcd1234' }))
+      } as any);
+
+      const { payload } = compat.buildBatch(
+        [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+        mockManifest,
+        { eventIds: ['sig'] } as any
+      );
+
+      const result = await compat.sendBatch(payload, mockManifest, {
+        timeoutMs: 1000,
+        eventIds: ['sig'],
+        providerConfig: { includeResponseBodyOnError: true, errorResponseBodyMaxBytes: '   ' }
+      } as any);
+
+      expect(result.outcomes[0]?.error).toContain('body:');
+      expect(result.outcomes[0]?.error).toContain('***1234');
+    });
+
+    it('marks envelope fetch rejections retryable and supports string error fallbacks', async () => {
+      mockFetch.mockRejectedValueOnce('boom');
+
+      const { payload } = compat.buildBatch(
+        [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+        mockManifest,
+        { eventIds: ['sig'] } as any
+      );
+
+      const result = await compat.sendBatch(payload, mockManifest, { timeoutMs: 1000, eventIds: ['sig'] } as any);
+      expect(result.success).toBe(false);
+      expect(result.outcomes[0]).toEqual(expect.objectContaining({ envelopeId: 'sig', retryable: true, error: 'boom' }));
+    });
+
+    it('throws AbortError when signal is already aborted', async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      const { payload } = compat.buildBatch(
+        [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+        mockManifest,
+        { eventIds: ['sig'] } as any
+      );
+
+      await expect(
+        compat.sendBatch(payload, mockManifest, { timeoutMs: 1000, signal: controller.signal } as any)
+      ).resolves.toEqual(
+        expect.objectContaining({
+          success: false,
+          outcomes: [expect.objectContaining({ envelopeId: 'sig', success: false, error: 'Aborted', retryable: true })]
+        })
+      );
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('aborts in-flight envelope exports when the external signal aborts', async () => {
+      const controller = new AbortController();
+
+      mockFetch.mockImplementationOnce((_url: any, init: any) => {
+        return new Promise((_resolve, reject) => {
+          init.signal.addEventListener(
+            'abort',
+            () => {
+              const err = new Error('Aborted');
+              (err as any).name = 'AbortError';
+              reject(err);
+            },
+            { once: true }
+          );
+        });
+      });
+
+      const { payload } = compat.buildBatch(
+        [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+        mockManifest,
+        { eventIds: ['sig'] } as any
+      );
+
+      const promise = compat.sendBatch(payload, mockManifest, { timeoutMs: 1000, signal: controller.signal } as any);
+      controller.abort();
+      await expect(promise).resolves.toEqual(
+        expect.objectContaining({
+          success: false,
+          outcomes: [expect.objectContaining({ envelopeId: 'sig', success: false, error: 'Aborted', retryable: true })]
+        })
+      );
+    });
+
+    it('aborts in-flight envelope exports on timeout (covers AbortController timeout path)', async () => {
+      mockFetch.mockImplementationOnce((_url: any, init: any) => {
+        return new Promise((_resolve, reject) => {
+          init.signal.addEventListener(
+            'abort',
+            () => {
+              const err = new Error('Aborted');
+              (err as any).name = 'AbortError';
+              reject(err);
+            },
+            { once: true }
+          );
+        });
+      });
+
+      const { payload } = compat.buildBatch(
+        [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'error', message: 'boom' } as any],
+        mockManifest,
+        { eventIds: ['sig'] } as any
+      );
+
+      const promise = compat.sendBatch(payload, mockManifest, { timeoutMs: 1 } as any);
+      await expect(promise).resolves.toEqual(
+        expect.objectContaining({
+          success: false,
+          outcomes: [expect.objectContaining({ envelopeId: 'sig', success: false, error: 'Aborted', retryable: true })]
+        })
+      );
+    });
+
+    it('records abort outcomes for every queued envelope when one worker aborts mid-batch', async () => {
+      const controller = new AbortController();
+      const eventIds = ['sig-0', 'sig-1', 'sig-2', 'sig-3'];
+      const { payload } = compat.buildBatch(
+        eventIds.map(envelopeId => ({
+          type: 'signal',
+          traceId,
+          generationId,
+          timestampMs: 1704067200600,
+          level: 'error',
+          message: envelopeId
+        } as any)),
+        mockManifest,
+        { eventIds } as any
+      );
+
+      let callIndex = 0;
+      mockFetch.mockImplementation((_url: any, init: any) => {
+        const currentCall = callIndex++;
+        if (currentCall === 0) {
+          return Promise.resolve({
+            ok: false,
+            status: 429,
+            statusText: 'Too Many Requests',
+            headers: {
+              get: (name: string) => (String(name).toLowerCase() === 'retry-after' ? '5' : null)
+            }
+          } as any);
+        }
+
+        return new Promise((_resolve, reject) => {
+          init.signal.addEventListener(
+            'abort',
+            () => {
+              const err = new Error('Aborted');
+              (err as any).name = 'AbortError';
+              reject(err);
+            },
+            { once: true }
+          );
+        });
+      });
+
+      const promise = compat.sendBatch(payload, mockManifest, {
+        eventIds,
+        signal: controller.signal,
+        providerConfig: { envelopeConcurrency: 2 }
+      } as any);
+
+      await Promise.resolve();
+      await Promise.resolve();
+      controller.abort();
+
+      const result = await promise;
+      expect(result.success).toBe(false);
+      expect(result.outcomes).toHaveLength(eventIds.length);
+      expect(result.outcomes.map(o => o.envelopeId).sort()).toEqual(eventIds.slice().sort());
+      expect(result.outcomes.every(o => o.success === false)).toBe(true);
+    });
+
+    it('skips OTLP export when enableOtlp is set but spans are empty', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: { get: () => null }
+      } as any);
+
+      const { payload } = compat.buildBatch(
+        [{ type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'warning', message: 'warn msg' } as any],
+        mockManifest,
+        { eventIds: ['sig'], providerConfig: { enableOtlp: true } } as any
+      );
+
+      await compat.sendBatch(payload, mockManifest, { timeoutMs: 1000, providerConfig: { enableOtlp: true } } as any);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(String(mockFetch.mock.calls[0]?.[0] || '')).toBe('https://o0.ingest.sentry.io/api/42/envelope/');
+    });
+
+    it('marks the batch as failed when OTLP export fails (overallSuccess false)', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: { get: () => null }
+      } as any);
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable',
+        headers: { get: () => null }
+      } as any);
+
+      const { payload } = compat.buildBatch(
+        [requestEvent, responseEvent, { type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'warning', message: 'warn msg' } as any],
+        mockManifest,
+        { eventIds: ['req', 'resp', 'sig'], providerConfig: { enableOtlp: true } } as any
+      );
+
+      const result = await compat.sendBatch(payload, mockManifest, { timeoutMs: 1000, providerConfig: { enableOtlp: true } } as any);
+      expect(result.success).toBe(false);
+
+      const otlpOutcome = result.outcomes.find(o => o.envelopeId === 'resp');
+      expect(otlpOutcome).toEqual(expect.objectContaining({ success: false, status: 503, retryable: true }));
+    });
+
+    it('handles manifests without endpoint.headers and treats invalid timeoutMs as undefined', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: { get: () => null }
+      } as any);
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: { get: () => null }
+      } as any);
+
+      const manifestNoHeaders: ObservabilityProviderManifest = {
+        ...mockManifest,
+        endpoint: {
+          urlTemplate: '${SENTRY_DSN}',
+          method: 'POST'
+        } as any
+      };
+
+      const { payload } = compat.buildBatch(
+        [requestEvent, responseEvent, { type: 'signal', traceId, generationId, timestampMs: 1704067200600, level: 'warning', message: 'warn msg' } as any],
+        manifestNoHeaders,
+        { eventIds: ['req', 'resp', 'sig'], providerConfig: { enableOtlp: true } } as any
+      );
+
+      const result = await compat.sendBatch(payload, manifestNoHeaders, { timeoutMs: 'nope' as any, providerConfig: { enableOtlp: true } } as any);
+      expect(result.success).toBe(true);
+    });
+
+    it('returns success for empty payloads', async () => {
+      const result = await compat.sendBatch({ spans: [], envelopes: [] } as any, mockManifest, { timeoutMs: 1 } as any);
+      expect(result).toEqual({ success: true, outcomes: [] });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+  });
+});

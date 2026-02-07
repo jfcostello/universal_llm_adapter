@@ -85,6 +85,9 @@ describe('modules/observability', () => {
 
       expect(typeof exporter.recordLLMRequest).toBe('function');
       expect(typeof exporter.recordLLMResponse).toBe('function');
+      expect(typeof (exporter as any).recordToolExecution).toBe('function');
+      expect(typeof (exporter as any).recordSignal).toBe('function');
+      expect(typeof (exporter as any).recordTraceUpdate).toBe('function');
       expect(typeof exporter.flush).toBe('function');
       expect(typeof exporter.shutdown).toBe('function');
     });
@@ -118,6 +121,53 @@ describe('modules/observability', () => {
           model: 'test',
           content: 'test response'
         });
+
+      expect(result.queued).toBe(false);
+      expect(result.reason).toBe('disabled');
+    });
+
+    test('noop exporter recordToolExecution returns disabled result', async () => {
+      const { getNoopObservabilityDeps } = await import('@/modules/observability/index.ts');
+      const deps = getNoopObservabilityDeps();
+      const exporter = deps.getExporter() as any;
+
+      const result = exporter.recordToolExecution({
+        traceId: 'test',
+        timestampMs: 1704067202000,
+        toolCallId: 'call-1',
+        toolName: 'tool'
+      });
+
+      expect(result.queued).toBe(false);
+      expect(result.reason).toBe('disabled');
+    });
+
+    test('noop exporter recordSignal returns disabled result', async () => {
+      const { getNoopObservabilityDeps } = await import('@/modules/observability/index.ts');
+      const deps = getNoopObservabilityDeps();
+      const exporter = deps.getExporter() as any;
+
+      const result = exporter.recordSignal({
+        traceId: 'test',
+        timestampMs: 1704067203000,
+        level: 'error',
+        message: 'boom'
+      });
+
+      expect(result.queued).toBe(false);
+      expect(result.reason).toBe('disabled');
+    });
+
+    test('noop exporter recordTraceUpdate returns disabled result', async () => {
+      const { getNoopObservabilityDeps } = await import('@/modules/observability/index.ts');
+      const deps = getNoopObservabilityDeps();
+      const exporter = deps.getExporter() as any;
+
+      const result = exporter.recordTraceUpdate({
+        traceId: 'test',
+        timestampMs: 1704067204000,
+        name: 'new-name'
+      });
 
       expect(result.queued).toBe(false);
       expect(result.reason).toBe('disabled');
@@ -225,6 +275,136 @@ describe('modules/observability', () => {
 
       expect(result.queued).toBe(true);
       expect(result.eventId).toBeDefined();
+
+      await exporter.shutdown();
+    });
+
+    test('wraps queued events with type and forwards them to compat', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 9999,
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 1,
+          baseDelayMs: 0,
+          maxDelayMs: 0,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      exporter.recordLLMRequest({ traceId: 't1', timestampMs: 1, provider: 'p', model: 'm', messages: [] });
+      (exporter as any).recordToolExecution({ traceId: 't1', timestampMs: 2, toolCallId: 'call-1', toolName: 'tool' });
+      (exporter as any).recordSignal({ traceId: 't1', timestampMs: 3, level: 'info', message: 'ok' });
+      (exporter as any).recordTraceUpdate({ traceId: 't1', timestampMs: 4, name: 'new-name' });
+
+      await exporter.flush();
+
+      const events = (mockCompat.buildBatch as jest.Mock).mock.calls[0][0] as any[];
+      expect(events).toHaveLength(4);
+      expect(events[0]).toEqual(expect.objectContaining({ type: 'llm_request', traceId: 't1' }));
+      expect(events[1]).toEqual(expect.objectContaining({ type: 'tool_execution', toolCallId: 'call-1' }));
+      expect(events[2]).toEqual(expect.objectContaining({ type: 'signal', level: 'info' }));
+      expect(events[3]).toEqual(expect.objectContaining({ type: 'trace_update', name: 'new-name' }));
+
+      await exporter.shutdown();
+    });
+
+    test('redacts sensitive metadata on signal, trace_update, and tool_execution events before export', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 9999,
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 1,
+          baseDelayMs: 0,
+          maxDelayMs: 0,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        {
+          id: 'test',
+          compat: 'test',
+          endpoint: { urlTemplate: 'http://test', method: 'POST' }
+        } as any
+      );
+
+      exporter.recordSignal({
+        traceId: 'trace-1',
+        timestampMs: 1,
+        level: 'error',
+        message: 'boom',
+        metadata: {
+          apiKey: 'secret-value-1234',
+          nested: { password: 'hunter2' },
+          safe: 'ok'
+        }
+      } as any);
+
+      exporter.recordTraceUpdate({
+        traceId: 'trace-1',
+        timestampMs: 2,
+        name: 'rename',
+        metadata: {
+          authorization: 'Bearer top-secret-token',
+          note: 'ok'
+        }
+      } as any);
+
+      exporter.recordToolExecution({
+        traceId: 'trace-1',
+        timestampMs: 3,
+        toolCallId: 'call-1',
+        toolName: 'tool',
+        metadata: {
+          apiKey: 'secret-value-1234',
+          nested: { password: 'hunter2' },
+          safe: 'ok'
+        }
+      } as any);
+
+      await exporter.flush();
+
+      const events = (mockCompat.buildBatch as jest.Mock).mock.calls[0][0] as any[];
+      const signal = events.find((evt: any) => evt.type === 'signal');
+      const traceUpdate = events.find((evt: any) => evt.type === 'trace_update');
+      const toolExecution = events.find((evt: any) => evt.type === 'tool_execution');
+
+      expect(signal.metadata.apiKey).toMatch(/^\*\*\*/);
+      expect(signal.metadata.apiKey).not.toBe('secret-value-1234');
+      expect(signal.metadata.nested.password).toMatch(/^\*\*\*/);
+      expect(signal.metadata.safe).toBe('ok');
+
+      expect(traceUpdate.metadata.authorization).toMatch(/^Bearer \*\*\*/);
+      expect(traceUpdate.metadata.note).toBe('ok');
+
+      expect(toolExecution.metadata.apiKey).toMatch(/^\*\*\*/);
+      expect(toolExecution.metadata.apiKey).not.toBe('secret-value-1234');
+      expect(toolExecution.metadata.nested.password).toMatch(/^\*\*\*/);
+      expect(toolExecution.metadata.safe).toBe('ok');
 
       await exporter.shutdown();
     });
@@ -828,6 +1008,87 @@ describe('modules/observability', () => {
 
       // 2 events doesn't fit, so it should be split into 2 single-event batches
       expect(mockCompat.sendBatch).toHaveBeenCalledTimes(2);
+    });
+
+    test('uses raw UTF-8 byte length for string payload maxBatchBytes preflight', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      const body = 'x'.repeat(50);
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({
+          payload: body,
+          eventIndexByEnvelopeId: new Map([['env-1', 0]])
+        })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' },
+        limits: { maxBatchBytes: Buffer.byteLength(body, 'utf8') }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 100,
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 1,
+          baseDelayMs: 250,
+          maxDelayMs: 30000,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+      await exporter.shutdown();
+
+      expect(mockCompat.sendBatch).toHaveBeenCalledTimes(1);
+    });
+
+    test('guards maxBatchBytes preflight serialization for non-JSON payloads', async () => {
+      const { ObservabilityExporter } = await import('@/modules/observability/index.ts');
+
+      const circular: any = { ok: true, nested: { value: 1n } };
+      circular.self = circular;
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({
+          payload: circular,
+          eventIndexByEnvelopeId: new Map([['env-1', 0]])
+        })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' },
+        limits: { maxBatchBytes: 2048 }
+      };
+
+      const exporter = new ObservabilityExporter(
+        {
+          provider: 'test',
+          flushAt: 100,
+          flushIntervalMs: 60000,
+          maxQueueSize: 1000,
+          maxAttempts: 1,
+          baseDelayMs: 250,
+          maxDelayMs: 30000,
+          timeoutMs: 10000
+        },
+        mockCompat as any,
+        mockManifest as any
+      );
+
+      exporter.recordLLMRequest({ traceId: 'trace-1', timestampMs: 0, provider: '', model: '', messages: [] });
+      await expect(exporter.shutdown()).resolves.toBeUndefined();
+      expect(mockCompat.sendBatch).toHaveBeenCalledTimes(1);
     });
 
     test('drops a single event when it cannot fit provider maxBatchBytes', async () => {
@@ -1924,6 +2185,7 @@ describe('modules/observability', () => {
       jest.resetModules();
 
       const { BUILT_IN_SENSITIVE_KEY_PATTERNS } = await import('@/kernel/internal/defaults.ts');
+      const { resolveObservabilityEnabled } = await import('@/kernel/internal/observability-env.ts');
 
       // Mock the kernel module to return defaults with no provider
       jest.unstable_mockModule('@/kernel/index.ts', () => ({
@@ -1944,6 +2206,7 @@ describe('modules/observability', () => {
           getExporter: overrides.getExporter ?? (() => ({})),
           shutdown: overrides.shutdown ?? (async () => {})
         }),
+        resolveObservabilityEnabled,
         getDefaults: () => ({
           observability: {
             enabled: true,
@@ -2311,6 +2574,41 @@ describe('modules/observability', () => {
       await deps.shutdown();
     });
 
+    test('supports primitive providerConfig values in exporter cache keys', async () => {
+      const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
+
+      const mockCompat = {
+        buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
+        sendBatch: jest.fn(async () => ({ success: true, outcomes: [] }))
+      };
+
+      const mockManifest = {
+        id: 'test',
+        compat: 'test-compat',
+        endpoint: { urlTemplate: 'http://test', method: 'POST' }
+      };
+
+      const mockRegistry = {
+        getObservabilityProvider: jest.fn(async () => mockManifest),
+        getObservabilityCompat: jest.fn(async () => mockCompat)
+      };
+
+      const spec = {
+        enabled: true,
+        provider: 'test',
+        providerConfig: 'provider-config-token'
+      } as any;
+
+      const deps1 = await createObservabilityDeps(mockRegistry as any, spec);
+      const deps2 = await createObservabilityDeps(mockRegistry as any, spec);
+
+      expect(deps1.getExporter()).toBe(deps2.getExporter());
+      expect(mockRegistry.getObservabilityProvider).toHaveBeenCalledTimes(1);
+      expect(mockRegistry.getObservabilityCompat).toHaveBeenCalledTimes(1);
+
+      await deps1.shutdown();
+    });
+
     test('dedupes concurrent exporter initialization and shutdown', async () => {
       const { createObservabilityDeps } = await import('@/modules/observability/index.ts');
 
@@ -2400,6 +2698,7 @@ describe('modules/observability', () => {
       jest.resetModules();
 
       const { BUILT_IN_SENSITIVE_KEY_PATTERNS } = await import('@/kernel/internal/defaults.ts');
+      const { resolveObservabilityEnabled } = await import('@/kernel/internal/observability-env.ts');
 
       const mockCompat = {
         buildBatch: jest.fn(() => ({ payload: {}, eventIndexByEnvelopeId: new Map() })),
@@ -2435,6 +2734,7 @@ describe('modules/observability', () => {
           getExporter: overrides.getExporter ?? (() => ({})),
           shutdown: overrides.shutdown ?? (async () => {})
         }),
+        resolveObservabilityEnabled,
         getDefaults: () => ({
           observability: {
             enabled: true,

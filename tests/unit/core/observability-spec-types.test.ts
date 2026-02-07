@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import type { LLMCallSpec, ObservabilitySpec } from '@/kernel/index.ts';
+import type { LLMCallSpec, ObservabilitySpec, RunContext } from '@/kernel/index.ts';
 import { Role } from '@/kernel/index.ts';
 
 describe('observability-spec-types', () => {
@@ -45,6 +45,15 @@ describe('observability-spec-types', () => {
       };
 
       expect(spec.observability).toBeUndefined();
+    });
+
+    test('RunContext accepts optional generationId for internal observability correlation', () => {
+      const runContext: RunContext = {
+        metadata: { correlationId: 'corr-1' },
+        generationId: 'gen-1'
+      };
+
+      expect(runContext.generationId).toBe('gen-1');
     });
 
       test('ObservabilitySpec accepts all optional queue knobs', () => {

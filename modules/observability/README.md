@@ -7,12 +7,15 @@ The observability module provides optional export of LLM call telemetry to exter
 Observability supports:
 - Recording LLM request events (prompt, model, tools, settings)
 - Recording LLM response events (content, usage, duration, errors)
+- Recording tool execution events (duration, skipped/errors)
+- Recording signals (warnings/errors) and trace updates when enabled
 - Recording realtime session request/response events per turn (one trace per `commit()`)
 - Recording request/response payloads when enabled (`requestPayload` / `rawResponse`)
 - Trace and session correlation
+- Multi-target export routing (per provider + per event category)
 - Non-blocking async export with retry
 
-**Not yet supported:** Embedding calls, vector operations, tool execution telemetry.
+**Not yet supported:** Embedding calls, vector operations.
 
 ## How to Enable
 
@@ -24,24 +27,22 @@ Enable observability globally by adding to your `plugins/configs/defaults.json`:
 {
   "observability": {
     "enabled": true,
+    "provider": "your-observability-provider-id"
+  }
+}
+```
+
+To increase capture from the shipped defaults:
+
+```json
+{
+  "observability": {
+    "enabled": true,
     "provider": "your-observability-provider-id",
-    "flushAt": 10,
-    "flushIntervalMs": 5000,
-    "maxQueueSize": 1000,
-    "maxAttempts": 3,
-    "baseDelayMs": 250,
-    "maxDelayMs": 30000,
-    "timeoutMs": 10000,
-    "shutdownTimeoutMs": 5000,
-    "maxAttributeValueBytes": 16384,
-    "captureMessages": "none",
+    "captureMessages": "text",
     "captureToolArgs": false,
     "captureRequestPayload": false,
-    "captureRawResponse": false,
-    "sampleRate": 1,
-    "maxInputTextBytes": 4096,
-    "maxOutputTextBytes": 4096,
-    "maxJsonBytes": 8192
+    "captureRawResponse": false
   }
 }
 ```
@@ -68,7 +69,7 @@ const spec = {
     maxAttempts: 5,
     // Optional: truncation budget for exported attribute strings (UTF-8 bytes)
     maxAttributeValueBytes: 8192,
-    // Optional: capture controls (safety/performance)
+    // Optional: capture controls (override defaults)
     captureMessages: 'text',
     captureToolArgs: false,
     captureRequestPayload: false,
@@ -80,6 +81,80 @@ const spec = {
     maxJsonBytes: 8192
   }
 };
+```
+
+### Multi-Target Configuration (`targets`)
+
+To export to multiple providers, use `observability.targets` (either globally in defaults or per-call):
+
+```json
+{
+  "observability": {
+    "enabled": true,
+    "targets": [
+      { "provider": "langfuse", "export": { "signals": false } },
+      { "provider": "sentry", "export": { "traces": false, "tools": false, "traceUpdates": false } }
+    ]
+  }
+}
+```
+
+Each target supports:
+- `provider`: observability provider id (`plugins/observability-providers/*.json`)
+- `providerConfig`: provider-specific settings passed through to the compat
+- `export`: per-category routing flags (`traces`, `tools`, `signals`, `traceUpdates`)
+- Optional per-target queue tuning overrides (`flushAt`, `timeoutMs`, etc.)
+
+## Client Telemetry Submission
+
+In addition to automatic capture during LLM calls and realtime sessions, the adapter supports **client-submitted telemetry**:
+
+- CLI: `llm-adapter telemetry`
+- Server: `POST /telemetry`
+
+These submissions are validated and then recorded into the same observability exporter queue (with the same routing semantics).
+
+### Signal
+
+```json
+{
+  "type": "signal",
+  "traceId": "trace-123",
+  "level": "error",
+  "message": "Something went wrong"
+}
+```
+
+### Trace update
+
+```json
+{
+  "type": "trace_update",
+  "traceId": "trace-123",
+  "name": "checkout-flow",
+  "tags": ["web", "prod"]
+}
+```
+
+### Per-submission override (optional)
+
+Include an `observability` object to override routing/settings for this submission only (useful when observability is disabled globally):
+
+```json
+{
+  "type": "signal",
+  "traceId": "trace-123",
+  "level": "warning",
+  "message": "Send this to a specific target",
+  "observability": {
+    "enabled": true,
+    "traceId": "trace-123",
+    "flushAt": 1,
+    "targets": [
+      { "provider": "sentry", "export": { "signals": true } }
+    ]
+  }
+}
 ```
 
 ## Realtime Sessions
@@ -107,20 +182,21 @@ In addition to `spec.observability.*`, the adapter uses `spec.metadata` for corr
 - `spec.metadata.batchId`: optional per-request batch identifier; when `spec.observability.sessionId` is not set, this is used as the default session/grouping ID for observability.
 - `spec.observability.sessionId`: stable per-session identifier to group related traces (overrides `spec.metadata.batchId`).
 - `spec.metadata.tags`: optional array of strings forwarded to observability providers that support tagging.
+- Signal, tool execution, and trace-update metadata fields are passed through credential redaction before export.
 
 The adapter also forwards token breakdown details (e.g., input/output/total, cached/reasoning/audio tokens) when they are provided by the underlying provider or can be derived from the response.
 
 ## Capture Controls (Safety + Performance)
 
-Observability export is enabled explicitly, but **payload capture is disabled by default** to reduce latency, CPU, memory, and the risk of exporting sensitive content.
+Observability export is disabled by default. When enabled, **shipped defaults use minimal capture** for safer internet-facing deployments, and can be raised when you need deeper debugging visibility.
 
 - `captureMessages`:
-  - `none` (default): do not export prompt/response bodies
+  - `none`: do not export prompt/response bodies
   - `text`: export only text content parts (excludes documents, images, tool result payloads)
   - `full`: export full structured message/content payloads
-- `captureToolArgs` (default `false`): export tool-call arguments/metadata
-- `captureRequestPayload` (default `false`): export final provider request payload
-- `captureRawResponse` (default `false`): export raw provider response payloads (when available)
+- `captureToolArgs` (default `false` in shipped defaults): export tool-call arguments/metadata
+- `captureRequestPayload` (default `false` in shipped defaults): export final provider request payload
+- `captureRawResponse` (default `false` in shipped defaults): export raw provider response payloads (when available)
 - `sampleRate` (default `1`): sampling rate (0..1). When < 1, calls may be skipped entirely.
 
 Budgets:
@@ -203,12 +279,19 @@ Env var:
 - `LLM_ADAPTER_OBSERVABILITY_OTLP_WORKER=0` force-disable worker encoding
 - unset: enabled by default only for compiled JS bundles (and disabled by default in Jest)
 
+Global observability overrides (applied when the per-call spec omits those fields):
+- `LLM_ADAPTER_OBSERVABILITY_ENABLED=1|0` force-enable/disable observability
+- `LLM_ADAPTER_OBSERVABILITY_TARGETS=<value>` override default targets
+  - CSV provider list: `provider-a,provider-b`
+  - JSON array: `["provider-a", {"provider":"provider-b","export":{"signals":false}}]`
+  - Invalid values are ignored and emit a warning with format/length metadata (raw value is not logged)
+
 ## Configuration Reference
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `enabled` | boolean | `false` | Enable observability export |
-| `provider` | string | `undefined` | Provider ID |
+| `provider` | string | `'langfuse'` | Provider ID |
 | `traceId` | string | auto | Trace ID (falls back to correlationId or UUID) |
 | `sessionId` | string | undefined | Session ID for grouping traces |
 | `providerConfig` | object | undefined | Provider-specific configuration |
@@ -253,12 +336,28 @@ modules/observability/
 ├── index.ts              # Public exports
 ├── README.md             # This file
 └── internal/
-    ├── observability.ts  # Core queue + exporter + runtime
-    └── otlp/             # OTLP HTTP/protobuf encoding + client helpers
-        ├── client.ts
-        ├── encode.ts
-        ├── ids.ts
-        ├── spans.ts
-        ├── time.ts
-        └── types.ts
+    ├── compat-helpers.ts
+    ├── exporter/         # Core queue + exporter + runtime cache
+    │   ├── README.md
+    │   ├── index.ts
+    │   └── internal/
+    │       ├── config.ts
+    │       ├── create-deps.ts
+    │       ├── exporter.ts
+    │       ├── multi-exporter.ts
+    │       ├── runtime.ts
+    │       ├── send-with-size-limit.ts
+    │       └── types.ts
+    ├── observability.ts  # Re-export: exporter public surface
+    ├── otlp/             # OTLP HTTP/protobuf encoding + client helpers
+    │   ├── chunk-and-encode.ts
+    │   ├── client.ts
+    │   ├── encode-worker.ts
+    │   ├── encode.ts
+    │   ├── ids.ts
+    │   ├── spans.ts
+    │   ├── time.ts
+    │   └── types.ts
+    ├── runtime.ts
+    └── telemetry-submit.ts
 ```

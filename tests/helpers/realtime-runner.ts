@@ -390,15 +390,20 @@ async function runViaCli(options: RunRealtimeScenarioOptions): Promise<RunRealti
         }
         case 'send_audio_file': {
           if (!step.filePath) throw new Error('send_audio_file missing filePath');
+          const chunkMs = Number(step.chunkMs ?? 20);
+          const paceMs = Number.isFinite(chunkMs) ? Math.max(0, Math.floor(chunkMs)) : 0;
           const frames = await readAudioFileAsFrames({
             filePath: step.filePath,
             format: String(step.frameFormat ?? 'pcm16'),
             sampleRateHz: Number(step.sampleRateHz ?? 24000),
             channels: (step.channels ?? 1) as 1 | 2,
-            chunkMs: Number(step.chunkMs ?? 20)
+            chunkMs
           });
-          for (const frame of frames) {
-            await writeLine({ type: 'send_audio', frame });
+          for (let i = 0; i < frames.length; i++) {
+            await writeLine({ type: 'send_audio', frame: frames[i] });
+            if (paceMs > 0 && i < frames.length - 1) {
+              await sleep(paceMs);
+            }
           }
           break;
         }
@@ -591,15 +596,20 @@ async function runViaServer(options: RunRealtimeScenarioOptions): Promise<RunRea
           break;
         case 'send_audio_file': {
           if (!step.filePath) throw new Error('send_audio_file missing filePath');
+          const chunkMs = Number(step.chunkMs ?? 20);
+          const paceMs = Number.isFinite(chunkMs) ? Math.max(0, Math.floor(chunkMs)) : 0;
           const frames = await readAudioFileAsFrames({
             filePath: step.filePath,
             format: String(step.frameFormat ?? 'pcm16'),
             sampleRateHz: Number(step.sampleRateHz ?? 24000),
             channels: (step.channels ?? 1) as 1 | 2,
-            chunkMs: Number(step.chunkMs ?? 20)
+            chunkMs
           });
-          for (const frame of frames) {
-            send({ type: 'send_audio', frame });
+          for (let i = 0; i < frames.length; i++) {
+            send({ type: 'send_audio', frame: frames[i] });
+            if (paceMs > 0 && i < frames.length - 1) {
+              await sleep(paceMs);
+            }
           }
           break;
         }

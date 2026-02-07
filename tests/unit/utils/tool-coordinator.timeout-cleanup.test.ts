@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 import path from 'path';
 import { EventEmitter } from 'events';
+import { PassThrough } from 'stream';
 import { ToolCoordinator } from '@/modules/tools/index.ts';
 import { ROOT_DIR } from '@tests/helpers/paths.ts';
 
@@ -99,6 +100,40 @@ describe('ToolCoordinator timeout cleanup', () => {
     await expect(promise).resolves.toEqual({ result: null });
 
     expect(killCalls).toEqual(['SIGKILL', undefined]);
+  });
+
+  test('invokeCommand ignores stdin write errors and still parses stdout', async () => {
+    const { invokeCommand } = await import(
+      '@/modules/tools/internal/tool-coordinator/internal/invoke-command.ts'
+    );
+
+    const proc = new EventEmitter() as any;
+    proc.stdout = new PassThrough();
+    proc.stderr = new PassThrough();
+
+    const stdin = new EventEmitter() as any;
+    stdin.write = () => {
+      const error: any = new Error('write EPIPE');
+      error.code = 'EPIPE';
+      throw error;
+    };
+    stdin.end = () => {
+      const error: any = new Error('end EPIPE');
+      error.code = 'EPIPE';
+      throw error;
+    };
+    proc.stdin = stdin;
+
+    const promise = invokeCommand({
+      route: { id: 'cmd', invoke: { kind: 'command', command: 'node', args: [] } } as any,
+      ctx: { toolName: 'cmd', callId: 'call', args: {}, provider: 'p', model: 'm', metadata: {} },
+      spawnProcess: () => proc
+    });
+
+    proc.stdout.write('not-json');
+    proc.emit('close', 0);
+
+    await expect(promise).rejects.toThrow('Invalid JSON output: not-json');
   });
 
   test('createTimeout does not schedule a timer when signal already aborted', () => {

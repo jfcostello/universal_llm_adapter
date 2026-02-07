@@ -279,7 +279,7 @@ export class StreamCoordinator {
           providerExtras,
           logger: context.logger,
           toolNameMap,
-          runContext: { metadata: executionSpec.metadata, observability: context.observability },
+          runContext: { metadata: executionSpec.metadata, observability: context.observability, generationId },
           metadata: executionSpec.metadata,
           initialToolCalls: preparedToolCalls,
           initialReasoning: reasoningAggregate,

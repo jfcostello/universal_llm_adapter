@@ -13,6 +13,7 @@ import { handleExtensionsList } from './handlers/extensions-list.js';
 import { handleLlmRun } from './handlers/llm-run.js';
 import { handleLlmStream } from './handlers/llm-stream.js';
 import { handleRealtimeWebrtcClientSecret } from './handlers/realtime-client-secret.js';
+import { handleTelemetrySubmit } from './handlers/telemetry-submit.js';
 import { handleVectorRun } from './handlers/vector-run.js';
 import { handleVectorStream } from './handlers/vector-stream.js';
 
@@ -82,6 +83,11 @@ export async function handleRequest(
 
     if (url === '/embeddings/run') {
       await handleEmbeddingsRun(ctx, req, res);
+      return;
+    }
+
+    if (url === '/telemetry') {
+      await handleTelemetrySubmit(ctx, req, res);
       return;
     }
 

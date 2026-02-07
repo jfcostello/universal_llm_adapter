@@ -2,6 +2,7 @@ import {
   assertValidSpec,
   assertValidVectorSpec,
   assertValidEmbeddingSpec,
+  assertValidTelemetrySubmission,
   resolveAjvConstructor
 } from '@/modules/server/internal/transport/spec-validator.ts';
 
@@ -57,6 +58,124 @@ describe('utils/server assertValidSpec', () => {
 
   test('assertValidEmbeddingSpec rejects missing required fields', () => {
     expect(() => assertValidEmbeddingSpec({} as any)).toThrow(/validation/i);
+  });
+
+  test('assertValidTelemetrySubmission accepts minimal signal payload', () => {
+    expect(() =>
+      assertValidTelemetrySubmission({
+        type: 'signal',
+        traceId: 'trace_1',
+        level: 'error',
+        message: 'boom'
+      } as any)
+    ).not.toThrow();
+  });
+
+  test('assertValidTelemetrySubmission rejects whitespace-only traceId', () => {
+    expect(() =>
+      assertValidTelemetrySubmission({
+        type: 'signal',
+        traceId: '   ',
+        level: 'error',
+        message: 'boom'
+      } as any)
+    ).toThrow(/telemetry/i);
+  });
+
+  test('assertValidTelemetrySubmission accepts minimal trace_update payload', () => {
+    expect(() =>
+      assertValidTelemetrySubmission({
+        type: 'trace_update',
+        traceId: 'trace_2'
+      } as any)
+    ).not.toThrow();
+  });
+
+  test('assertValidTelemetrySubmission rejects unknown telemetry type', () => {
+    expect(() =>
+      assertValidTelemetrySubmission({
+        type: 'unknown',
+        traceId: 'trace_3'
+      } as any)
+    ).toThrow(/telemetry/i);
+  });
+
+  test('assertValidTelemetrySubmission accepts observability overrides when allowlist is disabled', () => {
+    expect(() =>
+      assertValidTelemetrySubmission({
+        type: 'signal',
+        traceId: 'trace_4',
+        level: 'error',
+        message: 'boom',
+        observability: {
+          enabled: true,
+          traceId: 'override-trace',
+          customValue: 'permitted-when-policy-disabled'
+        }
+      } as any)
+    ).not.toThrow();
+  });
+
+  test('assertValidTelemetrySubmission enforces observability override allowlist when configured', () => {
+    expect(() =>
+      assertValidTelemetrySubmission(
+        {
+          type: 'signal',
+          traceId: 'trace_5',
+          level: 'error',
+          message: 'boom',
+          observability: {
+            enabled: true,
+            traceId: 'override-trace'
+          }
+        } as any,
+        { observabilityOverrideAllowlist: ['enabled', 'traceId'] }
+      )
+    ).not.toThrow();
+
+    expect(() =>
+      assertValidTelemetrySubmission(
+        {
+          type: 'signal',
+          traceId: 'trace_6',
+          level: 'error',
+          message: 'boom',
+          observability: {
+            enabled: true,
+            providerConfig: { token: 'x' }
+          }
+        } as any,
+        { observabilityOverrideAllowlist: ['enabled', 'traceId'] }
+      )
+    ).toThrow(/telemetry/i);
+  });
+
+  test('assertValidTelemetrySubmission tolerates telemetry allowlist with non-string entries', () => {
+    expect(() =>
+      assertValidTelemetrySubmission(
+        {
+          type: 'signal',
+          traceId: 'trace_7',
+          level: 'error',
+          message: 'boom',
+          observability: { enabled: true }
+        } as any,
+        { observabilityOverrideAllowlist: ['enabled', '  ', 123 as any] }
+      )
+    ).not.toThrow();
+  });
+
+  test('assertValidTelemetrySubmission allows payloads without observability override when allowlist is enabled', () => {
+    expect(() =>
+      assertValidTelemetrySubmission(
+        {
+          type: 'trace_update',
+          traceId: 'trace_8',
+          name: 'trace-name'
+        } as any,
+        { observabilityOverrideAllowlist: ['enabled'] }
+      )
+    ).not.toThrow();
   });
 
   test('resolveAjvConstructor uses default when present', () => {

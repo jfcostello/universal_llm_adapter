@@ -88,6 +88,41 @@ describe('LLMManager observability', () => {
     expect(responseArg.toolCalls).toEqual([{ id: 'tc-1', name: 'test_tool' }]);
   });
 
+  test('callProvider omits tool args when captureToolArgs is missing (falls back to shipped default)', async () => {
+    const mockSDKResponse = {
+      content: [{ type: 'text', text: 'SDK response' }],
+      role: Role.ASSISTANT,
+      toolCalls: [{ id: 'tc-1', name: 'test_tool', arguments: { api_key: 'abcd1234' } }]
+    };
+
+    const mockCompat = {
+      callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = createMockObservabilityContext({ captureToolArgs: undefined });
+    const context: RunContext = { observability };
+
+    const manager = new LLMManager(registry);
+    await manager.callProvider(
+      mockProvider,
+      'test-model',
+      { temperature: 0.7 },
+      mockMessages,
+      [],
+      undefined,
+      { api_key: 'sk-abcdef1234' },
+      undefined,
+      context
+    );
+
+    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+    expect(responseArg.toolCalls).toEqual([{ id: 'tc-1', name: 'test_tool' }]);
+  });
+
   test('callProvider records LLM request when observability is enabled', async () => {
     const mockSDKResponse = {
       content: [{ type: 'text', text: 'SDK response' }],
@@ -132,6 +167,118 @@ describe('LLMManager observability', () => {
     const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
     expect(typeof requestArg.generationId).toBe('string');
     expect(requestArg.requestPayload.providerExtras.api_key).toBe('***1234');
+  });
+
+  test('callProvider does not mutate runContext to store generationId', async () => {
+    const mockSDKResponse = {
+      content: [{ type: 'text', text: 'SDK response' }],
+      role: Role.ASSISTANT,
+      toolCalls: []
+    };
+
+    const mockCompat = {
+      callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = createMockObservabilityContext();
+    const context: RunContext = { observability };
+
+    const manager = new LLMManager(registry);
+    await manager.callProvider(
+      mockProvider,
+      'test-model',
+      { temperature: 0.7 },
+      mockMessages,
+      [],
+      undefined,
+      {},
+      undefined,
+      context
+    );
+
+    const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
+    expect(typeof requestArg.generationId).toBe('string');
+    expect((context as any).generationId).toBeUndefined();
+  });
+
+  test('callProvider uses runContext generationId when already provided', async () => {
+    const mockSDKResponse = {
+      content: [{ type: 'text', text: 'SDK response' }],
+      role: Role.ASSISTANT,
+      toolCalls: []
+    };
+
+    const mockCompat = {
+      callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = createMockObservabilityContext();
+    const context: RunContext = { observability };
+    (context as any).generationId = 'gen-existing';
+
+    const manager = new LLMManager(registry);
+    await manager.callProvider(
+      mockProvider,
+      'test-model',
+      { temperature: 0.7 },
+      mockMessages,
+      [],
+      undefined,
+      {},
+      undefined,
+      context
+    );
+
+    const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
+    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+    expect(requestArg.generationId).toBe('gen-existing');
+    expect(responseArg.generationId).toBe('gen-existing');
+    expect((context as any).generationId).toBe('gen-existing');
+  });
+
+  test('callProvider ignores whitespace runContext generationId and generates a new ID', async () => {
+    const mockSDKResponse = {
+      content: [{ type: 'text', text: 'SDK response' }],
+      role: Role.ASSISTANT,
+      toolCalls: []
+    };
+
+    const mockCompat = {
+      callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = createMockObservabilityContext();
+    const context: RunContext = { observability };
+    (context as any).generationId = '   ';
+
+    const manager = new LLMManager(registry);
+    await manager.callProvider(
+      mockProvider,
+      'test-model',
+      { temperature: 0.7 },
+      mockMessages,
+      [],
+      undefined,
+      {},
+      undefined,
+      context
+    );
+
+    const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
+    expect(typeof requestArg.generationId).toBe('string');
+    expect(requestArg.generationId).not.toBe('   ');
   });
 
   test('callProvider uses numeric timestampMs (and does not allocate ISO timestamps) for observability events', async () => {

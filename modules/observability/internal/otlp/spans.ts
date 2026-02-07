@@ -8,7 +8,7 @@ import { deriveOtlpSpanIdHex, deriveOtlpTraceIdHex } from './ids.js';
 import type { OtlpSpanSpec } from './types.js';
 
 function statusCodeToOtel(code: OtlpSpanSpec['status']): SpanStatusCode {
-const raw = code?.code;
+  const raw = code?.code;
   if (raw === 'OK') return SpanStatusCode.OK;
   if (raw === 'ERROR') return SpanStatusCode.ERROR;
   return SpanStatusCode.UNSET;

@@ -1,6 +1,6 @@
 import type { ObservabilityEnvelopeOutcome } from '../../../../kernel/index.js';
 import type { OtlpSpanSpec } from './types.js';
-import { sleepWithSignal } from '../../../shared/index.js';
+import { parseRetryAfterMs, setUnrefTimeout, sleepWithSignal } from '../../../shared/index.js';
 import { chunkAndEncodeOtlpTraceSpans, type EncodedOtlpChunk } from './chunk-and-encode.js';
 
 function isRetryableStatus(status: number): boolean {
@@ -15,25 +15,6 @@ function createAbortError(message = 'Aborted'): Error {
   const error = new Error(message);
   (error as any).name = 'AbortError';
   return error;
-}
-
-function parseRetryAfterMs(headerValue: unknown): number | null {
-  if (typeof headerValue !== 'string') return null;
-  const trimmed = headerValue.trim();
-  if (!trimmed) return null;
-
-  // Retry-After: <seconds>
-  const seconds = Number(trimmed);
-  if (Number.isFinite(seconds) && seconds >= 0) {
-    return Math.floor(seconds * 1000);
-  }
-
-  // Retry-After: <http-date>
-  const dateMs = Date.parse(trimmed);
-  if (!Number.isFinite(dateMs)) return null;
-  const deltaMs = dateMs - Date.now();
-  if (!Number.isFinite(deltaMs) || deltaMs <= 0) return null;
-  return Math.floor(deltaMs);
 }
 
 function shouldUseOtlpEncodeWorker(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -315,7 +296,7 @@ export async function sendOtlpTraceSpans(options: {
     let cleanupSignal: (() => void) | undefined;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     if (timeoutMs !== undefined) {
-      timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      timeoutId = setUnrefTimeout(() => controller.abort(), timeoutMs);
     }
 
     try {

@@ -1,1 +1,1 @@
-export * from './observability/index.js';
+export * from './exporter/index.js';

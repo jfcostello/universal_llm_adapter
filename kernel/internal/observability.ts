@@ -143,6 +143,66 @@ export interface ObservabilityLLMResponseEvent {
   metadata?: Record<string, unknown>;
 }
 
+export interface ObservabilityToolExecutionEvent {
+  traceId: string;
+  generationId?: string;
+  sessionId?: string;
+  timestampMs: number;
+  timestamp?: string;
+  provider?: string;
+  model?: string;
+  toolCallId: string;
+  toolName: string;
+  durationMs?: number;
+  args?: unknown;
+  resultText?: string;
+  result?: unknown;
+  skipped?: boolean;
+  skipReason?: string;
+  error?: {
+    message: string;
+    code?: string;
+    stack?: string;
+    retryable?: boolean;
+  };
+  metadata?: Record<string, unknown>;
+}
+
+export type ObservabilitySignalLevel = 'debug' | 'info' | 'warning' | 'error';
+
+export interface ObservabilitySignalEvent {
+  traceId: string;
+  generationId?: string;
+  sessionId?: string;
+  timestampMs: number;
+  timestamp?: string;
+  level: ObservabilitySignalLevel;
+  message: string;
+  source?: string;
+  code?: string;
+  stack?: string;
+  tags?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface ObservabilityTraceUpdateEvent {
+  traceId: string;
+  generationId?: string;
+  sessionId?: string;
+  timestampMs: number;
+  timestamp?: string;
+  name?: string;
+  tags?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export type ObservabilityEvent =
+  | ({ type: 'llm_request' } & ObservabilityLLMRequestEvent)
+  | ({ type: 'llm_response' } & ObservabilityLLMResponseEvent)
+  | ({ type: 'tool_execution' } & ObservabilityToolExecutionEvent)
+  | ({ type: 'signal' } & ObservabilitySignalEvent)
+  | ({ type: 'trace_update' } & ObservabilityTraceUpdateEvent);
+
 /**
  * Observability exporter interface.
  * Used internally by the observability module to manage the queue and export.
@@ -157,6 +217,12 @@ export interface IObservabilityExporter {
    * Record an LLM response event.
    */
   recordLLMResponse(event: ObservabilityLLMResponseEvent): ObservabilityRecordResult;
+
+  recordToolExecution(event: ObservabilityToolExecutionEvent): ObservabilityRecordResult;
+
+  recordSignal(event: ObservabilitySignalEvent): ObservabilityRecordResult;
+
+  recordTraceUpdate(event: ObservabilityTraceUpdateEvent): ObservabilityRecordResult;
 
   /**
    * Flush all pending events.
@@ -212,6 +278,9 @@ function createNoopExporter(): IObservabilityExporter {
   return {
     recordLLMRequest: () => noopResult,
     recordLLMResponse: () => noopResult,
+    recordToolExecution: () => noopResult,
+    recordSignal: () => noopResult,
+    recordTraceUpdate: () => noopResult,
     flush: async () => {},
     shutdown: async () => {}
   };

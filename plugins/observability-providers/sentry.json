@@ -1,0 +1,9 @@
+{
+  "id": "sentry",
+  "compat": "sentry",
+  "endpoint": {
+    "urlTemplate": "${SENTRY_DSN?}",
+    "method": "POST",
+    "headers": {}
+  }
+}

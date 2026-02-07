@@ -126,6 +126,23 @@ describe('cli/internal/unified-cli', () => {
       expect(serveCmd).toBeDefined();
     });
 
+    test('has telemetry command', () => {
+      const program = createUnifiedProgram(mockDeps);
+      const telemetryCmd = program.commands.find(c => c.name() === 'telemetry');
+      expect(telemetryCmd).toBeDefined();
+    });
+
+    test('registers extension wildcard after telemetry so built-in telemetry command wins', () => {
+      const program = createUnifiedProgram(mockDeps);
+      const commandNames = program.commands.map(c => c.name());
+      const telemetryIndex = commandNames.indexOf('telemetry');
+      const wildcardIndex = commandNames.indexOf('*');
+
+      expect(telemetryIndex).toBeGreaterThanOrEqual(0);
+      expect(wildcardIndex).toBeGreaterThanOrEqual(0);
+      expect(telemetryIndex).toBeLessThan(wildcardIndex);
+    });
+
     test('has realtime command', () => {
       const program = createUnifiedProgram(mockDeps);
       const realtimeCmd = program.commands.find(c => c.name() === 'realtime');
@@ -1151,6 +1168,56 @@ describe('cli/internal/unified-cli', () => {
       await program.parseAsync(['node', 'llm-adapter', 'run', '--spec', VALID_LLM_SPEC_JSON, '--batch-id', 'test-batch']);
 
       expect(capturedExitCodes).toEqual([0]);
+    });
+  });
+
+  describe('telemetry command', () => {
+    test('submits telemetry payload and prints wrapped response', async () => {
+      const program = createUnifiedProgram(mockDeps);
+      const writtenData: string[] = [];
+      const writeSpy = jest.spyOn(process.stdout, 'write').mockImplementation((chunk: any, encodingOrCb?: any, cb?: any) => {
+        writtenData.push(chunk.toString());
+        const callback = typeof encodingOrCb === 'function' ? encodingOrCb : cb;
+        if (callback) setImmediate(callback);
+        return true;
+      });
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'telemetry',
+        '--spec',
+        JSON.stringify({ type: 'signal', traceId: 'trace_1', level: 'error', message: 'boom' })
+      ]);
+
+      expect(mockDeps.createRegistry).toHaveBeenCalledWith('./plugins');
+      expect(mockRegistry.loadAll).not.toHaveBeenCalled();
+      expect(mockDeps.closeLogger).toHaveBeenCalled();
+      expect(capturedExitCodes).toEqual([0]);
+
+      const parsed = JSON.parse(writtenData.join('').trim());
+      expect(parsed.type).toBe('response');
+      expect(parsed.data.traceId).toBe('trace_1');
+
+      writeSpy.mockRestore();
+    });
+
+    test('exits with code 1 on validation error without creating a registry', async () => {
+      const program = createUnifiedProgram(mockDeps);
+
+      await program.parseAsync([
+        'node',
+        'llm-adapter',
+        'telemetry',
+        '--spec',
+        JSON.stringify({ type: 'signal', traceId: 'trace_2', level: 'error' })
+      ]);
+
+      expect(mockDeps.createRegistry).not.toHaveBeenCalled();
+      expect(mockDeps.closeLogger).toHaveBeenCalled();
+      expect(capturedExitCodes[capturedExitCodes.length - 1]).toBe(1);
+      const err = JSON.parse(capturedErrors[capturedErrors.length - 1]);
+      expect(err.error.code).toBe('validation_error');
     });
   });
 

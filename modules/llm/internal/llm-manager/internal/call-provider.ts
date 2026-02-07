@@ -15,7 +15,7 @@ import { ProviderExecutionError } from '../../../../../kernel/index.js';
 import type { AxiosInstance } from 'axios';
 
 import { aggregateSystemMessages } from '../../../../messages/index.js';
-import { monotonicNowNs } from '../../../../shared/index.js';
+import { monotonicNowNs, readTrimmedStringProperty } from '../../../../shared/index.js';
 
 import { callProviderViaSdk } from './call-provider-sdk.js';
 import { callProviderViaHttp } from './call-provider-http.js';
@@ -37,7 +37,9 @@ export async function callProvider(options: {
 }): Promise<LLMResponse> {
   const startTimeMs = Date.now();
   const startTimeMonoNs = monotonicNowNs();
-  const generationId = options.context.observability ? randomUUID() : undefined;
+  const generationId = options.context.observability
+    ? readTrimmedStringProperty(options.context, 'generationId') ?? randomUUID()
+    : undefined;
   const requestTimestampMs = startTimeMs;
   const normalizedMessages = aggregateSystemMessages(options.messages);
   const shouldLogLive = process.env.LLM_LIVE === '1';
