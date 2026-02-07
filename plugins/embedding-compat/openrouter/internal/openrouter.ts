@@ -3,11 +3,24 @@ import {
   IEmbeddingCompat,
   EmbeddingProviderConfig,
   EmbeddingResult,
+  EmbeddingError,
   IEmbeddingOperationLogger,
   EmbeddingProviderError
 } from '../../../../kernel/index.js';
 import { createOpenRouterEmbeddingHttpClient } from './http.js';
 import { isRateLimitResponse, parseEmbeddingResponse } from './response.js';
+
+function isAbortLikeError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const name = String((error as any).name ?? '');
+  const code = String((error as any).code ?? '');
+
+  if (['AbortError', 'CanceledError'].includes(name)) return true;
+  return ['aborted', 'ABORT_ERR', 'ERR_CANCELED'].includes(code);
+}
 
 /**
  * OpenRouter Embedding Compat Module
@@ -93,10 +106,14 @@ export default class OpenRouterEmbeddingCompat implements IEmbeddingCompat {
 
       return result;
     } catch (error: any) {
+      if (options.signal?.aborted || isAbortLikeError(error)) {
+        throw new EmbeddingError('Embedding request aborted');
+      }
       if (error instanceof EmbeddingProviderError) {
         throw error;
       }
-      throw new EmbeddingProviderError('openrouter', error.message);
+      const message = error instanceof Error ? error.message : String(error);
+      throw new EmbeddingProviderError('openrouter', message);
     }
   }
 

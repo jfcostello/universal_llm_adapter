@@ -118,6 +118,7 @@ function extractAssistantText(response: LLMResponse): string {
     const finalOk = `FINAL_OK_${Date.now()}`;
     const prompt = [
       `FINAL_OK=${finalOk}`,
+      `After tool execution, your final assistant message must include this exact token: ${finalOk}.`,
       'Call exactly one tool: test.control.',
       'Use this exact JSON arguments object and key names: {"override": false, "sleepMs": 0}',
       'Do not use any key other than override and sleepMs.',
@@ -141,6 +142,7 @@ function extractAssistantText(response: LLMResponse): string {
     const response = call.response as LLMResponse;
     const assistantText = extractAssistantText(response).trim();
     expect(assistantText.length).toBeGreaterThan(0);
+    expect(assistantText).toContain(finalOk);
     expect(response.finishReason).not.toBe('tool_stop');
     const adapterLogs = parseAdapterLogLines(call.result.logs);
     expect(adapterLogs.some(entry => entry.message === 'Final response requested after tool budget exhausted')).toBe(true);

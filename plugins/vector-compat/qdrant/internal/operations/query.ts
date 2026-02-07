@@ -16,9 +16,39 @@ function createAbortError(message: string): Error {
   return error;
 }
 
+function isAbortLikeError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const name = String((error as any).name ?? '');
+  const code = String((error as any).code ?? '');
+
+  if (['AbortError', 'CanceledError'].includes(name)) return true;
+  return ['aborted', 'ABORT_ERR', 'ERR_CANCELED'].includes(code);
+}
+
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
     throw createAbortError('Vector query aborted');
+  }
+}
+
+async function runWithTimeout<T>(operation: () => Promise<T>, timeoutMs?: number): Promise<T> {
+  if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return operation();
+  }
+
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      operation(),
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => reject(createAbortError(`Vector query timed out after ${timeoutMs}ms`)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -58,7 +88,8 @@ export async function queryQdrant(options: {
     };
 
     if (typeof queryOptions?.timeoutMs === 'number' && Number.isFinite(queryOptions.timeoutMs) && queryOptions.timeoutMs > 0) {
-      searchParams.timeout = Math.max(1, Math.ceil(queryOptions.timeoutMs / 1000));
+      // Qdrant timeout granularity is seconds. Floor avoids extending larger budgets.
+      searchParams.timeout = Math.max(1, Math.floor(queryOptions.timeoutMs / 1000));
     }
 
     // Convert generic filter to Qdrant format
@@ -69,7 +100,10 @@ export async function queryQdrant(options: {
       }
     }
 
-    const results = await options.client.search(options.collection, searchParams);
+    const results = await runWithTimeout(
+      () => options.client.search(options.collection, searchParams),
+      queryOptions?.timeoutMs
+    );
     throwIfAborted(queryOptions?.signal);
 
     const mappedResults = results.map(item => ({
@@ -113,6 +147,11 @@ export async function queryQdrant(options: {
       duration: Date.now() - startTime
     });
 
-    throw new VectorStoreError(`Query failed: ${error.message}`, options.storeId, options.collection);
+    if (isAbortLikeError(error)) {
+      throw error;
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    throw new VectorStoreError(`Query failed: ${message}`, options.storeId, options.collection);
   }
 }

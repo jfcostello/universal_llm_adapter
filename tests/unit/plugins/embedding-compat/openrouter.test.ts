@@ -212,6 +212,38 @@ describe('plugins/embedding-compat/openrouter', () => {
       }
     });
 
+    test('wraps non-object thrown values as EmbeddingProviderError', async () => {
+      const mockHttpClient = {
+        request: jest.fn().mockRejectedValue('network-down')
+      };
+
+      const compat = new OpenRouterEmbeddingCompat(mockHttpClient as any);
+
+      await expect(compat.embed('test', createConfig())).rejects.toThrow('[openrouter] network-down');
+    });
+
+    test('preserves abort-like errors as EmbeddingError cancellation', async () => {
+      const abortError = Object.assign(new Error('canceled'), { name: 'AbortError' });
+      const mockHttpClient = {
+        request: jest.fn().mockRejectedValue(abortError)
+      };
+
+      const compat = new OpenRouterEmbeddingCompat(mockHttpClient as any);
+
+      await expect(compat.embed('test', createConfig())).rejects.toThrow('Embedding request aborted');
+    });
+
+    test('treats abort-like error codes as cancellation even when name is generic', async () => {
+      const abortError = { code: 'ABORT_ERR', message: 'request aborted by signal' };
+      const mockHttpClient = {
+        request: jest.fn().mockRejectedValue(abortError)
+      };
+
+      const compat = new OpenRouterEmbeddingCompat(mockHttpClient as any);
+
+      await expect(compat.embed('test', createConfig())).rejects.toThrow('Embedding request aborted');
+    });
+
     test('throws meaningful error when response.data.data is undefined', async () => {
       const mockHttpClient = createMockHttpClient({
         status: 200,

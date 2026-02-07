@@ -8,6 +8,20 @@ import {
 import { EmbeddingError, EmbeddingProviderError } from '../../../kernel/index.js';
 import type { EmbedderFn } from '../../vector/index.js';
 
+function isAbortLikeError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const name = String((error as any).name ?? '');
+  const code = String((error as any).code ?? '');
+  const message = String((error as any).message ?? '').toLowerCase();
+
+  if (['AbortError', 'CanceledError'].includes(name)) return true;
+  if (['aborted', 'ABORT_ERR', 'ERR_CANCELED'].includes(code)) return true;
+  return ['aborted', 'canceled', 'cancelled'].some(token => message.includes(token));
+}
+
 /**
  * EmbeddingManager - Agnostic embedding orchestration with priority-based fallback
  *
@@ -65,6 +79,9 @@ export class EmbeddingManager {
         const result = await compat.embed(input, config, item.model, this.logger, compatOptions);
         return result;
       } catch (error: any) {
+        if (options.signal?.aborted || isAbortLikeError(error)) {
+          throw new EmbeddingError('Embedding request aborted');
+        }
         errors.push(error);
 
         // If it's a rate limit error, continue to next provider
