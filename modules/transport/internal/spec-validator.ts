@@ -143,7 +143,18 @@ const llmSpecSchema: any = {
     mcpServers: { type: 'array', items: { type: 'string' }, nullable: true },
     vectorStores: { type: 'array', items: { type: 'string' }, nullable: true },
     vectorPriority: { type: 'array', items: { type: 'string' }, nullable: true },
-    vectorContext: { type: 'object', nullable: true, additionalProperties: true },
+    vectorContexts: { type: 'array', nullable: true, items: { type: 'object', additionalProperties: true } },
+    vectorRequestPolicy: {
+      type: 'object',
+      nullable: true,
+      properties: {
+        maxAutoContexts: { type: 'number', nullable: true },
+        perContextTimeoutMs: { type: 'number', nullable: true },
+        totalAutoBudgetMs: { type: 'number', nullable: true },
+        maxInjectedPayloadBytes: { type: 'number', nullable: true }
+      },
+      additionalProperties: true
+    },
     toolChoice: {
       anyOf: [
         { type: 'string', enum: ['auto', 'none', 'required'] },
@@ -291,6 +302,22 @@ function assertTelemetryObservabilityOverridesAllowed(payload: unknown, allowlis
 }
 
 export function assertValidSpec(spec: unknown): void {
+  if (spec && typeof spec === 'object' && (spec as any).vectorContext !== undefined) {
+    const error = new Error(
+      'Spec validation failed: `vectorContext` is no longer supported. Use `vectorContexts` (array) instead.'
+    );
+    (error as any).statusCode = 400;
+    (error as any).code = 'validation_error';
+    (error as any).details = [
+      {
+        instancePath: '/vectorContext',
+        keyword: 'deprecated',
+        message: '`vectorContext` is not supported; migrate to `vectorContexts`'
+      }
+    ];
+    throw error;
+  }
+
   const ok = validateLlm(spec);
   if (ok) return;
 

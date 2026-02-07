@@ -29,7 +29,7 @@ Flags:
   - `copyLogs` (bool, default `true`) – copy `./logs` into the sandbox run folder.  
   - `transcriptPath` (string, optional) – custom transcript location.
 - `env` (object, optional): extra environment variables for the CLI process.
-- `spec`: base `LLMCallSpec` fields (everything except `messages`, which are built per turn). Includes `systemPrompt`, `llmPriority`, `settings`, `tools`, `functionToolNames`, `mcpServers`, `vectorContext`, etc.
+- `spec`: base `LLMCallSpec` fields (everything except `messages`, which are built per turn). Includes `systemPrompt`, `llmPriority`, `settings`, `tools`, `functionToolNames`, `mcpServers`, `vectorContexts`, etc.
 - `initialMessages` (array, optional): pre-seeded history (e.g., tool results or assistant replies) before the scripted turns.
 - `turns` (array, required): ordered user turns. Each item can be a string or an object with `role` (defaults to `user`) and `content` (string or content parts).
 

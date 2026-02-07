@@ -117,7 +117,7 @@ function readOpenRouterEmbeddingProviderId(): string {
     });
   }, 60_000);
 
-  test('auto-inject (both mode) inserts retrieved context and tool is available', async () => {
+  test('auto-inject (both mode) supports two stores and falls back to the second when first is empty', async () => {
     expect(runCfg).toBeTruthy();
 
     const spec = {
@@ -142,14 +142,14 @@ function readOpenRouterEmbeddingProviderId(): string {
       ],
       llmPriority: runCfg.llmPriority,
       settings: mergeSettings(runCfg.settings, { maxTokens: 512 }),
-      vectorContext: {
+      vectorContexts: [{
         mode: 'both',
-        stores: [STORE_ID],
+        stores: ['memory', STORE_ID],
         collection,
         topK: 1,
         injectAs: 'system',
         injectTemplate: `Relevant context for ${TOKEN}:\n{{results}}`
-      }
+      }]
     };
 
     const { result, response } = await runLlmOnce({
@@ -178,7 +178,11 @@ function readOpenRouterEmbeddingProviderId(): string {
     expect(thisRun).toBeTruthy();
 
     const tools = Array.isArray((thisRun as any)?.tools) ? (thisRun as any).tools : [];
-    expect(tools.some((t: any) => t?.name === 'vector_search')).toBe(true);
+    const vectorTool = tools.find((t: any) => t?.name === 'vector_search');
+    expect(vectorTool).toBeTruthy();
+    const vectorToolDescription = String((vectorTool as any)?.description ?? '');
+    expect(vectorToolDescription).toContain('memory');
+    expect(vectorToolDescription).toContain(STORE_ID);
 
     const msgs = Array.isArray((thisRun as any)?.messages) ? (thisRun as any).messages : [];
     const systemText = msgs

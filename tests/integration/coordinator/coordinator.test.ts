@@ -607,7 +607,7 @@ describe('coordinator/coordinator integration', () => {
           }
         ],
         settings: { temperature: 0 },
-        vectorContext: {
+        vectorContexts: [{
           mode: 'tool' as const,
           stores: ['test-store'],
           embeddingPriority: [{ provider: 'openrouter', model: 'test-embed' }],
@@ -616,7 +616,7 @@ describe('coordinator/coordinator integration', () => {
               topK: { name: 'maximum_results' }
             }
           }
-        }
+        }]
       };
 
       const result = await coordinator.run(spec as any);
@@ -710,11 +710,11 @@ describe('coordinator/coordinator integration', () => {
           }
         ],
         settings: { temperature: 0 },
-        vectorContext: {
+        vectorContexts: [{
           mode: 'auto' as const,
           stores: ['test-store'],
           embeddingPriority: [{ provider: 'test-embeddings' }]
-        }
+        }]
       };
 
       await coordinator.run(spec as any);

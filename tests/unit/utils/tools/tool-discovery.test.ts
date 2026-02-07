@@ -522,6 +522,54 @@ describe('utils/tools/tool-discovery', () => {
     expect(result.tools).toEqual([]);
   });
 
+  test('collectTools skips non-object vectorContexts entries', async () => {
+    const spec = {
+      messages: [],
+      llmPriority: [],
+      settings: {},
+      vectorContexts: [null, { stores: ['memory'], mode: 'tool' }]
+    } as unknown as LLMCallSpec;
+
+    const registry = {
+      getTool: jest.fn()
+    } as unknown as PluginRegistry;
+
+    const result = await collectTools({
+      spec,
+      registry
+    });
+
+    expect(result.tools.some(tool => tool.name === 'vector_search')).toBe(true);
+    expect(result.vectorSearchAliasMaps?.vector_search).toBeDefined();
+  });
+
+  test('collectTools rejects vector tool name collisions', async () => {
+    const spec = {
+      messages: [],
+      llmPriority: [],
+      settings: {},
+      tools: [
+        {
+          name: 'vector_search',
+          description: 'existing tool',
+          parametersJsonSchema: { type: 'object' }
+        }
+      ],
+      vectorContexts: [{ stores: ['memory'], mode: 'tool' }]
+    } as unknown as LLMCallSpec;
+
+    const registry = {
+      getTool: jest.fn()
+    } as unknown as PluginRegistry;
+
+    await expect(
+      collectTools({
+        spec,
+        registry
+      })
+    ).rejects.toThrow("Vector search tool name 'vector_search' conflicts with an existing tool.");
+  });
+
   describe('shouldCreateVectorSearchTool', () => {
     test('returns true for tool mode', () => {
       expect(shouldCreateVectorSearchTool('tool')).toBe(true);
@@ -1038,15 +1086,15 @@ describe('utils/tools/tool-discovery', () => {
     });
   });
 
-  test('collectTools creates vector_search tool when vectorContext.mode is tool', async () => {
+  test('collectTools creates vector_search tool when vectorContexts[].mode is tool', async () => {
     const spec = {
       messages: [],
       llmPriority: [],
       settings: {},
-      vectorContext: {
+      vectorContexts: [{
         stores: ['qdrant-cloud'],
         mode: 'tool'
-      }
+      }]
     } as unknown as LLMCallSpec;
 
     const registry = {
@@ -1062,16 +1110,16 @@ describe('utils/tools/tool-discovery', () => {
     expect(result.tools[0].name).toBe('vector_search');
   });
 
-  test('collectTools creates vector_search tool when vectorContext.mode is both', async () => {
+  test('collectTools creates vector_search tool when vectorContexts[].mode is both', async () => {
     const spec = {
       messages: [],
       llmPriority: [],
       settings: {},
-      vectorContext: {
+      vectorContexts: [{
         stores: ['memory'],
         mode: 'both',
         toolName: 'context_search'
-      }
+      }]
     } as unknown as LLMCallSpec;
 
     const registry = {
@@ -1092,10 +1140,10 @@ describe('utils/tools/tool-discovery', () => {
       messages: [],
       llmPriority: [],
       settings: {},
-      vectorContext: {
+      vectorContexts: [{
         stores: ['memory'],
         mode: 'auto'
-      }
+      }]
     } as unknown as LLMCallSpec;
 
     const registry = {

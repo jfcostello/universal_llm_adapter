@@ -16,6 +16,12 @@ import { getDefaults } from '../../../../../kernel/index.js';
 import type { LLMManager } from '../../llm-manager.js';
 import { partitionSettings, mergeProviderSettings } from '../../../../settings/index.js';
 import { withRetries } from '../../../../retry/index.js';
+import {
+  resolveAutoVectorContexts,
+  resolveVectorContexts,
+  resolveVectorRequestPolicy,
+  withTimeout
+} from './vector-contexts.js';
 
 export async function runNonStream(options: {
   spec: LLMCallSpec;
@@ -30,7 +36,7 @@ export async function runNonStream(options: {
   shouldCreateVectorTool: (spec: LLMCallSpec) => boolean;
   ensureVectorContextInjector: () => Promise<{ injectContext: (...args: any[]) => Promise<{ messages: Message[] }> }>;
   ensureToolCoordinator: (spec: LLMCallSpec) => Promise<any>;
-  collectTools: (spec: LLMCallSpec) => Promise<[UnifiedTool[], string[], Record<string, string>, Record<string, string> | undefined]>;
+  collectTools: (spec: LLMCallSpec) => Promise<[UnifiedTool[], string[], Record<string, string>, Record<string, Record<string, string>> | undefined]>;
   attachUsageCostIfNeeded: (response: LLMResponse, settings: LLMCallSettings, provider: string, model: string) => Promise<void>;
   ensureValidAssistantResponse: (response: LLMResponse, providerId: string | undefined) => void;
   handleTools: (
@@ -55,17 +61,51 @@ export async function runNonStream(options: {
     settings: provider
   };
 
+  const vectorContexts = resolveVectorContexts(options.spec);
+  const vectorPolicy = resolveVectorRequestPolicy(options.spec);
   let messages = options.prepareMessages(executionSpec);
 
   // Inject vector context if configured for auto or both mode
   if (options.shouldInjectVectorContext(options.spec)) {
+    const logger = options.getLogger().withCorrelation(options.spec.metadata?.correlationId as string);
     const injector = await options.ensureVectorContextInjector();
-    const injectionResult = await injector.injectContext(
-      messages,
-      options.spec.vectorContext!,
-      options.spec.systemPrompt
-    );
-    messages = injectionResult.messages;
+    const autoContexts = resolveAutoVectorContexts(vectorContexts, vectorPolicy);
+    const embeddingCache = new Map<string, number[]>();
+    const startedAt = Date.now();
+
+    for (const contextConfig of autoContexts) {
+      const elapsed = Date.now() - startedAt;
+      const remainingBudget = vectorPolicy.totalAutoBudgetMs - elapsed;
+      if (remainingBudget <= 0) {
+        logger.warning?.('Vector auto-injection budget exhausted; skipping remaining contexts', {
+          totalAutoBudgetMs: vectorPolicy.totalAutoBudgetMs
+        });
+        break;
+      }
+
+      const timeoutMs = Math.min(vectorPolicy.perContextTimeoutMs, remainingBudget);
+
+      try {
+        const injectionResult = await withTimeout(
+          injector.injectContext(messages, contextConfig, options.spec.systemPrompt, {
+            maxInjectedPayloadBytes: vectorPolicy.maxInjectedPayloadBytes,
+            embeddingCache
+          }),
+          timeoutMs,
+          'vector context injection'
+        );
+        messages = injectionResult.messages;
+      } catch (error: any) {
+        if (String(error?.code ?? '') === 'config_error') {
+          throw error;
+        }
+        logger.warning?.('Vector context injection skipped due to error', {
+          error: error?.message ?? String(error),
+          mode: contextConfig.mode,
+          stores: contextConfig.stores
+        });
+      }
+    }
   }
 
   // Tools are optional; avoid importing tool code unless actually needed.
@@ -79,15 +119,20 @@ export async function runNonStream(options: {
   let tools: UnifiedTool[] = [];
   let mcpServers: string[] = [];
   let toolNameMap: Record<string, string> = {};
-  let vectorSearchAliasMap: Record<string, string> | undefined;
+  let vectorSearchAliasMaps: Record<string, Record<string, string>> | undefined;
 
   if (needsTools) {
     await options.ensureToolCoordinator(executionSpec);
-    [tools, mcpServers, toolNameMap, vectorSearchAliasMap] = await options.collectTools(executionSpec);
+    [tools, mcpServers, toolNameMap, vectorSearchAliasMaps] = await options.collectTools(executionSpec);
 
     // Update vector context with alias map after collectTools generates it
-    if (vectorSearchAliasMap) {
-      options.toolCoordinator.setVectorContext(executionSpec.vectorContext, options.registry, vectorSearchAliasMap);
+    if (vectorSearchAliasMaps) {
+      const toolVectorContexts = vectorContexts.filter(ctx => ctx.mode === 'tool' || ctx.mode === 'both');
+      options.toolCoordinator.setVectorContexts(
+        toolVectorContexts.length > 0 ? toolVectorContexts : undefined,
+        options.registry,
+        vectorSearchAliasMaps
+      );
     }
 
     // Sanitize toolChoice to match sanitized tool names

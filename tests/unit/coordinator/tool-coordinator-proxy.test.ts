@@ -19,7 +19,7 @@ describe('coordinator toolCoordinator proxy', () => {
         constructor(...args: any[]) {
           ctorSpy(...args);
         }
-        setVectorContext() {}
+        setVectorContexts() {}
         async routeAndInvoke() {
           return { result: 'ok' };
         }
@@ -35,7 +35,7 @@ describe('coordinator toolCoordinator proxy', () => {
     } as any;
 
     const coordinator = new LLMCoordinator(registry);
-    (coordinator as any).activeToolSpec = { mcpServers: [], vectorContext: undefined } as any;
+    (coordinator as any).activeToolSpec = { mcpServers: [], vectorContexts: undefined } as any;
 
     const result = await (coordinator as any).toolCoordinator.routeAndInvoke(
       't',
@@ -47,5 +47,24 @@ describe('coordinator toolCoordinator proxy', () => {
     expect(result).toEqual({ result: 'ok' });
     expect(ctorSpy).toHaveBeenCalled();
   });
-});
 
+  test('setVectorContexts stores pending configs when impl is not initialized', async () => {
+    const { createToolCoordinatorProxy } = await import('@/modules/llm/internal/llm-coordinator/internal/tool-coordinator-proxy.ts');
+
+    const setPending = jest.fn();
+    const proxy = createToolCoordinatorProxy({
+      getRegistry: () => ({}) as any,
+      getToolCoordinatorImpl: () => undefined,
+      setPendingVectorContexts: setPending,
+      getActiveToolSpec: () => undefined,
+      ensureToolCoordinator: async () => undefined
+    });
+
+    proxy.setVectorContexts([{ stores: ['memory'], mode: 'tool' }], undefined, { vector_search: { q: 'query' } });
+
+    expect(setPending).toHaveBeenCalledWith({
+      configs: [{ stores: ['memory'], mode: 'tool' }],
+      aliasMaps: { vector_search: { q: 'query' } }
+    });
+  });
+});

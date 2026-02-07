@@ -4,7 +4,7 @@ import type { ContentPart, Message, ReasoningData, Role } from './chat.js';
 import type { JsonObject, JsonValue } from './json.js';
 import type { LLMCallSettings, LLMPriorityItem } from './settings.js';
 import type { ToolCall, ToolChoice, ToolRoutingSpec, UnifiedTool } from './tools.js';
-import type { VectorContextConfig } from './vector-context.js';
+import type { VectorContextConfig, VectorRequestPolicy } from './vector-context.js';
 
 export interface LLMCallSpec {
   systemPrompt?: string;
@@ -13,10 +13,12 @@ export interface LLMCallSpec {
   tools?: UnifiedTool[];
   mcpServers?: string[];
   vectorStores?: string[];
-  /** @deprecated Use vectorContext instead. Used for semantic tool retrieval. */
+  /** Used for semantic tool retrieval. */
   vectorPriority?: string[];
-  /** Vector context configuration for RAG capabilities */
-  vectorContext?: VectorContextConfig;
+  /** Vector context configurations for RAG capabilities. */
+  vectorContexts?: VectorContextConfig[];
+  /** Optional request-level vector guardrail overrides. */
+  vectorRequestPolicy?: Partial<VectorRequestPolicy>;
   llmPriority: LLMPriorityItem[];
   toolChoice?: ToolChoice;
   /** Optional adapter-side tool routing overrides for this call. */

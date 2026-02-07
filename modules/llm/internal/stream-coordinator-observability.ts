@@ -33,7 +33,7 @@ export function recordStreamLlmRequestObservability(options: {
       messages: filterMessagesForObservability(options.messages, captureMessages),
       sessionId: options.observability.sessionId,
       metadata: options.observability.metadata,
-      tools: options.tools.map((t: any) => ({ name: t.name, description: t.description })),
+      tools: redactJsonCredentials(options.tools) as any,
       settings: options.settings as any
     };
 
@@ -75,7 +75,7 @@ export function recordStreamLlmResponseObservability(options: {
 }): void {
   try {
     const captureMessages = options.observability.captureMessages ?? 'full';
-    const captureToolArgs = options.observability.captureToolArgs ?? false;
+    const captureToolArgs = options.observability.captureToolArgs ?? true;
     const observabilityModel = deriveObservabilityModel({
       provider: options.provider,
       model: options.model,

@@ -72,11 +72,11 @@ describe('integration/lazy-loading/import-evaluation (vector context)', () => {
       await coordinator.run({
         messages: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }],
         llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
-        vectorContext: {
+        vectorContexts: [{
           mode: 'auto',
           stores: ['memory'],
           topK: 1
-        },
+        }],
         settings: {}
       } as any);
 
@@ -87,4 +87,3 @@ describe('integration/lazy-loading/import-evaluation (vector context)', () => {
     });
   });
 });
-

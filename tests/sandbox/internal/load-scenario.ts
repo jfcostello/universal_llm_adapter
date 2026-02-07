@@ -28,7 +28,7 @@ export interface LLMCallSpec {
   mcpServers?: string[];
   vectorStores?: string[];
   vectorPriority?: string[];
-  vectorContext?: any;
+  vectorContexts?: any[];
   llmPriority: any[];
   toolChoice?: any;
   rateLimitRetryDelays?: number[];

@@ -58,6 +58,13 @@ export class LangfuseCompat implements IObservabilityCompat {
 
     const eventIds = getEventIds(context);
     const maxBytes = resolveMaxAttributeBytes(context);
+    const jsonOptions = {
+      maxBytes,
+      maxDepth: 25,
+      maxArrayLength: 1000,
+      maxObjectKeys: 2000,
+      maxStringBytes: maxBytes
+    } as const;
     const spans: OtlpSpanSpec[] = [];
     const eventIndexByEnvelopeId = new Map<string, number>();
 
@@ -75,10 +82,14 @@ export class LangfuseCompat implements IObservabilityCompat {
         const cached = this.requestCache.get(key);
         const cachedSummary = cached?.summary as any;
 
-        const { sessionId, traceName, batchId, tags } = resolveTraceContext({
+        const { sessionId, traceName, correlationId, batchId, tags } = resolveTraceContext({
           event,
           cachedSummary
         });
+        const step = typeof (event as any)?.metadata?.step === 'string'
+          ? String((event as any).metadata.step).trim()
+          : '';
+        const spanName = step || DEFAULT_SPAN_NAME;
 
         const envelopeId = getEnvelopeId(
           eventIds,
@@ -91,7 +102,7 @@ export class LangfuseCompat implements IObservabilityCompat {
         spans.push({
           traceIdHex: deriveOtlpTraceIdHex(String(event.traceId)),
           spanIdHex: deriveOtlpSpanIdHex(String(event.generationId || envelopeId)),
-          name: DEFAULT_SPAN_NAME,
+          name: spanName,
           startTimeIso: cachedSummary?.startTimeIso ? String(cachedSummary.startTimeIso) : deriveStartTimeIso(event),
           endTimeIso: eventTimestampToIso(event),
           status: event.error
@@ -102,6 +113,7 @@ export class LangfuseCompat implements IObservabilityCompat {
               traceId: String(event.traceId || ''),
               sessionId,
               traceName,
+              correlationId,
               tags,
               batchId
             }),
@@ -112,10 +124,10 @@ export class LangfuseCompat implements IObservabilityCompat {
               { maxBytes }
             ),
             'langfuse.observation.type': 'generation',
-            'langfuse.observation.input': cachedSummary?.observationInput ?? safeJsonStringify(buildInputJson(undefined), { maxBytes }),
-            'langfuse.observation.output': safeJsonStringify(buildOutputJson(event), { maxBytes }),
+            'langfuse.observation.input': cachedSummary?.observationInput ?? safeJsonStringify(buildInputJson(undefined), jsonOptions),
+            'langfuse.observation.output': safeJsonStringify(buildOutputJson(event), jsonOptions),
             'langfuse.observation.model.name': String(event.model || cachedSummary?.model || ''),
-            'langfuse.observation.model.parameters': cachedSummary?.modelParameters ?? safeJsonStringify({}, { maxBytes }),
+            'langfuse.observation.model.parameters': cachedSummary?.modelParameters ?? safeJsonStringify({}, jsonOptions),
             'langfuse.observation.usage_details': safeJsonStringify(buildLangfuseUsageDetails(event.usage), { maxBytes }),
             ...(costDetails
               ? {
@@ -138,7 +150,7 @@ export class LangfuseCompat implements IObservabilityCompat {
         const key = cacheKey(toolEvent.traceId, toolEvent.generationId);
         const cachedSummary = (this.requestCache.get(key)?.summary as any) ?? undefined;
 
-        const { sessionId, traceName, batchId, tags } = resolveTraceContext({
+        const { sessionId, traceName, correlationId, batchId, tags } = resolveTraceContext({
           event: toolEvent,
           cachedSummary
         });
@@ -170,6 +182,7 @@ export class LangfuseCompat implements IObservabilityCompat {
               traceId: String(toolEvent.traceId || ''),
               sessionId,
               traceName,
+              correlationId,
               tags,
               batchId
             }),
@@ -190,7 +203,7 @@ export class LangfuseCompat implements IObservabilityCompat {
             'langfuse.observation.level': level,
             'langfuse.observation.input': safeJsonStringify(
               { toolName: toolEvent.toolName, toolCallId: toolEvent.toolCallId, ...(toolEvent.args !== undefined ? { args: toolEvent.args } : {}) },
-              { maxBytes }
+              jsonOptions
             ),
             'langfuse.observation.output': safeJsonStringify(
               {
@@ -200,7 +213,7 @@ export class LangfuseCompat implements IObservabilityCompat {
                 ...(toolEvent.skipReason ? { skipReason: toolEvent.skipReason } : {}),
                 ...(toolEvent.error ? { error: toolEvent.error } : {})
               },
-              { maxBytes }
+              jsonOptions
             )
           },
           envelopeId
@@ -215,7 +228,7 @@ export class LangfuseCompat implements IObservabilityCompat {
         const key = cacheKey(signalEvent.traceId, signalEvent.generationId);
         const cachedSummary = (this.requestCache.get(key)?.summary as any) ?? undefined;
 
-        const { sessionId, traceName, batchId, tags } = resolveTraceContext({
+        const { sessionId, traceName, correlationId, batchId, tags } = resolveTraceContext({
           event: signalEvent,
           cachedSummary
         });
@@ -238,6 +251,7 @@ export class LangfuseCompat implements IObservabilityCompat {
               traceId: String(signalEvent.traceId || ''),
               sessionId,
               traceName,
+              correlationId,
               tags,
               batchId
             }),
@@ -254,7 +268,7 @@ export class LangfuseCompat implements IObservabilityCompat {
                 ...(signalEvent.tags ? { tags: signalEvent.tags } : {}),
                 ...(signalEvent.metadata ? { metadata: signalEvent.metadata } : {})
               },
-              { maxBytes }
+              jsonOptions
             )
           },
           envelopeId
@@ -271,7 +285,7 @@ export class LangfuseCompat implements IObservabilityCompat {
         const key = cacheKey(updateEvent.traceId, updateEvent.generationId);
         const cachedSummary = (this.requestCache.get(key)?.summary as any) ?? undefined;
 
-        const { sessionId, traceName, batchId, tags } = resolveTraceContext({
+        const { sessionId, traceName, correlationId, batchId, tags } = resolveTraceContext({
           event: updateEvent,
           cachedSummary: {
             ...(cachedSummary ?? {}),
@@ -296,12 +310,13 @@ export class LangfuseCompat implements IObservabilityCompat {
               traceId: String(updateEvent.traceId || ''),
               sessionId,
               traceName,
+              correlationId,
               tags,
               batchId
             }),
             ...(updateEvent.metadata
               ? {
-                  'langfuse.trace.metadata.payload': safeJsonStringify(updateEvent.metadata, { maxBytes })
+                  'langfuse.trace.metadata.payload': safeJsonStringify(updateEvent.metadata, jsonOptions)
                 }
               : {}),
             'langfuse.observation.type': 'event',
