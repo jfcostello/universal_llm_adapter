@@ -23,6 +23,32 @@ import {
   withTimeout
 } from './vector-contexts.js';
 
+function readRequestedGenerationId(metadata: unknown): string | undefined {
+  if (!metadata || typeof metadata !== 'object') {
+    return undefined;
+  }
+
+  const record = metadata as Record<string, unknown>;
+  const candidates = [
+    record.generationId,
+    record.generation_id,
+    record.requestId,
+    record.request_id
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') {
+      continue;
+    }
+    const normalized = candidate.trim();
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return undefined;
+}
+
 export async function runNonStream(options: {
   spec: LLMCallSpec;
   registry: PluginRegistry;
@@ -152,6 +178,7 @@ export async function runNonStream(options: {
     metadata: options.spec.metadata,
     observability
   };
+  const requestedGenerationId = readRequestedGenerationId(options.spec.metadata);
 
   const runLogger = options.getLogger().withCorrelation(options.spec.metadata?.correlationId as string);
 
@@ -179,7 +206,7 @@ export async function runNonStream(options: {
         });
 
         const callRunContext = runContext.observability
-          ? { ...runContext, generationId: randomUUID() }
+          ? { ...runContext, generationId: requestedGenerationId ?? randomUUID() }
           : runContext;
 
         let response = await options.llmManager.callProvider(

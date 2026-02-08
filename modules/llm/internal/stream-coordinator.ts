@@ -14,6 +14,32 @@ import { partitionSettings } from '../../settings/index.js';
 import { usageStatsToJson } from '../../usage/index.js';
 import { randomUUID } from 'crypto';
 import { recordStreamLlmRequestObservability, recordStreamLlmResponseObservability } from './stream-coordinator-observability.js';
+
+function readRequestedGenerationId(metadata: unknown): string | undefined {
+  if (!metadata || typeof metadata !== 'object') {
+    return undefined;
+  }
+
+  const record = metadata as Record<string, unknown>;
+  const candidates = [
+    record.generationId,
+    record.generation_id,
+    record.requestId,
+    record.request_id
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') {
+      continue;
+    }
+    const normalized = candidate.trim();
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return undefined;
+}
 interface StreamingContext {
   provider: string;
   model: string;
@@ -39,7 +65,9 @@ export class StreamCoordinator {
   ): AsyncGenerator<LLMStreamEvent> {
     const startTimeMs = Date.now();
     const startTimeMonoNs = monotonicNowNs();
-    const generationId = context.observability ? randomUUID() : undefined;
+    const generationId = context.observability
+      ? (readRequestedGenerationId(context.metadata) ?? randomUUID())
+      : undefined;
     const { runtime, provider: providerSettings, providerExtras } = partitionSettings(spec.settings);
     const executionSpec: LLMCallSpec = {
       ...spec,
