@@ -159,7 +159,8 @@ function extractAssistantText(response: LLMResponse): string {
     expect(runCfg).toBeTruthy();
 
     const prompt = [
-      'Call tool test.control with override="not-a-boolean" and sleepMs=0.',
+      'Call tool test.control with the EXACT JSON arguments object and key names:',
+      '{"override":"not-a-boolean","sleepMs":0}',
       'Do not call any other tools.'
     ].join('\n');
 

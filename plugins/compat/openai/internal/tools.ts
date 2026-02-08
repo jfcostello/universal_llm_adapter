@@ -37,6 +37,10 @@ export function serializeToolChoice(choice?: ToolChoice): any {
   }
 
   if (choice.type === 'required') {
+    if (choice.allowed.length === 0) {
+      return { tool_choice: 'auto' };
+    }
+
     if (choice.allowed.length === 1) {
       return {
         tool_choice: {
@@ -46,11 +50,9 @@ export function serializeToolChoice(choice?: ToolChoice): any {
       };
     }
     return {
-      tool_choice: 'required',
-      allowed_tools: choice.allowed
+      tool_choice: 'required'
     };
   }
 
   return {};
 }
-

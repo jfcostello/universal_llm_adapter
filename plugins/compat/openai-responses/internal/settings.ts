@@ -15,6 +15,10 @@ export function serializeSettings(settings: LLMCallSettings): any {
     result.top_p = settings.topP;
   }
 
+  if (settings.parallelToolCalls !== undefined) {
+    result.parallel_tool_calls = settings.parallelToolCalls;
+  }
+
   if (settings.reasoning) {
     const { enabled, effort } = settings.reasoning;
 
@@ -52,4 +56,3 @@ export function serializeSettings(settings: LLMCallSettings): any {
 
   return result;
 }
-

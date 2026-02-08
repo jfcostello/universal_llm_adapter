@@ -288,6 +288,18 @@ Example tool-call arguments (what the model would send):
 { "input": "hello", "terminal": true }
 ```
 
+#### Parallel Tool Execution
+
+The tool loop can execute multiple tool calls in parallel within a single tool-call round:
+
+- Enable `settings.parallelToolExecution` to run tool invocations concurrently.
+- Enable `settings.parallelToolCalls` to hint to the underlying provider that the model is allowed to emit multiple tool calls in a single assistant message (provider-dependent).
+
+Ordering guarantees:
+
+- In **streaming** mode, tool result events are emitted as each tool completes (completion order) to minimize latency.
+- Tool result messages appended back into the model follow-up context remain in the original tool-call order for deterministic message history.
+
 #### Tool Routing
 
 By default, tool calls are routed by tool name via `plugins/processes/*.json` (`match` rules).
@@ -527,6 +539,7 @@ interface LLMCallSettings {
   preserveToolResults?: number | 'all' | 'none';
   preserveReasoning?: number | 'all' | 'none';
   parallelToolExecution?: boolean;
+  parallelToolCalls?: boolean;
   toolResultMaxChars?: number;
 
   // Provider-specific

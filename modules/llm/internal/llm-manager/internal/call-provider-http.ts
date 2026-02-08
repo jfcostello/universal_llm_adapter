@@ -22,6 +22,7 @@ import {
 import { buildFinalPayload } from '../../payload/payload-builder.js';
 import { normalizeToolCallsIfPresent } from './normalize-tool-calls.js';
 import { emitObservabilityRequest, emitObservabilityResponse } from './observability-emit.js';
+import { attachUsageCostForResponseIfNeeded } from './attach-usage-cost.js';
 import {
   isRateLimitResponse,
   isReasoningDisabledNotAllowedError,
@@ -317,12 +318,17 @@ export async function callProviderViaHttp(options: {
     parsed.toolCalls = await normalizeToolCallsIfPresent(parsed.toolCalls);
     parsed.provider = options.provider.id;
 
+    await attachUsageCostForResponseIfNeeded({
+      usage: parsed.usage,
+      settings: options.settings,
+      provider: options.provider.id,
+      model: options.model
+    });
     const observabilityModel = deriveObservabilityModel({
       provider: options.provider.id,
       model: options.model,
       providerHint: lastRawResponse
     });
-
     await emitObservabilityRequest({
       context: options.context,
       provider: options.provider.id,
@@ -336,7 +342,6 @@ export async function callProviderViaHttp(options: {
       logger: options.logger,
       shouldLogLive: options.shouldLogLive
     });
-
     // Record successful HTTP response to observability
     await emitObservabilityResponse({
       context: options.context,
@@ -350,7 +355,6 @@ export async function callProviderViaHttp(options: {
       logger: options.logger,
       shouldLogLive: options.shouldLogLive
     });
-
     return parsed;
   } catch (error: any) {
     // Record error response to observability (only for errors not already recorded)
@@ -388,7 +392,6 @@ export async function callProviderViaHttp(options: {
         shouldLogLive: options.shouldLogLive
       });
     }
-
     if (error instanceof ProviderExecutionError) {
       throw error;
     }

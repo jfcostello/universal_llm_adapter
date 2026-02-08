@@ -7,10 +7,11 @@ import { pruneReasoning, pruneToolResults } from '../../../../context/index.js';
 import { sanitizeToolName } from '../../tool-names.js';
 import { monotonicElapsedMs, monotonicNowNs } from '../../../../shared/index.js';
 
-import { createProgressFields, resolveCountdownText } from './utils.js';
+import { createProgressFields, resolveCountdownText, safeToolPayloadJson, safeToolPayloadText } from './utils.js';
 import { isToolTerminalByDefinition, resolveCallArgTerminalOverride, resolveTerminalOverride, stripCallArgTerminalFlag } from './helpers.js';
 import type { InvokeToolFn } from './types.js';
 import { recordToolExecutionObservability, recordToolFailureSignal } from './observability.js';
+import { executeStreamToolCallsRoundParallel } from './stream-execute-parallel.js';
 
 export async function* executeStreamToolCallsRound(options: {
   toolCallsToExecute: ToolCall[];
@@ -21,6 +22,7 @@ export async function* executeStreamToolCallsRound(options: {
   toolByName: Map<string, UnifiedTool>;
   budget: ToolCallBudget;
   toolCountdownEnabled: boolean;
+  parallelExecution: boolean;
   maxResultLength: number | null;
   providerManifest: ProviderManifest;
   model: string;
@@ -36,6 +38,7 @@ export async function* executeStreamToolCallsRound(options: {
   if (options.toolCallsToExecute.length === 0) {
     return { terminalStopThisRound: false };
   }
+  const payloadMaxBytes = options.maxResultLength ?? undefined;
 
   for (const call of options.toolCallsToExecute) {
     const name = typeof call?.name === 'string' ? call.name : '';
@@ -61,6 +64,15 @@ export async function* executeStreamToolCallsRound(options: {
     sanitizeName: name => name,
     reasoning: options.toolCallReasoning
   });
+
+  if (options.parallelExecution) {
+    const { terminalStopThisRound } = yield* executeStreamToolCallsRoundParallel(options);
+
+    pruneToolResults(options.messages, options.preserveToolResults);
+    pruneReasoning(options.messages, options.preserveReasoning);
+
+    return { terminalStopThisRound };
+  }
 
   let terminalStopThisRound = false;
 
@@ -123,7 +135,7 @@ export async function* executeStreamToolCallsRound(options: {
           toolName: targetToolName,
           callId: toolCall.id,
           result: exhaustedPayload,
-          resultText: JSON.stringify(exhaustedPayload)
+          resultText: safeToolPayloadJson(exhaustedPayload)
         },
         {
           countdownText: resolveCountdownText(options.toolCountdownEnabled, options.budget),
@@ -176,7 +188,7 @@ export async function* executeStreamToolCallsRound(options: {
           toolName: targetToolName,
           callId: toolCall.id,
           result: exhaustedPayload,
-          resultText: JSON.stringify(exhaustedPayload)
+          resultText: safeToolPayloadJson(exhaustedPayload)
         },
         {
           countdownText: resolveCountdownText(options.toolCountdownEnabled, options.budget),
@@ -297,9 +309,7 @@ export async function* executeStreamToolCallsRound(options: {
       });
     }
 
-    const resultText = typeof normalizedPayload === 'string'
-      ? normalizedPayload
-      : JSON.stringify(normalizedPayload);
+    const resultText = safeToolPayloadText(normalizedPayload);
 
     const truncatedText = options.maxResultLength && resultText.length > options.maxResultLength
       ? `${resultText.slice(0, options.maxResultLength)}…`
@@ -325,7 +335,7 @@ export async function* executeStreamToolCallsRound(options: {
         type: ToolCallEventType.TOOL_RESULT,
         callId: toolCall.id,
         name: targetToolName,
-        arguments: JSON.stringify(normalizedPayload),
+        arguments: safeToolPayloadJson(normalizedPayload, { maxBytes: payloadMaxBytes }),
         resultText: truncatedText
       }
     } as any;

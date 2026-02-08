@@ -23,6 +23,8 @@ export interface LLMCallSettings {
   preserveToolResults?: number | 'all' | 'none';
   preserveReasoning?: number | 'all' | 'none';
   parallelToolExecution?: boolean;
+  /** Hint compatible providers to emit multiple tool calls in a single assistant turn when possible */
+  parallelToolCalls?: boolean;
   toolResultMaxChars?: number;
   batchId?: string;
   /** Enable optional usage cost calculation when provider omits cost */
@@ -60,6 +62,7 @@ export const PROVIDER_SETTING_KEYS = [
   'topLogprobs',
   'reasoning',
   'reasoningBudget',
+  'parallelToolCalls',
   'usageCost',
   'assistantId'
 ] as const;

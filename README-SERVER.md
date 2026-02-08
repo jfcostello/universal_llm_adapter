@@ -596,6 +596,9 @@ curl http://127.0.0.1:3000/embeddings/run \
       "effort": "medium",
       "budget": 10000
     },
+    // Tool settings (optional)
+    "parallelToolExecution": false,
+    "parallelToolCalls": false,
     "usageCost": false
   },
 
@@ -673,6 +676,12 @@ Example tool-call arguments (what the model would send):
 ```json
 { "input": "hello", "terminal": true }
 ```
+
+#### Tool Parallelism
+
+- `settings.parallelToolCalls`: Hint to the underlying provider that the model is allowed to emit multiple tool calls in a single assistant message (provider-dependent).
+- `settings.parallelToolExecution`: Execute tool invocations concurrently when multiple tool calls are present in a single tool-call round.
+- Streaming ordering: tool result events are emitted as each tool completes (completion order), while tool result messages appended into follow-up context remain in original tool-call order.
 
 ### Usage Cost Calculation
 

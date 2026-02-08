@@ -3,7 +3,7 @@ import type { AdapterLogger, Message, ProviderManifest, ToolCall, UnifiedTool, O
 import { appendToolResult } from '../../../../messages/index.js';
 import type { ToolCallBudget } from '../../tool-budget.js';
 import { monotonicElapsedMs, monotonicNowNs } from '../../../../shared/index.js';
-import { createProgressFields, resolveCountdownText } from './utils.js';
+import { createProgressFields, resolveCountdownText, safeToolPayloadJson, safeToolPayloadText } from './utils.js';
 import { isToolTerminalByDefinition, resolveCallArgTerminalOverride, resolveTerminalOverride, stripCallArgTerminalFlag } from './helpers.js';
 import type { InvokeToolFn } from './types.js';
 import { recordToolExecutionObservability, recordToolFailureSignal } from './observability.js';
@@ -288,9 +288,7 @@ export async function executeNonStreamToolCallsRound(options: {
     if (result.type === 'success') {
       toolResultsThisRound.push({ tool: result.toolName, result: result.payload });
 
-      const rawText = typeof result.payload === 'string'
-        ? result.payload
-        : JSON.stringify(result.payload);
+      const rawText = safeToolPayloadText(result.payload);
 
       const truncatedText = options.maxResultLength && rawText.length > options.maxResultLength
         ? `${rawText.slice(0, options.maxResultLength)}…`
@@ -325,7 +323,7 @@ export async function executeNonStreamToolCallsRound(options: {
         toolName: result.toolName,
         callId: result.toolCall.id,
         result: result.payload,
-        resultText: JSON.stringify(result.payload)
+        resultText: safeToolPayloadJson(result.payload)
       },
       {
         countdownText: resolveCountdownText(options.toolCountdownEnabled, options.toolBudget),

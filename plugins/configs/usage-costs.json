@@ -1,8 +1,26 @@
 {
+  "anthropic": {
+    "claude-haiku-4-5": {
+      "input": 1.0,
+      "output": 5.0
+    }
+  },
   "openai-assistants": {
     "gpt-4.1-mini": {
       "input": 0.4,
       "output": 1.6
+    }
+  },
+  "openai-responses": {
+    "gpt-4.1-mini": {
+      "input": 0.4,
+      "output": 1.6
+    }
+  },
+  "google": {
+    "gemini-3-flash-preview": {
+      "input": 0.15,
+      "output": 0.6
     }
   },
   "example-provider": {

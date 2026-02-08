@@ -13,6 +13,7 @@ Provider compat implementation.
   - `topP` → `top_p`
   - `reasoning` → `reasoning.effort` (derived when `enabled/budget` is provided without an explicit effort)
 - Serializes tools to Responses API `tools` (`type: "function"`) and maps tool choice to `tool_choice`.
+  - For `toolChoice: { type: "required", allowed: [] }`, falls back to `tool_choice: "auto"` instead of sending an empty `allowed_tools` constraint.
 
 ## Internal layout (A)
 - `internal/openai-responses.ts` – compat orchestration
