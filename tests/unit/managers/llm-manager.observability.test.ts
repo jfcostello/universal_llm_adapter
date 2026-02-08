@@ -244,6 +244,47 @@ describe('LLMManager observability', () => {
     expect((context as any).generationId).toBe('gen-existing');
   });
 
+  test('callProvider includes parentGenerationId in request/response observability events', async () => {
+    const mockSDKResponse = {
+      content: [{ type: 'text', text: 'SDK response' }],
+      role: Role.ASSISTANT,
+      toolCalls: []
+    };
+
+    const mockCompat = {
+      callSDK: jest.fn().mockResolvedValue(mockSDKResponse)
+    };
+
+    const registry = {
+      getCompatModule: jest.fn().mockReturnValue(mockCompat)
+    } as any;
+
+    const observability = createMockObservabilityContext();
+    const context: RunContext = { observability };
+    (context as any).generationId = 'gen-existing';
+    (context as any).parentGenerationId = 'gen-parent';
+
+    const manager = new LLMManager(registry);
+    await manager.callProvider(
+      mockProvider,
+      'test-model',
+      { temperature: 0.7 },
+      mockMessages,
+      [],
+      undefined,
+      {},
+      undefined,
+      context
+    );
+
+    const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
+    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+    expect(requestArg.generationId).toBe('gen-existing');
+    expect(requestArg.parentGenerationId).toBe('gen-parent');
+    expect(responseArg.generationId).toBe('gen-existing');
+    expect(responseArg.parentGenerationId).toBe('gen-parent');
+  });
+
   test('callProvider ignores whitespace runContext generationId and generates a new ID', async () => {
     const mockSDKResponse = {
       content: [{ type: 'text', text: 'SDK response' }],

@@ -14,6 +14,7 @@ export function recordStreamLlmRequestObservability(options: {
   logger: AdapterLogger;
   metadata?: Record<string, any>;
   generationId: string | undefined;
+  parentGenerationId?: string;
   timestampMs: number;
   provider: string;
   model: string;
@@ -27,6 +28,7 @@ export function recordStreamLlmRequestObservability(options: {
     const event = {
       traceId: options.observability.traceId,
       generationId: options.generationId,
+      ...(options.parentGenerationId ? { parentGenerationId: options.parentGenerationId } : {}),
       timestampMs: options.timestampMs,
       provider: options.provider,
       model: options.model,
@@ -65,6 +67,7 @@ export function recordStreamLlmResponseObservability(options: {
   logger: AdapterLogger;
   metadata?: Record<string, any>;
   generationId: string | undefined;
+  parentGenerationId?: string;
   startTimeMonoNs: bigint;
   provider: string;
   model: string;
@@ -95,6 +98,7 @@ export function recordStreamLlmResponseObservability(options: {
     const event = {
       traceId: options.observability.traceId,
       generationId: options.generationId,
+      ...(options.parentGenerationId ? { parentGenerationId: options.parentGenerationId } : {}),
       sessionId: options.observability.sessionId,
       timestampMs: endTimeMs,
       provider: options.provider,

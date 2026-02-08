@@ -1,5 +1,3 @@
-import { randomUUID } from 'crypto';
-
 import type { PluginRegistry } from '../../../../../kernel/index.js';
 import { Role, getDefaults } from '../../../../../kernel/index.js';
 import type {
@@ -70,10 +68,11 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
   let terminalStop = false;
   const maxIgnoredToolChoiceRetries = 3;
   let ignoredToolChoiceRetries = 0;
+  const stableGenerationId = readRunContextGenerationId(runContext);
 
-  const withNextGenerationId = <T extends Record<string, any> | undefined>(ctx: T): T => {
-    if (!ctx?.observability) return ctx;
-    return { ...ctx, generationId: randomUUID() } as T;
+  const withStableGenerationId = <T extends Record<string, any> | undefined>(ctx: T): T => {
+    if (!ctx?.observability || !stableGenerationId) return ctx;
+    return { ...ctx, generationId: stableGenerationId } as T;
   };
 
   const buildToolChoiceReminderLines = (choice: ToolChoice | undefined): string[] => {
@@ -148,7 +147,7 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
       content: [{ type: 'text', text: buildToolChoiceReminderLines(toolChoice).join('\n') } as any]
     });
 
-    const retryRunContext = withNextGenerationId(currentRunContext);
+    const retryRunContext = withStableGenerationId(currentRunContext);
     currentRunContext = retryRunContext;
 
     response = await llmManager.callProvider(
@@ -199,7 +198,7 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
     );
 
     const observability = currentRunContext?.observability;
-    const generationId = readRunContextGenerationId(currentRunContext);
+    const generationId = stableGenerationId ?? readRunContextGenerationId(currentRunContext);
 
     const round = await executeNonStreamToolCallsRound({
       toolCalls: response.toolCalls,
@@ -237,7 +236,7 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
     const followUpRunContext = currentRunContext
       ? { ...currentRunContext, toolCallsSoFar: allToolCalls }
       : { toolCallsSoFar: allToolCalls };
-    const followUpCallContext = withNextGenerationId(followUpRunContext);
+    const followUpCallContext = withStableGenerationId(followUpRunContext);
     currentRunContext = followUpCallContext;
 
     const followUpToolChoice = resolveFollowUpToolChoice(toolChoice, calledToolNames);
@@ -277,7 +276,7 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
         content: [{ type: 'text', text: buildToolChoiceReminderLines(followUpToolChoice).join('\n') } as any]
       });
 
-      const retryFollowUpContext = withNextGenerationId(followUpRunContext);
+      const retryFollowUpContext = withStableGenerationId(followUpRunContext);
       currentRunContext = retryFollowUpContext;
 
       response = await llmManager.callProvider(
@@ -331,7 +330,7 @@ export async function runNonStreamToolLoop(options: NonStreamToolLoopOptions): P
     const finalRunContextBase = currentRunContext
       ? { ...currentRunContext, tools: [], mcpServers: [], toolNameMap: {}, toolCallsSoFar: allToolCalls }
       : { tools: [], mcpServers: [], toolNameMap: {}, toolCallsSoFar: allToolCalls };
-    const finalRunContext = withNextGenerationId(finalRunContextBase);
+    const finalRunContext = withStableGenerationId(finalRunContextBase);
     currentRunContext = finalRunContext;
 
     response = await llmManager.callProvider(

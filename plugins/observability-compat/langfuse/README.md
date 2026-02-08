@@ -81,8 +81,8 @@ LLM events are mapped onto OTLP spans that Langfuse interprets as observations:
 
 | Adapter Event | Langfuse Type | Details |
 |---------------|---------------|---------|
-| LLM Request | Observation input | Includes messages, tools, settings, request payload |
-| LLM Response | Observation output | Includes content, tool calls, usage, errors |
+| LLM Request | Observation input | Includes messages, tools, settings, request payload. Uses the same generation span id as the paired response for the same coordinated request. |
+| LLM Response | Observation output | Includes content, tool calls, usage, errors. When `parentGenerationId` is provided and differs from `generationId`, the span is linked under that parent generation span. |
 
 Events with matching `traceId` are grouped into a single trace in Langfuse.
 

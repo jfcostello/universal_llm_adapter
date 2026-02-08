@@ -61,6 +61,7 @@ const spec = {
     provider: 'your-provider',  // Provider ID
     traceId: 'custom-trace-1',  // Optional: custom trace ID
     sessionId: 'session-abc',   // Optional: group related traces
+    parentGenerationId: 'gen-parent', // Optional: generation parent link
     providerConfig: {           // Optional: provider-specific config (provider-defined shape)
       // ...
     },
@@ -182,9 +183,18 @@ In addition to `spec.observability.*`, the adapter uses `spec.metadata` for corr
 - `spec.metadata.batchId`: optional per-request batch identifier; when `spec.observability.sessionId` is not set, this is used as the default session/grouping ID for observability.
 - `spec.observability.sessionId`: stable per-session identifier to group related traces (overrides `spec.metadata.batchId`).
 - `spec.metadata.tags`: optional array of strings forwarded to observability providers that support tagging.
+- `spec.metadata.generationId` / `generation_id` (or `requestId` / `request_id`): optional explicit generation id override.
+- `spec.observability.parentGenerationId`: optional generation parent pointer.
+- Metadata aliases for parent linkage: `spec.metadata.parentGenerationId` and `spec.metadata.parent_generation_id` (used only when `spec.observability.parentGenerationId` is not provided).
 - Signal, tool execution, and trace-update metadata fields are passed through credential redaction before export.
 
 The adapter also forwards token breakdown details (e.g., input/output/total, cached/reasoning/audio tokens) when they are provided by the underlying provider or can be derived from the response.
+
+Generation lifecycle:
+- Stream and non-stream use one generation id per coordinated request.
+- Retries and tool follow-up rounds stay on that same generation id.
+- Parent-generation linkage is optional and additive; when omitted, behavior is unchanged.
+- Empty parent values and self-parent values (`parentGenerationId === generationId`) are ignored.
 
 ## Capture Controls (Safety + Performance)
 
@@ -294,6 +304,7 @@ Global observability overrides (applied when the per-call spec omits those field
 | `provider` | string | `'langfuse'` | Provider ID |
 | `traceId` | string | auto | Trace ID (falls back to correlationId or UUID) |
 | `sessionId` | string | undefined | Session ID for grouping traces |
+| `parentGenerationId` | string | undefined | Optional parent generation id for generation->generation hierarchy |
 | `providerConfig` | object | undefined | Provider-specific configuration |
 | `flushAt` | number | `10` | Flush when queue reaches this size |
 | `flushIntervalMs` | number | `5000` | Flush interval in milliseconds |

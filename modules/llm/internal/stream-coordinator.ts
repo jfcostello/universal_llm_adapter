@@ -9,12 +9,11 @@ import type {
   ObservabilityContext
 } from '../../../kernel/index.js';
 import { Role, StreamEventType, ToolCallEventType, getDefaults, safeJsonParse, sanitizeToolName } from '../../../kernel/index.js';
-import { monotonicNowNs, normalizeFlag, readRequestedGenerationId } from '../../shared/index.js';
+import { monotonicNowNs, normalizeFlag } from '../../shared/index.js';
 import { partitionSettings } from '../../settings/index.js';
 import { usageStatsToJson } from '../../usage/index.js';
-import { randomUUID } from 'crypto';
+import { resolveStreamGenerationContext } from './stream-generation.js';
 import { recordStreamLlmRequestObservability, recordStreamLlmResponseObservability } from './stream-coordinator-observability.js';
-
 interface StreamingContext {
   provider: string;
   model: string;
@@ -36,9 +35,11 @@ export class StreamCoordinator {
   ): AsyncGenerator<LLMStreamEvent> {
     const startTimeMs = Date.now();
     const startTimeMonoNs = monotonicNowNs();
-    const generationId = context.observability
-      ? (readRequestedGenerationId(context.metadata) ?? randomUUID())
-      : undefined;
+    const { generationId, parentGenerationId } = resolveStreamGenerationContext({
+      observability: context.observability,
+      observabilitySpec: spec.observability,
+      metadata: context.metadata
+    });
     const { runtime, provider: providerSettings, providerExtras } = partitionSettings(spec.settings);
     const executionSpec: LLMCallSpec = {
       ...spec,
@@ -55,6 +56,7 @@ export class StreamCoordinator {
         logger: context.logger,
         metadata: context.metadata,
         generationId,
+        parentGenerationId,
         timestampMs: startTimeMs,
         provider: providerManifest.id,
         model,
@@ -87,7 +89,6 @@ export class StreamCoordinator {
     let pendingToolCalls = new Map<string, { name?: string; arguments: string; metadata?: Record<string, any> }>();
     let finishedWithToolCalls = false;
     let detectedCallsById = new Map<string, any>();
-
     while (true) {
       pendingToolCalls = new Map();
       finishedWithToolCalls = false;
@@ -96,7 +97,6 @@ export class StreamCoordinator {
       latestUsage = undefined;
       reasoningAggregate = undefined;
       bufferedRequiredText = [];
-
       const stream = this.llmManager.streamProvider(
         providerManifest,
         model,
@@ -108,7 +108,6 @@ export class StreamCoordinator {
         context.logger,
         context
       );
-
       for await (const chunk of stream) {
         if (context.observability && upstreamProviderHint === undefined) {
           const maybeProvider = (chunk as any)?.provider;
@@ -119,16 +118,13 @@ export class StreamCoordinator {
             }
           }
         }
-
         const parsed = compat.parseStreamChunk(chunk);
-
         if (parsed.text) {
           const shouldBufferRequiredText = requiresInitialToolCalls &&
             !hasToolCalls &&
             !finishedWithToolCalls &&
             detectedCallsById.size === 0 &&
             pendingToolCalls.size === 0;
-
           if (shouldBufferRequiredText) {
             bufferedRequiredText.push(parsed.text);
           } else {
@@ -292,7 +288,12 @@ export class StreamCoordinator {
           providerExtras,
           logger: context.logger,
           toolNameMap,
-          runContext: { metadata: executionSpec.metadata, observability: context.observability, generationId },
+          runContext: {
+            metadata: executionSpec.metadata,
+            observability: context.observability,
+            generationId,
+            ...(parentGenerationId ? { parentGenerationId } : {})
+          },
           metadata: executionSpec.metadata,
           initialToolCalls: preparedToolCalls,
           initialReasoning: reasoningAggregate,
@@ -371,6 +372,7 @@ export class StreamCoordinator {
         logger: context.logger,
         metadata: context.metadata,
         generationId,
+        parentGenerationId,
         startTimeMonoNs,
         provider: providerManifest.id,
         model,

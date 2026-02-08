@@ -8,6 +8,8 @@ import {
   assertValidExtensionName,
   readTrimmedStringProperty,
   readRequestedGenerationId,
+  readRequestedParentGenerationId,
+  normalizeParentGenerationId,
   makeHttpError,
   createDeferred,
   calculateBackoffDelay,
@@ -225,6 +227,48 @@ describe('modules/shared', () => {
       expect(readRequestedGenerationId({ generation_id: '  gen-2  ', requestId: 'req-2' })).toBe('gen-2');
       expect(readRequestedGenerationId({ requestId: '  req-3  ', request_id: 'req-4' })).toBe('req-3');
       expect(readRequestedGenerationId({ request_id: '  req-4  ' })).toBe('req-4');
+    });
+  });
+
+  describe('readRequestedParentGenerationId', () => {
+    test('returns undefined for missing or invalid inputs', () => {
+      expect(readRequestedParentGenerationId(undefined, undefined)).toBeUndefined();
+      expect(readRequestedParentGenerationId({ parentGenerationId: '   ' } as any, { parent_generation_id: 123 } as any)).toBeUndefined();
+      expect(readRequestedParentGenerationId(null as any, 'bad' as any)).toBeUndefined();
+    });
+
+    test('prioritizes observability.parentGenerationId over metadata aliases', () => {
+      expect(
+        readRequestedParentGenerationId(
+          { parentGenerationId: '  obs-parent  ' } as any,
+          { parentGenerationId: 'meta-parent', parent_generation_id: 'meta-parent-2' } as any
+        )
+      ).toBe('obs-parent');
+    });
+
+    test('falls back to metadata aliases in priority order', () => {
+      expect(readRequestedParentGenerationId(undefined, { parentGenerationId: '  meta-1  ', parent_generation_id: 'meta-2' })).toBe('meta-1');
+      expect(readRequestedParentGenerationId(undefined, { parent_generation_id: '  meta-2  ' })).toBe('meta-2');
+    });
+  });
+
+  describe('normalizeParentGenerationId', () => {
+    test('returns undefined when parent is missing, invalid, or empty', () => {
+      expect(normalizeParentGenerationId(undefined, 'gen-1')).toBeUndefined();
+      expect(normalizeParentGenerationId(null, 'gen-1')).toBeUndefined();
+      expect(normalizeParentGenerationId(123, 'gen-1')).toBeUndefined();
+      expect(normalizeParentGenerationId('   ', 'gen-1')).toBeUndefined();
+    });
+
+    test('returns undefined for self-parent values', () => {
+      expect(normalizeParentGenerationId('gen-1', 'gen-1')).toBeUndefined();
+      expect(normalizeParentGenerationId('  gen-1  ', 'gen-1')).toBeUndefined();
+    });
+
+    test('returns trimmed parent id when distinct from generation id', () => {
+      expect(normalizeParentGenerationId('  parent-1  ', 'gen-1')).toBe('parent-1');
+      expect(normalizeParentGenerationId('parent-2', undefined)).toBe('parent-2');
+      expect(normalizeParentGenerationId('parent-3', 123)).toBe('parent-3');
     });
   });
 

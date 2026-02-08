@@ -110,10 +110,19 @@ export class SentryCompat implements IObservabilityCompat {
           i,
           event.generationId ? String(event.generationId) : `response-${i}`
         );
+        const parentGenerationId = typeof (event as any)?.parentGenerationId === 'string'
+          ? String((event as any).parentGenerationId).trim()
+          : '';
+        const childGenerationId = typeof event.generationId === 'string'
+          ? String(event.generationId).trim()
+          : '';
 
         spans.push({
           traceIdHex: deriveOtlpTraceIdHex(String(event.traceId)),
           spanIdHex: deriveOtlpSpanIdHex(String(event.generationId || envelopeId)),
+          ...(parentGenerationId && parentGenerationId !== childGenerationId
+            ? { parentSpanIdHex: deriveOtlpSpanIdHex(parentGenerationId) }
+            : {}),
           name: DEFAULT_GENERATION_SPAN_NAME,
           startTimeIso: cachedSummary?.startTimeIso ? String(cachedSummary.startTimeIso) : deriveStartTimeIso(event),
           endTimeIso: eventTimestampToIso(event),

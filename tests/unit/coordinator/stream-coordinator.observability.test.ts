@@ -145,6 +145,145 @@ describe('StreamCoordinator observability', () => {
 	    expect(requestArg.generationId).toBe(responseArg.generationId);
 	  });
 
+  test('records parentGenerationId from observability config for stream generation events', async () => {
+    const parseStreamChunk = (chunk: any) => ({
+      text: chunk.text
+    });
+
+    const { coordinator } = await createCoordinator({
+      streamChunks: [{ text: 'hello' }],
+      parseStreamChunk
+    });
+
+    const observability = createObservabilityContext();
+
+    const spec: any = {
+      llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
+      settings: {},
+      observability: { parentGenerationId: 'obs-parent' },
+      metadata: {
+        correlationId: 'corr-789',
+        parentGenerationId: 'meta-parent'
+      }
+    };
+
+    const messages: any[] = [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }];
+    const tools: any[] = [{ name: 'demo-tool', description: 'demo' }];
+
+    const context: any = {
+      provider: 'stub-provider',
+      model: 'stub-model',
+      tools,
+      mcpServers: [],
+      toolNameMap: new Map(),
+      logger: { info: jest.fn(), warning: jest.fn() },
+      metadata: spec.metadata,
+      observability
+    };
+
+    for await (const _event of coordinator.coordinateStream(spec, messages, tools, context)) {
+      // consume
+    }
+
+    const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
+    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+    expect(requestArg.parentGenerationId).toBe('obs-parent');
+    expect(responseArg.parentGenerationId).toBe('obs-parent');
+  });
+
+  test('omits parentGenerationId when it matches generationId', async () => {
+    const parseStreamChunk = (chunk: any) => ({
+      text: chunk.text
+    });
+
+    const { coordinator } = await createCoordinator({
+      streamChunks: [{ text: 'hello' }],
+      parseStreamChunk
+    });
+
+    const observability = createObservabilityContext();
+
+    const spec: any = {
+      llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
+      settings: {},
+      metadata: {
+        correlationId: 'corr-789',
+        generationId: 'gen-fixed',
+        parentGenerationId: 'gen-fixed'
+      }
+    };
+
+    const messages: any[] = [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }];
+    const tools: any[] = [{ name: 'demo-tool', description: 'demo' }];
+
+    const context: any = {
+      provider: 'stub-provider',
+      model: 'stub-model',
+      tools,
+      mcpServers: [],
+      toolNameMap: new Map(),
+      logger: { info: jest.fn(), warning: jest.fn() },
+      metadata: spec.metadata,
+      observability
+    };
+
+    for await (const _event of coordinator.coordinateStream(spec, messages, tools, context)) {
+      // consume
+    }
+
+    const requestArg = (observability.exporter.recordLLMRequest as any).mock.calls[0][0];
+    const responseArg = (observability.exporter.recordLLMResponse as any).mock.calls[0][0];
+    expect(requestArg.generationId).toBe('gen-fixed');
+    expect(responseArg.generationId).toBe('gen-fixed');
+    expect(requestArg.parentGenerationId).toBeUndefined();
+    expect(responseArg.parentGenerationId).toBeUndefined();
+  });
+
+  test('passes parentGenerationId into stream tool-loop runContext when tool execution is required', async () => {
+    const parseStreamChunk = () => ({
+      toolEvents: [
+        { type: ToolCallEventType.TOOL_CALL_START, callId: 'tool-1', name: 'echo.text' },
+        { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: 'tool-1', argumentsDelta: '{"a":1}' },
+        { type: ToolCallEventType.TOOL_CALL_END, callId: 'tool-1', name: 'echo.text' }
+      ],
+      finishedWithToolCalls: true
+    });
+
+    const { coordinator, runToolLoopMock } = await createCoordinator({
+      streamChunks: [{}],
+      parseStreamChunk,
+      runToolLoopReturn: { content: 'done' }
+    });
+
+    const observability = createObservabilityContext();
+    const spec: any = {
+      llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
+      settings: {},
+      observability: { parentGenerationId: 'obs-parent' },
+      metadata: { correlationId: 'corr-789', generationId: 'gen-child' }
+    };
+
+    const context: any = {
+      provider: 'stub-provider',
+      model: 'stub-model',
+      tools: [{ name: 'echo.text', description: 'echo' }],
+      mcpServers: [],
+      toolNameMap: new Map(),
+      logger: { info: jest.fn(), warning: jest.fn() },
+      metadata: spec.metadata,
+      observability
+    };
+
+    for await (const _event of coordinator.coordinateStream(spec, [{ role: Role.USER, content: [{ type: 'text', text: 'hi' }] }], context.tools, context)) {
+      // consume
+    }
+
+    expect(runToolLoopMock).toHaveBeenCalledTimes(1);
+    const callArgs = (runToolLoopMock as any).mock.calls[0][0];
+    expect(callArgs.runContext.generationId).toBe('gen-child');
+    expect(callArgs.runContext.parentGenerationId).toBe('obs-parent');
+  });
+
   test('enriches streaming observability response model from an upstream provider hint on stream chunks', async () => {
     const parseStreamChunk = (chunk: any) => ({
       text: chunk.text

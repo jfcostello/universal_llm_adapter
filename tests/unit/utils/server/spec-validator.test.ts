@@ -194,6 +194,24 @@ describe('utils/server assertValidSpec', () => {
     ).toThrow(/telemetry/i);
   });
 
+  test('assertValidTelemetrySubmission supports parentGenerationId in observability allowlist', () => {
+    expect(() =>
+      assertValidTelemetrySubmission(
+        {
+          type: 'signal',
+          traceId: 'trace_6b',
+          level: 'error',
+          message: 'boom',
+          observability: {
+            enabled: true,
+            parentGenerationId: 'gen-parent'
+          }
+        } as any,
+        { observabilityOverrideAllowlist: ['enabled', 'parentGenerationId'] }
+      )
+    ).not.toThrow();
+  });
+
   test('assertValidTelemetrySubmission tolerates telemetry allowlist with non-string entries', () => {
     expect(() =>
       assertValidTelemetrySubmission(

@@ -315,7 +315,7 @@ describe('utils/tools/runToolLoop observability', () => {
     expect(signal).toEqual(expect.objectContaining({ level: 'warning', code: 'tool_call_budget_exhausted' }));
   });
 
-  test('nonstream loop re-reads runContext.generationId per round for tool telemetry', async () => {
+  test('nonstream loop keeps a single generationId across tool rounds for tool telemetry', async () => {
     const observability = createObservabilityContext();
     const runContext: any = { observability, generationId: 'gen-1' };
 
@@ -386,7 +386,7 @@ describe('utils/tools/runToolLoop observability', () => {
     const second = (observability.exporter.recordToolExecution as any).mock.calls[1][0];
 
     expect(first).toEqual(expect.objectContaining({ toolCallId: 'call-1', generationId: 'gen-1' }));
-    expect(second).toEqual(expect.objectContaining({ toolCallId: 'call-2', generationId: 'gen-2' }));
+    expect(second).toEqual(expect.objectContaining({ toolCallId: 'call-2', generationId: 'gen-1' }));
   });
 
   test('stream loop includes runContext.generationId on tool execution events when provided', async () => {

@@ -137,6 +137,20 @@ describe('LangfuseCompat (OTLP)', () => {
       expect(output.rawResponse).toEqual(responseEvent.rawResponse);
     });
 
+    it('maps parentGenerationId as parent span linkage for generation spans', () => {
+      compat.buildBatch([requestEvent], mockManifest, { eventIds: ['event-req-parent'] } as any);
+
+      const responseWithParent = {
+        ...responseEvent,
+        parentGenerationId: 'gen-parent'
+      } as any;
+
+      const batch = compat.buildBatch([responseWithParent], mockManifest, { eventIds: ['event-resp-parent'] } as any);
+      const spans = (batch.payload as any)?.spans ?? [];
+      expect(spans).toHaveLength(1);
+      expect(spans[0]?.parentSpanIdHex).toBe(deriveOtlpSpanIdHex('gen-parent'));
+    });
+
     it('uses trimmed metadata.step as the response span name when provided', () => {
       compat.buildBatch([requestEvent], mockManifest, { eventIds: ['event-req-step'] } as any);
 

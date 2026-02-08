@@ -144,6 +144,12 @@ export interface RunContext {
   generationId?: string;
 
   /**
+   * Optional parent generation identifier for generation->generation linkage.
+   * Present when explicitly supplied by the caller.
+   */
+  parentGenerationId?: string;
+
+  /**
    * Observability context for recording LLM events.
    * Only present when observability is enabled.
    */
@@ -216,6 +222,12 @@ export interface ObservabilitySpec {
    * If not provided, uses runtime batch ID when available.
    */
   sessionId?: string;
+
+  /**
+   * Optional parent generation identifier to attach the emitted generation
+   * span under another generation span.
+   */
+  parentGenerationId?: string;
 
   /**
    * Provider-specific configuration overrides.
