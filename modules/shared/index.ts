@@ -2,6 +2,7 @@ export { normalizeFlag } from './internal/normalize-flag.js';
 export { assertValidExtensionName } from './internal/assert-valid-extension-name.js';
 export { readTrimmedStringProperty } from './internal/read-trimmed-string-property.js';
 export { readRequestedGenerationId } from './internal/read-requested-generation-id.js';
+export { readRequestedParentGenerationId } from './internal/read-requested-parent-generation-id.js';
 export { makeHttpError } from './internal/make-http-error.js';
 export { deriveObservabilityModel } from './internal/derive-observability-model.js';
 

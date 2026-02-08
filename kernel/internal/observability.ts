@@ -37,6 +37,11 @@ export interface ObservabilityLLMRequestEvent {
    */
   generationId?: string;
 
+  /**
+   * Optional parent generation identifier for generation->generation linkage.
+   */
+  parentGenerationId?: string;
+
   /** Optional session ID */
   sessionId?: string;
 
@@ -87,6 +92,11 @@ export interface ObservabilityLLMResponseEvent {
    * Should match the request's generationId when present.
    */
   generationId?: string;
+
+  /**
+   * Optional parent generation identifier for generation->generation linkage.
+   */
+  parentGenerationId?: string;
 
   /** Optional session ID */
   sessionId?: string;

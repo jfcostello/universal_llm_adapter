@@ -1225,6 +1225,7 @@ Enable observability in your spec:
   "observability": {
     "enabled": true,
     "provider": "langfuse",
+    "parentGenerationId": "gen-parent",
     "captureMessages": "text"
   }
 }
@@ -1248,6 +1249,7 @@ Or export to multiple providers via `targets`:
 Note: Sentry OTLP traces/tools export is disabled by default; enable it by setting `providerConfig.enableOtlp=true` on the Sentry target.
 
 Tip: set `metadata.correlationId` (trace name) and `metadata.tags` (tags) for stable naming/grouping.
+Tip: set `observability.parentGenerationId` (or metadata aliases `parentGenerationId` / `parent_generation_id`) only when you need explicit generation-parent linkage.
 
 Or globally via `plugins/configs/defaults.json`.
 

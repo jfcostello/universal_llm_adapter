@@ -96,12 +96,21 @@ export class LangfuseCompat implements IObservabilityCompat {
           i,
           event.generationId ? String(event.generationId) : `response-${i}`
         );
+        const parentGenerationId = typeof (event as any)?.parentGenerationId === 'string'
+          ? String((event as any).parentGenerationId).trim()
+          : '';
+        const childGenerationId = typeof event.generationId === 'string'
+          ? String(event.generationId).trim()
+          : '';
 
         const costDetails = buildLangfuseCostDetails(event.usage);
 
         spans.push({
           traceIdHex: deriveOtlpTraceIdHex(String(event.traceId)),
           spanIdHex: deriveOtlpSpanIdHex(String(event.generationId || envelopeId)),
+          ...(parentGenerationId && parentGenerationId !== childGenerationId
+            ? { parentSpanIdHex: deriveOtlpSpanIdHex(parentGenerationId) }
+            : {}),
           name: spanName,
           startTimeIso: cachedSummary?.startTimeIso ? String(cachedSummary.startTimeIso) : deriveStartTimeIso(event),
           endTimeIso: eventTimestampToIso(event),

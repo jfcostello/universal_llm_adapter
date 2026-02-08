@@ -292,6 +292,22 @@ describe('SentryCompat (envelopes + OTLP traces)', () => {
       expect(String(attrs['llm.adapter.output_text'] || '')).toContain('Hello there!');
     });
 
+    it('maps parentGenerationId as parent span linkage for generation spans', () => {
+      const requestCtx = { eventIds: ['req-parent'], providerConfig: { enableOtlp: true } } as any;
+      compat.buildBatch([requestEvent], mockManifest, requestCtx);
+
+      const responseWithParent = {
+        ...responseEvent,
+        parentGenerationId: 'gen-parent'
+      } as any;
+
+      const ctx = { eventIds: ['resp-parent'], providerConfig: { enableOtlp: true } } as any;
+      const batch = compat.buildBatch([responseWithParent], mockManifest, ctx);
+      const span = (batch.payload as any)?.spans?.[0];
+      expect(span).toBeDefined();
+      expect(span.parentSpanIdHex).toBe(deriveOtlpSpanIdHex('gen-parent'));
+    });
+
     it('maps tool_execution events as child spans and updates cached trace context on trace_update', () => {
       const ctxReq = { eventIds: ['req'], providerConfig: { enableOtlp: true } } as any;
       compat.buildBatch([requestEvent], mockManifest, ctxReq);

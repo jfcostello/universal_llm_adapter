@@ -50,10 +50,12 @@ describe('observability-spec-types', () => {
     test('RunContext accepts optional generationId for internal observability correlation', () => {
       const runContext: RunContext = {
         metadata: { correlationId: 'corr-1' },
-        generationId: 'gen-1'
+        generationId: 'gen-1',
+        parentGenerationId: 'gen-parent'
       };
 
       expect(runContext.generationId).toBe('gen-1');
+      expect((runContext as any).parentGenerationId).toBe('gen-parent');
     });
 
       test('ObservabilitySpec accepts all optional queue knobs', () => {
@@ -63,6 +65,7 @@ describe('observability-spec-types', () => {
           provider: 'langfuse',
           traceId: 'custom-trace',
           sessionId: 'custom-session',
+          parentGenerationId: 'gen-parent',
           providerConfig: { customKey: 'customValue' },
           flushAt: 5,
           flushIntervalMs: 2000,
@@ -107,6 +110,7 @@ describe('observability-spec-types', () => {
         expect((spec.observability as any)?.maxInputTextBytes).toBe(4096);
         expect((spec.observability as any)?.maxOutputTextBytes).toBe(4096);
         expect((spec.observability as any)?.maxJsonBytes).toBe(8192);
+        expect((spec.observability as any)?.parentGenerationId).toBe('gen-parent');
       });
     });
 

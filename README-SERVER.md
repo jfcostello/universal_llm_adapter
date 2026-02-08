@@ -1227,6 +1227,7 @@ Enable LLM call and realtime session telemetry export in your request body/spec:
   "observability": {
     "enabled": true,
     "provider": "langfuse",
+    "parentGenerationId": "gen-parent",
     "captureMessages": "text"
   },
   "messages": [...],
@@ -1252,6 +1253,7 @@ Or configure multi-target export via `targets`:
 ```
 
 Tip: set `metadata.correlationId` (trace name) and `metadata.tags` (tags) for stable naming/grouping.
+Tip: set `observability.parentGenerationId` (or metadata aliases `parentGenerationId` / `parent_generation_id`) only when you need explicit generation-parent linkage.
 
 Or globally via `plugins/configs/defaults.json`. Same spec field for CLI and server.
 

@@ -88,6 +88,13 @@ Notes:
 `trace_update` events are treated as trace-context mutations (name/tags/session fields) and do **not** emit standalone Sentry envelopes or spans by themselves.
 The updated context is applied to subsequent Sentry exports that share the same trace/generation keys.
 
+### Generation parent linkage
+
+For OTLP generation spans:
+- Request/response events for one coordinated request reuse the same `generationId`.
+- If `parentGenerationId` is present and differs from `generationId`, the generation span is attached under that parent generation span.
+- If no parent is provided, generation spans are emitted without generation-parent linkage.
+
 ## Optional Provider Config
 
 These settings live under `observability.targets[].providerConfig` for the Sentry target.

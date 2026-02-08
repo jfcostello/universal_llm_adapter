@@ -394,6 +394,7 @@ Observability enables export of LLM call **and realtime session** telemetry. It 
     provider: 'langfuse',          // or: 'sentry'
     traceId: 'custom-trace-id',    // Optional
     sessionId: 'session-abc',       // Optional
+    parentGenerationId: 'gen-parent', // Optional: parent generation linkage
     // Capture controls (override the shipped defaults)
     captureMessages: 'text',        // 'none' | 'text' | 'full'
     captureToolArgs: false,
@@ -406,6 +407,11 @@ Observability enables export of LLM call **and realtime session** telemetry. It 
 **Tip:** For stable naming/grouping, set:
 - `spec.metadata.correlationId` (trace display/name in providers that support it)
 - `spec.metadata.tags` (forwarded as provider tags when present)
+
+Generation metadata:
+- `spec.metadata.generationId` / `generation_id` (or `requestId` / `request_id`) can pin the generation ID.
+- `spec.observability.parentGenerationId` sets an optional generation parent.
+- Metadata aliases for parent linkage are also supported: `spec.metadata.parentGenerationId` and `spec.metadata.parent_generation_id`.
 
 **Required Environment Variables**:
 - Langfuse:
