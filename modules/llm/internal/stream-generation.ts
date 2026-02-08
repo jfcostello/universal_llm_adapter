@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 
 import type { LLMCallSpec, ObservabilityContext } from '../../../kernel/index.js';
-import { readRequestedGenerationId, readRequestedParentGenerationId } from '../../shared/index.js';
+import { normalizeParentGenerationId, readRequestedGenerationId, readRequestedParentGenerationId } from '../../shared/index.js';
 
 export function resolveStreamGenerationContext(options: {
   observability?: ObservabilityContext;
@@ -14,12 +14,7 @@ export function resolveStreamGenerationContext(options: {
 
   const generationId = readRequestedGenerationId(options.metadata) ?? randomUUID();
   const requestedParentGenerationId = readRequestedParentGenerationId(options.observabilitySpec, options.metadata);
-  const parentGenerationId = (
-    requestedParentGenerationId &&
-    requestedParentGenerationId !== generationId
-  )
-    ? requestedParentGenerationId
-    : undefined;
+  const parentGenerationId = normalizeParentGenerationId(requestedParentGenerationId, generationId);
 
   return { generationId, parentGenerationId };
 }

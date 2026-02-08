@@ -14,7 +14,7 @@ import {
   filterMessagesForObservability,
   logObservabilityEvent,
   monotonicElapsedMs,
-  readTrimmedStringProperty
+  normalizeParentGenerationId
 } from '../../../../shared/index.js';
 
 /**
@@ -38,14 +38,10 @@ export function recordObservabilityRequest(
   try {
     const captureMessages = context.observability.captureMessages ?? 'full';
     const captureRequestPayload = context.observability.captureRequestPayload ?? true;
-    const parentGenerationId = readTrimmedStringProperty(context, 'parentGenerationId');
-    const normalizedParentGenerationId = (
-      parentGenerationId &&
-      generationId &&
-      parentGenerationId !== generationId
-    )
-      ? parentGenerationId
-      : undefined;
+    const normalizedParentGenerationId = normalizeParentGenerationId(
+      context.parentGenerationId,
+      generationId
+    );
 
     const event = {
       traceId: context.observability.traceId,
@@ -92,14 +88,10 @@ export function recordObservabilityResponse(
     const captureMessages = context.observability.captureMessages ?? 'full';
     const captureToolArgs = context.observability.captureToolArgs ?? false;
     const captureRawResponse = context.observability.captureRawResponse ?? true;
-    const parentGenerationId = readTrimmedStringProperty(context, 'parentGenerationId');
-    const normalizedParentGenerationId = (
-      parentGenerationId &&
-      generationId &&
-      parentGenerationId !== generationId
-    )
-      ? parentGenerationId
-      : undefined;
+    const normalizedParentGenerationId = normalizeParentGenerationId(
+      context.parentGenerationId,
+      generationId
+    );
 
     const endTimeMs = Date.now();
     const durationMs = monotonicElapsedMs(startTimeMonoNs);

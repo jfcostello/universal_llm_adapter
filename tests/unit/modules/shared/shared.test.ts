@@ -9,6 +9,7 @@ import {
   readTrimmedStringProperty,
   readRequestedGenerationId,
   readRequestedParentGenerationId,
+  normalizeParentGenerationId,
   makeHttpError,
   createDeferred,
   calculateBackoffDelay,
@@ -248,6 +249,26 @@ describe('modules/shared', () => {
     test('falls back to metadata aliases in priority order', () => {
       expect(readRequestedParentGenerationId(undefined, { parentGenerationId: '  meta-1  ', parent_generation_id: 'meta-2' })).toBe('meta-1');
       expect(readRequestedParentGenerationId(undefined, { parent_generation_id: '  meta-2  ' })).toBe('meta-2');
+    });
+  });
+
+  describe('normalizeParentGenerationId', () => {
+    test('returns undefined when parent is missing, invalid, or empty', () => {
+      expect(normalizeParentGenerationId(undefined, 'gen-1')).toBeUndefined();
+      expect(normalizeParentGenerationId(null, 'gen-1')).toBeUndefined();
+      expect(normalizeParentGenerationId(123, 'gen-1')).toBeUndefined();
+      expect(normalizeParentGenerationId('   ', 'gen-1')).toBeUndefined();
+    });
+
+    test('returns undefined for self-parent values', () => {
+      expect(normalizeParentGenerationId('gen-1', 'gen-1')).toBeUndefined();
+      expect(normalizeParentGenerationId('  gen-1  ', 'gen-1')).toBeUndefined();
+    });
+
+    test('returns trimmed parent id when distinct from generation id', () => {
+      expect(normalizeParentGenerationId('  parent-1  ', 'gen-1')).toBe('parent-1');
+      expect(normalizeParentGenerationId('parent-2', undefined)).toBe('parent-2');
+      expect(normalizeParentGenerationId('parent-3', 123)).toBe('parent-3');
     });
   });
 

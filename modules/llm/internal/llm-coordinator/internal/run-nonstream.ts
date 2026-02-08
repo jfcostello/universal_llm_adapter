@@ -15,7 +15,7 @@ import type {
 import { getDefaults } from '../../../../../kernel/index.js';
 import type { LLMManager } from '../../llm-manager.js';
 import { partitionSettings, mergeProviderSettings } from '../../../../settings/index.js';
-import { readRequestedGenerationId, readRequestedParentGenerationId } from '../../../../shared/index.js';
+import { normalizeParentGenerationId, readRequestedGenerationId, readRequestedParentGenerationId } from '../../../../shared/index.js';
 import { withRetries } from '../../../../retry/index.js';
 import {
   resolveAutoVectorContexts,
@@ -156,19 +156,14 @@ export async function runNonStream(options: {
   const requestedGenerationId = readRequestedGenerationId(options.spec.metadata);
   const generationId = observability ? (requestedGenerationId ?? randomUUID()) : undefined;
   const requestedParentGenerationId = readRequestedParentGenerationId(options.spec.observability, options.spec.metadata);
-  const parentGenerationId = (
-    observability &&
-    generationId &&
-    requestedParentGenerationId &&
-    requestedParentGenerationId !== generationId
-  )
-    ? requestedParentGenerationId
+  const parentGenerationId = observability
+    ? normalizeParentGenerationId(requestedParentGenerationId, generationId)
     : undefined;
   if (generationId) {
     runContext.generationId = generationId;
   }
   if (parentGenerationId) {
-    (runContext as any).parentGenerationId = parentGenerationId;
+    runContext.parentGenerationId = parentGenerationId;
   }
 
   const runLogger = options.getLogger().withCorrelation(options.spec.metadata?.correlationId as string);
