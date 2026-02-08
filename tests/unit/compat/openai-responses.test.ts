@@ -79,6 +79,30 @@ describe('compat/openai-responses', () => {
         ]
       });
     });
+
+    test('serializes ToolChoiceRequired with empty allowed list as auto', () => {
+      const payload = compat.buildPayload(
+        'gpt-4o',
+        {} as any,
+        baseMessages as any,
+        baseTools as any,
+        { type: 'required', allowed: [] } as any
+      );
+
+      expect(payload.tool_choice).toBe('auto');
+    });
+
+    test('serializes ToolChoiceRequired with non-array allowed as auto', () => {
+      const payload = compat.buildPayload(
+        'gpt-4o',
+        {} as any,
+        baseMessages as any,
+        baseTools as any,
+        { type: 'required', allowed: undefined } as any
+      );
+
+      expect(payload.tool_choice).toBe('auto');
+    });
   });
 
   describe('serializeSettings', () => {

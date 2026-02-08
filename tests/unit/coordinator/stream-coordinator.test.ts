@@ -157,7 +157,187 @@ describe('StreamCoordinator', () => {
     expect(events.at(-1)?.type).toBe('done');
   });
 
-	  test('coordinateStream dispatches tool events and follow-up streaming', async () => {
+  test('coordinateStream retries required tool_choice streams even when text is emitted before a tool call', async () => {
+    const streamResponses = [
+      // Attempt 1: emits text but no tool calls => should be suppressed and retried.
+      (async function* () {
+        yield { choices: [{ delta: { content: 'should-not-leak' } }] };
+      })(),
+      // Attempt 2: emits a tool call.
+      (async function* () {
+        yield { choices: [{}] };
+      })(),
+      // Follow-up after tool execution.
+      (async function* () {
+        yield { choices: [{ delta: { content: 'final' } }] };
+      })()
+    ];
+
+    let parseCallCount = 0;
+    const { coordinator, llmManager, toolCoordinator, compatModule } = createCoordinator({
+      compatModule: {
+        parseStreamChunk: jest.fn((chunk: any) => {
+          parseCallCount++;
+          if (parseCallCount === 2) {
+            return {
+              text: undefined,
+              toolEvents: [
+                { type: ToolCallEventType.TOOL_CALL_START, callId: '1', name: 'tool_raw' },
+                { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: '1', argumentsDelta: '{}' },
+                { type: ToolCallEventType.TOOL_CALL_END, callId: '1', name: 'tool_raw', arguments: '{}' }
+              ],
+              finishedWithToolCalls: true
+            };
+          }
+          return {
+            text: chunk.choices?.[0]?.delta?.content,
+            toolEvents: undefined
+          };
+        })
+      },
+      llmManager: {
+        streamProvider: jest.fn(() => streamResponses.shift()!)
+      },
+      toolCoordinator: {
+        routeAndInvoke: jest.fn().mockResolvedValue({ result: { ok: true } })
+      }
+    });
+
+    const spec: any = {
+      llmPriority: [{ provider: 'provider', model: 'model' }],
+      settings: { maxToolIterations: 2 },
+      toolChoice: { type: 'required', allowed: ['tool_raw'] },
+      metadata: {}
+    };
+
+    const context = createContext();
+    context.toolNameMap = new Map([['tool_raw', 'tool.raw']]);
+
+    const events: any[] = [];
+    for await (const event of coordinator.coordinateStream(spec, [], [{ name: 'tool_raw' }], context, { requireFinishToExecute: true })) {
+      events.push(event);
+    }
+
+    expect(llmManager.streamProvider).toHaveBeenCalledTimes(3);
+    const retryMessages = llmManager.streamProvider.mock.calls[1]?.[3] ?? [];
+    expect(Array.isArray(retryMessages)).toBe(true);
+    expect(retryMessages.some((m: any) => m?.role === Role.USER && JSON.stringify(m?.content || []).includes('You MUST call the required tool now.'))).toBe(true);
+    expect(compatModule.parseStreamChunk).toHaveBeenCalled();
+    expect(toolCoordinator.routeAndInvoke).toHaveBeenCalledWith(
+      'tool.raw',
+      '1',
+      {},
+      expect.objectContaining({ provider: 'provider', model: 'model' })
+    );
+
+    const deltas = events.filter(e => e.type === StreamEventType.DELTA).map(e => e.content);
+    expect(deltas).toContain('final');
+    expect(deltas).not.toContain('should-not-leak');
+    expect(events.at(-1)?.response?.content?.[0]?.text).toBe('final');
+  });
+
+  test('coordinateStream flushes buffered required text before tool events in the same chunk', async () => {
+    const streamResponses = [
+      (async function* () {
+        yield { choices: [{ delta: { content: 'preface' } }] };
+      })(),
+      (async function* () {
+        yield { choices: [{ delta: { content: 'final' } }] };
+      })()
+    ];
+    let parseCallCount = 0;
+
+    const { coordinator, llmManager, toolCoordinator } = createCoordinator({
+      compatModule: {
+        parseStreamChunk: jest.fn((chunk: any) => {
+          parseCallCount++;
+          if (parseCallCount === 1) {
+            return {
+              text: chunk.choices?.[0]?.delta?.content,
+              toolEvents: [
+                { type: ToolCallEventType.TOOL_CALL_START, callId: '1', name: 'tool_raw' },
+                { type: ToolCallEventType.TOOL_CALL_ARGUMENTS_DELTA, callId: '1', argumentsDelta: '{}' },
+                { type: ToolCallEventType.TOOL_CALL_END, callId: '1', name: 'tool_raw', arguments: '{}' }
+              ],
+              finishedWithToolCalls: true
+            };
+          }
+          return {
+            text: chunk.choices?.[0]?.delta?.content,
+            toolEvents: undefined
+          };
+        })
+      },
+      llmManager: {
+        streamProvider: jest.fn(() => streamResponses.shift()!)
+      },
+      toolCoordinator: {
+        routeAndInvoke: jest.fn().mockResolvedValue({ result: { ok: true } })
+      }
+    });
+
+    const spec: any = {
+      llmPriority: [{ provider: 'provider', model: 'model' }],
+      settings: { maxToolIterations: 2 },
+      toolChoice: { type: 'required', allowed: ['tool_raw'] },
+      metadata: {}
+    };
+
+    const context = createContext();
+    context.toolNameMap = new Map([['tool_raw', 'tool.raw']]);
+
+    const events: any[] = [];
+    for await (const event of coordinator.coordinateStream(spec, [], [{ name: 'tool_raw' }], context, { requireFinishToExecute: true })) {
+      events.push(event);
+    }
+
+    expect(llmManager.streamProvider).toHaveBeenCalledTimes(2);
+    expect(toolCoordinator.routeAndInvoke).toHaveBeenCalledWith(
+      'tool.raw',
+      '1',
+      {},
+      expect.objectContaining({ provider: 'provider', model: 'model' })
+    );
+
+    const deltaEvents = events.filter(e => e.type === StreamEventType.DELTA);
+    expect(deltaEvents[0]?.content).toBe('preface');
+    expect(deltaEvents.some(e => e.content === 'final')).toBe(true);
+  });
+
+  test('coordinateStream flushes buffered required text when stream ends with tool finish and no tool events', async () => {
+    const { coordinator, llmManager } = createCoordinator({
+      compatModule: {
+        parseStreamChunk: jest.fn((chunk: any) => ({
+          text: chunk.choices?.[0]?.delta?.content,
+          toolEvents: undefined,
+          finishedWithToolCalls: true
+        }))
+      },
+      llmManager: {
+        streamProvider: jest.fn(async function* () {
+          yield { choices: [{ delta: { content: 'buffered-final' } }] };
+        })
+      }
+    });
+
+    const spec: any = {
+      llmPriority: [{ provider: 'provider', model: 'model' }],
+      settings: { maxToolIterations: 1 },
+      toolChoice: { type: 'required', allowed: ['tool_raw'] },
+      metadata: {}
+    };
+
+    const events: any[] = [];
+    for await (const event of coordinator.coordinateStream(spec, [], [{ name: 'tool_raw' }], createContext(), { requireFinishToExecute: true })) {
+      events.push(event);
+    }
+
+    expect(llmManager.streamProvider).toHaveBeenCalledTimes(1);
+    expect(events.some(e => e.type === StreamEventType.DELTA && e.content === 'buffered-final')).toBe(true);
+    expect(events.at(-1)?.response?.content?.[0]?.text).toBe('buffered-final');
+  });
+
+		  test('coordinateStream dispatches tool events and follow-up streaming', async () => {
     const streamResponses = [
       (async function* () {
         yield { choices: [{ delta: { content: 'token-1' } }] };

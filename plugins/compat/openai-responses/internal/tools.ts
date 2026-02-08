@@ -30,8 +30,14 @@ export function serializeToolChoiceForSDK(choice?: ToolChoice): any {
   }
 
   if (choice.type === 'required') {
-    if (choice.allowed.length === 1) {
-      return { type: 'function', name: choice.allowed[0] };
+    const allowed = Array.isArray(choice.allowed) ? choice.allowed : [];
+
+    if (allowed.length === 0) {
+      return 'auto';
+    }
+
+    if (allowed.length === 1) {
+      return { type: 'function', name: allowed[0] };
     }
 
     // Constrain available tools to the allowed set and require at least one call.
@@ -39,7 +45,7 @@ export function serializeToolChoiceForSDK(choice?: ToolChoice): any {
     return {
       type: 'allowed_tools',
       mode: 'required',
-      tools: choice.allowed.map(name => ({ type: 'function', name }))
+      tools: allowed.map(name => ({ type: 'function', name }))
     };
   }
 

@@ -14,7 +14,6 @@ import { partitionSettings } from '../../settings/index.js';
 import { usageStatsToJson } from '../../usage/index.js';
 import { randomUUID } from 'crypto';
 import { recordStreamLlmRequestObservability, recordStreamLlmResponseObservability } from './stream-coordinator-observability.js';
-
 interface StreamingContext {
   provider: string;
   model: string;
@@ -25,14 +24,12 @@ interface StreamingContext {
   metadata?: Record<string, any>;
   observability?: ObservabilityContext;
 }
-
 export class StreamCoordinator {
   constructor(
     private registry: any,
     private llmManager: any,
     private toolCoordinator: any
   ) {}
-
   async *coordinateStream(
     spec: LLMCallSpec,
     messages: Message[],
@@ -48,15 +45,11 @@ export class StreamCoordinator {
       ...spec,
       settings: providerSettings
     };
-
     const { provider, model } = executionSpec.llmPriority[0];
     const providerManifest = await this.registry.getProvider(provider);
-
-    // Get compat module for parsing stream chunks
     const compat = typeof this.registry.getCompatModuleForProvider === 'function'
       ? await this.registry.getCompatModuleForProvider(providerManifest.id)
       : await this.registry.getCompatModule(providerManifest.compat);
-
     if (context.observability) {
       recordStreamLlmRequestObservability({
         observability: context.observability,
@@ -71,24 +64,27 @@ export class StreamCoordinator {
         settings: executionSpec.settings
       });
     }
-
-    // Track accumulated content and tool calls for final response
     let accumulatedContent = '';
     const allToolCalls: any[] = [];
     let upstreamProviderHint: string | undefined;
-
     const requiresInitialToolCalls = tools.length > 0 &&
       executionSpec.toolChoice !== undefined &&
       executionSpec.toolChoice !== 'auto' &&
       executionSpec.toolChoice !== 'none';
     const maxIgnoredToolChoiceRetries = 3;
     let ignoredToolChoiceRetries = 0;
-
+    let bufferedRequiredText: string[] = [];
+    const flushBufferedRequiredText = (): LLMStreamEvent[] => {
+      if (bufferedRequiredText.length === 0) return [];
+      const events = bufferedRequiredText.map(content => ({ type: StreamEventType.DELTA, content } as LLMStreamEvent));
+      accumulatedContent += bufferedRequiredText.join('');
+      bufferedRequiredText = [];
+      return events;
+    };
     let hasToolCalls = false;
     let toolStop = false;
     let latestUsage: UsageStats | undefined;
     let reasoningAggregate: ReasoningData | undefined;
-
     let pendingToolCalls = new Map<string, { name?: string; arguments: string; metadata?: Record<string, any> }>();
     let finishedWithToolCalls = false;
     let detectedCallsById = new Map<string, any>();
@@ -100,6 +96,7 @@ export class StreamCoordinator {
       hasToolCalls = false;
       latestUsage = undefined;
       reasoningAggregate = undefined;
+      bufferedRequiredText = [];
 
       const stream = this.llmManager.streamProvider(
         providerManifest,
@@ -127,11 +124,25 @@ export class StreamCoordinator {
         const parsed = compat.parseStreamChunk(chunk);
 
         if (parsed.text) {
-          accumulatedContent += parsed.text;
-          yield { type: StreamEventType.DELTA, content: parsed.text };
+          const shouldBufferRequiredText = requiresInitialToolCalls &&
+            !hasToolCalls &&
+            !finishedWithToolCalls &&
+            detectedCallsById.size === 0 &&
+            pendingToolCalls.size === 0;
+
+          if (shouldBufferRequiredText) {
+            bufferedRequiredText.push(parsed.text);
+          } else {
+            accumulatedContent += parsed.text;
+            yield { type: StreamEventType.DELTA, content: parsed.text };
+          }
         }
 
         if (parsed.toolEvents) {
+          for (const event of flushBufferedRequiredText()) {
+            yield event;
+          }
+
           for (const event of parsed.toolEvents) {
             hasToolCalls = true;
 
@@ -169,6 +180,9 @@ export class StreamCoordinator {
 
         if (parsed.finishedWithToolCalls) {
           finishedWithToolCalls = true;
+          for (const event of flushBufferedRequiredText()) {
+            yield event;
+          }
         }
 
         if (parsed.usage) {
@@ -192,10 +206,10 @@ export class StreamCoordinator {
       if (
         requiresInitialToolCalls &&
         !hasDetectedCalls &&
-        accumulatedContent.length === 0 &&
         ignoredToolChoiceRetries < maxIgnoredToolChoiceRetries
       ) {
         ignoredToolChoiceRetries += 1;
+        bufferedRequiredText = [];
         messages.push({
           role: Role.USER,
           content: [{ type: 'text', text: 'You MUST call the required tool now.\nDo NOT answer with any text.\nReturn ONLY a tool call.' } as any]
@@ -203,13 +217,15 @@ export class StreamCoordinator {
         continue;
       }
 
+      for (const event of flushBufferedRequiredText()) {
+        yield event;
+      }
+
       break;
     }
 
-    // Handle tool calls if stream finished with tool_calls (matches prior behavior)
     const mustRequireFinish = options?.requireFinishToExecute === true;
     if ((mustRequireFinish && finishedWithToolCalls) || (!mustRequireFinish && (finishedWithToolCalls || detectedCallsById.size > 0))) {
-      // If we didn't receive TOOL_CALL_END events, finalize using pending state
       if (pendingToolCalls.size > 0) {
         for (const [callId, state] of pendingToolCalls.entries()) {
           if (detectedCallsById.has(callId)) continue;
@@ -218,7 +234,6 @@ export class StreamCoordinator {
             name: state.name,
             arguments: state.arguments
           };
-          // Preserve provider-specific metadata (e.g., signed/opaque fields required on follow-ups)
           if (state.metadata) {
             pendingCall.metadata = state.metadata;
           }
@@ -228,12 +243,7 @@ export class StreamCoordinator {
       }
 
       const detectedCalls = Array.from(detectedCallsById.values());
-
-      if (detectedCalls.length === 0) {
-        // Nothing to execute
-        // Continue to final DONE emission below
-      } else {
-        // Emit tool_call events and record for final DONE
+      if (detectedCalls.length > 0) {
         for (const call of detectedCalls) {
           const originalName = context.toolNameMap.get(call.name || '') || call.name || 'unknown';
           const parsedArgs = safeJsonParse<Record<string, any>>(call.arguments, {}) as Record<string, any>;
@@ -243,7 +253,6 @@ export class StreamCoordinator {
             arguments: parsedArgs,
             args: parsedArgs
           };
-          // Preserve provider-specific metadata (e.g., signed/opaque fields required on follow-ups)
           if (call.metadata) {
             finalToolCall.metadata = call.metadata;
           }
@@ -260,7 +269,6 @@ export class StreamCoordinator {
             name: call.name,
             arguments: safeJsonParse(call.arguments, {}) as Record<string, any>
           };
-          // Preserve provider-specific metadata (e.g., signed/opaque fields required on follow-ups)
           if (call.metadata) {
             prepared.metadata = call.metadata;
           }
@@ -348,7 +356,6 @@ export class StreamCoordinator {
       }
     }
 
-    // Signal completion with final response
     if (latestUsage && typeof latestUsage.cost !== 'number') {
       const defaults = getDefaults();
       const usageCostEnabled = normalizeFlag((providerSettings as any).usageCost, defaults.usageCost);
