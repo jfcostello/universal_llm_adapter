@@ -12,7 +12,7 @@ import type { ToolCallBudget } from '../../tool-budget.js';
 import { appendToolResult } from '../../../../messages/index.js';
 import { sanitizeToolName } from '../../tool-names.js';
 import { monotonicElapsedMs, monotonicNowNs } from '../../../../shared/index.js';
-import { createProgressFields, resolveCountdownText } from './utils.js';
+import { createProgressFields, resolveCountdownText, safeToolPayloadJson, safeToolPayloadText } from './utils.js';
 import {
   isToolTerminalByDefinition,
   resolveCallArgTerminalOverride,
@@ -194,9 +194,7 @@ export async function* executeStreamToolCallsRoundParallel(options: {
         });
       }
 
-      const resultText = typeof normalizedPayload === 'string'
-        ? normalizedPayload
-        : JSON.stringify(normalizedPayload);
+      const resultText = safeToolPayloadText(normalizedPayload);
 
       const truncatedText = options.maxResultLength && resultText.length > options.maxResultLength
         ? `${resultText.slice(0, options.maxResultLength)}…`
@@ -337,7 +335,7 @@ export async function* executeStreamToolCallsRoundParallel(options: {
 
   let terminalStopThisRound = false;
   while (pending.size > 0) {
-    const { task, result } = await Promise.race(Array.from(pending.values()));
+    const { task, result } = await Promise.race(pending);
     pending.delete(task);
 
     if (result.terminal) {
@@ -350,7 +348,7 @@ export async function* executeStreamToolCallsRoundParallel(options: {
         type: ToolCallEventType.TOOL_RESULT,
         callId: result.callId,
         name: result.toolName,
-        arguments: JSON.stringify(result.payload),
+        arguments: safeToolPayloadJson(result.payload),
         resultText: result.truncatedText
       }
     } as any;
@@ -364,7 +362,7 @@ export async function* executeStreamToolCallsRoundParallel(options: {
           toolName: slot.toolName,
           callId: slot.toolCall.id,
           result: slot.payload,
-          resultText: JSON.stringify(slot.payload)
+          resultText: safeToolPayloadJson(slot.payload)
         },
         {
           countdownText: slot.countdownText,

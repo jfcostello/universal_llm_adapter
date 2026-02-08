@@ -3,7 +3,7 @@ import { getDefaults } from '../../../../../kernel/index.js';
 
 import { ToolCallBudget } from '../../tool-budget.js';
 import { formatCountdown } from '../../tool-message.js';
-import { normalizeFlag, parseNonNegativeInt } from '../../../../shared/index.js';
+import { normalizeFlag, parseNonNegativeInt, safeJsonStringify } from '../../../../shared/index.js';
 
 export async function maybeAttachUsageCost(
   response: LLMResponse,
@@ -59,10 +59,20 @@ export function resolveCountdownText(enabled: boolean, budget: ToolCallBudget): 
   return countdown ?? undefined;
 }
 
+export function safeToolPayloadJson(payload: unknown): string {
+  return safeJsonStringify(payload);
+}
+
+export function safeToolPayloadText(payload: unknown): string {
+  return typeof payload === 'string' ? payload : safeJsonStringify(payload);
+}
+
 export const __toolLoopTestUtils__ = {
   normalizeFlag,
   parseMaxToolIterations,
   createProgressFields,
   resolveCountdownText,
-  maybeAttachUsageCost
+  maybeAttachUsageCost,
+  safeToolPayloadJson,
+  safeToolPayloadText
 };
