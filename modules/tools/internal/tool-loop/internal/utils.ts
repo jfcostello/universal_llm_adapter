@@ -59,12 +59,38 @@ export function resolveCountdownText(enabled: boolean, budget: ToolCallBudget): 
   return countdown ?? undefined;
 }
 
-export function safeToolPayloadJson(payload: unknown): string {
+function resolveSafePayloadMaxBytes(maxBytes?: number): number | undefined {
+  if (typeof maxBytes !== 'number' || !Number.isFinite(maxBytes) || maxBytes <= 0) {
+    return undefined;
+  }
+  return Math.floor(maxBytes);
+}
+
+function stringifyPayloadWithFallback(payload: unknown): string {
+  try {
+    const serialized = JSON.stringify(payload);
+    if (typeof serialized === 'string') {
+      return serialized;
+    }
+  } catch {
+    // Fall through to defensive bounded serializer.
+  }
   return safeJsonStringify(payload);
 }
 
-export function safeToolPayloadText(payload: unknown): string {
-  return typeof payload === 'string' ? payload : safeJsonStringify(payload);
+export function safeToolPayloadJson(payload: unknown, options: { maxBytes?: number } = {}): string {
+  const maxBytes = resolveSafePayloadMaxBytes(options.maxBytes);
+  if (maxBytes !== undefined) {
+    return safeJsonStringify(payload, { maxBytes });
+  }
+  return stringifyPayloadWithFallback(payload);
+}
+
+export function safeToolPayloadText(payload: unknown, options: { maxBytes?: number } = {}): string {
+  if (typeof payload === 'string') {
+    return payload;
+  }
+  return safeToolPayloadJson(payload, options);
 }
 
 export const __toolLoopTestUtils__ = {

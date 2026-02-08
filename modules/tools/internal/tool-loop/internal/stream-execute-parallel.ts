@@ -64,6 +64,7 @@ export async function* executeStreamToolCallsRoundParallel(options: {
   logger: AdapterLogger;
   invokeTool: InvokeToolFn;
 }): AsyncGenerator<LLMStreamEvent, { terminalStopThisRound: boolean }> {
+  const payloadMaxBytes = options.maxResultLength ?? undefined;
   const slots: ToolCallSlot[] = [];
   const pending = new Set<Promise<{ task: Promise<any>; result: PendingToolResult }>>();
 
@@ -348,7 +349,7 @@ export async function* executeStreamToolCallsRoundParallel(options: {
         type: ToolCallEventType.TOOL_RESULT,
         callId: result.callId,
         name: result.toolName,
-        arguments: safeToolPayloadJson(result.payload),
+        arguments: safeToolPayloadJson(result.payload, { maxBytes: payloadMaxBytes }),
         resultText: result.truncatedText
       }
     } as any;

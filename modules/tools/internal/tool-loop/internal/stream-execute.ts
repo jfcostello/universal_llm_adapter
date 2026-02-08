@@ -38,6 +38,7 @@ export async function* executeStreamToolCallsRound(options: {
   if (options.toolCallsToExecute.length === 0) {
     return { terminalStopThisRound: false };
   }
+  const payloadMaxBytes = options.maxResultLength ?? undefined;
 
   for (const call of options.toolCallsToExecute) {
     const name = typeof call?.name === 'string' ? call.name : '';
@@ -334,7 +335,7 @@ export async function* executeStreamToolCallsRound(options: {
         type: ToolCallEventType.TOOL_RESULT,
         callId: toolCall.id,
         name: targetToolName,
-        arguments: safeToolPayloadJson(normalizedPayload),
+        arguments: safeToolPayloadJson(normalizedPayload, { maxBytes: payloadMaxBytes }),
         resultText: truncatedText
       }
     } as any;

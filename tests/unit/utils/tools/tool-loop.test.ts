@@ -3123,6 +3123,36 @@ describe('utils/tools/runToolLoop', () => {
     expect(resolveCountdownText(true, budget)).toBe('Tool calls used 0 of 2 - 2 remaining.');
   });
 
+  test('safeToolPayloadJson preserves full JSON by default', async () => {
+    const { safeToolPayloadJson, safeToolPayloadText } = __toolLoopTestUtils__;
+    const payload = { a: { b: { c: { d: { e: { f: { g: 'deep-value' } } } } } } };
+
+    expect(safeToolPayloadJson(payload)).toBe(JSON.stringify(payload));
+    expect(safeToolPayloadText(payload)).toBe(JSON.stringify(payload));
+  });
+
+  test('safeToolPayloadJson and safeToolPayloadText apply explicit maxBytes bounds', async () => {
+    const { safeToolPayloadJson, safeToolPayloadText } = __toolLoopTestUtils__;
+    const payload = { text: 'abcdefghijklmnopqrstuvwxyz0123456789' };
+
+    const json = safeToolPayloadJson(payload, { maxBytes: 24 });
+    const text = safeToolPayloadText(payload, { maxBytes: 24 });
+
+    expect(Buffer.byteLength(json, 'utf8')).toBeLessThanOrEqual(24);
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(24);
+    expect(json).not.toBe(JSON.stringify(payload));
+    expect(text).not.toBe(JSON.stringify(payload));
+  });
+
+  test('safeToolPayloadJson falls back safely for circular payloads', async () => {
+    const { safeToolPayloadJson } = __toolLoopTestUtils__;
+    const payload: any = { ok: true };
+    payload.self = payload;
+
+    const json = safeToolPayloadJson(payload);
+    expect(json).toContain('[Circular]');
+  });
+
   test('maybeAttachUsageCost skips when cost already set', async () => {
     const { maybeAttachUsageCost } = __toolLoopTestUtils__;
     const response = {
