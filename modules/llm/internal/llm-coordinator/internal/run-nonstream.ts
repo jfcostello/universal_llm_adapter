@@ -15,6 +15,7 @@ import type {
 import { getDefaults } from '../../../../../kernel/index.js';
 import type { LLMManager } from '../../llm-manager.js';
 import { partitionSettings, mergeProviderSettings } from '../../../../settings/index.js';
+import { readRequestedGenerationId } from '../../../../shared/index.js';
 import { withRetries } from '../../../../retry/index.js';
 import {
   resolveAutoVectorContexts,
@@ -22,32 +23,6 @@ import {
   resolveVectorRequestPolicy,
   withTimeout
 } from './vector-contexts.js';
-
-function readRequestedGenerationId(metadata: unknown): string | undefined {
-  if (!metadata || typeof metadata !== 'object') {
-    return undefined;
-  }
-
-  const record = metadata as Record<string, unknown>;
-  const candidates = [
-    record.generationId,
-    record.generation_id,
-    record.requestId,
-    record.request_id
-  ];
-
-  for (const candidate of candidates) {
-    if (typeof candidate !== 'string') {
-      continue;
-    }
-    const normalized = candidate.trim();
-    if (normalized) {
-      return normalized;
-    }
-  }
-
-  return undefined;
-}
 
 export async function runNonStream(options: {
   spec: LLMCallSpec;

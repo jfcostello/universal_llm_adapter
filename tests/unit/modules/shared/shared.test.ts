@@ -7,6 +7,7 @@ import {
   clampRate,
   assertValidExtensionName,
   readTrimmedStringProperty,
+  readRequestedGenerationId,
   makeHttpError,
   createDeferred,
   calculateBackoffDelay,
@@ -207,6 +208,23 @@ describe('modules/shared', () => {
     test('returns trimmed string when present', () => {
       expect(readTrimmedStringProperty({ k: '  value  ' }, 'k')).toBe('value');
       expect(readTrimmedStringProperty({ k: 'value' }, 'k')).toBe('value');
+    });
+  });
+
+  describe('readRequestedGenerationId', () => {
+    test('returns undefined for missing or invalid metadata', () => {
+      expect(readRequestedGenerationId(null)).toBeUndefined();
+      expect(readRequestedGenerationId(undefined)).toBeUndefined();
+      expect(readRequestedGenerationId('bad')).toBeUndefined();
+      expect(readRequestedGenerationId({})).toBeUndefined();
+      expect(readRequestedGenerationId({ generationId: '   ', request_id: 123 })).toBeUndefined();
+    });
+
+    test('returns the first populated candidate in priority order', () => {
+      expect(readRequestedGenerationId({ generationId: '  gen-1  ', requestId: 'req-2' })).toBe('gen-1');
+      expect(readRequestedGenerationId({ generation_id: '  gen-2  ', requestId: 'req-2' })).toBe('gen-2');
+      expect(readRequestedGenerationId({ requestId: '  req-3  ', request_id: 'req-4' })).toBe('req-3');
+      expect(readRequestedGenerationId({ request_id: '  req-4  ' })).toBe('req-4');
     });
   });
 

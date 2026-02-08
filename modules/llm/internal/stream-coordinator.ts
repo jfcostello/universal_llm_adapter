@@ -9,37 +9,12 @@ import type {
   ObservabilityContext
 } from '../../../kernel/index.js';
 import { Role, StreamEventType, ToolCallEventType, getDefaults, safeJsonParse, sanitizeToolName } from '../../../kernel/index.js';
-import { monotonicNowNs, normalizeFlag } from '../../shared/index.js';
+import { monotonicNowNs, normalizeFlag, readRequestedGenerationId } from '../../shared/index.js';
 import { partitionSettings } from '../../settings/index.js';
 import { usageStatsToJson } from '../../usage/index.js';
 import { randomUUID } from 'crypto';
 import { recordStreamLlmRequestObservability, recordStreamLlmResponseObservability } from './stream-coordinator-observability.js';
 
-function readRequestedGenerationId(metadata: unknown): string | undefined {
-  if (!metadata || typeof metadata !== 'object') {
-    return undefined;
-  }
-
-  const record = metadata as Record<string, unknown>;
-  const candidates = [
-    record.generationId,
-    record.generation_id,
-    record.requestId,
-    record.request_id
-  ];
-
-  for (const candidate of candidates) {
-    if (typeof candidate !== 'string') {
-      continue;
-    }
-    const normalized = candidate.trim();
-    if (normalized) {
-      return normalized;
-    }
-  }
-
-  return undefined;
-}
 interface StreamingContext {
   provider: string;
   model: string;
@@ -51,11 +26,7 @@ interface StreamingContext {
   observability?: ObservabilityContext;
 }
 export class StreamCoordinator {
-  constructor(
-    private registry: any,
-    private llmManager: any,
-    private toolCoordinator: any
-  ) {}
+  constructor(private registry: any, private llmManager: any, private toolCoordinator: any) {}
   async *coordinateStream(
     spec: LLMCallSpec,
     messages: Message[],
