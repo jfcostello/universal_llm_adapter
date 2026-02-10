@@ -349,6 +349,7 @@ describe('LangfuseCompat (OTLP)', () => {
 
       const span = spans[0];
       expect(span.parentSpanIdHex).toBe(deriveOtlpSpanIdHex(generationId));
+      expect(span.name).toBe('llm.telemetry.warning');
       const attrs = span.attributes ?? {};
       expect(attrs['langfuse.observation.type']).toBe('event');
       expect(attrs['langfuse.observation.level']).toBe('WARNING');
@@ -376,6 +377,7 @@ describe('LangfuseCompat (OTLP)', () => {
 
       const errorMsgSpan = errorMsgSpans[0];
       expect(errorMsgSpan.parentSpanIdHex).toBeUndefined();
+      expect(errorMsgSpan.name).toBe('llm.telemetry.error');
       expect(errorMsgSpan.status).toEqual({ code: 'ERROR', message: 'boom' });
       expect(errorMsgSpan.attributes?.['langfuse.observation.level']).toBe('ERROR');
       expect(errorMsgSpan.attributes?.['langfuse.observation.status_message']).toBe('boom');
@@ -395,6 +397,7 @@ describe('LangfuseCompat (OTLP)', () => {
       expect(errorNoMsgSpans).toHaveLength(1);
 
       const errorNoMsgSpan = errorNoMsgSpans[0];
+      expect(errorNoMsgSpan.name).toBe('llm.telemetry.error');
       expect(errorNoMsgSpan.status).toEqual({ code: 'ERROR', message: 'error' });
 
       const errorNoMsgAttrs = errorNoMsgSpan.attributes ?? {};
@@ -403,6 +406,21 @@ describe('LangfuseCompat (OTLP)', () => {
 
       const errorNoMsgOutput = JSON.parse(String(errorNoMsgAttrs['langfuse.observation.output'] || '{}'));
       expect(errorNoMsgOutput).toEqual({ level: 'error', message: '', stack: 'stack' });
+
+      const signalErrorUpperTrimmed: any = {
+        type: 'signal',
+        traceId,
+        generationId,
+        timestampMs: 17040672007015,
+        level: ' Error ',
+        message: 'upper error'
+      };
+
+      const errorUpperBatch = compat.buildBatch([signalErrorUpperTrimmed], mockManifest, { eventIds: ['event-signal-error-upper'] } as any);
+      const errorUpperSpan = (errorUpperBatch.payload as any)?.spans?.[0];
+      expect(errorUpperSpan.name).toBe('llm.telemetry.error');
+      expect(errorUpperSpan.status).toEqual({ code: 'ERROR', message: 'upper error' });
+      expect(errorUpperSpan.attributes?.['langfuse.observation.level']).toBe('ERROR');
 
       const signalDebug: any = {
         type: 'signal',
@@ -414,7 +432,9 @@ describe('LangfuseCompat (OTLP)', () => {
       };
 
       const debugBatch = compat.buildBatch([signalDebug], mockManifest, { eventIds: ['event-signal-debug'] } as any);
-      const debugAttrs = (debugBatch.payload as any)?.spans?.[0]?.attributes ?? {};
+      const debugSpan = (debugBatch.payload as any)?.spans?.[0];
+      const debugAttrs = debugSpan?.attributes ?? {};
+      expect(debugSpan?.name).toBe('llm.telemetry.debug');
       expect(debugAttrs['langfuse.observation.level']).toBe('DEBUG');
 
       const signalWarn: any = {
@@ -427,8 +447,25 @@ describe('LangfuseCompat (OTLP)', () => {
       };
 
       const warnBatch = compat.buildBatch([signalWarn], mockManifest, { eventIds: ['event-signal-warn'] } as any);
-      const warnAttrs = (warnBatch.payload as any)?.spans?.[0]?.attributes ?? {};
+      const warnSpan = (warnBatch.payload as any)?.spans?.[0];
+      const warnAttrs = warnSpan?.attributes ?? {};
+      expect(warnSpan?.name).toBe('llm.telemetry.warning');
       expect(warnAttrs['langfuse.observation.level']).toBe('WARNING');
+
+      const signalInfo: any = {
+        type: 'signal',
+        traceId,
+        generationId,
+        timestampMs: 17040672007035,
+        level: 'info',
+        message: 'info'
+      };
+
+      const infoBatch = compat.buildBatch([signalInfo], mockManifest, { eventIds: ['event-signal-info'] } as any);
+      const infoSpan = (infoBatch.payload as any)?.spans?.[0];
+      const infoAttrs = infoSpan?.attributes ?? {};
+      expect(infoSpan?.name).toBe('llm.telemetry.signal');
+      expect(infoAttrs['langfuse.observation.level']).toBe('DEFAULT');
 
       const signalNonString: any = {
         type: 'signal',
@@ -440,7 +477,9 @@ describe('LangfuseCompat (OTLP)', () => {
       };
 
       const nonStringBatch = compat.buildBatch([signalNonString], mockManifest, { eventIds: ['event-signal-non-string'] } as any);
-      const nonStringAttrs = (nonStringBatch.payload as any)?.spans?.[0]?.attributes ?? {};
+      const nonStringSpan = (nonStringBatch.payload as any)?.spans?.[0];
+      const nonStringAttrs = nonStringSpan?.attributes ?? {};
+      expect(nonStringSpan?.name).toBe('llm.telemetry.signal');
       expect(nonStringAttrs['langfuse.observation.level']).toBe('DEFAULT');
     });
 
@@ -462,6 +501,7 @@ describe('LangfuseCompat (OTLP)', () => {
       const updateBatch = compat.buildBatch([{ ...updateEvent, type: 'trace_update' } as any], mockManifest, { eventIds: ['event-update'] } as any);
       const updateSpans = (updateBatch.payload as any)?.spans ?? [];
       expect(updateSpans).toHaveLength(1);
+      expect(updateSpans[0].name).toBe('llm.telemetry.event');
       expect(updateSpans[0].attributes?.['langfuse.trace.name']).toBe('batch-xyz');
       expect(updateSpans[0].attributes?.['llm.adapter.correlation_id']).toBe('corr-updated');
 
@@ -545,6 +585,7 @@ describe('LangfuseCompat (OTLP)', () => {
       const uncachedBatch = compat.buildBatch([uncachedEmptyUpdate], mockManifest, { eventIds: ['update-empty'] } as any);
       const uncachedSpans = (uncachedBatch.payload as any)?.spans ?? [];
       expect(uncachedSpans).toHaveLength(1);
+      expect(uncachedSpans[0].name).toBe('llm.telemetry.event');
 
       const uncachedAttrs = uncachedSpans[0]?.attributes ?? {};
       expect(uncachedAttrs['langfuse.trace.metadata.payload']).toBeUndefined();

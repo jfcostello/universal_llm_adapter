@@ -86,6 +86,17 @@ LLM events are mapped onto OTLP spans that Langfuse interprets as observations:
 
 Events with matching `traceId` are grouped into a single trace in Langfuse.
 
+### Signal and Trace Update Mapping
+
+Telemetry `signal` submissions are exported as Langfuse `event` observations with level-specific span names:
+
+- `ERROR` -> `llm.telemetry.error`
+- `WARNING` -> `llm.telemetry.warning`
+- `DEBUG` -> `llm.telemetry.debug`
+- fallback (all other levels) -> `llm.telemetry.signal`
+
+`trace_update` submissions remain exported as `event` observations using `llm.telemetry.event` to preserve trace context update behavior.
+
 ## Cost Ingestion (OTLP)
 
 This compat emits **token usage** and **cost** as separate OTLP attributes:

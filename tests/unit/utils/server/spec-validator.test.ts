@@ -115,6 +115,32 @@ describe('utils/server assertValidSpec', () => {
     ).not.toThrow();
   });
 
+  test('assertValidTelemetrySubmission accepts full Core-like signal payload with timestampMs', () => {
+    expect(() =>
+      assertValidTelemetrySubmission({
+        type: 'signal',
+        traceId: 'trace_core_signal',
+        generationId: 'gen_123',
+        timestampMs: 1739060000000,
+        level: 'warning',
+        message: 'tool fallback used',
+        source: 'llm_adapter_client',
+        code: 'tool_call_budget_exhausted',
+        metadata: {
+          assistant: 'inventory',
+          correlationId: 'corr_abc'
+        },
+        observability: {
+          enabled: true,
+          targets: [
+            { provider: 'obs-a', export: { signals: true } },
+            { provider: 'obs-b', export: { signals: true } }
+          ]
+        }
+      } as any)
+    ).not.toThrow();
+  });
+
   test('assertValidTelemetrySubmission rejects whitespace-only traceId', () => {
     expect(() =>
       assertValidTelemetrySubmission({
@@ -131,6 +157,28 @@ describe('utils/server assertValidSpec', () => {
       assertValidTelemetrySubmission({
         type: 'trace_update',
         traceId: 'trace_2'
+      } as any)
+    ).not.toThrow();
+  });
+
+  test('assertValidTelemetrySubmission accepts full Core-like trace_update payload with timestampMs', () => {
+    expect(() =>
+      assertValidTelemetrySubmission({
+        type: 'trace_update',
+        traceId: 'trace_core_update',
+        generationId: 'gen_123',
+        timestampMs: 1739060000000,
+        tags: ['subassistant', 'fn_inventory_search'],
+        metadata: {
+          source: 'llm_adapter_client',
+          step: 'subassistant'
+        },
+        observability: {
+          enabled: true,
+          targets: [
+            { provider: 'obs-a', export: { traceUpdates: true } }
+          ]
+        }
       } as any)
     ).not.toThrow();
   });

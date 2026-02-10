@@ -241,4 +241,132 @@ describe('modules/observability/internal/telemetry-submit', () => {
       expect(evt.metadata.access_token).toBe('***1234');
     });
   });
+
+  test('records full Core-like signal payload fields unchanged apart from normalization/redaction', async () => {
+    await jest.isolateModulesAsync(async () => {
+      const recordSignal = jest.fn(() => ({ eventId: 'evt_core_signal', queued: true }));
+      const recordTraceUpdate = jest.fn();
+
+      const createObservabilityRuntime = jest.fn(async () => ({
+        exporter: { recordSignal, recordTraceUpdate },
+        baseTraceId: 'trace_core_signal',
+        sessionId: 'sess_core'
+      }));
+
+      jest.unstable_mockModule('../../../modules/observability/internal/runtime.js', () => ({
+        createObservabilityRuntime
+      }));
+
+      const { submitTelemetry } = await import('@/modules/observability/index.ts');
+      const registry = {};
+
+      const payload: any = {
+        type: 'signal',
+        traceId: ' trace_core_signal ',
+        generationId: ' gen_core_123 ',
+        timestampMs: 1739060000000.9,
+        level: 'warning',
+        message: 'tool fallback used',
+        source: 'llm_adapter_client',
+        code: 'tool_call_budget_exhausted',
+        tags: ['subassistant'],
+        metadata: {
+          assistant: 'inventory',
+          apiKey: 'secret1234'
+        },
+        observability: {
+          enabled: true,
+          traceId: 'ignored',
+          targets: [{ provider: 'obs-a', export: { signals: true } }]
+        }
+      };
+
+      const result = await submitTelemetry(registry as any, payload);
+      expect(result).toEqual({ traceId: 'trace_core_signal', eventId: 'evt_core_signal', queued: true });
+
+      expect(createObservabilityRuntime).toHaveBeenCalledWith(
+        registry as any,
+        expect.objectContaining({
+          enabled: true,
+          traceId: 'trace_core_signal',
+          targets: [{ provider: 'obs-a', export: { signals: true } }]
+        }),
+        expect.objectContaining({ sessionIdFallback: 'batch' })
+      );
+
+      const event = recordSignal.mock.calls[0]?.[0] as any;
+      expect(event.traceId).toBe('trace_core_signal');
+      expect(event.generationId).toBe('gen_core_123');
+      expect(event.sessionId).toBe('sess_core');
+      expect(event.timestampMs).toBe(1739060000000);
+      expect(event.level).toBe('warning');
+      expect(event.message).toBe('tool fallback used');
+      expect(event.source).toBe('llm_adapter_client');
+      expect(event.code).toBe('tool_call_budget_exhausted');
+      expect(event.tags).toEqual(['subassistant']);
+      expect(event.metadata.assistant).toBe('inventory');
+      expect(event.metadata.apiKey).toBe('***1234');
+    });
+  });
+
+  test('records full Core-like trace_update payload fields unchanged apart from normalization/redaction', async () => {
+    await jest.isolateModulesAsync(async () => {
+      const recordTraceUpdate = jest.fn(() => ({ eventId: 'evt_core_update', queued: true }));
+      const recordSignal = jest.fn();
+
+      const createObservabilityRuntime = jest.fn(async () => ({
+        exporter: { recordSignal, recordTraceUpdate },
+        baseTraceId: 'trace_core_update',
+        sessionId: 'sess_core_update'
+      }));
+
+      jest.unstable_mockModule('../../../modules/observability/internal/runtime.js', () => ({
+        createObservabilityRuntime
+      }));
+
+      const { submitTelemetry } = await import('@/modules/observability/index.ts');
+      const registry = {};
+
+      const payload: any = {
+        type: 'trace_update',
+        traceId: ' trace_core_update ',
+        generationId: ' gen_core_456 ',
+        timestampMs: 1739060001000.9,
+        tags: ['subassistant', 'fn_inventory_search'],
+        metadata: {
+          source: 'llm_adapter_client',
+          step: 'subassistant',
+          accessToken: 'abcd'
+        },
+        observability: {
+          enabled: true,
+          traceId: 'ignored',
+          targets: [{ provider: 'obs-a', export: { traceUpdates: true } }]
+        }
+      };
+
+      const result = await submitTelemetry(registry as any, payload);
+      expect(result).toEqual({ traceId: 'trace_core_update', eventId: 'evt_core_update', queued: true });
+
+      expect(createObservabilityRuntime).toHaveBeenCalledWith(
+        registry as any,
+        expect.objectContaining({
+          enabled: true,
+          traceId: 'trace_core_update',
+          targets: [{ provider: 'obs-a', export: { traceUpdates: true } }]
+        }),
+        expect.objectContaining({ sessionIdFallback: 'batch' })
+      );
+
+      const event = recordTraceUpdate.mock.calls[0]?.[0] as any;
+      expect(event.traceId).toBe('trace_core_update');
+      expect(event.generationId).toBe('gen_core_456');
+      expect(event.sessionId).toBe('sess_core_update');
+      expect(event.timestampMs).toBe(1739060001000);
+      expect(event.tags).toEqual(['subassistant', 'fn_inventory_search']);
+      expect(event.metadata.source).toBe('llm_adapter_client');
+      expect(event.metadata.step).toBe('subassistant');
+      expect(event.metadata.accessToken).toBe('***');
+    });
+  });
 });

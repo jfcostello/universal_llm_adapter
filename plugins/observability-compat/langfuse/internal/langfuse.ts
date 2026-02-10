@@ -32,6 +32,7 @@ import {
   isRequestEvent,
   isResponseEvent,
   normalizeLangfuseObservationLevel,
+  resolveLangfuseSignalSpanName,
   resolveMaxAttributeBytes,
   resolveTraceContext,
   resolveIngestionUrl
@@ -244,15 +245,16 @@ export class LangfuseCompat implements IObservabilityCompat {
 
         const envelopeId = getEnvelopeId(eventIds, i, `signal-${i}`);
         const endTimeIso = eventTimestampToIso(signalEvent as any);
+        const normalizedSignalLevel = normalizeLangfuseObservationLevel(signalEvent.level);
 
         spans.push({
           traceIdHex: deriveOtlpTraceIdHex(String(signalEvent.traceId)),
           spanIdHex: deriveOtlpSpanIdHex(String(envelopeId)),
           ...(signalEvent.generationId ? { parentSpanIdHex: deriveOtlpSpanIdHex(String(signalEvent.generationId)) } : {}),
-          name: DEFAULT_EVENT_SPAN_NAME,
+          name: resolveLangfuseSignalSpanName(signalEvent.level),
           startTimeIso: endTimeIso,
           endTimeIso,
-          status: signalEvent.level === 'error'
+          status: normalizedSignalLevel === 'ERROR'
             ? { code: 'ERROR', message: String(signalEvent.message || 'error') }
             : { code: 'OK' },
           attributes: {
@@ -265,7 +267,7 @@ export class LangfuseCompat implements IObservabilityCompat {
               batchId
             }),
             'langfuse.observation.type': 'event',
-            'langfuse.observation.level': normalizeLangfuseObservationLevel(signalEvent.level),
+            'langfuse.observation.level': normalizedSignalLevel,
             ...(signalEvent.message ? { 'langfuse.observation.status_message': String(signalEvent.message) } : {}),
             'langfuse.observation.output': safeJsonStringify(
               {

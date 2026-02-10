@@ -33,6 +33,14 @@ export function normalizeLangfuseObservationLevel(level: unknown): 'DEBUG' | 'DE
   return 'DEFAULT';
 }
 
+export function resolveLangfuseSignalSpanName(level: unknown): string {
+  const normalized = normalizeLangfuseObservationLevel(level);
+  if (normalized === 'ERROR') return 'llm.telemetry.error';
+  if (normalized === 'WARNING') return 'llm.telemetry.warning';
+  if (normalized === 'DEBUG') return 'llm.telemetry.debug';
+  return 'llm.telemetry.signal';
+}
+
 export function buildCommonTraceAttributes(options: {
   traceId: string;
   sessionId?: string;
