@@ -1,4 +1,3 @@
-import fs from 'fs';
 import path from 'path';
 import {
   BaseAdapterLogger,
@@ -13,11 +12,14 @@ import {
   VECTOR_MAX_AGE_DAYS
 } from './base-logger.js';
 import { applyRetentionOnce } from './retention-manager.js';
+import { createPrettyFileAppender, resolvePrettyFileLogsMode, type PrettyFileAppender } from './pretty-file-logs.js';
 
 export class VectorLogger extends BaseAdapterLogger {
   private vectorLogFile?: string;
   private vectorRetentionApplied = false;
   private initialized = false;
+  private readonly prettyFileLogsMode = resolvePrettyFileLogsMode();
+  private prettyAppender: PrettyFileAppender | null = null;
 
   constructor(level: LogLevel = LogLevel.INFO, correlationId?: string | string[], options: AdapterLoggerOptions = {}) {
     super(level, correlationId, options);
@@ -29,8 +31,13 @@ export class VectorLogger extends BaseAdapterLogger {
     collection?: string;
     params: Record<string, any>;
   }): void {
+    if (disableFileLogs || this.prettyFileLogsMode === 'off') return;
     this.ensureInitialized();
-    if (!this.vectorLogFile || disableFileLogs) return;
+    const logFile = this.vectorLogFile!;
+
+    if (!this.prettyAppender) {
+      this.prettyAppender = createPrettyFileAppender({ filePath: logFile, mode: this.prettyFileLogsMode });
+    }
 
     const correlationIdStr = this.formatCorrelationId();
     const separator = '\n' + '='.repeat(80) + '\n';
@@ -49,7 +56,7 @@ export class VectorLogger extends BaseAdapterLogger {
       ''
     ].filter(Boolean).join('\n');
 
-    fs.appendFileSync(this.vectorLogFile, log);
+    this.prettyAppender.append(log);
     this.applyVectorRetentionOnce();
   }
 
@@ -60,8 +67,13 @@ export class VectorLogger extends BaseAdapterLogger {
     result: any;
     duration?: number;
   }): void {
+    if (disableFileLogs || this.prettyFileLogsMode === 'off') return;
     this.ensureInitialized();
-    if (!this.vectorLogFile || disableFileLogs) return;
+    const logFile = this.vectorLogFile!;
+
+    if (!this.prettyAppender) {
+      this.prettyAppender = createPrettyFileAppender({ filePath: logFile, mode: this.prettyFileLogsMode });
+    }
 
     const correlationIdStr = this.formatCorrelationId();
     const separator = '\n' + '='.repeat(80) + '\n';
@@ -81,16 +93,19 @@ export class VectorLogger extends BaseAdapterLogger {
       ''
     ].filter(Boolean).join('\n');
 
-    fs.appendFileSync(this.vectorLogFile, log);
+    this.prettyAppender.append(log);
     this.applyVectorRetentionOnce();
+  }
+
+  override async close(): Promise<void> {
+    if (this.prettyAppender) {
+      await this.prettyAppender.flush();
+    }
+    await super.close();
   }
 
   private ensureInitialized(): void {
     if (this.initialized) return;
-    if (disableFileLogs) {
-      this.initialized = true;
-      return;
-    }
 
     const { batchId, useBatchDir } = getBatchEnv();
     this.ensureDir(vectorLogDir);

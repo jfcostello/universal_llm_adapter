@@ -14,6 +14,22 @@ Owns LLM orchestration (non-streaming + streaming), including:
   - Disable: `LLM_ADAPTER_DISABLE_TEXT_DOCUMENT_INLINING=1`
   - Size cap: `LLM_ADAPTER_TEXT_DOCUMENT_INLINE_MAX_BYTES=<bytes>` (default `262144`; set to `0` to disable)
 
+## Performance
+
+Performance knobs are opt-in; defaults preserve current behavior.
+
+### Outbound HTTP Keep-Alive (LLM HTTP calls only)
+
+- Defaults (from `plugins/configs/defaults.json`): `outboundHttp.keepAliveEnabled=false`, `outboundHttp.maxSockets=256`, `outboundHttp.maxFreeSockets=32`
+- Env override: `LLM_ADAPTER_OUTBOUND_HTTP_KEEPALIVE_ENABLED=1` (boolean-like; uses shared `normalizeFlag` semantics)
+
+### Streaming Chunk Info Logs
+
+By default, streaming logs include an `info` line per received chunk.
+
+- Default: `logging.llmStream.chunkInfoLogsEnabled=true`
+- Env override: `LLM_ADAPTER_LLM_STREAM_CHUNK_LOGS_ENABLED=0` to disable per-chunk `info` logs
+
 ## Import Rules
 - Runtime code must import only from `modules/llm/index.ts`.
 - Do not import from `modules/llm/internal/**` outside of this module.

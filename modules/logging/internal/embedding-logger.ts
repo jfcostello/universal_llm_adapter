@@ -1,4 +1,3 @@
-import fs from 'fs';
 import path from 'path';
 import {
   BaseAdapterLogger,
@@ -13,11 +12,14 @@ import {
   EMBEDDING_MAX_AGE_DAYS
 } from './base-logger.js';
 import { applyRetentionOnce } from './retention-manager.js';
+import { createPrettyFileAppender, resolvePrettyFileLogsMode, type PrettyFileAppender } from './pretty-file-logs.js';
 
 export class EmbeddingLogger extends BaseAdapterLogger {
   private embeddingLogFile?: string;
   private embeddingRetentionApplied = false;
   private initialized = false;
+  private readonly prettyFileLogsMode = resolvePrettyFileLogsMode();
+  private prettyAppender: PrettyFileAppender | null = null;
 
   constructor(level: LogLevel = LogLevel.INFO, correlationId?: string | string[], options: AdapterLoggerOptions = {}) {
     super(level, correlationId, options);
@@ -31,8 +33,16 @@ export class EmbeddingLogger extends BaseAdapterLogger {
     provider?: string;
     model?: string;
   }): void {
+    if (disableFileLogs || this.prettyFileLogsMode === 'off') return;
     this.ensureInitialized();
-    if (!this.embeddingLogFile || disableFileLogs) return;
+    const logFile = this.embeddingLogFile!;
+
+    if (!this.prettyAppender) {
+      this.prettyAppender = createPrettyFileAppender({
+        filePath: logFile,
+        mode: this.prettyFileLogsMode
+      });
+    }
 
     const correlationIdStr = this.formatCorrelationId();
     const separator = '\n' + '='.repeat(80) + '\n';
@@ -56,7 +66,7 @@ export class EmbeddingLogger extends BaseAdapterLogger {
       ''
     ].filter(Boolean).join('\n');
 
-    fs.appendFileSync(this.embeddingLogFile, log);
+    this.prettyAppender.append(log);
     this.applyEmbeddingRetentionOnce();
   }
 
@@ -68,8 +78,16 @@ export class EmbeddingLogger extends BaseAdapterLogger {
     dimensions?: number;
     tokenCount?: number;
   }): void {
+    if (disableFileLogs || this.prettyFileLogsMode === 'off') return;
     this.ensureInitialized();
-    if (!this.embeddingLogFile || disableFileLogs) return;
+    const logFile = this.embeddingLogFile!;
+
+    if (!this.prettyAppender) {
+      this.prettyAppender = createPrettyFileAppender({
+        filePath: logFile,
+        mode: this.prettyFileLogsMode
+      });
+    }
 
     const correlationIdStr = this.formatCorrelationId();
     const separator = '\n' + '='.repeat(80) + '\n';
@@ -92,16 +110,19 @@ export class EmbeddingLogger extends BaseAdapterLogger {
       ''
     ].filter(Boolean).join('\n');
 
-    fs.appendFileSync(this.embeddingLogFile, log);
+    this.prettyAppender.append(log);
     this.applyEmbeddingRetentionOnce();
+  }
+
+  override async close(): Promise<void> {
+    if (this.prettyAppender) {
+      await this.prettyAppender.flush();
+    }
+    await super.close();
   }
 
   private ensureInitialized(): void {
     if (this.initialized) return;
-    if (disableFileLogs) {
-      this.initialized = true;
-      return;
-    }
 
     const { batchId, useBatchDir } = getBatchEnv();
     this.ensureDir(embeddingLogDir);

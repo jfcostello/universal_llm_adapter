@@ -36,6 +36,11 @@ describe('core/defaults loading fallback', () => {
     expect(defaults.retry.maxAttempts).toBe(3);
     expect(defaults.tools.countdownEnabled).toBe(true);
     expect(defaults.vector.topK).toBe(5);
+    expect((defaults as any).outboundHttp.keepAliveEnabled).toBe(false);
+    expect((defaults as any).outboundHttp.maxSockets).toBe(256);
+    expect((defaults as any).outboundHttp.maxFreeSockets).toBe(32);
+    expect((defaults as any).logging.prettyFileLogs.mode).toBe('sync');
+    expect((defaults as any).logging.llmStream.chunkInfoLogsEnabled).toBe(true);
     expect((defaults.observability as any).captureMessages).toBe('none');
     expect((defaults.observability as any).captureToolArgs).toBe(false);
     expect((defaults.observability as any).captureRequestPayload).toBe(false);
@@ -75,6 +80,11 @@ describe('core/defaults loading fallback', () => {
     // Should use fallback defaults due to parse error.
     expect(defaults.retry.maxAttempts).toBe(3);
     expect(defaults.tools.countdownEnabled).toBe(true);
+    expect((defaults as any).outboundHttp.keepAliveEnabled).toBe(false);
+    expect((defaults as any).outboundHttp.maxSockets).toBe(256);
+    expect((defaults as any).outboundHttp.maxFreeSockets).toBe(32);
+    expect((defaults as any).logging.prettyFileLogs.mode).toBe('sync');
+    expect((defaults as any).logging.llmStream.chunkInfoLogsEnabled).toBe(true);
     expect((defaults.observability as any).captureMessages).toBe('none');
     expect((defaults.observability as any).captureToolArgs).toBe(false);
     expect((defaults.observability as any).captureRequestPayload).toBe(false);

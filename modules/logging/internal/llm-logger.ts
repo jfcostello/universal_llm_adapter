@@ -1,4 +1,3 @@
-import fs from 'fs';
 import path from 'path';
 import {
   BaseAdapterLogger,
@@ -13,11 +12,14 @@ import {
   LLM_MAX_AGE_DAYS
 } from './base-logger.js';
 import { applyRetentionOnce } from './retention-manager.js';
+import { createPrettyFileAppender, resolvePrettyFileLogsMode, type PrettyFileAppender } from './pretty-file-logs.js';
 
 export class LLMLogger extends BaseAdapterLogger {
   private llmLogFile?: string;
   private llmRetentionApplied = false;
   private initialized = false;
+  private readonly prettyFileLogsMode = resolvePrettyFileLogsMode();
+  private prettyAppender: PrettyFileAppender | null = null;
 
   constructor(level: LogLevel = LogLevel.INFO, correlationId?: string | string[], options: AdapterLoggerOptions = {}) {
     super(level, correlationId, options);
@@ -31,8 +33,13 @@ export class LLMLogger extends BaseAdapterLogger {
     provider?: string;
     model?: string;
   }): void {
+    if (disableFileLogs || this.prettyFileLogsMode === 'off') return;
     this.ensureInitialized();
-    if (!this.llmLogFile || disableFileLogs) return;
+    const logFile = this.llmLogFile!;
+
+    if (!this.prettyAppender) {
+      this.prettyAppender = createPrettyFileAppender({ filePath: logFile, mode: this.prettyFileLogsMode });
+    }
 
     const correlationIdStr = this.formatCorrelationId();
     const separator = '\n' + '='.repeat(80) + '\n';
@@ -56,7 +63,7 @@ export class LLMLogger extends BaseAdapterLogger {
       ''
     ].filter(Boolean).join('\n');
 
-    fs.appendFileSync(this.llmLogFile, log);
+    this.prettyAppender.append(log);
     this.applyLlmRetentionOnce();
   }
 
@@ -69,8 +76,13 @@ export class LLMLogger extends BaseAdapterLogger {
     provider?: string;
     model?: string;
   }): void {
+    if (disableFileLogs || this.prettyFileLogsMode === 'off') return;
     this.ensureInitialized();
-    if (!this.llmLogFile || disableFileLogs) return;
+    const logFile = this.llmLogFile!;
+
+    if (!this.prettyAppender) {
+      this.prettyAppender = createPrettyFileAppender({ filePath: logFile, mode: this.prettyFileLogsMode });
+    }
 
     const correlationIdStr = this.formatCorrelationId();
     const separator = '\n' + '='.repeat(80) + '\n';
@@ -94,16 +106,19 @@ export class LLMLogger extends BaseAdapterLogger {
       ''
     ].filter(Boolean).join('\n');
 
-    fs.appendFileSync(this.llmLogFile, log);
+    this.prettyAppender.append(log);
     this.applyLlmRetentionOnce();
+  }
+
+  override async close(): Promise<void> {
+    if (this.prettyAppender) {
+      await this.prettyAppender.flush();
+    }
+    await super.close();
   }
 
   private ensureInitialized(): void {
     if (this.initialized) return;
-    if (disableFileLogs) {
-      this.initialized = true;
-      return;
-    }
 
     const { batchId, useBatchDir } = getBatchEnv();
     this.ensureDir(llmLogDir);

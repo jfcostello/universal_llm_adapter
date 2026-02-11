@@ -97,11 +97,7 @@ describe('live/required-env', () => {
       'QDRANT_CLOUD_URL',
       'QDRANT_API_KEY',
       'LANGFUSE_PUBLIC_KEY',
-      'LANGFUSE_SECRET_KEY',
-      'SENTRY_API_KEY',
-      'SENTRY_ORG_SLUG',
-      'SENTRY_PROJECT_SLUG',
-      'SENTRY_DSN'
+      'LANGFUSE_SECRET_KEY'
     ]);
   });
 

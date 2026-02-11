@@ -138,13 +138,5 @@ export function getMissingRequiredEnv(options: {
     required.add('LANGFUSE_SECRET_KEY');
   }
 
-  const wantsSentry = wantsAllLive || /\bsentry\b/i.test(patterns);
-  if (expectsLlmCalls && (wantsSentry || observabilityProviders.includes('sentry'))) {
-    required.add('SENTRY_API_KEY');
-    required.add('SENTRY_ORG_SLUG');
-    required.add('SENTRY_PROJECT_SLUG');
-    required.add('SENTRY_DSN');
-  }
-
   return [...required].filter(key => !options.env?.[key] || String(options.env[key]).trim() === '');
 }

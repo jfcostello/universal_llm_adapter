@@ -21,6 +21,8 @@ describe('core/defaults', () => {
       expect(defaults).toHaveProperty('vector');
       expect(defaults).toHaveProperty('chunking');
       expect(defaults).toHaveProperty('tokenEstimation');
+      expect(defaults).toHaveProperty('outboundHttp');
+      expect(defaults).toHaveProperty('logging');
       expect(defaults).toHaveProperty('timeouts');
       expect(defaults).toHaveProperty('server');
       expect(defaults).toHaveProperty('paths');
@@ -85,6 +87,23 @@ describe('core/defaults', () => {
       expect(tokenEstimation.textDivisor).toBe(4);
       expect(tokenEstimation.imageEstimate).toBe(768);
       expect(tokenEstimation.toolResultDivisor).toBe(6);
+    });
+
+    test('returns correct outboundHttp defaults', async () => {
+      const { getDefaults } = await import('@/kernel/index.ts');
+      const defaults = getDefaults() as any;
+
+      expect(defaults.outboundHttp.keepAliveEnabled).toBe(false);
+      expect(defaults.outboundHttp.maxSockets).toBe(256);
+      expect(defaults.outboundHttp.maxFreeSockets).toBe(32);
+    });
+
+    test('returns correct logging defaults', async () => {
+      const { getDefaults } = await import('@/kernel/index.ts');
+      const defaults = getDefaults() as any;
+
+      expect(defaults.logging.prettyFileLogs.mode).toBe('sync');
+      expect(defaults.logging.llmStream.chunkInfoLogsEnabled).toBe(true);
     });
 
     test('returns correct timeout defaults', async () => {
@@ -211,7 +230,19 @@ describe('core/defaults', () => {
 
       // TypeScript would catch missing properties at compile time,
       // but we verify runtime structure here
-      const requiredKeys = ['retry', 'tools', 'vector', 'chunking', 'tokenEstimation', 'timeouts', 'server', 'paths', 'observability'];
+      const requiredKeys = [
+        'retry',
+        'tools',
+        'vector',
+        'chunking',
+        'tokenEstimation',
+        'outboundHttp',
+        'logging',
+        'timeouts',
+        'server',
+        'paths',
+        'observability'
+      ];
       for (const key of requiredKeys) {
         expect(defaults).toHaveProperty(key);
         expect(defaults[key as keyof typeof defaults]).toBeDefined();

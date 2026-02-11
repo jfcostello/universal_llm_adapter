@@ -8,10 +8,10 @@ import type {
   ToolChoice,
   UnifiedTool
 } from '../../../../../kernel/index.js';
-import { ProviderExecutionError } from '../../../../../kernel/index.js';
+import { ProviderExecutionError, getDefaults } from '../../../../../kernel/index.js';
 
 import { aggregateSystemMessages } from '../../../../messages/index.js';
-import { logRequest, logResponse } from '../../../../shared/index.js';
+import { logRequest, logResponse, normalizeFlag } from '../../../../shared/index.js';
 import { buildFinalPayload } from '../../payload/payload-builder.js';
 
 import { isHttpUrlTemplate, isRateLimitResponse } from './http-utils.js';
@@ -30,6 +30,10 @@ export async function* streamProvider(options: {
   logger?: AdapterLogger;
   context: any;
 }): AsyncGenerator<any> {
+  const chunkInfoLogsEnabled = normalizeFlag(
+    process.env.LLM_ADAPTER_LLM_STREAM_CHUNK_LOGS_ENABLED,
+    getDefaults().logging.llmStream.chunkInfoLogsEnabled
+  );
   const normalizedMessages = aggregateSystemMessages(options.messages);
   const compat = typeof options.registry.getCompatModuleForProvider === 'function'
     ? await options.registry.getCompatModuleForProvider(options.provider.id)
@@ -210,7 +214,9 @@ export async function* streamProvider(options: {
 
   for await (const chunk of response.data) {
     chunkCount++;
-    options.logger?.info('Received chunk from response.data', { chunkNumber: chunkCount, chunkSize: chunk.length });
+    if (chunkInfoLogsEnabled) {
+      options.logger?.info('Received chunk from response.data', { chunkNumber: chunkCount, chunkSize: chunk.length });
+    }
     buffer += chunk.toString();
     const lines = buffer.split('\n');
     buffer = lines.pop() || '';
