@@ -4,14 +4,9 @@ import { runLlmOnce, mergeSettings, runTelemetryOnce } from '@tests/helpers/live
 import { liveTestTimeout, filteredTestRuns } from '../config.ts';
 
 const runLive = process.env.LLM_LIVE === '1';
-const hasSentryCredentials =
-  String(process.env.SENTRY_API_KEY || '').trim() !== '' &&
-  String(process.env.SENTRY_ORG_SLUG || '').trim() !== '' &&
-  String(process.env.SENTRY_PROJECT_SLUG || '').trim() !== '' &&
-  String(process.env.SENTRY_DSN || '').trim() !== '';
 const TEST_FILE = '23-observability-sentry';
 
-(runLive && hasSentryCredentials ? describe : describe.skip)(TEST_FILE, () => {
+(runLive ? describe : describe.skip)(TEST_FILE, () => {
   test('exports tool result, tool error, and client signal to Sentry', async () => {
     const runCfg = filteredTestRuns[0];
     expect(runCfg).toBeTruthy();

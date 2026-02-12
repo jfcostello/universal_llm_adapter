@@ -57,6 +57,13 @@ function isRealtimePattern(raw: string): boolean {
   return /\brealtime\b/i.test(raw);
 }
 
+function isSentryPattern(raw: string): boolean {
+  // Provider-specific runs may exclude sentry via a negative lookahead while still
+  // containing the literal "sentry" string in the regex.
+  if (/\(\?!.*sentry/i.test(raw)) return false;
+  return /\bsentry\b/i.test(raw);
+}
+
 export function getTestPathPatternsFromJestArgs(jestArgs: string[]): string[] {
   const patterns: string[] = [];
 
@@ -138,7 +145,7 @@ export function getMissingRequiredEnv(options: {
     required.add('LANGFUSE_SECRET_KEY');
   }
 
-  const wantsSentryByPattern = /\bsentry\b/i.test(patterns);
+  const wantsSentryByPattern = options.testPathPatterns.some((pattern) => isSentryPattern(String(pattern)));
   const isBroadLlmLiveRun = expectsLlmCalls && wantsAllLive && options.selectedProviders.length > 1;
   if (wantsSentryByPattern || isBroadLlmLiveRun || observabilityProviders.includes('sentry')) {
     required.add('SENTRY_API_KEY');

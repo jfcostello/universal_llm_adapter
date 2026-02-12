@@ -92,7 +92,9 @@ async function main() {
     const idx = jestArgs.findIndex(arg => String(arg).startsWith('--testPathPattern='));
     if (idx !== -1) {
       // Provider-specific runs should not pull in realtime suite by default.
-      jestArgs[idx] = '--testPathPattern=tests[\\\\/]live[\\\\/]test-files(?![\\\\/]\\d+-realtime)';
+      // They also exclude the Sentry suite unless explicitly selected via custom pattern.
+      jestArgs[idx] =
+        '--testPathPattern=tests[\\\\/]live[\\\\/]test-files(?![\\\\/]\\d+-realtime)(?![\\\\/]23-observability-sentry\\.live\\.test\\.ts)';
     }
   }
 
