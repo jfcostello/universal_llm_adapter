@@ -16,19 +16,19 @@ Owns LLM orchestration (non-streaming + streaming), including:
 
 ## Performance
 
-Performance knobs are opt-in; defaults preserve current behavior.
+Performance defaults are tuned for throughput; env overrides remain available for compatibility/debug workflows.
 
 ### Outbound HTTP Keep-Alive (LLM HTTP calls only)
 
-- Defaults (from `plugins/configs/defaults.json`): `outboundHttp.keepAliveEnabled=false`, `outboundHttp.maxSockets=256`, `outboundHttp.maxFreeSockets=32`
-- Env override: `LLM_ADAPTER_OUTBOUND_HTTP_KEEPALIVE_ENABLED=1` (boolean-like; uses shared `normalizeFlag` semantics)
+- Defaults (from `plugins/configs/defaults.json`): `outboundHttp.keepAliveEnabled=true`, `outboundHttp.maxSockets=256`, `outboundHttp.maxFreeSockets=32`
+- Env override: `LLM_ADAPTER_OUTBOUND_HTTP_KEEPALIVE_ENABLED=0` to disable (boolean-like; uses shared `normalizeFlag` semantics)
 
 ### Streaming Chunk Info Logs
 
-By default, streaming logs include an `info` line per received chunk.
+By default, per-chunk streaming `info` logs are disabled to reduce log noise and hot-path overhead.
 
-- Default: `logging.llmStream.chunkInfoLogsEnabled=true`
-- Env override: `LLM_ADAPTER_LLM_STREAM_CHUNK_LOGS_ENABLED=0` to disable per-chunk `info` logs
+- Default: `logging.llmStream.chunkInfoLogsEnabled=false`
+- Env override: `LLM_ADAPTER_LLM_STREAM_CHUNK_LOGS_ENABLED=1` to enable per-chunk `info` logs
 
 ## Import Rules
 - Runtime code must import only from `modules/llm/index.ts`.

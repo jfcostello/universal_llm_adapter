@@ -1207,9 +1207,9 @@ for line in response.iter_lines():
 | `LLM_ADAPTER_BATCH_DIR` | Use batch-based directories ("1" or "0") |
 | `LLM_ADAPTER_DISABLE_FILE_LOGS` | Disable file logging ("1") |
 | `LLM_ADAPTER_DISABLE_CONSOLE_LOGS` | Disable console logging ("1") |
-| `LLM_ADAPTER_LOG_PRETTY_FILE_MODE` | Pretty request/response file log mode (`sync`, `async`, or `off`) |
-| `LLM_ADAPTER_LLM_STREAM_CHUNK_LOGS_ENABLED` | Enable per-chunk streaming info logs ("1" or "0") |
-| `LLM_ADAPTER_OUTBOUND_HTTP_KEEPALIVE_ENABLED` | Enable outbound HTTP keep-alive for LLM HTTP calls ("1" or "0") |
+| `LLM_ADAPTER_LOG_PRETTY_FILE_MODE` | Pretty request/response file log mode (`async` default; `sync`, `async`, or `off`) |
+| `LLM_ADAPTER_LLM_STREAM_CHUNK_LOGS_ENABLED` | Enable per-chunk streaming info logs (`0` default; "1" or "0") |
+| `LLM_ADAPTER_OUTBOUND_HTTP_KEEPALIVE_ENABLED` | Enable outbound HTTP keep-alive for LLM HTTP calls (`1` default; "1" or "0") |
 | `LLM_ADAPTER_VOICE_LOG_MAX_FILES` | Max retained voice log files |
 | `LLM_ADAPTER_VOICE_LOG_MAX_AGE_DAYS` | Max age of voice log files |
 | `LLM_ADAPTER_REALTIME_LOG_MAX_FILES` | Max retained realtime log files |

@@ -93,7 +93,7 @@ describe('core/defaults', () => {
       const { getDefaults } = await import('@/kernel/index.ts');
       const defaults = getDefaults() as any;
 
-      expect(defaults.outboundHttp.keepAliveEnabled).toBe(false);
+      expect(defaults.outboundHttp.keepAliveEnabled).toBe(true);
       expect(defaults.outboundHttp.maxSockets).toBe(256);
       expect(defaults.outboundHttp.maxFreeSockets).toBe(32);
     });
@@ -102,8 +102,8 @@ describe('core/defaults', () => {
       const { getDefaults } = await import('@/kernel/index.ts');
       const defaults = getDefaults() as any;
 
-      expect(defaults.logging.prettyFileLogs.mode).toBe('sync');
-      expect(defaults.logging.llmStream.chunkInfoLogsEnabled).toBe(true);
+      expect(defaults.logging.prettyFileLogs.mode).toBe('async');
+      expect(defaults.logging.llmStream.chunkInfoLogsEnabled).toBe(false);
     });
 
     test('returns correct timeout defaults', async () => {

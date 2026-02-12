@@ -18,7 +18,7 @@ describe('core/logging pretty-file-logs helper', () => {
 
       const { resolvePrettyFileLogsMode } = await import('@/modules/logging/internal/pretty-file-logs.ts');
 
-      expect(resolvePrettyFileLogsMode()).toBe('sync');
+      expect(resolvePrettyFileLogsMode()).toBe('async');
     });
   });
 
@@ -36,4 +36,3 @@ describe('core/logging pretty-file-logs helper', () => {
     });
   });
 });
-

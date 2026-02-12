@@ -21,6 +21,7 @@ describe('core/logging retention', () => {
       process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '0';
       process.env.LLM_ADAPTER_DISABLE_CONSOLE_LOGS = '1';
       process.env.LLM_ADAPTER_LLM_LOG_MAX_FILES = '2';
+      process.env.LLM_ADAPTER_LOG_PRETTY_FILE_MODE = 'sync';
 
       const { AdapterLogger, LogLevel } = await loadLoggingModule();
 
@@ -60,6 +61,7 @@ describe('core/logging retention', () => {
       process.env.LLM_ADAPTER_DISABLE_CONSOLE_LOGS = '1';
       process.env.LLM_ADAPTER_LLM_LOG_MAX_FILES = '2';
       process.env.LLM_ADAPTER_BATCH_DIR = '1';
+      process.env.LLM_ADAPTER_LOG_PRETTY_FILE_MODE = 'sync';
 
       const { AdapterLogger, LogLevel } = await loadLoggingModule();
 
@@ -94,6 +96,7 @@ describe('core/logging retention', () => {
       process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '0';
       process.env.LLM_ADAPTER_DISABLE_CONSOLE_LOGS = '1';
       process.env.LLM_ADAPTER_BATCH_LOG_MAX_FILES = '2';
+      process.env.LLM_ADAPTER_LOG_PRETTY_FILE_MODE = 'sync';
 
       const { AdapterLogger, LogLevel } = await loadLoggingModule();
 
@@ -123,6 +126,7 @@ describe('core/logging retention', () => {
       process.env.LLM_ADAPTER_DISABLE_FILE_LOGS = '0';
       process.env.LLM_ADAPTER_DISABLE_CONSOLE_LOGS = '1';
       process.env.LLM_ADAPTER_LLM_LOG_MAX_FILES = '2';
+      process.env.LLM_ADAPTER_LOG_PRETTY_FILE_MODE = 'sync';
 
       const { AdapterLogger, LogLevel } = await loadLoggingModule();
 
@@ -153,6 +157,7 @@ describe('core/logging retention', () => {
       process.env.LLM_ADAPTER_DISABLE_CONSOLE_LOGS = '1';
       process.env.LLM_ADAPTER_BATCH_DIR = '1';
       process.env.LLM_ADAPTER_BATCH_ID = 'missing';
+      process.env.LLM_ADAPTER_LOG_PRETTY_FILE_MODE = 'sync';
 
       jest.resetModules();
       const { AdapterLogger, LogLevel } = await import('@/modules/logging/index.ts');
@@ -169,6 +174,7 @@ describe('core/logging retention', () => {
       process.env.LLM_ADAPTER_DISABLE_CONSOLE_LOGS = '1';
       process.env.LLM_ADAPTER_BATCH_DIR = '1';
       process.env.LLM_ADAPTER_BATCH_ID = 'missing-vector';
+      process.env.LLM_ADAPTER_LOG_PRETTY_FILE_MODE = 'sync';
 
       jest.resetModules();
       const { VectorLogger, LogLevel } = await import('@/modules/logging/index.ts');

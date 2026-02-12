@@ -620,13 +620,13 @@ All non-provider-specific defaults are in `plugins/configs/defaults.json`:
 	    "toolResultDivisor": 6
 	  },
 	  "outboundHttp": {
-	    "keepAliveEnabled": false,
+	    "keepAliveEnabled": true,
 	    "maxSockets": 256,
 	    "maxFreeSockets": 32
 	  },
 	  "logging": {
-	    "prettyFileLogs": { "mode": "sync" },
-	    "llmStream": { "chunkInfoLogsEnabled": true }
+	    "prettyFileLogs": { "mode": "async" },
+	    "llmStream": { "chunkInfoLogsEnabled": false }
 	  },
 	  "security": {
 	    "redaction": {
@@ -706,9 +706,9 @@ console.log(defaults.tools.maxIterations); // 10
 | `LLM_ADAPTER_BATCH_DIR` | Use batch-based directories for logs ("1" or "0") |
 | `LLM_ADAPTER_DISABLE_FILE_LOGS` | Disable file logging ("1" or unset) |
 | `LLM_ADAPTER_DISABLE_CONSOLE_LOGS` | Disable console logging ("1" or unset) |
-| `LLM_ADAPTER_LOG_PRETTY_FILE_MODE` | Pretty request/response file log mode (`sync`, `async`, or `off`) |
-| `LLM_ADAPTER_LLM_STREAM_CHUNK_LOGS_ENABLED` | Enable per-chunk streaming info logs ("1" or "0") |
-| `LLM_ADAPTER_OUTBOUND_HTTP_KEEPALIVE_ENABLED` | Enable outbound HTTP keep-alive for LLM HTTP calls ("1" or "0") |
+| `LLM_ADAPTER_LOG_PRETTY_FILE_MODE` | Pretty request/response file log mode (`async` default; `sync`, `async`, or `off`) |
+| `LLM_ADAPTER_LLM_STREAM_CHUNK_LOGS_ENABLED` | Enable per-chunk streaming info logs (`0` default; "1" or "0") |
+| `LLM_ADAPTER_OUTBOUND_HTTP_KEEPALIVE_ENABLED` | Enable outbound HTTP keep-alive for LLM HTTP calls (`1` default; "1" or "0") |
 | `LLM_ADAPTER_OBSERVABILITY_ENABLED` | Override observability enabled flag when per-call spec omits `observability.enabled` |
 | `LLM_ADAPTER_OBSERVABILITY_TARGETS` | Override default observability targets when per-call spec omits `observability.provider/targets` (CSV provider list or JSON targets) |
 

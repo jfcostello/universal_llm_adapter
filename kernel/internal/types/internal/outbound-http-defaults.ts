@@ -3,7 +3,7 @@
  */
 export interface OutboundHttpDefaults {
   /**
-   * Whether outbound HTTP keep-alive is enabled (opt-in; default false).
+   * Whether outbound HTTP keep-alive is enabled (default true).
    */
   keepAliveEnabled: boolean;
   /**
@@ -15,4 +15,3 @@ export interface OutboundHttpDefaults {
    */
   maxFreeSockets: number;
 }
-

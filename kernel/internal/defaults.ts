@@ -85,16 +85,16 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
     toolResultDivisor: 6
   },
   outboundHttp: {
-    keepAliveEnabled: false,
+    keepAliveEnabled: true,
     maxSockets: 256,
     maxFreeSockets: 32
   },
   logging: {
     prettyFileLogs: {
-      mode: 'sync'
+      mode: 'async'
     },
     llmStream: {
-      chunkInfoLogsEnabled: true
+      chunkInfoLogsEnabled: false
     }
   },
   security: {

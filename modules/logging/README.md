@@ -31,12 +31,12 @@ Retention:
 LLM/embedding/vector loggers write human-readable request/response logs (under `logs/llm`, `logs/embedding`, `logs/vector`).
 
 Control how these pretty logs are written:
-- `logging.prettyFileLogs.mode`: `sync` (default), `async`, or `off`
+- `logging.prettyFileLogs.mode`: `async` (default), `sync`, or `off`
 - Env override: `LLM_ADAPTER_LOG_PRETTY_FILE_MODE=sync|async|off`
 
 Modes:
-- `sync`: synchronous `appendFileSync` (default; preserves current behavior)
-- `async`: buffered async writes, flushed on logger close
+- `sync`: synchronous `appendFileSync` (highest write durability; slowest hot path)
+- `async`: buffered async writes (default), flushed on logger close
 - `off`: disables pretty logs (no directories created; retention is not applied)
 
 ## Redaction
