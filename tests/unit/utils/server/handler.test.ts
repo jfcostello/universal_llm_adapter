@@ -45,6 +45,11 @@ function makeRes() {
 }
 
 describe('utils/server createServerHandler', () => {
+  beforeEach(() => {
+    // Ensure this suite isn't affected by fake timer leakage from other tests.
+    jest.useRealTimers();
+  });
+
   const registry = { loadAll: jest.fn() } as any;
   const noneAuth = { mode: 'none' } as const;
   const apiKeyAuth = { mode: 'apiKey', keys: [{ id: 'k1', token: 'k1' }] } as const;

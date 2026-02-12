@@ -84,6 +84,19 @@ const FALLBACK_DEFAULTS: DefaultSettings = {
     imageEstimate: 768,
     toolResultDivisor: 6
   },
+  outboundHttp: {
+    keepAliveEnabled: true,
+    maxSockets: 256,
+    maxFreeSockets: 32
+  },
+  logging: {
+    prettyFileLogs: {
+      mode: 'async'
+    },
+    llmStream: {
+      chunkInfoLogsEnabled: false
+    }
+  },
   security: {
     redaction: {
       sensitiveKeys: Array.from(BUILT_IN_SENSITIVE_KEY_PATTERNS)

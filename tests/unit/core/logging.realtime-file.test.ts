@@ -214,10 +214,12 @@ describe('core/logging realtime file logs', () => {
 
       (logger as any).flushPromise = null;
       (logger as any).flushScheduled = true;
+      expect((logger as any).flushScheduled).toBe(true);
       (logger as any).scheduleFlush();
 
       (logger as any).flushPromise = null;
       (logger as any).flushScheduled = false;
+      expect((logger as any).flushScheduled).toBe(false);
       (logger as any).scheduleFlush();
       await new Promise<void>(resolve => setImmediate(resolve));
 

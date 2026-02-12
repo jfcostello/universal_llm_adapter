@@ -1,5 +1,10 @@
 import type { ObservabilityTargetSpec } from '../../observability-spec-types.js';
+import type { LoggingDefaults } from './logging-defaults.js';
+import type { OutboundHttpDefaults } from './outbound-http-defaults.js';
 import type { VectorRequestPolicy } from './vector-context.js';
+
+export type { LoggingDefaults, LLMStreamLoggingDefaults, PrettyFileLogsDefaults, PrettyFileLogsMode } from './logging-defaults.js';
+export type { OutboundHttpDefaults } from './outbound-http-defaults.js';
 
 /**
  * Retry and rate limiting default settings.
@@ -381,6 +386,8 @@ export interface DefaultSettings {
   vector: VectorDefaults;
   chunking: ChunkingDefaults;
   tokenEstimation: TokenEstimationDefaults;
+  outboundHttp: OutboundHttpDefaults;
+  logging: LoggingDefaults;
   security: SecurityDefaults;
   timeouts: TimeoutDefaults;
   server: ServerDefaults;

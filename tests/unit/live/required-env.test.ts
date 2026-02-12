@@ -97,6 +97,26 @@ describe('live/required-env', () => {
       'QDRANT_CLOUD_URL',
       'QDRANT_API_KEY',
       'LANGFUSE_PUBLIC_KEY',
+      'LANGFUSE_SECRET_KEY'
+    ]);
+  });
+
+  test('getMissingRequiredEnv requires Sentry keys for broad multi-provider live runs', async () => {
+    const { getMissingRequiredEnv } = await import('../../live/required-env.ts');
+    const missing = getMissingRequiredEnv({
+      selectedProviders: ['anthropic', 'openai-responses', 'openrouter', 'google', 'openai-assistants'],
+      testPathPatterns: ['tests[\\\\/]live[\\\\/]test-files'],
+      env: {}
+    });
+    expect(missing).toEqual([
+      'ANTHROPIC_API_KEY',
+      'OPENAI_API_KEY',
+      'OPENROUTER_API_KEY',
+      'GEMINI_API_KEY',
+      'OPENAI_ASSISTANTS_ASSISTANT_ID',
+      'QDRANT_CLOUD_URL',
+      'QDRANT_API_KEY',
+      'LANGFUSE_PUBLIC_KEY',
       'LANGFUSE_SECRET_KEY',
       'SENTRY_API_KEY',
       'SENTRY_ORG_SLUG',

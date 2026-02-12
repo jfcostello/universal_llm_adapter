@@ -26,6 +26,19 @@ Retention:
 - Per-channel overrides:
   - `LLM_ADAPTER_REALTIME_LOG_MAX_FILES`, `LLM_ADAPTER_REALTIME_LOG_MAX_AGE_DAYS`, `LLM_ADAPTER_REALTIME_LOG_MAX_BYTES`
 
+## Pretty Request/Response Logs
+
+LLM/embedding/vector loggers write human-readable request/response logs (under `logs/llm`, `logs/embedding`, `logs/vector`).
+
+Control how these pretty logs are written:
+- `logging.prettyFileLogs.mode`: `async` (default), `sync`, or `off`
+- Env override: `LLM_ADAPTER_LOG_PRETTY_FILE_MODE=sync|async|off`
+
+Modes:
+- `sync`: synchronous `appendFileSync` (highest write durability; slowest hot path)
+- `async`: buffered async writes (default), flushed on logger close
+- `off`: disables pretty logs (no directories created; retention is not applied)
+
 ## Redaction
 
 Structured logs are serialized via the `BaseAdapterLogger` JSON replacer.

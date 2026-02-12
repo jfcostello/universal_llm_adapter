@@ -10,6 +10,7 @@ import {
   getBatchEnv
 } from './base-logger.js';
 import { applyRetentionOnce } from './retention-manager.js';
+import { createBufferedAppendState, scheduleFlush, startFlush } from './buffered-append.js';
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -22,10 +23,33 @@ export abstract class BaseJsonLineFileLogger extends BaseAdapterLogger {
   private batchId?: string;
   private useBatchDir = false;
   private currentBytes: number | null = null;
-  private pendingWrites: string[] = [];
-  private flushScheduled = false;
-  private flushAgain = false;
-  private flushPromise: Promise<void> | null = null;
+  private bufferedAppendState = createBufferedAppendState();
+
+  // Expose legacy state fields for tests via accessors.
+  private get pendingWrites(): any {
+    return this.bufferedAppendState.pendingWrites;
+  }
+  private set pendingWrites(value: any) {
+    this.bufferedAppendState.pendingWrites = value;
+  }
+  private get flushScheduled(): boolean {
+    return this.bufferedAppendState.flushScheduled;
+  }
+  private set flushScheduled(value: boolean) {
+    this.bufferedAppendState.flushScheduled = value;
+  }
+  private get flushAgain(): boolean {
+    return this.bufferedAppendState.flushAgain;
+  }
+  private set flushAgain(value: boolean) {
+    this.bufferedAppendState.flushAgain = value;
+  }
+  private get flushPromise(): Promise<void> | null {
+    return this.bufferedAppendState.flushPromise;
+  }
+  private set flushPromise(value: Promise<void> | null) {
+    this.bufferedAppendState.flushPromise = value;
+  }
 
   constructor(level: LogLevel = LogLevel.INFO, correlationId?: string | string[], options: AdapterLoggerOptions = {}) {
     super(level, correlationId, options);
@@ -145,57 +169,23 @@ export abstract class BaseJsonLineFileLogger extends BaseAdapterLogger {
   }
 
   private scheduleFlush(): void {
-    if (this.flushPromise) {
-      this.flushAgain = true;
-      return;
-    }
-    if (this.flushScheduled) return;
-    this.flushScheduled = true;
-    setImmediate(() => {
-      this.flushScheduled = false;
-      void this.flushPendingWrites();
-    });
+    scheduleFlush(this.bufferedAppendState, () => this.flushPendingWrites());
   }
 
   private startFlush(): Promise<void> {
-    if (this.flushPromise) {
-      this.flushAgain = true;
-      return this.flushPromise;
-    }
-
-    this.flushPromise = (async () => {
-      while (true) {
-        const next = this.pendingWrites.splice(0, this.pendingWrites.length);
-        if (next.length === 0) {
-          if (this.flushAgain) {
-            this.flushAgain = false;
-            continue;
-          }
-          break;
-        }
-
-        try {
-          if (!this.logFile || disableFileLogs) continue;
-          const batch = next.join('');
-          const bytes = Buffer.byteLength(batch, 'utf8');
-          const maxBytes = this.getMaxBytes();
-          const shouldRotate = Boolean(this.batchId) && typeof maxBytes === 'number' && maxBytes > 0;
-          if (shouldRotate) {
-            await this.maybeRotateForMaxBytes(bytes);
-          }
-          await fs.promises.appendFile(this.logFile, batch);
-          if (shouldRotate) {
-            this.currentBytes = (await this.ensureCurrentBytes()) + bytes;
-          }
-        } catch {
-          // Best-effort: drop log lines on write failure.
-        }
+    this.flushPromise = startFlush(this.bufferedAppendState, async (batch: string) => {
+      if (!this.logFile || disableFileLogs) return;
+      const bytes = Buffer.byteLength(batch, 'utf8');
+      const maxBytes = this.getMaxBytes();
+      const shouldRotate = Boolean(this.batchId) && typeof maxBytes === 'number' && maxBytes > 0;
+      if (shouldRotate) {
+        await this.maybeRotateForMaxBytes(bytes);
       }
-    })()
-      .catch(() => {})
-      .finally(() => {
-        this.flushPromise = null;
-      });
+      await fs.promises.appendFile(this.logFile, batch);
+      if (shouldRotate) {
+        this.currentBytes = (await this.ensureCurrentBytes()) + bytes;
+      }
+    });
 
     return this.flushPromise;
   }

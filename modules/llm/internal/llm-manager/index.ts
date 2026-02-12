@@ -1,4 +1,6 @@
 import axios, { type AxiosInstance } from 'axios';
+import http from 'http';
+import https from 'https';
 
 import type {
   AdapterLogger,
@@ -12,6 +14,8 @@ import type {
 } from '../../../../kernel/index.js';
 import { getDefaults } from '../../../../kernel/index.js';
 
+import { normalizeFlag } from '../../../shared/index.js';
+
 import { callProvider } from './internal/call-provider.js';
 import { streamProvider } from './internal/stream-provider.js';
 import {
@@ -23,15 +27,90 @@ import {
 } from './internal/http-utils.js';
 import { recordObservabilityResponse } from './internal/observability.js';
 
+type KeepAliveAgentPair = {
+  httpAgent: http.Agent;
+  httpsAgent: https.Agent;
+};
+
+let keepAliveAgents: KeepAliveAgentPair | null = null;
+let keepAliveAgentsConfig: { maxSockets: number; maxFreeSockets: number } | null = null;
+
+function unrefSocketIfPossible(socket: any): void {
+  if (socket && typeof socket.unref === 'function') {
+    socket.unref();
+  }
+}
+
+function createKeepAliveAgents(config: { maxSockets: number; maxFreeSockets: number }): KeepAliveAgentPair {
+  const httpAgent = new http.Agent({ keepAlive: true, maxSockets: config.maxSockets, maxFreeSockets: config.maxFreeSockets });
+  const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: config.maxSockets, maxFreeSockets: config.maxFreeSockets });
+
+  httpAgent.on('free', unrefSocketIfPossible);
+  httpsAgent.on('free', unrefSocketIfPossible);
+
+  return { httpAgent, httpsAgent };
+}
+
+function destroyKeepAliveAgents(agents: KeepAliveAgentPair | null): void {
+  if (!agents) return;
+  try {
+    agents.httpAgent.destroy();
+  } catch {}
+  try {
+    agents.httpsAgent.destroy();
+  } catch {}
+}
+
+function clearKeepAliveAgents(): void {
+  destroyKeepAliveAgents(keepAliveAgents);
+  keepAliveAgents = null;
+  keepAliveAgentsConfig = null;
+}
+
+function getOrCreateKeepAliveAgents(config: { maxSockets: number; maxFreeSockets: number }): KeepAliveAgentPair {
+  if (
+    keepAliveAgents &&
+    keepAliveAgentsConfig &&
+    keepAliveAgentsConfig.maxSockets === config.maxSockets &&
+    keepAliveAgentsConfig.maxFreeSockets === config.maxFreeSockets
+  ) {
+    return keepAliveAgents;
+  }
+
+  destroyKeepAliveAgents(keepAliveAgents);
+  keepAliveAgents = createKeepAliveAgents(config);
+  keepAliveAgentsConfig = { ...config };
+  return keepAliveAgents;
+}
+
 export class LLMManager {
   private httpClient: AxiosInstance;
   private reasoningUnsupportedByProviderModel = new Set<string>();
 
   constructor(private registry: any) {
-    this.httpClient = axios.create({
-      timeout: getDefaults().timeouts.llmHttp,
+    const defaults = getDefaults();
+    const keepAliveEnabled = normalizeFlag(
+      process.env.LLM_ADAPTER_OUTBOUND_HTTP_KEEPALIVE_ENABLED,
+      defaults.outboundHttp.keepAliveEnabled
+    );
+
+    const axiosConfig: Record<string, any> = {
+      timeout: defaults.timeouts.llmHttp,
       validateStatus: () => true // Handle all status codes
-    });
+    };
+
+    if (keepAliveEnabled) {
+      const { httpAgent, httpsAgent } = getOrCreateKeepAliveAgents({
+        maxSockets: defaults.outboundHttp.maxSockets,
+        maxFreeSockets: defaults.outboundHttp.maxFreeSockets
+      });
+      axiosConfig.httpAgent = httpAgent;
+      axiosConfig.httpsAgent = httpsAgent;
+    } else {
+      clearKeepAliveAgents();
+    }
+
+    this.httpClient = axios.create(axiosConfig);
   }
 
   async callProvider(
