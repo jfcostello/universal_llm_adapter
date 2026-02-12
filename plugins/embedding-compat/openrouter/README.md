@@ -14,3 +14,7 @@ Embedding compat implementation.
 ## Notes
 - Loaded by the plugin registry via the embedding provider's `kind`.
 - Implementation details live in `internal/` and must not be imported directly outside this directory.
+- `internal/response.ts` classifies transient embedding failures for OpenRouter-specific behavior, including:
+  - HTTP `429`
+  - HTTP `5xx` (including `529`)
+  - upstream message pattern `No successful provider responses`

@@ -2,6 +2,7 @@ import { jest } from '@jest/globals';
 import OpenRouterEmbeddingCompat from '@/plugins/embedding-compat/openrouter/index.ts';
 import { EmbeddingProviderError } from '@/kernel/index.ts';
 import type { EmbeddingProviderConfig } from '@/kernel/index.ts';
+import { isTransientOpenRouterEmbeddingFailure } from '@/plugins/embedding-compat/openrouter/internal/response.ts';
 
 function createConfig(overrides: Partial<EmbeddingProviderConfig> = {}): EmbeddingProviderConfig {
   return {
@@ -266,6 +267,27 @@ describe('plugins/embedding-compat/openrouter', () => {
       }
     });
 
+    test('maps transient invalid-structure payloads to status 503 for retries', async () => {
+      const mockHttpClient = createMockHttpClient({
+        status: 200,
+        data: {
+          object: 'error',
+          error: { message: 'No successful provider responses' }
+        }
+      });
+
+      const compat = new OpenRouterEmbeddingCompat(mockHttpClient as any);
+
+      try {
+        await compat.embed('test', createConfig());
+        fail('Should have thrown');
+      } catch (error: any) {
+        expect(error).toBeInstanceOf(EmbeddingProviderError);
+        expect(error.statusCode).toBe(503);
+        expect(error.message).toContain('No successful provider responses');
+      }
+    });
+
     test('throws meaningful error when response.data.data is not an array', async () => {
       const mockHttpClient = createMockHttpClient({
         status: 200,
@@ -451,6 +473,28 @@ describe('plugins/embedding-compat/openrouter', () => {
       const dims = compat.getDimensions(config, 'some-large-model');
 
       expect(dims).toBe(1536);
+    });
+  });
+
+  describe('transient failure classification', () => {
+    test('classifies HTTP 429 as transient', () => {
+      expect(isTransientOpenRouterEmbeddingFailure(429, { error: { message: 'Too many requests' } })).toBe(true);
+    });
+
+    test('classifies HTTP 5xx and 529 as transient', () => {
+      expect(isTransientOpenRouterEmbeddingFailure(500, { error: { message: 'Server error' } })).toBe(true);
+      expect(isTransientOpenRouterEmbeddingFailure(529, { error: { message: 'Overloaded' } })).toBe(true);
+    });
+
+    test('classifies \"No successful provider responses\" payloads as transient', () => {
+      expect(
+        isTransientOpenRouterEmbeddingFailure(200, { error: { message: 'No successful provider responses' } })
+      ).toBe(true);
+      expect(isTransientOpenRouterEmbeddingFailure(200, 'No successful provider responses')).toBe(true);
+    });
+
+    test('does not classify unrelated 4xx failures as transient', () => {
+      expect(isTransientOpenRouterEmbeddingFailure(400, { error: { message: 'Invalid input' } })).toBe(false);
     });
   });
 

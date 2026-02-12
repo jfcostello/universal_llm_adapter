@@ -1,7 +1,7 @@
 import { RetryPolicy, createDefaultRetryPolicy } from './retry-policy.js';
 import { getDefaults } from '../../../kernel/index.js';
 import type { AdapterLogger } from '../../../kernel/index.js';
-import { sleep } from '../../shared/index.js';
+import { sleepWithSignal } from '../../shared/index.js';
 
 export interface RetrySequenceItem {
   provider: string;
@@ -9,12 +9,41 @@ export interface RetrySequenceItem {
   fn: () => Promise<any>;
 }
 
+export interface RetryExecutionOptions {
+  signal?: AbortSignal;
+  isAbortLikeError?: (error: unknown) => boolean;
+}
+
+function createAbortError(message = 'Operation aborted'): Error {
+  const error = new Error(message);
+  (error as any).name = 'AbortError';
+  (error as any).code = 'aborted';
+  return error;
+}
+
+function defaultIsAbortLikeError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const name = String((error as any).name ?? '');
+  const code = String((error as any).code ?? '');
+
+  if (['AbortError', 'CanceledError'].includes(name)) return true;
+  if (['aborted', 'ABORT_ERR', 'ERR_CANCELED'].includes(code)) return true;
+  return false;
+}
+
 export async function withRetries<T>(
   sequence: RetrySequenceItem[],
   policy?: RetryPolicy,
-  logger?: AdapterLogger
+  logger?: AdapterLogger,
+  options: RetryExecutionOptions = {}
 ): Promise<T> {
   const retryPolicy = policy || createDefaultRetryPolicy();
+  const isAbortLikeError =
+    options.isAbortLikeError ||
+    (options.signal ? defaultIsAbortLikeError : (() => false));
   
   let lastError: Error | undefined;
   
@@ -26,12 +55,22 @@ export async function withRetries<T>(
     const rateLimitSchedule = retryPolicy.rateLimitDelays || getDefaults().retry.rateLimitDelays;
     
     while (true) {
+      if (options.signal?.aborted) {
+        throw createAbortError();
+      }
       totalAttempts++;
       
       try {
         const result = await item.fn();
         return result;
       } catch (error: any) {
+        if (options.signal?.aborted) {
+          throw createAbortError();
+        }
+        if (isAbortLikeError(error)) {
+          throw error;
+        }
+
         lastError = error;
         const isRateLimit = error.isRateLimit || false;
         const retryType = isRateLimit ? 'rate_limit' : 'standard';
@@ -57,7 +96,10 @@ export async function withRetries<T>(
               });
             }
             
-            await sleep(nextDelay * 1000);
+            const slept = await sleepWithSignal(nextDelay * 1000, options.signal);
+            if (!slept) {
+              throw createAbortError();
+            }
             rateLimitAttempts++;
             continue;
           }
@@ -97,7 +139,10 @@ export async function withRetries<T>(
             });
           }
           
-          await sleep(nextDelay * 1000);
+          const slept = await sleepWithSignal(nextDelay * 1000, options.signal);
+          if (!slept) {
+            throw createAbortError();
+          }
           delay *= retryPolicy.multiplier;
           continue;
         }

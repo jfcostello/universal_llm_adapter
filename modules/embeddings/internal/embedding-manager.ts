@@ -7,6 +7,7 @@ import {
 } from '../../../kernel/index.js';
 import { EmbeddingError, EmbeddingProviderError } from '../../../kernel/index.js';
 import type { EmbedderFn } from '../../vector/index.js';
+import { createDefaultRetryPolicy, withRetries } from '../../retry/index.js';
 
 function isAbortLikeError(error: unknown): boolean {
   if (!error || typeof error !== 'object') {
@@ -61,6 +62,7 @@ export class EmbeddingManager {
     }
 
     const errors: Error[] = [];
+    const retryPolicy = createDefaultRetryPolicy();
 
     for (const item of priority) {
       if (options.signal?.aborted) {
@@ -76,7 +78,16 @@ export class EmbeddingManager {
         const compatOptions: EmbeddingCompatOptions | undefined = options.signal
           ? { signal: options.signal }
           : undefined;
-        const result = await compat.embed(input, config, item.model, this.logger, compatOptions);
+        const result = await withRetries<EmbeddingResult>(
+          [{
+            provider: item.provider,
+            model: item.model || config.model,
+            fn: async () => compat.embed(input, config, item.model, this.logger, compatOptions)
+          }],
+          retryPolicy,
+          undefined,
+          { signal: options.signal, isAbortLikeError }
+        );
         return result;
       } catch (error: any) {
         if (options.signal?.aborted || isAbortLikeError(error)) {

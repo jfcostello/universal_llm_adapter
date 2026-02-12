@@ -18,6 +18,24 @@ export function isRateLimitResponse(status: number, body: any): boolean {
   return false;
 }
 
+function extractMessage(body: any): string {
+  if (typeof body === 'string') return body;
+  const message = body?.error?.message;
+  if (typeof message === 'string') return message;
+  return '';
+}
+
+export function isTransientOpenRouterEmbeddingFailure(status: number, body: any): boolean {
+  if (status === 429) return true;
+  if (status === 529) return true;
+  if (status >= 500 && status < 600) return true;
+
+  const message = extractMessage(body).toLowerCase();
+  if (message.includes('no successful provider responses')) return true;
+
+  return false;
+}
+
 export function parseEmbeddingResponse(
   raw: any,
   status: number,
@@ -28,7 +46,9 @@ export function parseEmbeddingResponse(
 
   if (!data.data || !Array.isArray(data.data)) {
     const errorMsg = (data as any)?.error?.message || (typeof data === 'string' ? data : JSON.stringify(data));
-    throw new EmbeddingProviderError('openrouter', `Invalid response structure: ${errorMsg}`, status);
+    const transientFailure = isTransientOpenRouterEmbeddingFailure(status, data);
+    const effectiveStatus = transientFailure && status < 400 ? 503 : status;
+    throw new EmbeddingProviderError('openrouter', `Invalid response structure: ${errorMsg}`, effectiveStatus);
   }
 
   const vectors = extractEmbeddingVectorsByIndex(data.data);
@@ -41,4 +61,3 @@ export function parseEmbeddingResponse(
     tokenCount: data.usage?.total_tokens
   };
 }
-
