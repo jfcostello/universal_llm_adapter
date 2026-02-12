@@ -3,6 +3,7 @@ export type BufferedAppendState = {
   flushScheduled: boolean;
   flushAgain: boolean;
   flushPromise: Promise<void> | null;
+  pendingBytes: number;
 };
 
 export function createBufferedAppendState(): BufferedAppendState {
@@ -10,7 +11,8 @@ export function createBufferedAppendState(): BufferedAppendState {
     pendingWrites: [],
     flushScheduled: false,
     flushAgain: false,
-    flushPromise: null
+    flushPromise: null,
+    pendingBytes: 0
   };
 }
 
@@ -71,4 +73,3 @@ export function startFlush(
 
   return state.flushPromise;
 }
-

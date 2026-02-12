@@ -51,6 +51,22 @@ function createKeepAliveAgents(config: { maxSockets: number; maxFreeSockets: num
   return { httpAgent, httpsAgent };
 }
 
+function destroyKeepAliveAgents(agents: KeepAliveAgentPair | null): void {
+  if (!agents) return;
+  try {
+    agents.httpAgent.destroy();
+  } catch {}
+  try {
+    agents.httpsAgent.destroy();
+  } catch {}
+}
+
+function clearKeepAliveAgents(): void {
+  destroyKeepAliveAgents(keepAliveAgents);
+  keepAliveAgents = null;
+  keepAliveAgentsConfig = null;
+}
+
 function getOrCreateKeepAliveAgents(config: { maxSockets: number; maxFreeSockets: number }): KeepAliveAgentPair {
   if (
     keepAliveAgents &&
@@ -61,6 +77,7 @@ function getOrCreateKeepAliveAgents(config: { maxSockets: number; maxFreeSockets
     return keepAliveAgents;
   }
 
+  destroyKeepAliveAgents(keepAliveAgents);
   keepAliveAgents = createKeepAliveAgents(config);
   keepAliveAgentsConfig = { ...config };
   return keepAliveAgents;
@@ -89,6 +106,8 @@ export class LLMManager {
       });
       axiosConfig.httpAgent = httpAgent;
       axiosConfig.httpsAgent = httpsAgent;
+    } else {
+      clearKeepAliveAgents();
     }
 
     this.httpClient = axios.create(axiosConfig);

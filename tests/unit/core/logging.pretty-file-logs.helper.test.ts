@@ -35,4 +35,48 @@ describe('core/logging pretty-file-logs helper', () => {
       expect(fs.existsSync(filePath)).toBe(false);
     });
   });
+
+  test('createPrettyFileAppender async mode bounds memory by evicting oldest buffered writes', async () => {
+    await withTempCwd('pretty-file-logs-async-bounded', async (cwd) => {
+      const { createPrettyFileAppender, PRETTY_FILE_LOGS_ASYNC_MAX_PENDING_BYTES } = await import(
+        '@/modules/logging/internal/pretty-file-logs.ts'
+      );
+
+      const filePath = path.join(cwd, 'logs', 'llm', 'bounded.log');
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      const appender = createPrettyFileAppender({ filePath, mode: 'async' });
+
+      const entrySize = Math.floor(PRETTY_FILE_LOGS_ASYNC_MAX_PENDING_BYTES / 2.5);
+      const firstTag = 'FIRST_ENTRY';
+      const secondTag = 'SECOND_ENTRY';
+      const thirdTag = 'THIRD_ENTRY';
+
+      appender.append(`${firstTag}:${'A'.repeat(entrySize)}`);
+      appender.append(`${secondTag}:${'B'.repeat(entrySize)}`);
+      appender.append(`${thirdTag}:${'C'.repeat(entrySize)}`);
+      await appender.flush();
+
+      const content = fs.readFileSync(filePath, 'utf-8');
+      expect(content).not.toContain(firstTag);
+      expect(content).toContain(secondTag);
+      expect(content).toContain(thirdTag);
+    });
+  });
+
+  test('createPrettyFileAppender async mode drops single entries larger than max buffer', async () => {
+    await withTempCwd('pretty-file-logs-async-oversized-entry', async (cwd) => {
+      const { createPrettyFileAppender, PRETTY_FILE_LOGS_ASYNC_MAX_PENDING_BYTES } = await import(
+        '@/modules/logging/internal/pretty-file-logs.ts'
+      );
+
+      const filePath = path.join(cwd, 'logs', 'llm', 'oversized.log');
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      const appender = createPrettyFileAppender({ filePath, mode: 'async' });
+
+      appender.append('X'.repeat(PRETTY_FILE_LOGS_ASYNC_MAX_PENDING_BYTES + 1));
+      await appender.flush();
+
+      expect(fs.existsSync(filePath)).toBe(false);
+    });
+  });
 });

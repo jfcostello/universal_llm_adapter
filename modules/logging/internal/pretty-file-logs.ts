@@ -9,6 +9,8 @@ export type PrettyFileAppender = {
   flush: () => Promise<void>;
 };
 
+export const PRETTY_FILE_LOGS_ASYNC_MAX_PENDING_BYTES = 2 * 1024 * 1024;
+
 function parsePrettyFileLogsMode(value: unknown): PrettyFileLogsMode | undefined {
   if (typeof value !== 'string') return undefined;
   const normalized = value.trim().toLowerCase();
@@ -48,14 +50,34 @@ export function createPrettyFileAppender(options: {
   }
 
   const state = createBufferedAppendState();
+  const maxPendingBytes = PRETTY_FILE_LOGS_ASYNC_MAX_PENDING_BYTES;
+
+  const trimPendingWrites = (incomingBytes: number): void => {
+    while (state.pendingWrites.length > 0 && state.pendingBytes + incomingBytes > maxPendingBytes) {
+      const removed = state.pendingWrites.shift();
+      if (typeof removed === 'string') {
+        state.pendingBytes = Math.max(0, state.pendingBytes - Buffer.byteLength(removed));
+      }
+    }
+  };
+
   const flush = async () =>
     await startFlush(state, async (batch) => {
+      state.pendingBytes = Math.max(0, state.pendingBytes - Buffer.byteLength(batch));
       await fs.promises.appendFile(options.filePath, batch);
     });
 
   return {
     append: (text) => {
+      const incomingBytes = Buffer.byteLength(text);
+      if (incomingBytes > maxPendingBytes) {
+        return;
+      }
+
+      trimPendingWrites(incomingBytes);
+
       state.pendingWrites.push(text);
+      state.pendingBytes += incomingBytes;
       scheduleFlush(state, flush);
     },
     flush
