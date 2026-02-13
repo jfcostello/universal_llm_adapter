@@ -35,7 +35,7 @@ export default class QdrantCompat implements IVectorStoreCompat {
   private logger?: IVectorOperationLogger;
 
   constructor(clientFactory?: QdrantClientFactory) {
-    this.clientFactory = clientFactory || ((opts) => new QdrantClient(opts));
+    this.clientFactory = clientFactory || ((opts) => new QdrantClient({ ...opts, checkCompatibility: false } as any));
   }
 
   setLogger(logger: IVectorOperationLogger): void {

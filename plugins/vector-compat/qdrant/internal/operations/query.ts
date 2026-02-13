@@ -6,27 +6,9 @@ import type {
   VectorQueryResult
 } from '../../../../../kernel/index.js';
 import { VectorStoreError } from '../../../../../kernel/index.js';
+import { createAbortError, isAbortLikeError } from '../../../../../modules/shared/index.js';
 import { convertFilter } from '../filters/convert-filter.js';
 import { ORIGINAL_ID_KEY } from '../ids/normalize-point-id.js';
-
-function createAbortError(message: string): Error {
-  const error = new Error(message);
-  (error as any).name = 'AbortError';
-  (error as any).code = 'aborted';
-  return error;
-}
-
-function isAbortLikeError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') {
-    return false;
-  }
-
-  const name = String((error as any).name ?? '');
-  const code = String((error as any).code ?? '');
-
-  if (['AbortError', 'CanceledError'].includes(name)) return true;
-  return ['aborted', 'ABORT_ERR', 'ERR_CANCELED'].includes(code);
-}
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
@@ -88,8 +70,8 @@ export async function queryQdrant(options: {
     };
 
     if (typeof queryOptions?.timeoutMs === 'number' && Number.isFinite(queryOptions.timeoutMs) && queryOptions.timeoutMs > 0) {
-      // Qdrant timeout granularity is seconds. Floor avoids extending larger budgets.
-      searchParams.timeout = Math.max(1, Math.floor(queryOptions.timeoutMs / 1000));
+      // Qdrant timeout granularity is seconds. Ceil avoids undercutting tight budgets; ms budget is still enforced client-side.
+      searchParams.timeout = Math.max(1, Math.ceil(queryOptions.timeoutMs / 1000));
     }
 
     // Convert generic filter to Qdrant format

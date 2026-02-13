@@ -25,11 +25,7 @@ function extractMessage(body: any): string {
   return '';
 }
 
-export function isTransientOpenRouterEmbeddingFailure(status: number, body: any): boolean {
-  if (status === 429) return true;
-  if (status === 529) return true;
-  if (status >= 500 && status < 600) return true;
-
+export function isTransientOpenRouterEmbeddingPayloadFailure(body: any): boolean {
   const message = extractMessage(body).toLowerCase();
   if (message.includes('no successful provider responses')) return true;
 
@@ -46,7 +42,7 @@ export function parseEmbeddingResponse(
 
   if (!data.data || !Array.isArray(data.data)) {
     const errorMsg = (data as any)?.error?.message || (typeof data === 'string' ? data : JSON.stringify(data));
-    const transientFailure = isTransientOpenRouterEmbeddingFailure(status, data);
+    const transientFailure = isTransientOpenRouterEmbeddingPayloadFailure(data);
     const effectiveStatus = transientFailure && status < 400 ? 503 : status;
     throw new EmbeddingProviderError('openrouter', `Invalid response structure: ${errorMsg}`, effectiveStatus);
   }

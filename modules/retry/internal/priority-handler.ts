@@ -1,7 +1,7 @@
 import { RetryPolicy, createDefaultRetryPolicy } from './retry-policy.js';
 import { getDefaults } from '../../../kernel/index.js';
 import type { AdapterLogger } from '../../../kernel/index.js';
-import { sleepWithSignal } from '../../shared/index.js';
+import { createAbortError, isAbortLikeError as isAbortLikeErrorShared, sleepWithSignal } from '../../shared/index.js';
 
 export interface RetrySequenceItem {
   provider: string;
@@ -14,26 +14,6 @@ export interface RetryExecutionOptions {
   isAbortLikeError?: (error: unknown) => boolean;
 }
 
-function createAbortError(message = 'Operation aborted'): Error {
-  const error = new Error(message);
-  (error as any).name = 'AbortError';
-  (error as any).code = 'aborted';
-  return error;
-}
-
-function defaultIsAbortLikeError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') {
-    return false;
-  }
-
-  const name = String((error as any).name ?? '');
-  const code = String((error as any).code ?? '');
-
-  if (['AbortError', 'CanceledError'].includes(name)) return true;
-  if (['aborted', 'ABORT_ERR', 'ERR_CANCELED'].includes(code)) return true;
-  return false;
-}
-
 export async function withRetries<T>(
   sequence: RetrySequenceItem[],
   policy?: RetryPolicy,
@@ -43,7 +23,7 @@ export async function withRetries<T>(
   const retryPolicy = policy || createDefaultRetryPolicy();
   const isAbortLikeError =
     options.isAbortLikeError ||
-    (options.signal ? defaultIsAbortLikeError : (() => false));
+    (options.signal ? (error: unknown) => isAbortLikeErrorShared(error) : (() => false));
   
   let lastError: Error | undefined;
   

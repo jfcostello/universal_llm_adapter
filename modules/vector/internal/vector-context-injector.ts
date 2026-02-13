@@ -7,7 +7,7 @@ import type {
   PluginRegistry
 } from '../../../kernel/index.js';
 import { interpolate } from '../../string/index.js';
-import { truncateUtf8Bytes } from '../../shared/index.js';
+import { createAbortError, truncateUtf8Bytes } from '../../shared/index.js';
 import type { EmbeddingManager } from '../../embeddings/index.js';
 import { VectorStoreManager } from './vector-store-manager.js';
 import { resolveEmbeddingPriority } from './embedding-priority.js';
@@ -34,13 +34,6 @@ export interface InjectionOptions {
 }
 
 const getVectorDefaults = () => getDefaults().vector;
-
-function createAbortError(message: string): Error {
-  const error = new Error(message);
-  (error as any).name = 'AbortError';
-  (error as any).code = 'aborted';
-  return error;
-}
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {

@@ -8,19 +8,10 @@ import {
 import { EmbeddingError, EmbeddingProviderError } from '../../../kernel/index.js';
 import type { EmbedderFn } from '../../vector/index.js';
 import { createDefaultRetryPolicy, withRetries } from '../../retry/index.js';
+import { isAbortLikeError as isAbortLikeErrorShared } from '../../shared/index.js';
 
-function isAbortLikeError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') {
-    return false;
-  }
-
-  const name = String((error as any).name ?? '');
-  const code = String((error as any).code ?? '');
-  const message = String((error as any).message ?? '').toLowerCase();
-
-  if (['AbortError', 'CanceledError'].includes(name)) return true;
-  if (['aborted', 'ABORT_ERR', 'ERR_CANCELED'].includes(code)) return true;
-  return ['aborted', 'canceled', 'cancelled'].some(token => message.includes(token));
+function isEmbeddingAbortLikeError(error: unknown): boolean {
+  return isAbortLikeErrorShared(error, { includeMessage: true });
 }
 
 /**
@@ -78,6 +69,9 @@ export class EmbeddingManager {
         const compatOptions: EmbeddingCompatOptions | undefined = options.signal
           ? { signal: options.signal }
           : undefined;
+        const retryExecutionOptions = options.signal
+          ? { signal: options.signal, isAbortLikeError: isEmbeddingAbortLikeError }
+          : undefined;
         const result = await withRetries<EmbeddingResult>(
           [{
             provider: item.provider,
@@ -86,11 +80,14 @@ export class EmbeddingManager {
           }],
           retryPolicy,
           undefined,
-          { signal: options.signal, isAbortLikeError }
+          retryExecutionOptions
         );
         return result;
       } catch (error: any) {
-        if (options.signal?.aborted || isAbortLikeError(error)) {
+        if (options.signal?.aborted) {
+          throw new EmbeddingError('Embedding request aborted');
+        }
+        if (options.signal && isEmbeddingAbortLikeError(error)) {
           throw new EmbeddingError('Embedding request aborted');
         }
         errors.push(error);

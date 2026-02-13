@@ -138,6 +138,32 @@ const completed = await sleepWithSignal(5000, abortController.signal);
 // completed === false if aborted before 5s elapses
 ```
 
+### `createAbortError(message?)`
+
+Creates an `Error` with `name="AbortError"` and `code="aborted"`.
+
+```typescript
+import { createAbortError } from '../shared/index.js';
+
+throw createAbortError('request canceled');
+```
+
+### `isAbortLikeError(error, { includeMessage? })`
+
+Detects whether an error looks like a cancellation/abort across common runtime/library shapes.
+
+```typescript
+import { isAbortLikeError } from '../shared/index.js';
+
+isAbortLikeError(Object.assign(new Error('x'), { name: 'AbortError' })); // true
+isAbortLikeError({ code: 'ABORT_ERR' }); // true
+isAbortLikeError(new Error('operation cancelled')); // false
+isAbortLikeError(new Error('operation cancelled'), { includeMessage: true }); // true
+```
+
+Notes:
+- `includeMessage: true` is intentionally looser and should generally be used only when a related `AbortSignal` is in play, to avoid false positives.
+
 ### `parseRetryAfterMs(headerValue, nowMs?)`
 
 Parses an HTTP `Retry-After` header into milliseconds.

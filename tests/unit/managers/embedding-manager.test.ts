@@ -59,6 +59,8 @@ describe('managers/embedding-manager', () => {
     });
 
     test('retries same provider attempt before succeeding', async () => {
+      jest.useFakeTimers();
+
       const compat = {
         embed: jest
           .fn()
@@ -73,7 +75,10 @@ describe('managers/embedding-manager', () => {
       const registry = createMockRegistry({ compat });
       const manager = new EmbeddingManager(registry);
 
-      const result = await manager.embed('retry me', [{ provider: 'provider1' }]);
+      const promise = manager.embed('retry me', [{ provider: 'provider1' }]);
+      await Promise.resolve();
+      await jest.runAllTimersAsync();
+      const result = await promise;
 
       expect(result.vectors).toEqual([[0.7, 0.8]]);
       expect(compat.embed).toHaveBeenCalledTimes(2);
@@ -116,6 +121,7 @@ describe('managers/embedding-manager', () => {
         { provider: 'provider1' },
         { provider: 'provider2' }
       ]);
+      await Promise.resolve();
       await jest.runAllTimersAsync();
       const result = await promise;
 
@@ -125,6 +131,8 @@ describe('managers/embedding-manager', () => {
     });
 
     test('falls back to next provider on non-rate-limit provider error', async () => {
+      jest.useFakeTimers();
+
       const failCompat = {
         embed: jest.fn().mockRejectedValue(new EmbeddingProviderError('provider1', 'Server error', 500, false)),
         getDimensions: jest.fn()
@@ -155,10 +163,13 @@ describe('managers/embedding-manager', () => {
 
       const manager = new EmbeddingManager(registry);
 
-      const result = await manager.embed('test', [
+      const promise = manager.embed('test', [
         { provider: 'provider1' },
         { provider: 'provider2' }
       ]);
+      await Promise.resolve();
+      await jest.runAllTimersAsync();
+      const result = await promise;
 
       expect(result.vectors).toEqual([[0.4, 0.5]]);
       expect(failCompat.embed).toHaveBeenCalled();
@@ -166,6 +177,8 @@ describe('managers/embedding-manager', () => {
     });
 
     test('exhausts retries for a provider before falling back to next provider', async () => {
+      jest.useFakeTimers();
+
       const maxAttempts = getDefaults().retry.maxAttempts;
       const failCompat = {
         embed: jest.fn().mockRejectedValue(new EmbeddingProviderError('provider1', 'Server error', 500, false)),
@@ -197,10 +210,12 @@ describe('managers/embedding-manager', () => {
 
       const manager = new EmbeddingManager(registry);
 
-      const result = await manager.embed('test', [
+      const promise = manager.embed('test', [
         { provider: 'provider1' },
         { provider: 'provider2' }
       ]);
+      await jest.runAllTimersAsync();
+      const result = await promise;
 
       expect(result.vectors).toEqual([[0.9, 1.0]]);
       expect(failCompat.embed).toHaveBeenCalledTimes(maxAttempts);
@@ -208,6 +223,8 @@ describe('managers/embedding-manager', () => {
     });
 
     test('throws when all providers fail', async () => {
+      jest.useFakeTimers();
+
       const failCompat = {
         embed: jest.fn().mockRejectedValue(new Error('Failed')),
         getDimensions: jest.fn()
@@ -215,10 +232,16 @@ describe('managers/embedding-manager', () => {
       const registry = createMockRegistry({ compat: failCompat });
       const manager = new EmbeddingManager(registry);
 
-      await expect(manager.embed('test', [{ provider: 'p1' }])).rejects.toThrow(EmbeddingError);
+      const promise = manager.embed('test', [{ provider: 'p1' }]);
+      const expectation = expect(promise).rejects.toThrow(EmbeddingError);
+      await Promise.resolve();
+      await jest.runAllTimersAsync();
+      await expectation;
     });
 
     test('throws with Unknown error when error has no message', async () => {
+      jest.useFakeTimers();
+
       const failCompat = {
         embed: jest.fn().mockRejectedValue({}),
         getDimensions: jest.fn()
@@ -226,10 +249,16 @@ describe('managers/embedding-manager', () => {
       const registry = createMockRegistry({ compat: failCompat });
       const manager = new EmbeddingManager(registry);
 
-      await expect(manager.embed('test', [{ provider: 'p1' }])).rejects.toThrow('Unknown error');
+      const promise = manager.embed('test', [{ provider: 'p1' }]);
+      const expectation = expect(promise).rejects.toThrow('Unknown error');
+      await Promise.resolve();
+      await jest.runAllTimersAsync();
+      await expectation;
     });
 
     test('does not treat non-object failures as abort errors', async () => {
+      jest.useFakeTimers();
+
       const failCompat = {
         embed: jest.fn().mockRejectedValue('plain-failure'),
         getDimensions: jest.fn()
@@ -237,7 +266,11 @@ describe('managers/embedding-manager', () => {
       const registry = createMockRegistry({ compat: failCompat });
       const manager = new EmbeddingManager(registry);
 
-      await expect(manager.embed('test', [{ provider: 'p1' }])).rejects.toThrow('Unknown error');
+      const promise = manager.embed('test', [{ provider: 'p1' }]);
+      const expectation = expect(promise).rejects.toThrow('Unknown error');
+      await Promise.resolve();
+      await jest.runAllTimersAsync();
+      await expectation;
     });
 
     test('throws when priority list is empty', async () => {

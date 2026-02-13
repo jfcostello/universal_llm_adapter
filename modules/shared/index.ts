@@ -15,6 +15,9 @@ export { createDeferred } from './internal/deferred.js';
 
 export { sleep, sleepWithSignal } from './internal/sleep.js';
 
+export type { IsAbortLikeErrorOptions } from './internal/abort.js';
+export { createAbortError, isAbortLikeError } from './internal/abort.js';
+
 export { setUnrefTimeout } from './internal/unref-timeout.js';
 
 export { monotonicNowNs, monotonicElapsedMs } from './internal/monotonic.js';

@@ -7,6 +7,7 @@ import type {
 import type { OtlpSpanSpec } from '../../../../modules/observability/index.js';
 import {
   clampInt,
+  isAbortLikeError,
   parseRetryAfterMs,
   safeJsonStringify,
   setUnrefTimeout,
@@ -32,10 +33,6 @@ const MAX_ERROR_BODY_MAX_BYTES = 64 * 1024;
 
 function isRetryableStatus(status: number): boolean {
   return status >= 500 && status < 600;
-}
-
-function isAbortError(error: unknown): boolean {
-  return !!error && typeof error === 'object' && String((error as any).name) === 'AbortError';
 }
 
 function createAbortOutcome(envelopeId: string): ObservabilityBatchResult['outcomes'][number] {
@@ -289,7 +286,7 @@ export async function sendSentryBatch(
           }
         }
       } catch (error: any) {
-        if (context?.signal?.aborted || isAbortError(error)) {
+        if (context?.signal?.aborted || isAbortLikeError(error)) {
           aborted = true;
           if (!envelopeOutcomes[index]) {
             setOutcome(index, createAbortOutcome(envelope.envelopeId));
