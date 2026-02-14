@@ -9,9 +9,20 @@ Owns vector store orchestration, RAG context injection, and the built-in vector 
 ## Lazy-loading Contract
 - This module must not import embeddings code unless an operation actually requires embeddings.
 - `executeVectorSearch()` and auto-inject flows resolve embedding priority from:
-  1) `VectorContextConfig.embeddingPriority`, else
-  2) the vector store plugin manifest default, else
-  3) an error that tells the user what to configure.
+  1) `vectorContexts[].storePriority[<store>].attempts[].embeddingPriority`, else
+  2) `VectorContextConfig.embeddingPriority`, else
+  3) the vector store plugin manifest default, else
+  4) an error that tells the user what to configure.
+
+## Store Priority Fallback
+- `vectorContexts[].storePriority` defines ordered fallback attempts per logical `stores[]` entry.
+- Each attempt can override:
+  - `store`
+  - `collection`
+  - `embeddingPriority`
+- Default fallback behavior:
+  - Continue only when the current attempt fails or returns an incomplete response.
+  - Do not fallback on empty results unless `fallbackOnEmpty: true` is set for that store chain.
 
 ## Public API
 - `VectorStoreManager` for vector store compat orchestration.

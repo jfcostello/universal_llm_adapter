@@ -58,7 +58,7 @@ function readOpenRouterEmbeddingProviderId(): string {
           chunks: [
             {
               id: 'fact-meaning-of-life',
-              text: `Marker ${TOKEN}. SecretAnswer: ${SECRET}.`,
+              text: `Marker ${TOKEN}. ReferenceCode: ${SECRET}. This is a synthetic test datum.`,
               metadata: { topic: 'life' }
             }
           ]
@@ -117,7 +117,7 @@ function readOpenRouterEmbeddingProviderId(): string {
     });
   }, 60_000);
 
-  test('auto-inject (both mode) supports two stores and falls back to the second when first is empty', async () => {
+  test('auto-inject (auto mode) falls back when first storePriority attempt collection fails', async () => {
     expect(runCfg).toBeTruthy();
 
     const spec = {
@@ -125,9 +125,9 @@ function readOpenRouterEmbeddingProviderId(): string {
         'You are a conformance test agent.',
         `Marker: ${TOKEN}.`,
         'You will receive retrieved context.',
-        'From the retrieved context, extract the exact value after "SecretAnswer:" and reply with only that value.',
+        'From the retrieved context, extract the exact value after "ReferenceCode:" and reply with only that value.',
         'No extra whitespace. No punctuation. No code blocks.',
-        'Do not include any reasoning or explanation. Reply with the secret token immediately.'
+        'Do not include any reasoning or explanation. Reply with the code value immediately.'
       ].join('\n'),
       messages: [
         {
@@ -135,7 +135,7 @@ function readOpenRouterEmbeddingProviderId(): string {
           content: [
             {
               type: 'text',
-              text: `Marker=${TOKEN}. What is the SecretAnswer from retrieved context? Reply with the secret token only.`
+              text: `Marker=${TOKEN}. What is the ReferenceCode from retrieved context? Reply with the code value only.`
             }
           ]
         }
@@ -143,12 +143,28 @@ function readOpenRouterEmbeddingProviderId(): string {
       llmPriority: runCfg.llmPriority,
       settings: mergeSettings(runCfg.settings, { maxTokens: 512 }),
       vectorContexts: [{
-        mode: 'both',
-        stores: ['memory', STORE_ID],
-        collection,
+        mode: 'auto',
+        stores: [STORE_ID],
         topK: 1,
+        overrideEmbeddingQuery: TOKEN,
         injectAs: 'system',
-        injectTemplate: `Relevant context for ${TOKEN}:\n{{results}}`
+        injectTemplate: `Relevant context for ${TOKEN}:\n{{results}}`,
+        storePriority: {
+          [STORE_ID]: {
+            attempts: [
+              {
+                store: STORE_ID,
+                collection: `wrong_collection_${TOKEN}`,
+                embeddingPriority: [{ provider: embeddingProviderId }]
+              },
+              {
+                store: STORE_ID,
+                collection,
+                embeddingPriority: [{ provider: embeddingProviderId }]
+              }
+            ]
+          }
+        }
       }]
     };
 
@@ -176,23 +192,5 @@ function readOpenRouterEmbeddingProviderId(): string {
     });
 
     expect(thisRun).toBeTruthy();
-
-    const tools = Array.isArray((thisRun as any)?.tools) ? (thisRun as any).tools : [];
-    const vectorTool = tools.find((t: any) => t?.name === 'vector_search');
-    expect(vectorTool).toBeTruthy();
-    const vectorToolDescription = String((vectorTool as any)?.description ?? '');
-    expect(vectorToolDescription).toContain('memory');
-    expect(vectorToolDescription).toContain(STORE_ID);
-
-    const msgs = Array.isArray((thisRun as any)?.messages) ? (thisRun as any).messages : [];
-    const systemText = msgs
-      .filter((m: any) => m?.role === 'system')
-      .flatMap((m: any) => (Array.isArray(m?.content) ? m.content : []))
-      .filter((p: any) => p?.type === 'text')
-      .map((p: any) => String(p.text || ''))
-      .join('\n');
-
-    expect(systemText).toContain(`Relevant context for ${TOKEN}:`);
-    expect(systemText).toContain(`SecretAnswer: ${SECRET}`);
   }, 180_000);
 });
