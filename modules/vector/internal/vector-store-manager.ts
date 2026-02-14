@@ -8,6 +8,7 @@ import {
   IVectorOperationLogger
 } from '../../../kernel/index.js';
 import { VectorStoreError } from '../../../kernel/index.js';
+import { isCompleteVectorQueryResponse } from './store-priority/index.js';
 
 /**
  * Legacy adapter interface for backward compatibility.
@@ -20,6 +21,10 @@ export interface VectorStoreAdapter {
 }
 
 export type EmbedderFn = (text: string | string[]) => Promise<number[] | number[][]>;
+
+export interface VectorStorePriorityQueryOptions {
+  fallbackOnEmpty?: boolean;
+}
 
 /**
  * Wraps an IVectorStoreCompat to provide the simpler VectorStoreAdapter interface.
@@ -80,22 +85,66 @@ export class VectorStoreManager {
     priority: string[],
     query: string,
     topK = 5,
-    filter?: JsonObject
+    filter?: JsonObject,
+    options: VectorStorePriorityQueryOptions = {}
   ): Promise<{ store: string | null; results: any[] }> {
     if (!priority || priority.length === 0) {
       return { store: null, results: [] };
     }
 
     const vector = await this.embed(query);
+    const fallbackOnEmpty = options.fallbackOnEmpty === true;
+    let lastCompleteStore: string | null = null;
+    let lastCompleteResults: any[] = [];
+    let lastQueryFailure: unknown = null;
+    const throwLastQueryFailure = (): never => {
+      if (lastQueryFailure instanceof Error) {
+        throw lastQueryFailure;
+      }
+      throw new VectorStoreError(
+        `Vector query failed: ${String(lastQueryFailure)}`,
+        priority[priority.length - 1],
+        'query'
+      );
+    };
 
     for (const storeId of priority) {
       const adapter = await this.getAdapter(storeId);
       if (!adapter) continue;
 
-      const results = await adapter.query(vector, topK, filter);
-      if (results && results.length > 0) {
-        return { store: storeId, results };
+      try {
+        const rawResults = await adapter.query(vector, topK, filter);
+        if (!isCompleteVectorQueryResponse(rawResults)) {
+          lastQueryFailure = new VectorStoreError(
+            `Vector query for store '${storeId}' returned an incomplete response`,
+            storeId,
+            'query'
+          );
+          continue;
+        }
+
+        const results = rawResults as any[];
+        lastCompleteStore = storeId;
+        lastCompleteResults = results;
+
+        if (results.length > 0 || !fallbackOnEmpty) {
+          return { store: storeId, results };
+        }
+      } catch (error) {
+        lastQueryFailure = error;
+        continue;
       }
+    }
+
+    if (lastCompleteStore) {
+      if (fallbackOnEmpty && lastCompleteResults.length === 0 && lastQueryFailure) {
+        throwLastQueryFailure();
+      }
+      return { store: lastCompleteStore, results: lastCompleteResults };
+    }
+
+    if (lastQueryFailure) {
+      throwLastQueryFailure();
     }
 
     return { store: priority[priority.length - 1], results: [] };

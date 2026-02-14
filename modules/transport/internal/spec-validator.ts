@@ -1,12 +1,9 @@
 import AjvImport from 'ajv';
-
 export function resolveAjvConstructor(mod: any) {
   return mod?.default ?? mod;
 }
-
 const Ajv = resolveAjvConstructor(AjvImport as any);
 const ajv = new Ajv({ allErrors: true, strict: false });
-
 const contentPartSchema: any = {
   anyOf: [
     {
@@ -151,7 +148,45 @@ const llmSpecSchema: any = {
         required: ['stores', 'mode'],
         properties: {
           stores: { type: 'array', minItems: 1, items: { type: 'string' } },
-          mode: { type: 'string', enum: ['tool', 'auto', 'both'] }
+          mode: { type: 'string', enum: ['tool', 'auto', 'both'] },
+          storePriority: {
+            type: 'object',
+            nullable: true,
+            additionalProperties: {
+              type: 'object',
+              required: ['attempts'],
+              properties: {
+                fallbackOnEmpty: { type: 'boolean', nullable: true },
+                attempts: {
+                  type: 'array',
+                  minItems: 1,
+                  items: {
+                    type: 'object',
+                    required: ['store'],
+                    properties: {
+                      store: { type: 'string' },
+                      collection: { type: 'string', nullable: true },
+                      embeddingPriority: {
+                        type: 'array',
+                        nullable: true,
+                        items: {
+                          type: 'object',
+                          required: ['provider'],
+                          properties: {
+                            provider: { type: 'string' },
+                            model: { type: 'string', nullable: true }
+                          },
+                          additionalProperties: true
+                        }
+                      }
+                    },
+                    additionalProperties: true
+                  }
+                }
+              },
+              additionalProperties: true
+            }
+          }
         },
         additionalProperties: true
       }
@@ -180,9 +215,7 @@ const llmSpecSchema: any = {
   },
   additionalProperties: true
 };
-
 const validateLlm = ajv.compile(llmSpecSchema);
-
 const vectorSpecSchema: any = {
   type: 'object',
   required: ['operation', 'store'],
@@ -209,9 +242,7 @@ const vectorSpecSchema: any = {
   },
   additionalProperties: true
 };
-
 const validateVector = ajv.compile(vectorSpecSchema);
-
 const embeddingSpecSchema: any = {
   type: 'object',
   required: ['operation'],
@@ -237,9 +268,7 @@ const embeddingSpecSchema: any = {
   },
   additionalProperties: true
 };
-
 const validateEmbedding = ajv.compile(embeddingSpecSchema);
-
 const telemetrySignalSchema: any = {
   type: 'object',
   required: ['type', 'traceId', 'level', 'message'],
@@ -259,7 +288,6 @@ const telemetrySignalSchema: any = {
   },
   additionalProperties: true
 };
-
 const telemetryTraceUpdateSchema: any = {
   type: 'object',
   required: ['type', 'traceId'],
@@ -275,13 +303,8 @@ const telemetryTraceUpdateSchema: any = {
   },
   additionalProperties: true
 };
-
-const telemetrySubmissionSchema: any = {
-  anyOf: [telemetrySignalSchema, telemetryTraceUpdateSchema]
-};
-
+const telemetrySubmissionSchema: any = { anyOf: [telemetrySignalSchema, telemetryTraceUpdateSchema] };
 const validateTelemetrySubmission = ajv.compile(telemetrySubmissionSchema);
-
 function normalizeObservabilityOverrideAllowlist(value: unknown): Set<string> | undefined {
   if (!Array.isArray(value)) return undefined;
   const normalized = value
@@ -289,7 +312,6 @@ function normalizeObservabilityOverrideAllowlist(value: unknown): Set<string> | 
     .filter(Boolean);
   return new Set(normalized);
 }
-
 function createTelemetryValidationError(details: unknown): Error {
   const error = new Error('Telemetry validation failed');
   (error as any).statusCode = 400;
@@ -297,14 +319,11 @@ function createTelemetryValidationError(details: unknown): Error {
   (error as any).details = details;
   return error;
 }
-
 function assertTelemetryObservabilityOverridesAllowed(payload: unknown, allowlist: Set<string>): void {
   const observability = (payload as any)?.observability;
   if (!observability || typeof observability !== 'object' || Array.isArray(observability)) return;
-
   const disallowedKeys = Object.keys(observability).filter(key => !allowlist.has(key));
   if (disallowedKeys.length === 0) return;
-
   throw createTelemetryValidationError(
     disallowedKeys.map(key => ({
       path: `.observability.${key}`,
@@ -312,7 +331,6 @@ function assertTelemetryObservabilityOverridesAllowed(payload: unknown, allowlis
     }))
   );
 }
-
 export function assertValidSpec(spec: unknown): void {
   if (spec && typeof spec === 'object' && (spec as any).vectorContext !== undefined) {
     const error = new Error(
@@ -329,39 +347,32 @@ export function assertValidSpec(spec: unknown): void {
     ];
     throw error;
   }
-
   const ok = validateLlm(spec);
   if (ok) return;
-
   const error = new Error('Spec validation failed');
   (error as any).statusCode = 400;
   (error as any).code = 'validation_error';
   (error as any).details = validateLlm.errors;
   throw error;
 }
-
 export function assertValidVectorSpec(spec: unknown): void {
   const ok = validateVector(spec);
   if (ok) return;
-
   const error = new Error('Spec validation failed');
   (error as any).statusCode = 400;
   (error as any).code = 'validation_error';
   (error as any).details = validateVector.errors;
   throw error;
 }
-
 export function assertValidEmbeddingSpec(spec: unknown): void {
   const ok = validateEmbedding(spec);
   if (ok) return;
-
   const error = new Error('Spec validation failed');
   (error as any).statusCode = 400;
   (error as any).code = 'validation_error';
   (error as any).details = validateEmbedding.errors;
   throw error;
 }
-
 export function assertValidTelemetrySubmission(
   payload: unknown,
   options: { observabilityOverrideAllowlist?: string[] } = {}
@@ -370,7 +381,6 @@ export function assertValidTelemetrySubmission(
   if (!ok) {
     throw createTelemetryValidationError(validateTelemetrySubmission.errors);
   }
-
   const allowlist = normalizeObservabilityOverrideAllowlist(options.observabilityOverrideAllowlist);
   if (allowlist) {
     assertTelemetryObservabilityOverridesAllowed(payload, allowlist);

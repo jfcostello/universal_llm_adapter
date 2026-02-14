@@ -69,6 +69,43 @@ export interface ToolSchemaOverrides {
 }
 
 /**
+ * Single vector query fallback attempt.
+ * Each attempt can target a different store, collection, and embedding model priority.
+ */
+export interface VectorStorePriorityAttempt {
+  /**
+   * Store ID to query for this attempt.
+   */
+  store: string;
+
+  /**
+   * Optional collection override for this attempt.
+   */
+  collection?: string;
+
+  /**
+   * Optional embedding priority override for this attempt.
+   */
+  embeddingPriority?: EmbeddingPriorityItem[];
+}
+
+/**
+ * Priority/fallback configuration for one logical store key in `stores`.
+ */
+export interface VectorStorePriorityConfig {
+  /**
+   * Continue to the next attempt when a query succeeds but returns no results.
+   * Default: false.
+   */
+  fallbackOnEmpty?: boolean;
+
+  /**
+   * Ordered attempts to run for this logical store.
+   */
+  attempts: VectorStorePriorityAttempt[];
+}
+
+/**
  * Configuration for vector-based context retrieval and injection.
  * Used in LLMCallSpec to enable RAG capabilities.
  */
@@ -107,6 +144,13 @@ export interface VectorContextConfig {
    * Metadata filters to apply to the query.
    */
   filter?: JsonObject;
+
+  /**
+   * Optional fallback chain configuration for each logical store in `stores`.
+   * Keys are logical store IDs from `stores`.
+   * Each key maps to ordered attempts that can override store/collection/embedding priority.
+   */
+  storePriority?: Record<string, VectorStorePriorityConfig>;
 
   /**
    * Which embedding provider(s) to use for query embedding.

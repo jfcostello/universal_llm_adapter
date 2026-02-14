@@ -4,17 +4,17 @@ import { EmbeddingManager } from '@/modules/embeddings/index.ts';
 import MemoryCompat from '@/plugins/vector-compat/memory/index.ts';
 import type { IVectorStoreCompat, VectorStoreConfig, EmbeddingPriorityItem } from '@/kernel/index.ts';
 
+function createAdapter(results: any[]) {
+  return {
+    query: jest.fn().mockResolvedValue(results),
+    upsert: jest.fn().mockResolvedValue(undefined),
+    deleteByIds: jest.fn().mockResolvedValue(undefined)
+  };
+}
+
 describe('integration/vector/vector-store-manager', () => {
   describe('basic adapter interface', () => {
-    function createAdapter(results: any[]) {
-      return {
-        query: jest.fn().mockResolvedValue(results),
-        upsert: jest.fn().mockResolvedValue(undefined),
-        deleteByIds: jest.fn().mockResolvedValue(undefined)
-      };
-    }
-
-    test('queryWithPriority resolves using first adapter that returns results', async () => {
+    test('queryWithPriority stops on first successful store by default', async () => {
       const adapters = new Map<string, any>([
         ['store-a', createAdapter([])],
         ['store-b', createAdapter([{ id: 'match' }])]
@@ -24,10 +24,10 @@ describe('integration/vector/vector-store-manager', () => {
 
       const result = await manager.queryWithPriority(['store-a', 'store-b'], 'query', 5);
 
-      expect(result.store).toBe('store-b');
-      expect(result.results).toHaveLength(1);
+      expect(result.store).toBe('store-a');
+      expect(result.results).toHaveLength(0);
       expect(adapters.get('store-a')!.query).toHaveBeenCalled();
-      expect(adapters.get('store-b')!.query).toHaveBeenCalled();
+      expect(adapters.get('store-b')!.query).not.toHaveBeenCalled();
     });
 
     test('upsert and delete delegate to registered adapter', async () => {
@@ -142,7 +142,7 @@ describe('integration/vector/vector-store-manager', () => {
       expect(ids).not.toContain('doc1');
     });
 
-    test('priority fallback with multiple stores', async () => {
+    test('queryWithPriority can fall through empty results when fallbackOnEmpty override is enabled', async () => {
       // Create a second memory compat that returns empty results
       const emptyCompat = new MemoryCompat();
       await emptyCompat.connect({ id: 'empty', kind: 'memory', connection: {} });
@@ -177,7 +177,9 @@ describe('integration/vector/vector-store-manager', () => {
       const { store, results } = await multiManager.queryWithPriority(
         ['empty-store', 'test-memory'],
         'find me',
-        5
+        5,
+        undefined,
+        { fallbackOnEmpty: true }
       );
 
       expect(store).toBe('test-memory');
@@ -185,6 +187,75 @@ describe('integration/vector/vector-store-manager', () => {
 
       await multiManager.closeAll();
       await emptyCompat.close();
+    });
+
+    test('queryWithPriority falls back on API failure even when fallbackOnEmpty is false', async () => {
+      const failingAdapter = {
+        query: jest.fn().mockRejectedValue(new Error('store unavailable')),
+        upsert: jest.fn(),
+        deleteByIds: jest.fn()
+      };
+      const adapters = new Map<string, any>([
+        ['store-a', failingAdapter],
+        ['store-b', createAdapter([{ id: 'match' }])]
+      ]);
+
+      const manager = new VectorStoreManager(new Map(), adapters, async () => [0.1, 0.2]);
+
+      const result = await manager.queryWithPriority(['store-a', 'store-b'], 'query', 5);
+
+      expect(result.store).toBe('store-b');
+      expect(result.results).toHaveLength(1);
+      expect(failingAdapter.query).toHaveBeenCalled();
+      expect(adapters.get('store-b')!.query).toHaveBeenCalled();
+    });
+
+    test('queryWithPriority throws when fallbackOnEmpty chain has only empty and failed attempts', async () => {
+      const adapters = new Map<string, any>([
+        ['store-a', createAdapter([])],
+        [
+          'store-b',
+          {
+            query: jest.fn().mockRejectedValue(new Error('store-b down')),
+            upsert: jest.fn(),
+            deleteByIds: jest.fn()
+          }
+        ]
+      ]);
+
+      const manager = new VectorStoreManager(new Map(), adapters, async () => [0.1, 0.2]);
+
+      await expect(
+        manager.queryWithPriority(['store-a', 'store-b'], 'query', 5, undefined, { fallbackOnEmpty: true })
+      ).rejects.toThrow('store-b down');
+      expect(adapters.get('store-a')!.query).toHaveBeenCalled();
+      expect(adapters.get('store-b')!.query).toHaveBeenCalled();
+    });
+
+    test('queryWithPriority throws when all queried stores fail', async () => {
+      const adapters = new Map<string, any>([
+        [
+          'store-a',
+          {
+            query: jest.fn().mockRejectedValue(new Error('store-a down')),
+            upsert: jest.fn(),
+            deleteByIds: jest.fn()
+          }
+        ],
+        [
+          'store-b',
+          {
+            query: jest.fn().mockRejectedValue(new Error('store-b down')),
+            upsert: jest.fn(),
+            deleteByIds: jest.fn()
+          }
+        ]
+      ]);
+
+      const manager = new VectorStoreManager(new Map(), adapters, async () => [0.1, 0.2]);
+      await expect(manager.queryWithPriority(['store-a', 'store-b'], 'query', 5)).rejects.toThrow('store-b down');
+      expect(adapters.get('store-a')!.query).toHaveBeenCalled();
+      expect(adapters.get('store-b')!.query).toHaveBeenCalled();
     });
 
     test('getCompat returns underlying compat for advanced operations', async () => {

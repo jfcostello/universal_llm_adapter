@@ -12,7 +12,9 @@ import type {
 
 import type {
   VectorSearchLocks,
-  VectorContextConfig
+  VectorContextConfig,
+  VectorStorePriorityConfig,
+  VectorStorePriorityAttempt
 } from '@/kernel/index.ts';
 
 describe('core/vector-spec-types', () => {
@@ -480,6 +482,68 @@ describe('core/vector-spec-types', () => {
       expect(config.topK).toBe(10);
       expect(config.locks?.store).toBe('docs');
       expect(config.locks?.scoreThreshold).toBe(0.8);
+    });
+  });
+
+  describe('VectorContextConfig storePriority', () => {
+    test('accepts per-store priority config with attempts', () => {
+      const attemptA: VectorStorePriorityAttempt = {
+        store: 'docs-primary',
+        collection: 'docs-v1',
+        embeddingPriority: [{ provider: 'openrouter-embeddings', model: 'model-a' }]
+      };
+      const attemptB: VectorStorePriorityAttempt = {
+        store: 'docs-secondary',
+        collection: 'docs-v2',
+        embeddingPriority: [{ provider: 'openrouter-embeddings', model: 'model-b' }]
+      };
+      const storeConfig: VectorStorePriorityConfig = {
+        attempts: [attemptA, attemptB]
+      };
+
+      const config: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'auto',
+        storePriority: {
+          docs: storeConfig
+        }
+      };
+
+      expect(config.storePriority?.docs.attempts).toHaveLength(2);
+      expect(config.storePriority?.docs.attempts[0].store).toBe('docs-primary');
+    });
+
+    test('fallbackOnEmpty is optional and defaults to undefined', () => {
+      const config: VectorContextConfig = {
+        stores: ['docs'],
+        mode: 'tool',
+        storePriority: {
+          docs: {
+            attempts: [{ store: 'docs-primary' }]
+          }
+        }
+      };
+
+      expect(config.storePriority?.docs.fallbackOnEmpty).toBeUndefined();
+    });
+
+    test('supports per-store fallbackOnEmpty override', () => {
+      const config: VectorContextConfig = {
+        stores: ['docs', 'faq'],
+        mode: 'both',
+        storePriority: {
+          docs: {
+            fallbackOnEmpty: true,
+            attempts: [{ store: 'docs-primary' }, { store: 'docs-secondary' }]
+          },
+          faq: {
+            attempts: [{ store: 'faq-primary' }]
+          }
+        }
+      };
+
+      expect(config.storePriority?.docs.fallbackOnEmpty).toBe(true);
+      expect(config.storePriority?.faq.fallbackOnEmpty).toBeUndefined();
     });
   });
 });

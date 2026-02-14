@@ -620,7 +620,23 @@ curl http://127.0.0.1:3000/embeddings/run \
     "stores": ["memory"],
     "mode": "auto",
     "topK": 5,
-    "embeddingPriority": [{"provider": "example-embeddings"}]
+    "embeddingPriority": [{"provider": "example-embeddings"}],
+    "storePriority": {
+      "memory": {
+        "fallbackOnEmpty": false,
+        "attempts": [
+          {
+            "store": "memory-primary",
+            "collection": "docs-v2",
+            "embeddingPriority": [{"provider": "example-embeddings"}]
+          },
+          {
+            "store": "memory",
+            "collection": "docs-v1"
+          }
+        ]
+      }
+    }
   }],
   "vectorRequestPolicy": {
     "maxAutoContexts": 3,
@@ -1063,11 +1079,25 @@ curl http://127.0.0.1:3000/run \
       "mode": "auto",
       "topK": 5,
       "embeddingPriority": [{"provider": "example-embeddings"}],
+      "storePriority": {
+        "memory": {
+          "attempts": [
+            {"store": "memory-primary", "collection": "ml-docs-v2"},
+            {"store": "memory", "collection": "ml-docs-v1"}
+          ]
+        }
+      },
       "injectAs": "system",
       "injectTemplate": "Use this context:\n{{results}}"
     }]
   }'
 ```
+
+`storePriority` semantics:
+- Keys map to logical store IDs listed in `vectorContexts[].stores`.
+- `attempts` runs in order and can override `store`, `collection`, and `embeddingPriority`.
+- Fallback continues only on query failure or incomplete response by default.
+- Empty successful results stop fallback unless `fallbackOnEmpty: true`.
 
 ### Batch Embedding
 

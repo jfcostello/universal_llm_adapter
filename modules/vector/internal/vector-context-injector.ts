@@ -7,10 +7,11 @@ import type {
   PluginRegistry
 } from '../../../kernel/index.js';
 import { interpolate } from '../../string/index.js';
-import { createAbortError, truncateUtf8Bytes } from '../../shared/index.js';
+import { createAbortError, isAbortLikeError, truncateUtf8Bytes } from '../../shared/index.js';
 import type { EmbeddingManager } from '../../embeddings/index.js';
 import { VectorStoreManager } from './vector-store-manager.js';
 import { resolveEmbeddingPriority } from './embedding-priority.js';
+import { isCompleteVectorQueryResponse, resolveStorePriorityChain } from './store-priority/index.js';
 
 export interface VectorContextInjectorOptions {
   registry: PluginRegistry;
@@ -84,70 +85,95 @@ export class VectorContextInjector {
         retrievedResults: []
       };
     }
-
     try {
       throwIfAborted(options.abortSignal);
       await this.ensureManagers();
       throwIfAborted(options.abortSignal);
+      let results: any[] = [];
+      let pendingConfigError: any = null;
+      let hadCompleteResponse = false;
+      const embeddingCache = options.embeddingCache ?? new Map<string, number[]>();
+      storeLoop:
+      for (const logicalStoreId of config.stores) {
+        const storeChain = resolveStorePriorityChain(config, logicalStoreId);
+        for (const attempt of storeChain.attempts) {
+          const attemptStoreId = attempt.store;
+          try {
+            throwIfAborted(options.abortSignal);
+            const embeddingPriority = await resolveEmbeddingPriority(
+              {
+                explicit: attempt.embeddingPriority ?? config.embeddingPriority,
+                storeIds: [attemptStoreId]
+              },
+              this.registry
+            );
+            throwIfAborted(options.abortSignal);
 
-      const embeddingPriority = await resolveEmbeddingPriority(
-        { explicit: config.embeddingPriority, storeIds: config.stores },
-        this.registry
-      );
-      throwIfAborted(options.abortSignal);
+            const embeddingCacheKey = this.buildEmbeddingCacheKey(query, embeddingPriority);
+            let queryVector = embeddingCache.get(embeddingCacheKey);
+            if (!queryVector) {
+              const embeddingResult = await this.embeddingManager!.embed(query, embeddingPriority, {
+                signal: options.abortSignal
+              });
+              queryVector = embeddingResult.vectors[0];
+              embeddingCache.set(embeddingCacheKey, queryVector);
+            }
+            await this.ensureStoreInitialized(attemptStoreId);
+            throwIfAborted(options.abortSignal);
+            const compat = (await this.vectorManager!.getCompat(attemptStoreId))!;
+            const storeConfig = await this.registry.getVectorStore(attemptStoreId);
+            const collection = attempt.collection ?? config.collection ?? storeConfig.defaultCollection ?? 'default';
+            const rawStoreResults = await compat.query(
+              collection,
+              queryVector,
+              config.topK ?? getVectorDefaults().topK,
+              {
+                filter: config.filter,
+                includePayload: true,
+                signal: options.abortSignal,
+                timeoutMs: options.queryTimeoutMs
+              }
+            );
+            throwIfAborted(options.abortSignal);
+            if (!isCompleteVectorQueryResponse(rawStoreResults)) {
+              this.logger.warning('Vector store query returned incomplete response', {
+                storeId: attemptStoreId
+              });
+              continue;
+            }
 
-      const embeddingCacheKey = this.buildEmbeddingCacheKey(query, embeddingPriority);
-      let queryVector = options.embeddingCache?.get(embeddingCacheKey);
-      if (!queryVector) {
-        const embeddingResult = await this.embeddingManager!.embed(query, embeddingPriority, {
-          signal: options.abortSignal
-        });
-        queryVector = embeddingResult.vectors[0];
-        options.embeddingCache?.set(embeddingCacheKey, queryVector);
+            const storeResults = rawStoreResults as any[];
+            const thresholdedStoreResults = config.scoreThreshold !== undefined
+              ? storeResults.filter(r => r.score >= config.scoreThreshold!)
+              : storeResults;
+            hadCompleteResponse = true;
+            results = thresholdedStoreResults;
+            if (thresholdedStoreResults.length > 0 || !storeChain.fallbackOnEmpty) {
+              break storeLoop;
+            }
+          } catch (error: any) {
+            if (isAbortLikeError(error)) {
+              throw error;
+            }
+            if (String(error?.code ?? '') === 'config_error' && !pendingConfigError) {
+              pendingConfigError = error;
+            }
+            this.logger.warning('Vector store query failed', {
+              storeId: attemptStoreId,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
+        }
       }
 
-      let results: any[] = [];
-      for (const storeId of config.stores) {
-        throwIfAborted(options.abortSignal);
-        try {
-          await this.ensureStoreInitialized(storeId);
-          throwIfAborted(options.abortSignal);
-
-          const compat = (await this.vectorManager!.getCompat(storeId))!;
-
-          const storeConfig = await this.registry.getVectorStore(storeId);
-          const collection = config.collection ?? storeConfig.defaultCollection ?? 'default';
-
-          const storeResults = await compat.query(
-            collection,
-            queryVector,
-            config.topK ?? getVectorDefaults().topK,
-            {
-              filter: config.filter,
-              includePayload: true,
-              signal: options.abortSignal,
-              timeoutMs: options.queryTimeoutMs
-            }
-          );
-          throwIfAborted(options.abortSignal);
-
-          results = [...results, ...storeResults];
-
-          if (results.length > 0) break;
-        } catch (error) {
-          this.logger.warning('Vector store query failed', {
-            storeId,
-            error: error instanceof Error ? error.message : String(error)
-          });
-        }
+      if (!hadCompleteResponse && pendingConfigError) {
+        throw pendingConfigError;
       }
 
       if (config.scoreThreshold !== undefined) {
         results = results.filter(r => r.score >= config.scoreThreshold!);
       }
-
       results = results.slice(0, config.topK ?? getVectorDefaults().topK);
-
       if (results.length === 0) {
         return {
           messages,
@@ -156,18 +182,14 @@ export class VectorContextInjector {
           retrievedResults: []
         };
       }
-
       const formattedContext = this.formatResults(results, config);
-
       const contextToInject = this.applyTemplate(formattedContext, config, options.maxInjectedPayloadBytes);
-
       const modifiedMessages = this.injectIntoMessages(
         messages,
         contextToInject,
         config.injectAs ?? 'system',
         systemPrompt
       );
-
       return {
         messages: modifiedMessages,
         resultsInjected: results.length,
@@ -176,13 +198,10 @@ export class VectorContextInjector {
       };
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error);
-
       this.logger.warning('Vector context injection failed', { error: message });
-
       if (String(error?.code ?? '') === 'config_error') {
         throw error;
       }
-
       return {
         messages,
         resultsInjected: 0,
@@ -344,7 +363,6 @@ export class VectorContextInjector {
       if (lastUserIndex >= 0) {
         result.splice(lastUserIndex, 0, contextMessage);
       } else {
-        // No user messages exist; append deterministically instead of splice(-1, ...).
         result.push(contextMessage);
       }
     }

@@ -419,6 +419,13 @@ describe('utils/tools/tool-discovery', () => {
       vectorManager: vectorManager as any
     });
 
+    expect(vectorManager.queryWithPriority).toHaveBeenCalledWith(
+      ['memory'],
+      'Find a summarizer tool',
+      5,
+      undefined,
+      { fallbackOnEmpty: true }
+    );
     expect(result.tools.map(tool => tool.name)).toEqual(['memory_summarize']);
     expect(result.toolNameMap.memory_summarize).toBe('memory.summarize');
   });

@@ -358,6 +358,54 @@ describe('utils/vector/vector-context-injector', () => {
       expect(result.retrievedResults).toEqual([]);
     });
 
+    test('degrades gracefully when storePriority resolution throws a non-config Error', async () => {
+      const registry = createMockRegistry();
+      const injector = new VectorContextInjector({ registry });
+      const messages = createMessages(['Query']);
+
+      const config: any = {
+        stores: ['test-store'],
+        mode: 'auto',
+        embeddingPriority: [{ provider: 'test-embeddings' }]
+      };
+      Object.defineProperty(config, 'storePriority', {
+        get() {
+          throw new Error('storePriority exploded');
+        }
+      });
+
+      const result = await injector.injectContext(messages, config);
+
+      expect(result.messages).toEqual(messages);
+      expect(result.resultsInjected).toBe(0);
+      expect(result.query).toBe('Query');
+      expect(result.retrievedResults).toEqual([]);
+    });
+
+    test('degrades gracefully when storePriority resolution throws a non-Error value', async () => {
+      const registry = createMockRegistry();
+      const injector = new VectorContextInjector({ registry });
+      const messages = createMessages(['Query']);
+
+      const config: any = {
+        stores: ['test-store'],
+        mode: 'auto',
+        embeddingPriority: [{ provider: 'test-embeddings' }]
+      };
+      Object.defineProperty(config, 'storePriority', {
+        get() {
+          throw 'boom';
+        }
+      });
+
+      const result = await injector.injectContext(messages, config);
+
+      expect(result.messages).toEqual(messages);
+      expect(result.resultsInjected).toBe(0);
+      expect(result.query).toBe('Query');
+      expect(result.retrievedResults).toEqual([]);
+    });
+
     test('uses custom result format', async () => {
       const vectorCompat = {
         connect: jest.fn(),
@@ -447,7 +495,7 @@ describe('utils/vector/vector-context-injector', () => {
       );
     });
 
-    test('queries multiple stores in priority order', async () => {
+    test('does not fall back on empty successful query by default', async () => {
       const vectorCompat1 = {
         connect: jest.fn(),
         close: jest.fn(),
@@ -480,7 +528,345 @@ describe('utils/vector/vector-context-injector', () => {
 
       const result = await injector.injectContext(messages, config);
 
+      expect(result.resultsInjected).toBe(0);
+      expect(vectorCompat1.query).toHaveBeenCalled();
+      expect(vectorCompat2.query).not.toHaveBeenCalled();
+    });
+
+    test('falls back to next attempt on API failure via storePriority', async () => {
+      const vectorCompat1 = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockRejectedValue(new Error('store unavailable'))
+      };
+      const vectorCompat2 = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([
+          { id: 'doc1', score: 0.9, payload: { text: 'From fallback attempt' } }
+        ])
+      };
+
+      const registry = {
+        ...createMockRegistry(),
+        getVectorStore: jest.fn().mockImplementation(async (id: string) => ({
+          id,
+          kind: 'memory',
+          defaultCollection: id === 'store2' ? 'collection-b' : 'collection-a',
+          defaultEmbeddingPriority: [{ provider: 'test-embeddings' }]
+        })),
+        getVectorStoreCompat: jest.fn().mockImplementation(async (kind: string) => {
+          if (kind === 'store1') return vectorCompat1;
+          return vectorCompat2;
+        }),
+        getVectorStoreCompatForStore: jest.fn().mockImplementation(async (id: string) => {
+          if (id === 'store1') return vectorCompat1;
+          return vectorCompat2;
+        })
+      } as any;
+
+      const injector = new VectorContextInjector({ registry });
+      const messages = createMessages(['Query']);
+
+      const config: VectorContextConfig = {
+        stores: ['primary'],
+        mode: 'auto',
+        storePriority: {
+          primary: {
+            attempts: [
+              { store: 'store1', collection: 'collection-a' },
+              { store: 'store2', collection: 'collection-b' }
+            ]
+          }
+        }
+      };
+
+      const result = await injector.injectContext(messages, config);
+
       expect(result.resultsInjected).toBe(1);
+      expect(vectorCompat1.query).toHaveBeenCalled();
+      expect(vectorCompat2.query).toHaveBeenCalled();
+    });
+
+    test('reuses embedding across fallback attempts when no external embeddingCache is provided', async () => {
+      const embeddingCompat = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.1, 0.2, 0.3]],
+          model: 'shared-model',
+          dimensions: 3
+        }),
+        getDimensions: jest.fn()
+      };
+      const vectorCompat1 = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockRejectedValue(new Error('store unavailable'))
+      };
+      const vectorCompat2 = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([
+          { id: 'doc1', score: 0.9, payload: { text: 'From fallback attempt' } }
+        ])
+      };
+
+      const registry = {
+        ...createMockRegistry({ embeddingCompat }),
+        getVectorStore: jest.fn().mockImplementation(async (id: string) => ({
+          id,
+          kind: 'memory',
+          defaultCollection: id === 'store2' ? 'collection-b' : 'collection-a',
+          defaultEmbeddingPriority: [{ provider: 'test-embeddings', model: 'shared-model' }]
+        })),
+        getVectorStoreCompat: jest.fn().mockImplementation(async (kind: string) => {
+          if (kind === 'store1') return vectorCompat1;
+          return vectorCompat2;
+        }),
+        getVectorStoreCompatForStore: jest.fn().mockImplementation(async (id: string) => {
+          if (id === 'store1') return vectorCompat1;
+          return vectorCompat2;
+        })
+      } as any;
+
+      const injector = new VectorContextInjector({ registry });
+      const messages = createMessages(['Query']);
+
+      const config: VectorContextConfig = {
+        stores: ['primary'],
+        mode: 'auto',
+        storePriority: {
+          primary: {
+            attempts: [
+              { store: 'store1', collection: 'collection-a' },
+              { store: 'store2', collection: 'collection-b' }
+            ]
+          }
+        }
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      expect(result.resultsInjected).toBe(1);
+      expect(embeddingCompat.embed).toHaveBeenCalledTimes(1);
+      expect(vectorCompat1.query).toHaveBeenCalled();
+      expect(vectorCompat2.query).toHaveBeenCalled();
+    });
+
+    test('falls back to next attempt when first attempt resolves embedding priority as config_error', async () => {
+      const vectorCompat1 = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([
+          { id: 'doc-config-error', score: 0.5, payload: { text: 'Should not be used' } }
+        ])
+      };
+      const vectorCompat2 = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([
+          { id: 'doc-success', score: 0.95, payload: { text: 'From fallback after config error' } }
+        ])
+      };
+
+      const registry = {
+        ...createMockRegistry(),
+        getVectorStore: jest.fn().mockImplementation(async (id: string) => ({
+          id,
+          kind: 'memory',
+          defaultCollection: id === 'store2' ? 'collection-b' : 'collection-a',
+          defaultEmbeddingPriority: id === 'store2' ? [{ provider: 'test-embeddings' }] : undefined
+        })),
+        getVectorStoreCompat: jest.fn().mockImplementation(async (_kind: string) => vectorCompat1),
+        getVectorStoreCompatForStore: jest.fn().mockImplementation(async (id: string) => {
+          if (id === 'store1') return vectorCompat1;
+          return vectorCompat2;
+        })
+      } as any;
+
+      const injector = new VectorContextInjector({ registry });
+      const messages = createMessages(['Query']);
+
+      const config: VectorContextConfig = {
+        stores: ['primary'],
+        mode: 'auto',
+        storePriority: {
+          primary: {
+            attempts: [
+              { store: 'store1', collection: 'collection-a' },
+              { store: 'store2', collection: 'collection-b' }
+            ]
+          }
+        }
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      expect(result.resultsInjected).toBe(1);
+      expect(vectorCompat1.query).not.toHaveBeenCalled();
+      expect(vectorCompat2.query).toHaveBeenCalled();
+    });
+
+    test('falls back when a store attempt returns an incomplete query response', async () => {
+      const vectorCompat1 = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue({ invalid: true })
+      };
+      const vectorCompat2 = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([
+          { id: 'doc1', score: 0.9, payload: { text: 'From fallback after incomplete response' } }
+        ])
+      };
+
+      const registry = {
+        ...createMockRegistry(),
+        getVectorStore: jest.fn().mockImplementation(async (id: string) => ({
+          id,
+          kind: 'memory',
+          defaultCollection: id === 'store2' ? 'collection-b' : 'collection-a',
+          defaultEmbeddingPriority: [{ provider: 'test-embeddings' }]
+        })),
+        getVectorStoreCompat: jest.fn().mockImplementation(async (_kind: string) => vectorCompat1),
+        getVectorStoreCompatForStore: jest.fn().mockImplementation(async (id: string) => {
+          if (id === 'store1') return vectorCompat1;
+          return vectorCompat2;
+        })
+      } as any;
+
+      const injector = new VectorContextInjector({ registry });
+      const messages = createMessages(['Query']);
+
+      const config: VectorContextConfig = {
+        stores: ['primary'],
+        mode: 'auto',
+        storePriority: {
+          primary: {
+            attempts: [
+              { store: 'store1', collection: 'collection-a' },
+              { store: 'store2', collection: 'collection-b' }
+            ]
+          }
+        }
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      expect(result.resultsInjected).toBe(1);
+      expect(vectorCompat1.query).toHaveBeenCalled();
+      expect(vectorCompat2.query).toHaveBeenCalled();
+    });
+
+    test('allows per-store fallbackOnEmpty override via storePriority', async () => {
+      const vectorCompat1 = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([]) // Empty success
+      };
+      const vectorCompat2 = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([
+          { id: 'doc1', score: 0.9, payload: { text: 'From fallback after empty' } }
+        ])
+      };
+
+      const registry = {
+        ...createMockRegistry(),
+        getVectorStore: jest.fn().mockImplementation(async (id: string) => ({
+          id,
+          kind: 'memory',
+          defaultCollection: id === 'store2' ? 'collection-b' : 'collection-a',
+          defaultEmbeddingPriority: [{ provider: 'test-embeddings' }]
+        })),
+        getVectorStoreCompat: jest.fn().mockImplementation(async (_kind: string) => vectorCompat1),
+        getVectorStoreCompatForStore: jest.fn().mockImplementation(async (id: string) => {
+          if (id === 'store1') return vectorCompat1;
+          return vectorCompat2;
+        })
+      } as any;
+
+      const injector = new VectorContextInjector({ registry });
+      const messages = createMessages(['Query']);
+
+      const config: VectorContextConfig = {
+        stores: ['primary'],
+        mode: 'auto',
+        storePriority: {
+          primary: {
+            fallbackOnEmpty: true,
+            attempts: [
+              { store: 'store1', collection: 'collection-a' },
+              { store: 'store2', collection: 'collection-b' }
+            ]
+          }
+        }
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      expect(result.resultsInjected).toBe(1);
+      expect(vectorCompat1.query).toHaveBeenCalled();
+      expect(vectorCompat2.query).toHaveBeenCalled();
+    });
+
+    test('continues fallbackOnEmpty chain when scoreThreshold filters attempt results to empty', async () => {
+      const vectorCompat1 = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([
+          { id: 'below-threshold', score: 0.1, payload: { text: 'Low score result' } }
+        ])
+      };
+      const vectorCompat2 = {
+        connect: jest.fn(),
+        close: jest.fn(),
+        query: jest.fn().mockResolvedValue([
+          { id: 'above-threshold', score: 0.95, payload: { text: 'High score fallback result' } }
+        ])
+      };
+
+      const registry = {
+        ...createMockRegistry(),
+        getVectorStore: jest.fn().mockImplementation(async (id: string) => ({
+          id,
+          kind: 'memory',
+          defaultCollection: id === 'store2' ? 'collection-b' : 'collection-a',
+          defaultEmbeddingPriority: [{ provider: 'test-embeddings' }]
+        })),
+        getVectorStoreCompat: jest.fn().mockImplementation(async (_kind: string) => vectorCompat1),
+        getVectorStoreCompatForStore: jest.fn().mockImplementation(async (id: string) => {
+          if (id === 'store1') return vectorCompat1;
+          return vectorCompat2;
+        })
+      } as any;
+
+      const injector = new VectorContextInjector({ registry });
+      const messages = createMessages(['Query']);
+
+      const config: VectorContextConfig = {
+        stores: ['primary'],
+        mode: 'auto',
+        scoreThreshold: 0.8,
+        storePriority: {
+          primary: {
+            fallbackOnEmpty: true,
+            attempts: [
+              { store: 'store1', collection: 'collection-a' },
+              { store: 'store2', collection: 'collection-b' }
+            ]
+          }
+        }
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      expect(result.resultsInjected).toBe(1);
+      expect(result.retrievedResults).toHaveLength(1);
+      expect((result.retrievedResults[0] as any).id).toBe('above-threshold');
+      expect(vectorCompat1.query).toHaveBeenCalled();
+      expect(vectorCompat2.query).toHaveBeenCalled();
     });
 
     test('handles query errors gracefully', async () => {
@@ -712,6 +1098,43 @@ describe('utils/vector/vector-context-injector', () => {
       expect(result.messages).toEqual(messages);
       expect(result.resultsInjected).toBe(0);
       expect(embeddingManager.embed).not.toHaveBeenCalled();
+      expect(vectorManager.getCompat).not.toHaveBeenCalled();
+    });
+
+    test('stops fallback attempts when an abort-like error occurs during embedding', async () => {
+      const abortError = new Error('aborted');
+      (abortError as any).name = 'AbortError';
+      (abortError as any).code = 'aborted';
+
+      const registry = createMockRegistry();
+      const embeddingManager = {
+        embed: jest.fn().mockRejectedValue(abortError)
+      } as any;
+      const vectorManager = {
+        getCompat: jest.fn()
+      } as any;
+
+      const injector = new VectorContextInjector({ registry, embeddingManager, vectorManager });
+      const messages = createMessages(['Query']);
+
+      const config: VectorContextConfig = {
+        stores: ['primary'],
+        mode: 'auto',
+        storePriority: {
+          primary: {
+            attempts: [
+              { store: 'store-a', collection: 'collection-a' },
+              { store: 'store-b', collection: 'collection-b' }
+            ]
+          }
+        }
+      };
+
+      const result = await injector.injectContext(messages, config);
+
+      expect(result.messages).toEqual(messages);
+      expect(result.resultsInjected).toBe(0);
+      expect(embeddingManager.embed).toHaveBeenCalledTimes(1);
       expect(vectorManager.getCompat).not.toHaveBeenCalled();
     });
   });

@@ -76,6 +76,50 @@ describe('utils/server assertValidSpec', () => {
     ).not.toThrow();
   });
 
+  test('accepts vectorContexts storePriority entries', () => {
+    expect(() =>
+      assertValidSpec({
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+        llmPriority: [{ provider: 'p', model: 'm' }],
+        settings: {},
+        vectorContexts: [{
+          stores: ['memory'],
+          mode: 'auto',
+          storePriority: {
+            memory: {
+              fallbackOnEmpty: true,
+              attempts: [
+                { store: 'memory', collection: 'docs-v1', embeddingPriority: [{ provider: 'embed-a' }] },
+                { store: 'memory', collection: 'docs-v2', embeddingPriority: [{ provider: 'embed-b' }] }
+              ]
+            }
+          }
+        }]
+      } as any)
+    ).not.toThrow();
+  });
+
+  test('rejects vectorContexts storePriority attempts that omit store', () => {
+    expect(() =>
+      assertValidSpec({
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+        llmPriority: [{ provider: 'p', model: 'm' }],
+        settings: {},
+        vectorContexts: [{
+          stores: ['memory'],
+          mode: 'auto',
+          storePriority: {
+            memory: {
+              attempts: [
+                { collection: 'docs-v1' }
+              ]
+            }
+          }
+        }]
+      } as any)
+    ).toThrow(/validation/i);
+  });
+
   test('assertValidVectorSpec accepts minimal valid vector spec', () => {
     expect(() =>
       assertValidVectorSpec({

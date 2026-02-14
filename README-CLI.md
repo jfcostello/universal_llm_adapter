@@ -682,7 +682,23 @@ The specification for LLM calls (`run` and `stream` commands).
     "stores": ["memory"],
     "mode": "auto",
     "topK": 5,
-    "embeddingPriority": [{"provider": "example-embeddings"}]
+    "embeddingPriority": [{"provider": "example-embeddings"}],
+    "storePriority": {
+      "memory": {
+        "fallbackOnEmpty": false,
+        "attempts": [
+          {
+            "store": "memory-primary",
+            "collection": "docs-v2",
+            "embeddingPriority": [{"provider": "example-embeddings"}]
+          },
+          {
+            "store": "memory",
+            "collection": "docs-v1"
+          }
+        ]
+      }
+    }
   }],
   "vectorRequestPolicy": {
     "maxAutoContexts": 3,
@@ -951,6 +967,22 @@ When using LLM calls with vector stores for RAG:
     "filter": {"category": "tech"},
     "collection": "my-docs",
     "embeddingPriority": [{"provider": "example-embeddings"}],
+    "storePriority": {
+      "memory": {
+        "fallbackOnEmpty": false,
+        "attempts": [
+          {
+            "store": "memory-primary",
+            "collection": "my-docs-v2",
+            "embeddingPriority": [{"provider": "example-embeddings"}]
+          },
+          {
+            "store": "memory",
+            "collection": "my-docs-v1"
+          }
+        ]
+      }
+    },
 
     // Query construction (auto/both modes)
     "overrideEmbeddingQuery": "exact query to use",
@@ -1001,6 +1033,34 @@ When using LLM calls with vector stores for RAG:
 | `auto` | Query vectors using user message, inject results before LLM call |
 | `tool` | Create a `vector_search` tool the LLM can call on-demand |
 | `both` | Auto-inject initial context + provide tool for follow-up queries |
+
+### storePriority Fallback Chains
+
+`vectorContexts[].storePriority` lets you define ordered attempts per logical store key in `vectorContexts[].stores`.
+
+- Keys in `storePriority` must match logical IDs from `stores`.
+- `attempts` is required and each attempt requires `store`.
+- Optional per-attempt overrides: `collection`, `embeddingPriority`.
+- Default fallback behavior: continue only on API failure or incomplete response.
+- Empty successful results stop fallback unless `fallbackOnEmpty: true`.
+
+```json
+{
+  "vectorContexts": [{
+    "stores": ["memory"],
+    "mode": "auto",
+    "storePriority": {
+      "memory": {
+        "fallbackOnEmpty": true,
+        "attempts": [
+          { "store": "memory-primary", "collection": "docs-v2" },
+          { "store": "memory", "collection": "docs-v1" }
+        ]
+      }
+    }
+  }]
+}
+```
 
 ---
 
