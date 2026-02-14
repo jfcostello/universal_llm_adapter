@@ -14,3 +14,6 @@ Embedding compat implementation.
 ## Notes
 - Loaded by the plugin registry via the embedding provider's `kind`.
 - Implementation details live in `internal/` and must not be imported directly outside this directory.
+- `internal/response.ts` handles:
+  - rate-limit detection (`429`, or payload message containing `rate`) for `EmbeddingProviderError.isRateLimit`
+  - parse-path payload pattern `No successful provider responses` (maps invalid-structure payloads to `503` for retries)

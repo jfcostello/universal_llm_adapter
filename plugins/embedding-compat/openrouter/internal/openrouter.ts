@@ -7,20 +7,9 @@ import {
   IEmbeddingOperationLogger,
   EmbeddingProviderError
 } from '../../../../kernel/index.js';
+import { isAbortLikeError } from '../../../../modules/shared/index.js';
 import { createOpenRouterEmbeddingHttpClient } from './http.js';
 import { isRateLimitResponse, parseEmbeddingResponse } from './response.js';
-
-function isAbortLikeError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') {
-    return false;
-  }
-
-  const name = String((error as any).name ?? '');
-  const code = String((error as any).code ?? '');
-
-  if (['AbortError', 'CanceledError'].includes(name)) return true;
-  return ['aborted', 'ABORT_ERR', 'ERR_CANCELED'].includes(code);
-}
 
 /**
  * OpenRouter Embedding Compat Module

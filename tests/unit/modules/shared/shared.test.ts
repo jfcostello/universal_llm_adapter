@@ -26,6 +26,8 @@ import {
   isPlainObject,
   emitManifestOverrideWarning,
   validateE164,
+  createAbortError,
+  isAbortLikeError,
   type Deferred,
   type ValidateE164Result
 } from '@/modules/shared/index.ts';
@@ -917,6 +919,54 @@ describe('modules/shared', () => {
         const _error: string = result.error;
         expect(_error).toBeDefined();
       }
+    });
+  });
+
+  describe('abort utils', () => {
+    describe('createAbortError', () => {
+      test('creates an AbortError with code aborted', () => {
+        const error = createAbortError('stop');
+        expect(error).toBeInstanceOf(Error);
+        expect((error as any).name).toBe('AbortError');
+        expect((error as any).code).toBe('aborted');
+        expect(error.message).toBe('stop');
+      });
+
+      test('uses default message when omitted', () => {
+        const error = createAbortError();
+        expect((error as any).name).toBe('AbortError');
+        expect((error as any).code).toBe('aborted');
+        expect(typeof error.message).toBe('string');
+        expect(error.message.length).toBeGreaterThan(0);
+      });
+    });
+
+    describe('isAbortLikeError', () => {
+      test('returns false for non-object errors', () => {
+        expect(isAbortLikeError(null)).toBe(false);
+        expect(isAbortLikeError(undefined)).toBe(false);
+        expect(isAbortLikeError('nope')).toBe(false);
+        expect(isAbortLikeError(123)).toBe(false);
+      });
+
+      test('detects abort by name and code', () => {
+        expect(isAbortLikeError(Object.assign(new Error('x'), { name: 'AbortError' }))).toBe(true);
+        expect(isAbortLikeError(Object.assign(new Error('x'), { name: 'CanceledError' }))).toBe(true);
+        expect(isAbortLikeError({ code: 'aborted' })).toBe(true);
+        expect(isAbortLikeError({ code: 'ABORT_ERR' })).toBe(true);
+        expect(isAbortLikeError({ code: 'ERR_CANCELED' })).toBe(true);
+      });
+
+      test('optionally detects abort by message substring', () => {
+        expect(isAbortLikeError(new Error('operation cancelled by user'))).toBe(false);
+        expect(isAbortLikeError(new Error('operation cancelled by user'), { includeMessage: true })).toBe(true);
+        expect(isAbortLikeError(new Error('request CANCELED by caller'), { includeMessage: true })).toBe(true);
+        expect(isAbortLikeError(new Error('request aborted'), { includeMessage: true })).toBe(true);
+      });
+
+      test('includeMessage tolerates missing message fields', () => {
+        expect(isAbortLikeError({ name: 'Error' }, { includeMessage: true })).toBe(false);
+      });
     });
   });
 });

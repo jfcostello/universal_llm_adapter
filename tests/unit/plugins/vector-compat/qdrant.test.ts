@@ -189,7 +189,7 @@ describe('plugins/vector-compat/qdrant', () => {
       expect(mockClient.search).toHaveBeenCalledWith(
         'test',
         expect.objectContaining({
-          timeout: 1
+          timeout: 2
         })
       );
     });

@@ -1,20 +1,10 @@
 import type { ObservabilityEnvelopeOutcome } from '../../../../kernel/index.js';
 import type { OtlpSpanSpec } from './types.js';
-import { parseRetryAfterMs, setUnrefTimeout, sleepWithSignal } from '../../../shared/index.js';
+import { createAbortError, isAbortLikeError, parseRetryAfterMs, setUnrefTimeout, sleepWithSignal } from '../../../shared/index.js';
 import { chunkAndEncodeOtlpTraceSpans, type EncodedOtlpChunk } from './chunk-and-encode.js';
 
 function isRetryableStatus(status: number): boolean {
   return status === 429 || (status >= 500 && status < 600);
-}
-
-function isAbortError(error: unknown): boolean {
-  return !!error && typeof error === 'object' && String((error as any).name) === 'AbortError';
-}
-
-function createAbortError(message = 'Aborted'): Error {
-  const error = new Error(message);
-  (error as any).name = 'AbortError';
-  return error;
 }
 
 function shouldUseOtlpEncodeWorker(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -232,7 +222,7 @@ async function chunkAndEncode(
   try {
     return await chunkAndEncodeWithWorker(spans, maxBatchBytes, signal);
   } catch (error) {
-    if (signal?.aborted || isAbortError(error)) {
+    if (signal?.aborted || isAbortLikeError(error)) {
       throw error;
     }
     // Best-effort fallback to sync encoding; observability must never take down the caller.
@@ -351,7 +341,7 @@ export async function sendOtlpTraceSpans(options: {
         }
       }
     } catch (error: any) {
-      if (signal?.aborted || isAbortError(error)) {
+      if (signal?.aborted || isAbortLikeError(error)) {
         throw createAbortError();
       }
       overallSuccess = false;

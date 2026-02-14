@@ -2,6 +2,7 @@ import { jest } from '@jest/globals';
 import OpenRouterEmbeddingCompat from '@/plugins/embedding-compat/openrouter/index.ts';
 import { EmbeddingProviderError } from '@/kernel/index.ts';
 import type { EmbeddingProviderConfig } from '@/kernel/index.ts';
+import { isTransientOpenRouterEmbeddingPayloadFailure } from '@/plugins/embedding-compat/openrouter/internal/response.ts';
 
 function createConfig(overrides: Partial<EmbeddingProviderConfig> = {}): EmbeddingProviderConfig {
   return {
@@ -266,6 +267,27 @@ describe('plugins/embedding-compat/openrouter', () => {
       }
     });
 
+    test('maps transient invalid-structure payloads to status 503 for retries', async () => {
+      const mockHttpClient = createMockHttpClient({
+        status: 200,
+        data: {
+          object: 'error',
+          error: { message: 'No successful provider responses' }
+        }
+      });
+
+      const compat = new OpenRouterEmbeddingCompat(mockHttpClient as any);
+
+      try {
+        await compat.embed('test', createConfig());
+        fail('Should have thrown');
+      } catch (error: any) {
+        expect(error).toBeInstanceOf(EmbeddingProviderError);
+        expect(error.statusCode).toBe(503);
+        expect(error.message).toContain('No successful provider responses');
+      }
+    });
+
     test('throws meaningful error when response.data.data is not an array', async () => {
       const mockHttpClient = createMockHttpClient({
         status: 200,
@@ -451,6 +473,20 @@ describe('plugins/embedding-compat/openrouter', () => {
       const dims = compat.getDimensions(config, 'some-large-model');
 
       expect(dims).toBe(1536);
+    });
+  });
+
+  describe('transient payload classification', () => {
+    test('classifies \"No successful provider responses\" payloads as transient', () => {
+      expect(
+        isTransientOpenRouterEmbeddingPayloadFailure({ error: { message: 'No successful provider responses' } })
+      ).toBe(true);
+      expect(isTransientOpenRouterEmbeddingPayloadFailure('No successful provider responses')).toBe(true);
+    });
+
+    test('does not classify unrelated payloads as transient', () => {
+      expect(isTransientOpenRouterEmbeddingPayloadFailure({ error: { message: 'Invalid input' } })).toBe(false);
+      expect(isTransientOpenRouterEmbeddingPayloadFailure('Invalid input')).toBe(false);
     });
   });
 

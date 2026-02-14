@@ -409,7 +409,7 @@ describe('coordinator/vector-coordinator', () => {
         const embeddingCompat = {
           embed: jest.fn()
             .mockResolvedValueOnce({ vectors: [[0.1], [0.2]], model: 'test', dimensions: 1 })
-            .mockRejectedValueOnce(new Error('Rate limit exceeded')),
+            .mockRejectedValue(new Error('Rate limit exceeded')),
           getDimensions: jest.fn().mockReturnValue(1)
         };
         const vectorCompat = createMockVectorCompat();
