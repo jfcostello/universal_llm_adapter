@@ -983,7 +983,23 @@ When using LLM calls with vector stores for RAG:
       "filter": {"tenant": "acme"},
       "scoreThreshold": 0.7,
       "collection": "docs"
-    }
+    },
+
+    // Candidate priority search plan (optional)
+    "queryPriority": [
+      {
+        "stores": ["memory"],
+        "collection": "docs_primary",
+        "embeddingPriority": [{"provider": "example-embeddings", "model": "embed-v1"}],
+        "topK": 5,
+        "scoreThreshold": 0.75,
+        "filter": {"tenant": "acme"}
+      },
+      {
+        "collection": "docs_fallback",
+        "embeddingPriority": [{"provider": "example-embeddings"}]
+      }
+    ]
   }],
   "vectorRequestPolicy": {
     "maxAutoContexts": 3,
@@ -1001,6 +1017,18 @@ When using LLM calls with vector stores for RAG:
 | `auto` | Query vectors using user message, inject results before LLM call |
 | `tool` | Create a `vector_search` tool the LLM can call on-demand |
 | `both` | Auto-inject initial context + provide tool for follow-up queries |
+
+### queryPriority Behavior
+
+- Candidates execute in array order.
+- Fallback to the next candidate happens only on call failure:
+  - embedding call failure, or
+  - no store query call completes for that candidate.
+- A successful query call with zero matches is still success and stops fallback.
+- In tool/both mode, when `queryPriority` is set, tool args `store` and `collection` are ignored.
+- Validation:
+  - every candidate must include `collection` and `embeddingPriority`
+  - `locks.collection` cannot be combined with `queryPriority` (`config_error`, status `400`)
 
 ---
 

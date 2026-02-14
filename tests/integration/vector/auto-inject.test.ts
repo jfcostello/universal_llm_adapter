@@ -411,6 +411,131 @@ describe('integration/vector/auto-inject', () => {
       // No vector operations should have been called
       expect(mockRegistry.getVectorStore).not.toHaveBeenCalled();
     });
+
+    test('queryPriority falls back to the next candidate only when the first call fails', async () => {
+      if (!VectorContextInjectorClass) return;
+
+      const embeddingManager = {
+        embed: jest.fn().mockImplementation(async (_query: string, priority: Array<{ provider: string }>) => {
+          if (priority[0]?.provider === 'emb-a') {
+            throw new Error('candidate-a-embed-failed');
+          }
+          return {
+            vectors: [[0.2, 0.3, 0.4]],
+            model: 'model-b',
+            dimensions: 3
+          };
+        })
+      } as any;
+
+      const compat = {
+        query: jest.fn().mockResolvedValue([
+          { id: 'doc-b', score: 0.97, payload: { text: 'Candidate B result' } }
+        ])
+      };
+      const vectorManager = {
+        getCompat: jest.fn().mockResolvedValue(compat)
+      } as any;
+
+      const mockRegistry = {
+        getVectorStore: jest.fn().mockResolvedValue({
+          id: 'test-store',
+          kind: 'memory',
+          defaultCollection: 'default-collection'
+        })
+      };
+
+      const injector = new VectorContextInjectorClass({
+        registry: mockRegistry as any,
+        embeddingManager,
+        vectorManager
+      });
+
+      const messages: Message[] = [
+        { role: 'user' as Role, content: [{ type: 'text', text: 'Query' }] }
+      ];
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        queryPriority: [
+          { collection: 'collection-a', embeddingPriority: [{ provider: 'emb-a' }] } as any,
+          { collection: 'collection-b', embeddingPriority: [{ provider: 'emb-b' }] } as any
+        ]
+      } as any;
+
+      const result = await injector.injectContext(messages, config);
+
+      expect(result.resultsInjected).toBe(1);
+      expect(embeddingManager.embed).toHaveBeenCalledTimes(2);
+      expect(compat.query).toHaveBeenCalledTimes(1);
+      expect(compat.query).toHaveBeenCalledWith(
+        'collection-b',
+        expect.any(Array),
+        expect.any(Number),
+        expect.any(Object)
+      );
+    });
+
+    test('queryPriority does not fall back when the first candidate query succeeds with empty results', async () => {
+      if (!VectorContextInjectorClass) return;
+
+      const embeddingManager = {
+        embed: jest.fn().mockResolvedValue({
+          vectors: [[0.2, 0.3, 0.4]],
+          model: 'model-a',
+          dimensions: 3
+        })
+      } as any;
+
+      const compat = {
+        query: jest.fn().mockImplementation(async (collection: string) => {
+          if (collection === 'collection-a') return [];
+          return [{ id: 'doc-b', score: 0.97, payload: { text: 'Should not be used' } }];
+        })
+      };
+      const vectorManager = {
+        getCompat: jest.fn().mockResolvedValue(compat)
+      } as any;
+
+      const mockRegistry = {
+        getVectorStore: jest.fn().mockResolvedValue({
+          id: 'test-store',
+          kind: 'memory',
+          defaultCollection: 'default-collection'
+        })
+      };
+
+      const injector = new VectorContextInjectorClass({
+        registry: mockRegistry as any,
+        embeddingManager,
+        vectorManager
+      });
+
+      const messages: Message[] = [
+        { role: 'user' as Role, content: [{ type: 'text', text: 'Query' }] }
+      ];
+
+      const config: VectorContextConfig = {
+        stores: ['test-store'],
+        mode: 'auto',
+        queryPriority: [
+          { collection: 'collection-a', embeddingPriority: [{ provider: 'emb-a' }] } as any,
+          { collection: 'collection-b', embeddingPriority: [{ provider: 'emb-b' }] } as any
+        ]
+      } as any;
+
+      const result = await injector.injectContext(messages, config);
+
+      expect(result.resultsInjected).toBe(0);
+      expect(compat.query).toHaveBeenCalledTimes(1);
+      expect(compat.query).toHaveBeenCalledWith(
+        'collection-a',
+        expect.any(Array),
+        expect.any(Number),
+        expect.any(Object)
+      );
+    });
   });
 
   describe('tool mode - vector_search tool creation', () => {

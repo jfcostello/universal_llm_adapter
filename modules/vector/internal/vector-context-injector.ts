@@ -11,6 +11,12 @@ import { createAbortError, truncateUtf8Bytes } from '../../shared/index.js';
 import type { EmbeddingManager } from '../../embeddings/index.js';
 import { VectorStoreManager } from './vector-store-manager.js';
 import { resolveEmbeddingPriority } from './embedding-priority.js';
+import {
+  executeQueryPriorityCandidates,
+  hasQueryPriority,
+  type ResolveQueryPriorityCandidate
+} from './query-priority/index.js';
+import { buildEmbeddingCacheKey } from './query-priority/internal/cache-key.js';
 
 export interface VectorContextInjectorOptions {
   registry: PluginRegistry;
@@ -18,21 +24,19 @@ export interface VectorContextInjectorOptions {
   vectorManager?: VectorStoreManager;
   logging?: Partial<LoggingDeps>;
 }
-
 export interface InjectionResult {
   messages: Message[];
   resultsInjected: number;
   query: string;
   retrievedResults: any[];
 }
-
 export interface InjectionOptions {
   maxInjectedPayloadBytes?: number;
   embeddingCache?: Map<string, number[]>;
   abortSignal?: AbortSignal;
   queryTimeoutMs?: number;
+  contextIndex?: number;
 }
-
 const getVectorDefaults = () => getDefaults().vector;
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -40,7 +44,6 @@ function throwIfAborted(signal?: AbortSignal): void {
     throw createAbortError('Vector context injection aborted');
   }
 }
-
 export class VectorContextInjector {
   private registry: PluginRegistry;
   private embeddingManager?: EmbeddingManager;
@@ -90,63 +93,98 @@ export class VectorContextInjector {
       await this.ensureManagers();
       throwIfAborted(options.abortSignal);
 
-      const embeddingPriority = await resolveEmbeddingPriority(
-        { explicit: config.embeddingPriority, storeIds: config.stores },
-        this.registry
-      );
-      throwIfAborted(options.abortSignal);
-
-      const embeddingCacheKey = this.buildEmbeddingCacheKey(query, embeddingPriority);
-      let queryVector = options.embeddingCache?.get(embeddingCacheKey);
-      if (!queryVector) {
-        const embeddingResult = await this.embeddingManager!.embed(query, embeddingPriority, {
-          signal: options.abortSignal
-        });
-        queryVector = embeddingResult.vectors[0];
-        options.embeddingCache?.set(embeddingCacheKey, queryVector);
-      }
-
       let results: any[] = [];
-      for (const storeId of config.stores) {
+      if (hasQueryPriority(config)) {
+        const resolveCandidate: ResolveQueryPriorityCandidate = (candidate, _candidateIndex, contextConfig) => ({
+          stores: Array.isArray(candidate.stores) && candidate.stores.length > 0
+            ? candidate.stores
+            : contextConfig.stores,
+          collection: candidate.collection,
+          embeddingPriority: candidate.embeddingPriority,
+          topK: contextConfig.locks?.topK
+            ?? candidate.topK
+            ?? contextConfig.topK
+            ?? getVectorDefaults().topK,
+          scoreThreshold: contextConfig.locks?.scoreThreshold
+            ?? candidate.scoreThreshold
+            ?? contextConfig.scoreThreshold,
+          filter: contextConfig.locks?.filter
+            ?? candidate.filter
+            ?? contextConfig.filter
+        });
+
+        const queryPriorityResult = await executeQueryPriorityCandidates({
+          query,
+          contextConfig: config,
+          registry: this.registry,
+          embeddingManager: this.embeddingManager!,
+          vectorManager: this.vectorManager!,
+          logger: this.logger,
+          contextIndex: options.contextIndex,
+          embeddingCache: options.embeddingCache,
+          abortSignal: options.abortSignal,
+          queryTimeoutMs: options.queryTimeoutMs,
+          resolveCandidate
+        });
+        results = queryPriorityResult.results;
+      } else {
+        const embeddingPriority = await resolveEmbeddingPriority(
+          { explicit: config.embeddingPriority, storeIds: config.stores },
+          this.registry
+        );
         throwIfAborted(options.abortSignal);
-        try {
-          await this.ensureStoreInitialized(storeId);
-          throwIfAborted(options.abortSignal);
 
-          const compat = (await this.vectorManager!.getCompat(storeId))!;
-
-          const storeConfig = await this.registry.getVectorStore(storeId);
-          const collection = config.collection ?? storeConfig.defaultCollection ?? 'default';
-
-          const storeResults = await compat.query(
-            collection,
-            queryVector,
-            config.topK ?? getVectorDefaults().topK,
-            {
-              filter: config.filter,
-              includePayload: true,
-              signal: options.abortSignal,
-              timeoutMs: options.queryTimeoutMs
-            }
-          );
-          throwIfAborted(options.abortSignal);
-
-          results = [...results, ...storeResults];
-
-          if (results.length > 0) break;
-        } catch (error) {
-          this.logger.warning('Vector store query failed', {
-            storeId,
-            error: error instanceof Error ? error.message : String(error)
+        const embeddingCacheKey = buildEmbeddingCacheKey(query, embeddingPriority);
+        let queryVector = options.embeddingCache?.get(embeddingCacheKey);
+        if (!queryVector) {
+          const embeddingResult = await this.embeddingManager!.embed(query, embeddingPriority, {
+            signal: options.abortSignal
           });
+          queryVector = embeddingResult.vectors[0];
+          options.embeddingCache?.set(embeddingCacheKey, queryVector);
         }
-      }
 
-      if (config.scoreThreshold !== undefined) {
-        results = results.filter(r => r.score >= config.scoreThreshold!);
-      }
+        for (const storeId of config.stores) {
+          throwIfAborted(options.abortSignal);
+          try {
+            const compat = await this.vectorManager!.getCompat(storeId);
+            if (!compat) {
+              throw new Error(`Vector store not available: ${storeId}`);
+            }
+            throwIfAborted(options.abortSignal);
 
-      results = results.slice(0, config.topK ?? getVectorDefaults().topK);
+            const storeConfig = await this.registry.getVectorStore(storeId);
+            const collection = config.collection ?? storeConfig.defaultCollection ?? 'default';
+
+            const storeResults = await compat.query(
+              collection,
+              queryVector,
+              config.topK ?? getVectorDefaults().topK,
+              {
+                filter: config.filter,
+                includePayload: true,
+                signal: options.abortSignal,
+                timeoutMs: options.queryTimeoutMs
+              }
+            );
+            throwIfAborted(options.abortSignal);
+
+            results = [...results, ...storeResults];
+            if (results.length > 0) break;
+          } catch (error) {
+            this.logger.warning('Vector store query failed', {
+              storeId,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
+        }
+
+        if (config.scoreThreshold !== undefined) {
+          results = results.filter(r => r.score >= config.scoreThreshold!);
+        }
+
+        results = results.slice(0, config.topK ?? getVectorDefaults().topK);
+      }
 
       if (results.length === 0) {
         return {
@@ -191,7 +229,6 @@ export class VectorContextInjector {
       };
     }
   }
-
   private extractQuery(messages: Message[], config: VectorContextConfig): string {
     if (config.overrideEmbeddingQuery && config.overrideEmbeddingQuery.trim()) {
       return config.overrideEmbeddingQuery.trim();
@@ -293,13 +330,6 @@ export class VectorContextInjector {
     return truncateUtf8Bytes(rendered, maxInjectedPayloadBytes);
   }
 
-  private buildEmbeddingCacheKey(query: string, priority: Array<{ provider: string; model?: string }>): string {
-    const normalizedPriority = priority
-      .map(item => `${String(item.provider)}:${item.model ? String(item.model) : ''}`)
-      .join('|');
-    return `${query}::${normalizedPriority}`;
-  }
-
   private injectIntoMessages(
     messages: Message[],
     context: string,
@@ -344,7 +374,6 @@ export class VectorContextInjector {
       if (lastUserIndex >= 0) {
         result.splice(lastUserIndex, 0, contextMessage);
       } else {
-        // No user messages exist; append deterministically instead of splice(-1, ...).
         result.push(contextMessage);
       }
     }
@@ -365,13 +394,6 @@ export class VectorContextInjector {
         this.registry,
         this.vectorLogger
       );
-    }
-  }
-
-  private async ensureStoreInitialized(storeId: string): Promise<void> {
-    const compat = await this.vectorManager!.getCompat(storeId);
-    if (!compat) {
-      throw new Error(`Vector store not available: ${storeId}`);
     }
   }
 }

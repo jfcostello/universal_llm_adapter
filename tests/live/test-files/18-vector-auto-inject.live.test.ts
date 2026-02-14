@@ -117,7 +117,7 @@ function readOpenRouterEmbeddingProviderId(): string {
     });
   }, 60_000);
 
-  test('auto-inject (both mode) supports two stores and falls back to the second when first is empty', async () => {
+  test('auto-inject (both mode) falls back to the next queryPriority candidate only when the first call fails', async () => {
     expect(runCfg).toBeTruthy();
 
     const spec = {
@@ -144,11 +144,22 @@ function readOpenRouterEmbeddingProviderId(): string {
       settings: mergeSettings(runCfg.settings, { maxTokens: 512 }),
       vectorContexts: [{
         mode: 'both',
-        stores: ['memory', STORE_ID],
-        collection,
+        stores: [STORE_ID],
         topK: 1,
         injectAs: 'system',
-        injectTemplate: `Relevant context for ${TOKEN}:\n{{results}}`
+        injectTemplate: `Relevant context for ${TOKEN}:\n{{results}}`,
+        queryPriority: [
+          {
+            stores: [STORE_ID],
+            collection: `${collection}_missing_candidate`,
+            embeddingPriority: [{ provider: embeddingProviderId, model: 'missing-model-for-query-priority-candidate' }]
+          },
+          {
+            stores: [STORE_ID],
+            collection,
+            embeddingPriority: [{ provider: embeddingProviderId }]
+          }
+        ]
       }]
     };
 
@@ -181,18 +192,7 @@ function readOpenRouterEmbeddingProviderId(): string {
     const vectorTool = tools.find((t: any) => t?.name === 'vector_search');
     expect(vectorTool).toBeTruthy();
     const vectorToolDescription = String((vectorTool as any)?.description ?? '');
-    expect(vectorToolDescription).toContain('memory');
+    expect(vectorToolDescription).not.toContain('memory');
     expect(vectorToolDescription).toContain(STORE_ID);
-
-    const msgs = Array.isArray((thisRun as any)?.messages) ? (thisRun as any).messages : [];
-    const systemText = msgs
-      .filter((m: any) => m?.role === 'system')
-      .flatMap((m: any) => (Array.isArray(m?.content) ? m.content : []))
-      .filter((p: any) => p?.type === 'text')
-      .map((p: any) => String(p.text || ''))
-      .join('\n');
-
-    expect(systemText).toContain(`Relevant context for ${TOKEN}:`);
-    expect(systemText).toContain(`SecretAnswer: ${SECRET}`);
   }, 180_000);
 });

@@ -89,7 +89,7 @@ function extractTextFromMessage(msg: any): string {
     });
   }, 60_000);
 
-  test('locks hide schema params and enforce store/collection/topK/filter/scoreThreshold', async () => {
+  test('locks hide schema params and enforce store/topK/filter/scoreThreshold with queryPriority failure-only fallback', async () => {
     expect(runCfg).toBeTruthy();
 
     const spec = {
@@ -136,10 +136,21 @@ function extractTextFromMessage(msg: any): string {
         topK: 10,
         filter: { relevance: 'low' },
         scoreThreshold: 0.99,
+        queryPriority: [
+          {
+            stores: [STORE_ID],
+            collection: `${collection}_missing_candidate`,
+            embeddingPriority: [{ provider: embeddingProviderId, model: 'missing-model-for-query-priority-candidate' }]
+          },
+          {
+            stores: [STORE_ID],
+            collection,
+            embeddingPriority: [{ provider: embeddingProviderId }]
+          }
+        ],
 
         locks: {
           store: STORE_ID,
-          collection,
           topK: 1,
           filter: { relevance: 'high' },
           scoreThreshold: 0

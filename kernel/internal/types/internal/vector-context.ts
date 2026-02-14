@@ -21,6 +21,45 @@ export interface VectorSearchLocks {
 }
 
 /**
+ * Candidate configuration for query-priority fallback execution.
+ * Candidates are attempted in array order.
+ */
+export interface VectorQueryCandidate {
+  /**
+   * Vector stores to query for this candidate, in priority order.
+   * Defaults to VectorContextConfig.stores when omitted.
+   */
+  stores?: string[];
+
+  /**
+   * Collection for this candidate.
+   * Required so each candidate is explicit and deterministic.
+   */
+  collection: string;
+
+  /**
+   * Embedding priority list for this candidate.
+   * Required for deterministic per-candidate embedding behavior.
+   */
+  embeddingPriority: EmbeddingPriorityItem[];
+
+  /**
+   * Candidate-level topK override.
+   */
+  topK?: number;
+
+  /**
+   * Candidate-level score threshold override.
+   */
+  scoreThreshold?: number;
+
+  /**
+   * Candidate-level metadata filter override.
+   */
+  filter?: JsonObject;
+}
+
+/**
  * Override configuration for a single tool parameter in the schema.
  * Allows customizing name, description, and visibility of parameters.
  */
@@ -113,6 +152,13 @@ export interface VectorContextConfig {
    * Falls back through priority list on errors.
    */
   embeddingPriority?: EmbeddingPriorityItem[];
+
+  /**
+   * Optional ordered query candidates.
+   * Fallback moves to the next candidate only when embed/query calls fail.
+   * Empty results are treated as successful candidate execution.
+   */
+  queryPriority?: VectorQueryCandidate[];
 
   // ========================================
   // Auto-inject mode configuration

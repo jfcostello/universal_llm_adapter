@@ -620,7 +620,21 @@ curl http://127.0.0.1:3000/embeddings/run \
     "stores": ["memory"],
     "mode": "auto",
     "topK": 5,
-    "embeddingPriority": [{"provider": "example-embeddings"}]
+    "embeddingPriority": [{"provider": "example-embeddings"}],
+    "queryPriority": [
+      {
+        "stores": ["memory"],
+        "collection": "docs_primary",
+        "embeddingPriority": [{"provider": "example-embeddings", "model": "embed-v1"}],
+        "topK": 5,
+        "scoreThreshold": 0.75,
+        "filter": {"tenant": "acme"}
+      },
+      {
+        "collection": "docs_fallback",
+        "embeddingPriority": [{"provider": "example-embeddings"}]
+      }
+    ]
   }],
   "vectorRequestPolicy": {
     "maxAutoContexts": 3,
@@ -635,6 +649,19 @@ curl http://127.0.0.1:3000/embeddings/run \
   }
 }
 ```
+
+#### vectorContexts.queryPriority
+
+- Candidates run in order.
+- Fallback to next candidate occurs only if:
+  - embedding call fails, or
+  - no store query call completes for the current candidate.
+- Empty query results are successful and stop fallback.
+- In tool/both mode, `store` and `collection` tool args are ignored when `queryPriority` is configured.
+- Validation errors (`config_error`, status `400`):
+  - candidate missing `collection`
+  - candidate missing `embeddingPriority`
+  - `locks.collection` combined with `queryPriority`
 
 #### Terminal Tool Calls
 

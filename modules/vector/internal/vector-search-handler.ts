@@ -22,6 +22,11 @@ import type {
 import { VectorStoreManager } from './vector-store-manager.js';
 import { interpolate } from '../../string/index.js';
 import { resolveEmbeddingPriority } from './embedding-priority.js';
+import {
+  executeQueryPriorityCandidates,
+  hasQueryPriority,
+  type ResolveQueryPriorityCandidate
+} from './query-priority/index.js';
 
 /**
  * Arguments provided by the LLM when calling vector search tool.
@@ -94,16 +99,22 @@ export async function executeVectorSearch(
   const { vectorConfig, registry } = context;
   const locks = vectorConfig.locks;
   const logger = context.logger ?? getNoopLogger();
+  const queryPriorityEnabled = hasQueryPriority(vectorConfig);
 
   // Apply locks - locked values always take precedence, then args, then config defaults
-  const effectiveStore = locks?.store ?? args.store ?? vectorConfig.stores[0];
+  const effectiveStore = queryPriorityEnabled
+    ? (locks?.store ?? vectorConfig.stores[0])
+    : (locks?.store ?? args.store ?? vectorConfig.stores[0]);
   const effectiveTopK = locks?.topK ?? args.topK ?? vectorConfig.topK ?? getDefaults().vector.topK;
-  const effectiveCollection = locks?.collection ?? args.collection ?? vectorConfig.collection;
+  const effectiveCollection = queryPriorityEnabled
+    ? undefined
+    : (locks?.collection ?? args.collection ?? vectorConfig.collection);
   const effectiveScoreThreshold = locks?.scoreThreshold ?? args.scoreThreshold ?? vectorConfig.scoreThreshold;
   const effectiveFilter = locks?.filter ?? args.filter ?? vectorConfig.filter;
 
   logger.info('Executing vector search', {
     query: args.query,
+    queryPriorityEnabled,
     effectiveStore,
     effectiveTopK,
     effectiveCollection,
@@ -125,44 +136,97 @@ export async function executeVectorSearch(
       new VectorStoreManager(new Map(), new Map(), undefined, registry, vectorLogger);
 
     try {
-      // Embed the query
-      const embeddingPriority = await resolveEmbeddingPriority(
-        { explicit: vectorConfig.embeddingPriority, storeIds: [effectiveStore] },
-        registry
-      );
-      const embeddingResult = await embeddingManager.embed(args.query, embeddingPriority);
-      const queryVector = embeddingResult.vectors[0];
+      let results: VectorQueryResult[] = [];
+      let collection = effectiveCollection ?? 'unknown';
+      let resultStore = effectiveStore;
+      let resultTopK = effectiveTopK;
+      let resultScoreThreshold = effectiveScoreThreshold;
+      let resultFilter = effectiveFilter;
 
-      // Ensure store config exists (for defaults) and compat is connected via manager-owned instance
-      const storeConfig = await registry.getVectorStore(effectiveStore);
-      const compat = await vectorManager.getCompat(effectiveStore);
-      if (!compat) {
-        throw new Error(`Vector store not available: ${effectiveStore}`);
-      }
+      if (queryPriorityEnabled) {
+        const resolveCandidate: ResolveQueryPriorityCandidate = (candidate, _candidateIndex, config) => ({
+          stores: locks?.store
+            ? [locks.store]
+            : ((Array.isArray(candidate.stores) && candidate.stores.length > 0) ? candidate.stores : config.stores),
+          collection: candidate.collection,
+          embeddingPriority: candidate.embeddingPriority,
+          topK: locks?.topK
+            ?? args.topK
+            ?? candidate.topK
+            ?? config.topK
+            ?? getDefaults().vector.topK,
+          scoreThreshold: locks?.scoreThreshold
+            ?? args.scoreThreshold
+            ?? candidate.scoreThreshold
+            ?? config.scoreThreshold,
+          filter: locks?.filter
+            ?? args.filter
+            ?? candidate.filter
+            ?? config.filter
+        });
 
-      // Determine collection
-      const collection = effectiveCollection ?? storeConfig.defaultCollection ?? 'default';
+        const queryPriorityResult = await executeQueryPriorityCandidates({
+          query: args.query,
+          contextConfig: vectorConfig,
+          registry,
+          embeddingManager,
+          vectorManager,
+          logger,
+          contextIndex: 0,
+          embeddingCache: new Map(),
+          resolveCandidate
+        });
 
-      // Execute query
-      let results = await compat.query(
-        collection,
-        queryVector,
-        effectiveTopK,
-        {
-          filter: effectiveFilter,
-          includePayload: true
+        results = queryPriorityResult.results;
+        if (queryPriorityResult.storeId) {
+          resultStore = queryPriorityResult.storeId;
         }
-      );
+        if (queryPriorityResult.effectiveCandidate) {
+          collection = queryPriorityResult.effectiveCandidate.collection;
+          resultTopK = queryPriorityResult.effectiveCandidate.topK;
+          resultScoreThreshold = queryPriorityResult.effectiveCandidate.scoreThreshold;
+          resultFilter = queryPriorityResult.effectiveCandidate.filter;
+        }
+      } else {
+        // Embed the query
+        const embeddingPriority = await resolveEmbeddingPriority(
+          { explicit: vectorConfig.embeddingPriority, storeIds: [effectiveStore] },
+          registry
+        );
+        const embeddingResult = await embeddingManager.embed(args.query, embeddingPriority);
+        const queryVector = embeddingResult.vectors[0];
 
-      // Apply score threshold if set
-      if (effectiveScoreThreshold !== undefined) {
-        results = results.filter(r => r.score >= effectiveScoreThreshold);
+        // Ensure store config exists (for defaults) and compat is connected via manager-owned instance
+        const storeConfig = await registry.getVectorStore(effectiveStore);
+        const compat = await vectorManager.getCompat(effectiveStore);
+        if (!compat) {
+          throw new Error(`Vector store not available: ${effectiveStore}`);
+        }
+
+        // Determine collection
+        collection = effectiveCollection ?? storeConfig.defaultCollection ?? 'default';
+
+        // Execute query
+        results = await compat.query(
+          collection,
+          queryVector,
+          effectiveTopK,
+          {
+            filter: effectiveFilter,
+            includePayload: true
+          }
+        );
+
+        // Apply score threshold if set
+        if (effectiveScoreThreshold !== undefined) {
+          results = results.filter(r => r.score >= effectiveScoreThreshold);
+        }
       }
 
       logger.info('Vector search completed', {
         query: args.query,
         resultsCount: results.length,
-        effectiveStore,
+        effectiveStore: resultStore,
         collection
       });
 
@@ -171,11 +235,11 @@ export async function executeVectorSearch(
         results,
         query: args.query,
         effectiveParams: {
-          store: effectiveStore,
+          store: resultStore,
           collection,
-          topK: effectiveTopK,
-          scoreThreshold: effectiveScoreThreshold,
-          filter: effectiveFilter
+          topK: resultTopK,
+          scoreThreshold: resultScoreThreshold,
+          filter: resultFilter
         }
       };
     } finally {

@@ -74,7 +74,8 @@ export async function runNonStream(options: {
     const embeddingCache = new Map<string, number[]>();
     const startedAt = Date.now();
 
-    for (const contextConfig of autoContexts) {
+    for (let contextIndex = 0; contextIndex < autoContexts.length; contextIndex += 1) {
+      const contextConfig = autoContexts[contextIndex];
       const elapsed = Date.now() - startedAt;
       const remainingBudget = vectorPolicy.totalAutoBudgetMs - elapsed;
       if (remainingBudget <= 0) {
@@ -92,7 +93,8 @@ export async function runNonStream(options: {
             maxInjectedPayloadBytes: vectorPolicy.maxInjectedPayloadBytes,
             embeddingCache,
             abortSignal,
-            queryTimeoutMs: timeoutMs
+            queryTimeoutMs: timeoutMs,
+            contextIndex
           }),
           timeoutMs,
           'vector context injection'

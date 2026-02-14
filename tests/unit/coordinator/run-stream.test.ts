@@ -427,7 +427,7 @@ describe('LLMCoordinator runStream', () => {
 
     test('runStream rethrows config_error from vector context injection', async () => {
       const { coordinator, mockInjector } = createCoordinatorWithVectorSupport();
-      const configError = Object.assign(new Error('invalid vector config'), { code: 'config_error' });
+      const configError = Object.assign(new Error('invalid vector queryPriority config'), { code: 'config_error' });
       mockInjector.injectContext.mockRejectedValue(configError);
       (coordinator as any).vectorContextInjector = mockInjector;
 
@@ -435,7 +435,12 @@ describe('LLMCoordinator runStream', () => {
         messages: [{ role: Role.USER, content: [{ type: 'text', text: 'Query' }] }],
         llmPriority: [{ provider: 'openrouter', model: 'openai/gpt-4o-mini' }],
         settings: {},
-        vectorContexts: [{ stores: ['test-store'], mode: 'auto' }]
+        vectorContexts: [{
+          stores: ['test-store'],
+          mode: 'auto',
+          locks: { collection: 'locked-collection' },
+          queryPriority: [{ collection: 'candidate-collection', embeddingPriority: [{ provider: 'embeddings-a' }] }]
+        }]
       } as any);
 
       await expect(iterator.next()).rejects.toBe(configError);

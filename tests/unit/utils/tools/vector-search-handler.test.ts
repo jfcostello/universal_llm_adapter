@@ -551,6 +551,483 @@ describe('utils/tools/vector-search-handler', () => {
       // Only 2 results pass the 0.8 threshold (0.95 and 0.87)
       expect(result.results).toHaveLength(2);
     });
+
+    describe('queryPriority failure-only fallback', () => {
+      test('falls back to next candidate when first candidate embedding fails', async () => {
+        const args: VectorSearchArgs = {
+          query: 'test query'
+        };
+
+        const config: VectorContextConfig = {
+          stores: ['store1'],
+          mode: 'tool',
+          queryPriority: [
+            { collection: 'collection-1', embeddingPriority: [{ provider: 'emb1' }] },
+            { collection: 'collection-2', embeddingPriority: [{ provider: 'emb2' }] }
+          ] as any
+        } as any;
+
+        const embeddingManager = {
+          embed: jest.fn().mockImplementation(async (_query: string, priority: Array<{ provider: string }>) => {
+            if (priority[0]?.provider === 'emb1') {
+              throw new Error('candidate-1-embed-failed');
+            }
+            return {
+              vectors: [[0.2, 0.4]],
+              model: 'model-2',
+              dimensions: 2
+            };
+          })
+        } as any;
+
+        const compat = {
+          query: jest.fn().mockResolvedValue([
+            { id: 'doc2', score: 0.95, payload: { text: 'candidate-2' } }
+          ])
+        };
+        const vectorManager = {
+          getCompat: jest.fn().mockResolvedValue(compat),
+          closeAll: jest.fn()
+        } as any;
+
+        const registry = {
+          getVectorStore: jest.fn().mockResolvedValue({
+            id: 'store1',
+            kind: 'memory',
+            defaultCollection: 'default-collection'
+          })
+        } as unknown as PluginRegistry;
+
+        const context: VectorSearchHandlerContext = {
+          vectorConfig: config,
+          registry,
+          embeddingManager,
+          vectorManager
+        };
+
+        const result = await executeVectorSearch(args, context);
+
+        expect(result.success).toBe(true);
+        expect(embeddingManager.embed).toHaveBeenCalledTimes(2);
+        expect(compat.query).toHaveBeenCalledTimes(1);
+        expect(compat.query).toHaveBeenCalledWith(
+          'collection-2',
+          expect.any(Array),
+          expect.any(Number),
+          expect.any(Object)
+        );
+      });
+
+      test('falls back to next candidate when first candidate query fails', async () => {
+        const args: VectorSearchArgs = {
+          query: 'test query'
+        };
+
+        const config: VectorContextConfig = {
+          stores: ['store1'],
+          mode: 'tool',
+          queryPriority: [
+            { collection: 'collection-1', embeddingPriority: [{ provider: 'emb1' }] },
+            { collection: 'collection-2', embeddingPriority: [{ provider: 'emb2' }] }
+          ] as any
+        } as any;
+
+        const embeddingManager = createMockEmbeddingManager();
+        const compat = {
+          query: jest.fn().mockImplementation(async (collection: string) => {
+            if (collection === 'collection-1') {
+              throw new Error('candidate-1-query-failed');
+            }
+            return [{ id: 'doc2', score: 0.9, payload: { text: 'candidate-2' } }];
+          })
+        };
+        const vectorManager = {
+          getCompat: jest.fn().mockResolvedValue(compat),
+          closeAll: jest.fn()
+        } as any;
+
+        const registry = {
+          getVectorStore: jest.fn().mockResolvedValue({
+            id: 'store1',
+            kind: 'memory',
+            defaultCollection: 'default-collection'
+          })
+        } as unknown as PluginRegistry;
+
+        const context: VectorSearchHandlerContext = {
+          vectorConfig: config,
+          registry,
+          embeddingManager,
+          vectorManager
+        };
+
+        const result = await executeVectorSearch(args, context);
+
+        expect(result.success).toBe(true);
+        expect(compat.query).toHaveBeenCalledTimes(2);
+        expect(compat.query).toHaveBeenNthCalledWith(
+          1,
+          'collection-1',
+          expect.any(Array),
+          expect.any(Number),
+          expect.any(Object)
+        );
+        expect(compat.query).toHaveBeenNthCalledWith(
+          2,
+          'collection-2',
+          expect.any(Array),
+          expect.any(Number),
+          expect.any(Object)
+        );
+      });
+
+      test('does not fall back when first candidate query succeeds with empty results', async () => {
+        const args: VectorSearchArgs = {
+          query: 'test query'
+        };
+
+        const config: VectorContextConfig = {
+          stores: ['store1'],
+          mode: 'tool',
+          queryPriority: [
+            { collection: 'collection-1', embeddingPriority: [{ provider: 'emb1' }] },
+            { collection: 'collection-2', embeddingPriority: [{ provider: 'emb2' }] }
+          ] as any
+        } as any;
+
+        const embeddingManager = createMockEmbeddingManager();
+        const compat = {
+          query: jest.fn().mockImplementation(async (collection: string) => {
+            if (collection === 'collection-1') return [];
+            return [{ id: 'doc2', score: 0.9, payload: { text: 'should-not-be-used' } }];
+          })
+        };
+        const vectorManager = {
+          getCompat: jest.fn().mockResolvedValue(compat),
+          closeAll: jest.fn()
+        } as any;
+
+        const registry = {
+          getVectorStore: jest.fn().mockResolvedValue({
+            id: 'store1',
+            kind: 'memory',
+            defaultCollection: 'default-collection'
+          })
+        } as unknown as PluginRegistry;
+
+        const context: VectorSearchHandlerContext = {
+          vectorConfig: config,
+          registry,
+          embeddingManager,
+          vectorManager
+        };
+
+        const result = await executeVectorSearch(args, context);
+
+        expect(result.success).toBe(true);
+        expect(result.results).toEqual([]);
+        expect(compat.query).toHaveBeenCalledTimes(1);
+        expect(compat.query).toHaveBeenCalledWith(
+          'collection-1',
+          expect.any(Array),
+          expect.any(Number),
+          expect.any(Object)
+        );
+      });
+
+      test('does not fall back when first candidate results are filtered to empty', async () => {
+        const args: VectorSearchArgs = {
+          query: 'test query'
+        };
+
+        const config: VectorContextConfig = {
+          stores: ['store1'],
+          mode: 'tool',
+          scoreThreshold: 0.9,
+          queryPriority: [
+            { collection: 'collection-1', embeddingPriority: [{ provider: 'emb1' }] },
+            { collection: 'collection-2', embeddingPriority: [{ provider: 'emb2' }] }
+          ] as any
+        } as any;
+
+        const embeddingManager = createMockEmbeddingManager();
+        const compat = {
+          query: jest.fn().mockImplementation(async (collection: string) => {
+            if (collection === 'collection-1') {
+              return [{ id: 'doc-low', score: 0.2, payload: { text: 'low-score' } }];
+            }
+            return [{ id: 'doc2', score: 0.95, payload: { text: 'should-not-be-used' } }];
+          })
+        };
+        const vectorManager = {
+          getCompat: jest.fn().mockResolvedValue(compat),
+          closeAll: jest.fn()
+        } as any;
+
+        const registry = {
+          getVectorStore: jest.fn().mockResolvedValue({
+            id: 'store1',
+            kind: 'memory',
+            defaultCollection: 'default-collection'
+          })
+        } as unknown as PluginRegistry;
+
+        const context: VectorSearchHandlerContext = {
+          vectorConfig: config,
+          registry,
+          embeddingManager,
+          vectorManager
+        };
+
+        const result = await executeVectorSearch(args, context);
+
+        expect(result.success).toBe(true);
+        expect(result.results).toEqual([]);
+        expect(compat.query).toHaveBeenCalledTimes(1);
+      });
+
+      test('stops store fallback when first store query succeeds with empty results for a candidate', async () => {
+        const args: VectorSearchArgs = {
+          query: 'test query'
+        };
+
+        const config: VectorContextConfig = {
+          stores: ['store1', 'store2'],
+          mode: 'tool',
+          queryPriority: [
+            {
+              stores: ['store1', 'store2'],
+              collection: 'collection-1',
+              embeddingPriority: [{ provider: 'emb1' }]
+            }
+          ] as any
+        } as any;
+
+        const embeddingManager = createMockEmbeddingManager();
+        const store1Compat = {
+          query: jest.fn().mockResolvedValue([])
+        };
+        const store2Compat = {
+          query: jest.fn().mockResolvedValue([
+            { id: 'doc-store2', score: 0.99, payload: { text: 'should-not-be-used' } }
+          ])
+        };
+        const vectorManager = {
+          getCompat: jest.fn().mockImplementation(async (storeId: string) => {
+            if (storeId === 'store1') return store1Compat;
+            if (storeId === 'store2') return store2Compat;
+            return null;
+          }),
+          closeAll: jest.fn()
+        } as any;
+
+        const registry = {
+          getVectorStore: jest.fn().mockImplementation(async (storeId: string) => ({
+            id: storeId,
+            kind: 'memory',
+            defaultCollection: `${storeId}-default`
+          }))
+        } as unknown as PluginRegistry;
+
+        const context: VectorSearchHandlerContext = {
+          vectorConfig: config,
+          registry,
+          embeddingManager,
+          vectorManager
+        };
+
+        const result = await executeVectorSearch(args, context);
+
+        expect(result.success).toBe(true);
+        expect(result.results).toEqual([]);
+        expect(store1Compat.query).toHaveBeenCalledTimes(1);
+        expect(store2Compat.query).not.toHaveBeenCalled();
+      });
+
+      test('ignores tool args store and collection when queryPriority is active', async () => {
+        const args: VectorSearchArgs = {
+          query: 'test query',
+          store: 'llm-store-override',
+          collection: 'llm-collection-override'
+        };
+
+        const config: VectorContextConfig = {
+          stores: ['store1'],
+          mode: 'tool',
+          queryPriority: [
+            {
+              stores: ['store2'],
+              collection: 'candidate-collection',
+              embeddingPriority: [{ provider: 'emb2' }]
+            }
+          ] as any
+        } as any;
+
+        const embeddingManager = createMockEmbeddingManager();
+        const compat = {
+          query: jest.fn().mockResolvedValue([
+            { id: 'doc2', score: 0.99, payload: { text: 'ok' } }
+          ])
+        };
+        const vectorManager = {
+          getCompat: jest.fn().mockImplementation(async (storeId: string) => {
+            if (storeId === 'store2') return compat;
+            return null;
+          }),
+          closeAll: jest.fn()
+        } as any;
+
+        const registry = {
+          getVectorStore: jest.fn().mockImplementation(async (storeId: string) => ({
+            id: storeId,
+            kind: 'memory',
+            defaultCollection: `${storeId}-default`
+          }))
+        } as unknown as PluginRegistry;
+
+        const context: VectorSearchHandlerContext = {
+          vectorConfig: config,
+          registry,
+          embeddingManager,
+          vectorManager
+        };
+
+        const result = await executeVectorSearch(args, context);
+
+        expect(result.success).toBe(true);
+        expect(result.effectiveParams.store).toBe('store2');
+        expect(result.effectiveParams.collection).toBe('candidate-collection');
+        expect(vectorManager.getCompat).toHaveBeenCalledWith('store2');
+        expect(compat.query).toHaveBeenCalledWith(
+          'candidate-collection',
+          expect.any(Array),
+          expect.any(Number),
+          expect.any(Object)
+        );
+      });
+
+      test('uses locks.store over queryPriority candidate stores', async () => {
+        const args: VectorSearchArgs = {
+          query: 'test query'
+        };
+
+        const config: VectorContextConfig = {
+          stores: ['fallback-store'],
+          mode: 'tool',
+          locks: {
+            store: 'locked-store'
+          },
+          queryPriority: [
+            {
+              stores: ['candidate-store'],
+              collection: 'candidate-collection',
+              embeddingPriority: [{ provider: 'emb-a' }]
+            }
+          ] as any
+        } as any;
+
+        const embeddingManager = createMockEmbeddingManager();
+        const lockedCompat = {
+          query: jest.fn().mockResolvedValue([
+            { id: 'doc-locked', score: 0.91, payload: { text: 'locked-store-result' } }
+          ])
+        };
+        const vectorManager = {
+          getCompat: jest.fn().mockImplementation(async (storeId: string) => {
+            if (storeId === 'locked-store') return lockedCompat;
+            return null;
+          }),
+          closeAll: jest.fn()
+        } as any;
+
+        const registry = {
+          getVectorStore: jest.fn().mockImplementation(async (storeId: string) => ({
+            id: storeId,
+            kind: 'memory',
+            defaultCollection: `${storeId}-default`
+          }))
+        } as unknown as PluginRegistry;
+
+        const context: VectorSearchHandlerContext = {
+          vectorConfig: config,
+          registry,
+          embeddingManager,
+          vectorManager
+        };
+
+        const result = await executeVectorSearch(args, context);
+
+        expect(result.success).toBe(true);
+        expect(result.effectiveParams.store).toBe('locked-store');
+        expect(vectorManager.getCompat).toHaveBeenCalledWith('locked-store');
+        expect(lockedCompat.query).toHaveBeenCalledWith(
+          'candidate-collection',
+          expect.any(Array),
+          expect.any(Number),
+          expect.any(Object)
+        );
+      });
+
+      test('fails closed when queryPriority is used with locks.collection', async () => {
+        const args: VectorSearchArgs = {
+          query: 'test query'
+        };
+
+        const config: VectorContextConfig = {
+          stores: ['store1'],
+          mode: 'tool',
+          locks: {
+            collection: 'locked-collection'
+          },
+          queryPriority: [
+            { collection: 'candidate-collection', embeddingPriority: [{ provider: 'emb1' }] }
+          ] as any
+        } as any;
+
+        const context: VectorSearchHandlerContext = {
+          vectorConfig: config,
+          registry: createMockRegistry(),
+          embeddingManager: createMockEmbeddingManager(),
+          vectorManager: createMockVectorManager()
+        };
+
+        const result = await executeVectorSearch(args, context);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('queryPriority');
+        expect(result.error).toContain('locks.collection');
+      });
+
+      test('fails closed when queryPriority candidate is missing required fields', async () => {
+        const args: VectorSearchArgs = {
+          query: 'test query'
+        };
+
+        const config: VectorContextConfig = {
+          stores: ['store1'],
+          mode: 'tool',
+          queryPriority: [
+            {
+              stores: ['store1'],
+              collection: 'candidate-collection'
+            }
+          ] as any
+        } as any;
+
+        const context: VectorSearchHandlerContext = {
+          vectorConfig: config,
+          registry: createMockRegistry(),
+          embeddingManager: createMockEmbeddingManager(),
+          vectorManager: createMockVectorManager()
+        };
+
+        const result = await executeVectorSearch(args, context);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('queryPriority');
+        expect(result.error).toContain('embeddingPriority');
+      });
+    });
   });
 
   describe('formatVectorSearchResults', () => {

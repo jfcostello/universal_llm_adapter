@@ -308,7 +308,7 @@ describe('LLMCoordinator guard clauses', () => {
     registry.getProvider = jest.fn(() => ({ id: 'stub-provider', compat: 'openai' }));
     const coordinator = new LLMCoordinator(registry);
 
-    const configError = Object.assign(new Error('invalid vector config'), { code: 'config_error' });
+    const configError = Object.assign(new Error('invalid vector queryPriority config'), { code: 'config_error' });
     const mockInjector = {
       injectContext: jest.fn().mockRejectedValue(configError)
     };
@@ -322,7 +322,12 @@ describe('LLMCoordinator guard clauses', () => {
         messages: [{ role: 'user', content: [{ type: 'text', text: 'Q' }] }],
         llmPriority: [{ provider: 'stub-provider', model: 'stub-model' }],
         settings: {},
-        vectorContexts: [{ stores: ['memory'], mode: 'auto' }]
+        vectorContexts: [{
+          stores: ['memory'],
+          mode: 'auto',
+          locks: { collection: 'locked-collection' },
+          queryPriority: [{ collection: 'candidate-collection', embeddingPriority: [{ provider: 'embeddings-a' }] }]
+        }]
       } as any)
     ).rejects.toBe(configError);
   });

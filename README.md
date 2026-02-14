@@ -468,6 +468,37 @@ interface LLMCallSpec {
 }
 ```
 
+### Vector `queryPriority` (RAG)
+
+`vectorContexts[].queryPriority` lets you define ordered query candidates:
+
+```typescript
+{
+  vectorContexts: [{
+    stores: ['memory'],
+    mode: 'both',
+    queryPriority: [
+      {
+        stores: ['memory'],
+        collection: 'docs_primary',
+        embeddingPriority: [{ provider: 'example-embeddings', model: 'embed-v1' }]
+      },
+      {
+        collection: 'docs_fallback',
+        embeddingPriority: [{ provider: 'example-embeddings' }]
+      }
+    ]
+  }]
+}
+```
+
+- Fallback to the next candidate occurs only on call failure (embed/query failure).
+- Successful query calls stop fallback even when results are empty.
+- In `tool`/`both` mode, tool args `store` and `collection` are ignored when `queryPriority` is present.
+- Validation fails closed (`config_error`, status `400`) when:
+  - a candidate omits `collection` or `embeddingPriority`
+  - `locks.collection` is combined with `queryPriority`
+
 ### LLMPriorityItem
 
 ```typescript
