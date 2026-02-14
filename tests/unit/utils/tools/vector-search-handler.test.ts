@@ -527,6 +527,69 @@ describe('utils/tools/vector-search-handler', () => {
       expect(compatB.query).toHaveBeenCalledTimes(1);
     });
 
+    test('storePriority reuses embedding for same priority across fallback attempts', async () => {
+      const args: VectorSearchArgs = {
+        query: 'test query'
+      };
+
+      const config: VectorContextConfig = {
+        stores: ['primary'],
+        mode: 'tool',
+        storePriority: {
+          primary: {
+            attempts: [
+              { store: 'store-a', collection: 'collection-a', embeddingPriority: [{ provider: 'embed-shared' }] },
+              { store: 'store-b', collection: 'collection-b', embeddingPriority: [{ provider: 'embed-shared' }] }
+            ]
+          }
+        }
+      };
+
+      const compatA = {
+        query: jest.fn().mockRejectedValue(new Error('store a failed'))
+      };
+      const compatB = {
+        query: jest.fn().mockResolvedValue([
+          { id: 'doc-b', score: 0.93, payload: { text: 'from fallback' } }
+        ])
+      };
+
+      const registry = {
+        getVectorStore: jest.fn().mockImplementation(async (id: string) => ({
+          id,
+          kind: 'memory',
+          defaultCollection: id === 'store-a' ? 'collection-a' : 'collection-b',
+          defaultEmbeddingPriority: [{ provider: 'embed-shared' }]
+        }))
+      } as unknown as PluginRegistry;
+
+      const embeddingManager = {
+        embed: jest.fn().mockResolvedValue({ vectors: [[0.11, 0.22, 0.33]], model: 'm-shared', dimensions: 3 })
+      } as any;
+
+      const vectorManager = {
+        getCompat: jest.fn().mockImplementation(async (id: string) => {
+          if (id === 'store-a') return compatA as any;
+          return compatB as any;
+        }),
+        closeAll: jest.fn()
+      } as any;
+
+      const context: VectorSearchHandlerContext = {
+        vectorConfig: config,
+        registry,
+        embeddingManager,
+        vectorManager
+      };
+
+      const result = await executeVectorSearch(args, context);
+
+      expect(result.success).toBe(true);
+      expect(embeddingManager.embed).toHaveBeenCalledTimes(1);
+      expect(compatA.query).toHaveBeenCalledTimes(1);
+      expect(compatB.query).toHaveBeenCalledTimes(1);
+    });
+
     test('storePriority does not fall back on empty successful query by default', async () => {
       const args: VectorSearchArgs = {
         query: 'test query'

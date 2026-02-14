@@ -84,6 +84,24 @@ describe('managers/vector-store-manager', () => {
       expect(adapters.get('b')!.query).toHaveBeenCalled();
     });
 
+    test('fallbackOnEmpty throws when later fallback attempt fails after earlier empty response', async () => {
+      const adapters = new Map<string, any>();
+      adapters.set('a', createAdapter([]));
+      adapters.set('b', {
+        query: jest.fn().mockRejectedValue(new Error('store b failed')),
+        upsert: jest.fn(),
+        deleteByIds: jest.fn()
+      });
+
+      const manager = new VectorStoreManager(new Map(), adapters, async () => [0.5, 0.7]);
+
+      await expect(
+        manager.queryWithPriority(['a', 'b'], 'query', 5, undefined, { fallbackOnEmpty: true })
+      ).rejects.toThrow('store b failed');
+      expect(adapters.get('a')!.query).toHaveBeenCalled();
+      expect(adapters.get('b')!.query).toHaveBeenCalled();
+    });
+
     test('queryWithPriority skips stores without registered adapters', async () => {
       const adapters = new Map<string, any>();
       adapters.set('present', createAdapter([{ id: 1 }]));
@@ -100,6 +118,13 @@ describe('managers/vector-store-manager', () => {
 
       await expect(manager.queryWithPriority([], 'query')).resolves.toEqual({ store: null, results: [] });
       await expect(manager.queryWithPriority(['missing'], 'query')).rejects.toThrow('No embedder function provided');
+    });
+
+    test('returns empty results from final priority store when no adapters are available', async () => {
+      const manager = new VectorStoreManager(new Map(), new Map(), async () => [0.1, 0.2]);
+
+      const result = await manager.queryWithPriority(['missing-a', 'missing-b'], 'query');
+      expect(result).toEqual({ store: 'missing-b', results: [] });
     });
 
     test('falls back to next store when query call throws', async () => {
@@ -131,7 +156,7 @@ describe('managers/vector-store-manager', () => {
       expect(adapter.query).toHaveBeenCalledWith([0.1], 5, { category: 'tech' });
     });
 
-    test('skips incomplete query responses and returns empty from final priority store', async () => {
+    test('throws when all queried stores return incomplete responses', async () => {
       const adapters = new Map<string, any>();
       adapters.set('a', {
         query: jest.fn().mockResolvedValue({ invalid: true }),
@@ -145,11 +170,41 @@ describe('managers/vector-store-manager', () => {
       });
 
       const manager = new VectorStoreManager(new Map(), adapters, async () => [0.1, 0.2]);
-      const result = await manager.queryWithPriority(['a', 'b'], 'query');
+      await expect(manager.queryWithPriority(['a', 'b'], 'query')).rejects.toThrow(/incomplete response/i);
 
-      expect(result).toEqual({ store: 'b', results: [] });
       expect(adapters.get('a')!.query).toHaveBeenCalled();
       expect(adapters.get('b')!.query).toHaveBeenCalled();
+    });
+
+    test('throws when all queried stores fail', async () => {
+      const adapters = new Map<string, any>();
+      adapters.set('a', {
+        query: jest.fn().mockRejectedValue(new Error('store a failed')),
+        upsert: jest.fn(),
+        deleteByIds: jest.fn()
+      });
+      adapters.set('b', {
+        query: jest.fn().mockRejectedValue(new Error('store b failed')),
+        upsert: jest.fn(),
+        deleteByIds: jest.fn()
+      });
+
+      const manager = new VectorStoreManager(new Map(), adapters, async () => [0.2, 0.4]);
+      await expect(manager.queryWithPriority(['a', 'b'], 'query')).rejects.toThrow('store b failed');
+      expect(adapters.get('a')!.query).toHaveBeenCalled();
+      expect(adapters.get('b')!.query).toHaveBeenCalled();
+    });
+
+    test('wraps non-Error query failures when all queried stores fail', async () => {
+      const adapters = new Map<string, any>();
+      adapters.set('a', {
+        query: jest.fn().mockRejectedValue('boom'),
+        upsert: jest.fn(),
+        deleteByIds: jest.fn()
+      });
+
+      const manager = new VectorStoreManager(new Map(), adapters, async () => [0.2, 0.4]);
+      await expect(manager.queryWithPriority(['a'], 'query')).rejects.toThrow('Vector query failed: boom');
     });
   });
 

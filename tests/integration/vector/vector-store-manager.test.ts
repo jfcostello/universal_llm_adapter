@@ -210,6 +210,54 @@ describe('integration/vector/vector-store-manager', () => {
       expect(adapters.get('store-b')!.query).toHaveBeenCalled();
     });
 
+    test('queryWithPriority throws when fallbackOnEmpty chain has only empty and failed attempts', async () => {
+      const adapters = new Map<string, any>([
+        ['store-a', createAdapter([])],
+        [
+          'store-b',
+          {
+            query: jest.fn().mockRejectedValue(new Error('store-b down')),
+            upsert: jest.fn(),
+            deleteByIds: jest.fn()
+          }
+        ]
+      ]);
+
+      const manager = new VectorStoreManager(new Map(), adapters, async () => [0.1, 0.2]);
+
+      await expect(
+        manager.queryWithPriority(['store-a', 'store-b'], 'query', 5, undefined, { fallbackOnEmpty: true })
+      ).rejects.toThrow('store-b down');
+      expect(adapters.get('store-a')!.query).toHaveBeenCalled();
+      expect(adapters.get('store-b')!.query).toHaveBeenCalled();
+    });
+
+    test('queryWithPriority throws when all queried stores fail', async () => {
+      const adapters = new Map<string, any>([
+        [
+          'store-a',
+          {
+            query: jest.fn().mockRejectedValue(new Error('store-a down')),
+            upsert: jest.fn(),
+            deleteByIds: jest.fn()
+          }
+        ],
+        [
+          'store-b',
+          {
+            query: jest.fn().mockRejectedValue(new Error('store-b down')),
+            upsert: jest.fn(),
+            deleteByIds: jest.fn()
+          }
+        ]
+      ]);
+
+      const manager = new VectorStoreManager(new Map(), adapters, async () => [0.1, 0.2]);
+      await expect(manager.queryWithPriority(['store-a', 'store-b'], 'query', 5)).rejects.toThrow('store-b down');
+      expect(adapters.get('store-a')!.query).toHaveBeenCalled();
+      expect(adapters.get('store-b')!.query).toHaveBeenCalled();
+    });
+
     test('getCompat returns underlying compat for advanced operations', async () => {
       const compat = await manager.getCompat('test-memory');
 

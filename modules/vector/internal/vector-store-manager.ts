@@ -96,6 +96,17 @@ export class VectorStoreManager {
     const fallbackOnEmpty = options.fallbackOnEmpty === true;
     let lastCompleteStore: string | null = null;
     let lastCompleteResults: any[] = [];
+    let lastQueryFailure: unknown = null;
+    const throwLastQueryFailure = (): never => {
+      if (lastQueryFailure instanceof Error) {
+        throw lastQueryFailure;
+      }
+      throw new VectorStoreError(
+        `Vector query failed: ${String(lastQueryFailure)}`,
+        priority[priority.length - 1],
+        'query'
+      );
+    };
 
     for (const storeId of priority) {
       const adapter = await this.getAdapter(storeId);
@@ -104,6 +115,11 @@ export class VectorStoreManager {
       try {
         const rawResults = await adapter.query(vector, topK, filter);
         if (!isCompleteVectorQueryResponse(rawResults)) {
+          lastQueryFailure = new VectorStoreError(
+            `Vector query for store '${storeId}' returned an incomplete response`,
+            storeId,
+            'query'
+          );
           continue;
         }
 
@@ -114,13 +130,21 @@ export class VectorStoreManager {
         if (results.length > 0 || !fallbackOnEmpty) {
           return { store: storeId, results };
         }
-      } catch {
+      } catch (error) {
+        lastQueryFailure = error;
         continue;
       }
     }
 
     if (lastCompleteStore) {
+      if (fallbackOnEmpty && lastCompleteResults.length === 0 && lastQueryFailure) {
+        throwLastQueryFailure();
+      }
       return { store: lastCompleteStore, results: lastCompleteResults };
+    }
+
+    if (lastQueryFailure) {
+      throwLastQueryFailure();
     }
 
     return { store: priority[priority.length - 1], results: [] };

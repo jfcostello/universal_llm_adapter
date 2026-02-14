@@ -7,7 +7,7 @@ import type {
   PluginRegistry
 } from '../../../kernel/index.js';
 import { interpolate } from '../../string/index.js';
-import { createAbortError, truncateUtf8Bytes } from '../../shared/index.js';
+import { createAbortError, isAbortLikeError, truncateUtf8Bytes } from '../../shared/index.js';
 import type { EmbeddingManager } from '../../embeddings/index.js';
 import { VectorStoreManager } from './vector-store-manager.js';
 import { resolveEmbeddingPriority } from './embedding-priority.js';
@@ -90,6 +90,9 @@ export class VectorContextInjector {
       await this.ensureManagers();
       throwIfAborted(options.abortSignal);
       let results: any[] = [];
+      let pendingConfigError: any = null;
+      let hadCompleteResponse = false;
+      const embeddingCache = options.embeddingCache ?? new Map<string, number[]>();
       storeLoop:
       for (const logicalStoreId of config.stores) {
         const storeChain = resolveStorePriorityChain(config, logicalStoreId);
@@ -107,13 +110,13 @@ export class VectorContextInjector {
             throwIfAborted(options.abortSignal);
 
             const embeddingCacheKey = this.buildEmbeddingCacheKey(query, embeddingPriority);
-            let queryVector = options.embeddingCache?.get(embeddingCacheKey);
+            let queryVector = embeddingCache.get(embeddingCacheKey);
             if (!queryVector) {
               const embeddingResult = await this.embeddingManager!.embed(query, embeddingPriority, {
                 signal: options.abortSignal
               });
               queryVector = embeddingResult.vectors[0];
-              options.embeddingCache?.set(embeddingCacheKey, queryVector);
+              embeddingCache.set(embeddingCacheKey, queryVector);
             }
             await this.ensureStoreInitialized(attemptStoreId);
             throwIfAborted(options.abortSignal);
@@ -140,13 +143,20 @@ export class VectorContextInjector {
             }
 
             const storeResults = rawStoreResults as any[];
-            results = storeResults;
-            if (storeResults.length > 0 || !storeChain.fallbackOnEmpty) {
+            const thresholdedStoreResults = config.scoreThreshold !== undefined
+              ? storeResults.filter(r => r.score >= config.scoreThreshold!)
+              : storeResults;
+            hadCompleteResponse = true;
+            results = thresholdedStoreResults;
+            if (thresholdedStoreResults.length > 0 || !storeChain.fallbackOnEmpty) {
               break storeLoop;
             }
           } catch (error: any) {
-            if (String(error?.code ?? '') === 'config_error') {
+            if (isAbortLikeError(error)) {
               throw error;
+            }
+            if (String(error?.code ?? '') === 'config_error' && !pendingConfigError) {
+              pendingConfigError = error;
             }
             this.logger.warning('Vector store query failed', {
               storeId: attemptStoreId,
@@ -154,6 +164,10 @@ export class VectorContextInjector {
             });
           }
         }
+      }
+
+      if (!hadCompleteResponse && pendingConfigError) {
+        throw pendingConfigError;
       }
 
       if (config.scoreThreshold !== undefined) {

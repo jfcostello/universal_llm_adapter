@@ -140,7 +140,13 @@ export async function collectTools({
     const vectorQuery = resolveVectorQuery(spec);
     if (vectorQuery) {
       try {
-        const { results } = await vectorManager.queryWithPriority(spec.vectorPriority, vectorQuery);
+        const { results } = await vectorManager.queryWithPriority(
+          spec.vectorPriority,
+          vectorQuery,
+          5,
+          undefined,
+          { fallbackOnEmpty: true }
+        );
         for (const result of results) {
           const tool = normalizeVectorResult(result);
           if (tool) {

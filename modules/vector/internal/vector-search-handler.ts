@@ -135,6 +135,7 @@ export async function executeVectorSearch(
       const storeChain = resolveStorePriorityChain(vectorConfig, effectiveStore);
       let lastError = `Vector search failed for store '${effectiveStore}'`;
       let lastComplete: { store: string; collection: string; results: VectorQueryResult[] } | null = null;
+      const embeddingCache = new Map<string, number[]>();
 
       for (const attempt of storeChain.attempts) {
         const attemptStore = attempt.store;
@@ -146,8 +147,13 @@ export async function executeVectorSearch(
             },
             registry
           );
-          const embeddingResult = await embeddingManager.embed(args.query, embeddingPriority);
-          const queryVector = embeddingResult.vectors[0];
+          const embeddingCacheKey = buildEmbeddingCacheKey(args.query, embeddingPriority);
+          let queryVector = embeddingCache.get(embeddingCacheKey);
+          if (!queryVector) {
+            const embeddingResult = await embeddingManager.embed(args.query, embeddingPriority);
+            queryVector = embeddingResult.vectors[0];
+            embeddingCache.set(embeddingCacheKey, queryVector);
+          }
 
           const storeConfig = await registry.getVectorStore(attemptStore);
           const compat = await vectorManager.getCompat(attemptStore);
@@ -283,6 +289,10 @@ export async function executeVectorSearch(
       }
     };
   }
+}
+
+function buildEmbeddingCacheKey(query: string, embeddingPriority: unknown): string {
+  return `${query}|${JSON.stringify(embeddingPriority)}`;
 }
 
 async function createEmbeddingManager(
